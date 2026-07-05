@@ -2,10 +2,23 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+// Base URL for auth redirect links (email confirmation). Derived from the
+// incoming request so it self-configures on localhost, Vercel preview
+// deployments, and production without a per-environment env var. Supabase's
+// redirect allow-list is the security backstop against Host-header spoofing.
+// Falls back to NEXT_PUBLIC_SITE_URL, then localhost, if no host is present.
+async function siteOrigin(): Promise<string> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  if (!host) return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  const proto =
+    h.get("x-forwarded-proto") ??
+    (/^(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(host) ? "http" : "https");
+  return `${proto}://${host}`;
+}
 
 function safeNext(value: FormDataEntryValue | null): string {
   const next = typeof value === "string" ? value : "";
@@ -38,7 +51,7 @@ export async function signup(formData: FormData) {
     email,
     password,
     options: {
-      emailRedirectTo: `${SITE_URL}/auth/confirm`,
+      emailRedirectTo: `${await siteOrigin()}/auth/confirm`,
       data: fullName ? { full_name: fullName } : undefined,
     },
   });
