@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Caveat:wght@600;700&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  ::selection{background:#F4C9BC;color:#211E18}
+  .dm-logo-data{font-family:'Caveat',cursive;font-weight:700;line-height:1;color:#211E18;display:inline-block;transform:rotate(-4deg);margin-right:1px;}
+  .dm-logo-modo{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;letter-spacing:-0.03em;color:#211E18;}
+  @keyframes flash{0%,14%{background:#F8CDBC}60%{background:#FDF1EC}100%{background:#FDF1EC}}
+</style>
+</helmet>
+
+<div style="--accent:#E4593B;--accent-press:#CF4A2F;min-height:100%;background:#EFE9DC;padding:40px 32px 80px;font-family:'Geist',system-ui,sans-serif;color:#211E18;-webkit-font-smoothing:antialiased;">
+
+  <div style="max-width:1400px;margin:0 auto;">
+    <p style="font-family:'Geist Mono',monospace;font-size:12px;text-transform:uppercase;letter-spacing:0.08em;color:#8A8477;margin-bottom:8px;">datamodo · app screens</p>
+    <h1 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:26px;letter-spacing:-0.02em;margin-bottom:28px;">Auth &amp; dashboard</h1>
+  </div>
+
+  <!-- ROW: auth screens -->
+  <div style="max-width:1400px;margin:0 auto;display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;">
+
+    <!-- LOGIN -->
+    <div id="login" style="flex:1 1 380px;min-width:340px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+        <span style="font-family:'Geist Mono',monospace;font-size:11px;font-weight:500;color:#fff;background:#211E18;padding:3px 9px;border-radius:7px;">login</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8A8477;">Sign in</span>
+      </div>
+      <div style="background:#F6F2E9;border:1px solid #E1D9C8;border-radius:22px;overflow:hidden;box-shadow:0 24px 60px -34px rgba(33,30,24,.5);">
+        <div style="padding:40px 40px 34px;">
+          <div style="display:flex;align-items:baseline;margin-bottom:34px;">
+            <span class="dm-logo-data" style="font-size:30px;">data</span><span class="dm-logo-modo" style="font-size:21px;">modo</span>
+          </div>
+          <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:30px;letter-spacing:-0.03em;line-height:1.05;margin-bottom:8px;">Welcome back.</h2>
+          <p style="font-size:15px;color:#6B665B;margin-bottom:28px;">Sign in to your second brain.</p>
+
+          <button style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;background:#fff;border:1px solid #DDD5C5;border-radius:12px;padding:12px;font-size:14.5px;font-weight:500;color:#211E18;cursor:pointer;margin-bottom:18px;" style-hover="background:#FBF8F1;">
+            <img src="logos/google-gmail.svg" alt="" style="height:17px;">Continue with Google
+          </button>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+            <span style="height:1px;flex:1;background:#E1D9C8;"></span>
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#A39B8B;">or</span>
+            <span style="height:1px;flex:1;background:#E1D9C8;"></span>
+          </div>
+
+          <label style="display:block;font-size:12.5px;font-weight:500;color:#57534A;margin-bottom:6px;">Email</label>
+          <div style="display:flex;align-items:center;gap:9px;background:#fff;border:1px solid #DDD5C5;border-radius:11px;padding:11px 13px;margin-bottom:16px;">
+            <span style="color:#B7AF9F;font-size:14px;">✉</span>
+            <input type="text" value="you@company.com" readonly style="border:none;outline:none;background:transparent;font-family:'Geist',sans-serif;font-size:14.5px;color:#211E18;width:100%;">
+          </div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;">
+            <label style="font-size:12.5px;font-weight:500;color:#57534A;">Password</label>
+            <a href="#" style="font-size:12px;color:var(--accent);text-decoration:none;">Forgot?</a>
+          </div>
+          <div style="display:flex;align-items:center;gap:9px;background:#fff;border:1px solid #DDD5C5;border-radius:11px;padding:11px 13px;margin-bottom:24px;">
+            <span style="color:#B7AF9F;font-size:14px;">🔒</span>
+            <input type="password" value="passwordvalue" readonly style="border:none;outline:none;background:transparent;font-family:'Geist',sans-serif;font-size:14.5px;color:#211E18;width:100%;letter-spacing:0.15em;">
+          </div>
+          <button style="width:100%;background:var(--accent);color:#FFF8F4;border:none;border-radius:12px;padding:14px;font-family:'Geist',sans-serif;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 6px 16px rgba(228,89,59,.28);" style-hover="background:var(--accent-press);">Sign in</button>
+        </div>
+        <div style="padding:16px 40px;border-top:1px solid #E1D9C8;background:#F0EBDE;text-align:center;font-size:13.5px;color:#6B665B;">
+          New here? <a href="#register" style="color:var(--accent);text-decoration:none;font-weight:600;">Create an account</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- REGISTER -->
+    <div id="register" style="flex:1 1 380px;min-width:340px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+        <span style="font-family:'Geist Mono',monospace;font-size:11px;font-weight:500;color:#fff;background:#211E18;padding:3px 9px;border-radius:7px;">register</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8A8477;">Create account</span>
+      </div>
+      <div style="background:#F6F2E9;border:1px solid #E1D9C8;border-radius:22px;overflow:hidden;box-shadow:0 24px 60px -34px rgba(33,30,24,.5);">
+        <div style="padding:40px 40px 34px;">
+          <div style="display:flex;align-items:baseline;margin-bottom:34px;">
+            <span class="dm-logo-data" style="font-size:30px;">data</span><span class="dm-logo-modo" style="font-size:21px;">modo</span>
+          </div>
+          <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:30px;letter-spacing:-0.03em;line-height:1.05;margin-bottom:8px;">Start your second brain.</h2>
+          <p style="font-size:15px;color:#6B665B;margin-bottom:28px;">Free to try. No card needed.</p>
+
+          <button style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;background:#fff;border:1px solid #DDD5C5;border-radius:12px;padding:12px;font-size:14.5px;font-weight:500;color:#211E18;cursor:pointer;margin-bottom:18px;" style-hover="background:#FBF8F1;">
+            <img src="logos/google-gmail.svg" alt="" style="height:17px;">Sign up with Google
+          </button>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+            <span style="height:1px;flex:1;background:#E1D9C8;"></span>
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#A39B8B;">or</span>
+            <span style="height:1px;flex:1;background:#E1D9C8;"></span>
+          </div>
+
+          <label style="display:block;font-size:12.5px;font-weight:500;color:#57534A;margin-bottom:6px;">Full name</label>
+          <div style="display:flex;align-items:center;gap:9px;background:#fff;border:1px solid #DDD5C5;border-radius:11px;padding:11px 13px;margin-bottom:14px;">
+            <span style="color:#B7AF9F;font-size:14px;">◔</span>
+            <input type="text" value="Alex Rivera" readonly style="border:none;outline:none;background:transparent;font-family:'Geist',sans-serif;font-size:14.5px;color:#211E18;width:100%;">
+          </div>
+          <label style="display:block;font-size:12.5px;font-weight:500;color:#57534A;margin-bottom:6px;">Email</label>
+          <div style="display:flex;align-items:center;gap:9px;background:#fff;border:1px solid #DDD5C5;border-radius:11px;padding:11px 13px;margin-bottom:14px;">
+            <span style="color:#B7AF9F;font-size:14px;">✉</span>
+            <input type="text" value="alex@company.com" readonly style="border:none;outline:none;background:transparent;font-family:'Geist',sans-serif;font-size:14.5px;color:#211E18;width:100%;">
+          </div>
+          <label style="display:block;font-size:12.5px;font-weight:500;color:#57534A;margin-bottom:6px;">Password</label>
+          <div style="display:flex;align-items:center;gap:9px;background:#fff;border:1px solid #DDD5C5;border-radius:11px;padding:11px 13px;margin-bottom:22px;">
+            <span style="color:#B7AF9F;font-size:14px;">🔒</span>
+            <input type="password" value="password" readonly style="border:none;outline:none;background:transparent;font-family:'Geist',sans-serif;font-size:14.5px;color:#211E18;width:100%;letter-spacing:0.15em;">
+          </div>
+          <button style="width:100%;background:var(--accent);color:#FFF8F4;border:none;border-radius:12px;padding:14px;font-family:'Geist',sans-serif;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 6px 16px rgba(228,89,59,.28);" style-hover="background:var(--accent-press);">Create account</button>
+          <p style="font-size:11.5px;color:#A39B8B;text-align:center;margin-top:14px;line-height:1.5;">By continuing you agree to our Terms &amp; Privacy Policy.</p>
+        </div>
+        <div style="padding:16px 40px;border-top:1px solid #E1D9C8;background:#F0EBDE;text-align:center;font-size:13.5px;color:#6B665B;">
+          Already have an account? <a href="#login" style="color:var(--accent);text-decoration:none;font-weight:600;">Sign in</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- BRAND PANEL beside auth -->
+    <div style="flex:1 1 300px;min-width:280px;align-self:stretch;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+        <span style="font-family:'Geist Mono',monospace;font-size:11px;font-weight:500;color:#fff;background:#211E18;padding:3px 9px;border-radius:7px;">aside</span>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8A8477;">Marketing panel (optional)</span>
+      </div>
+      <div style="background:#211E18;color:#F1ECE1;border-radius:22px;padding:36px;height:calc(100% - 36px);display:flex;flex-direction:column;justify-content:space-between;min-height:440px;">
+        <div>
+          <div style="display:flex;align-items:baseline;margin-bottom:28px;">
+            <span class="dm-logo-data" style="font-size:28px;color:#F1ECE1;">data</span><span class="dm-logo-modo" style="font-size:20px;color:#F1ECE1;">modo</span>
+          </div>
+          <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:28px;letter-spacing:-0.03em;line-height:1.08;margin-bottom:16px;">Forward the mess. Get back a spreadsheet.</h3>
+          <p style="font-size:15px;color:#B7AF9F;line-height:1.6;">Your inbox already holds the data. datamodo just turns it into tables you can use.</p>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;margin-top:28px;">
+          <div style="display:flex;align-items:center;gap:11px;font-size:14px;color:#D8D0C1;"><span style="width:22px;height:22px;border-radius:7px;background:#2B2720;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--accent);">✓</span>Zero setup, zero formulas</div>
+          <div style="display:flex;align-items:center;gap:11px;font-size:14px;color:#D8D0C1;"><span style="width:22px;height:22px;border-radius:7px;background:#2B2720;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--accent);">✓</span>Private &amp; encrypted</div>
+          <div style="display:flex;align-items:center;gap:11px;font-size:14px;color:#D8D0C1;"><span style="width:22px;height:22px;border-radius:7px;background:#2B2720;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--accent);">✓</span>Export anywhere</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="dashboard" style="max-width:1400px;margin:56px auto 0;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+      <span style="font-family:'Geist Mono',monospace;font-size:11px;font-weight:500;color:#fff;background:#211E18;padding:3px 9px;border-radius:7px;">dashboard</span>
+      <span style="font-family:'Geist Mono',monospace;font-size:12px;color:#8A8477;">Your database</span>
+    </div>
+    <div style="background:#F6F2E9;border:1px solid #E1D9C8;border-radius:22px;overflow:hidden;box-shadow:0 30px 70px -40px rgba(33,30,24,.55);display:flex;min-height:640px;">
+
+      <!-- SIDEBAR -->
+      <aside style="width:248px;flex-shrink:0;background:#211E18;color:#C9C1B2;padding:22px 16px;display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:baseline;padding:0 8px 22px;">
+          <span class="dm-logo-data" style="font-size:26px;color:#F1ECE1;">data</span><span class="dm-logo-modo" style="font-size:19px;color:#F1ECE1;">modo</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;background:#2B2720;border-radius:11px;padding:10px 12px;color:#F1ECE1;font-size:14px;font-weight:500;margin-bottom:22px;">
+          <span style="width:24px;height:24px;border-radius:7px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;">＋</span>New capture
+        </div>
+        <p style="font-family:'Geist Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#7C766B;padding:0 8px 8px;">Sheets</p>
+        <nav style="display:flex;flex-direction:column;gap:2px;">
+          <span style="display:flex;align-items:center;justify-content:space-between;padding:9px 10px;border-radius:9px;background:#2B2720;color:#F1ECE1;font-size:14px;"><span style="display:flex;align-items:center;gap:9px;"><span style="color:var(--accent);">▦</span>Invoices</span><span style="font-family:'Geist Mono',monospace;font-size:11px;color:#8A8477;">28</span></span>
+          <span style="display:flex;align-items:center;justify-content:space-between;padding:9px 10px;border-radius:9px;font-size:14px;color:#B7AF9F;"><span style="display:flex;align-items:center;gap:9px;">▦ Contacts</span><span style="font-family:'Geist Mono',monospace;font-size:11px;color:#7C766B;">64</span></span>
+          <span style="display:flex;align-items:center;justify-content:space-between;padding:9px 10px;border-radius:9px;font-size:14px;color:#B7AF9F;"><span style="display:flex;align-items:center;gap:9px;">▦ Companies</span><span style="font-family:'Geist Mono',monospace;font-size:11px;color:#7C766B;">19</span></span>
+          <span style="display:flex;align-items:center;justify-content:space-between;padding:9px 10px;border-radius:9px;font-size:14px;color:#B7AF9F;"><span style="display:flex;align-items:center;gap:9px;">▦ Receipts</span><span style="font-family:'Geist Mono',monospace;font-size:11px;color:#7C766B;">112</span></span>
+          <span style="display:flex;align-items:center;justify-content:space-between;padding:9px 10px;border-radius:9px;font-size:14px;color:#B7AF9F;"><span style="display:flex;align-items:center;gap:9px;">▦ Trips</span><span style="font-family:'Geist Mono',monospace;font-size:11px;color:#7C766B;">7</span></span>
+        </nav>
+        <div style="margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px 8px;border-top:1px solid #3A352C;">
+          <span style="width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;">A</span>
+          <div style="min-width:0;"><div style="font-size:13px;color:#F1ECE1;font-weight:500;">Alex Rivera</div><div style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#7C766B;">Free plan</div></div>
+        </div>
+      </aside>
+
+      <!-- MAIN -->
+      <main style="flex:1;background:#FBF8F1;display:flex;flex-direction:column;min-width:0;">
+        <!-- topbar -->
+        <div style="display:flex;align-items:center;gap:16px;padding:16px 24px;border-bottom:1px solid #E7E0D2;background:#F6F2E9;">
+          <div style="flex:1;display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #E1D9C8;border-radius:11px;padding:10px 14px;max-width:520px;">
+            <span style="color:var(--accent);">✦</span>
+            <input type="text" value="How much did I invoice Acme this quarter?" readonly style="border:none;outline:none;background:transparent;font-size:14px;color:#211E18;width:100%;">
+            <span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#A39B8B;border:1px solid #E1D9C8;border-radius:6px;padding:2px 6px;">Ask</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;font-family:'Geist Mono',monospace;font-size:12px;color:#6B665B;background:#fff;border:1px solid #E1D9C8;border-radius:10px;padding:8px 12px;">
+            <span style="width:6px;height:6px;border-radius:50%;background:#3F8F5B;"></span>u8x2@datamodo.in
+          </div>
+        </div>
+
+        <!-- content -->
+        <div style="padding:24px;overflow:auto;">
+          <!-- stat cards -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:22px;">
+            <div style="background:#fff;border:1px solid #E7E0D2;border-radius:14px;padding:16px;">
+              <div style="font-family:'Geist Mono',monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:#A39B8B;margin-bottom:8px;">Captured this week</div>
+              <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:28px;letter-spacing:-0.02em;">231</div>
+            </div>
+            <div style="background:#fff;border:1px solid #E7E0D2;border-radius:14px;padding:16px;">
+              <div style="font-family:'Geist Mono',monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:#A39B8B;margin-bottom:8px;">Open invoices</div>
+              <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:28px;letter-spacing:-0.02em;color:var(--accent);">$41.2k</div>
+            </div>
+            <div style="background:#fff;border:1px solid #E7E0D2;border-radius:14px;padding:16px;">
+              <div style="font-family:'Geist Mono',monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:#A39B8B;margin-bottom:8px;">Sheets</div>
+              <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:28px;letter-spacing:-0.02em;">5</div>
+            </div>
+            <div style="background:#211E18;border:1px solid #211E18;border-radius:14px;padding:16px;color:#F1ECE1;">
+              <div style="font-family:'Geist Mono',monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:#9A9384;margin-bottom:8px;">Auto-linked</div>
+              <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:28px;letter-spacing:-0.02em;">1,904</div>
+            </div>
+          </div>
+
+          <!-- table card -->
+          <div style="background:#fff;border:1px solid #E7E0D2;border-radius:16px;overflow:hidden;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid #EFE9DC;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="font-family:'Bricolage Grotesque',sans-serif;font-weight:600;font-size:16px;">Invoices</span>
+                <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#A39B8B;">28 rows</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#6B665B;border:1px solid #E1D9C8;border-radius:8px;padding:5px 10px;">Filter</span>
+                <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#fff;background:#211E18;border-radius:8px;padding:5px 10px;">Export CSV</span>
+              </div>
+            </div>
+            <div style="font-size:13px;overflow-x:auto;">
+              <div style="display:grid;grid-template-columns:28px 1.3fr 0.8fr 0.8fr 0.7fr 0.9fr;min-width:560px;background:#FAF6EE;font-family:'Geist Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.03em;color:#A39B8B;">
+                <span style="padding:9px 8px;border-right:1px solid #EFE9DC;text-align:center;">#</span>
+                <span style="padding:9px 12px;border-right:1px solid #EFE9DC;">Client</span>
+                <span style="padding:9px 12px;border-right:1px solid #EFE9DC;">Invoice</span>
+                <span style="padding:9px 12px;border-right:1px solid #EFE9DC;">Amount</span>
+                <span style="padding:9px 12px;border-right:1px solid #EFE9DC;">Due</span>
+                <span style="padding:9px 12px;">Status</span>
+              </div>
+              <div style="display:grid;grid-template-columns:28px 1.3fr 0.8fr 0.8fr 0.7fr 0.9fr;min-width:560px;border-top:1px solid #F1EDE4;color:#57534A;">
+                <span style="padding:11px 8px;border-right:1px solid #F1EDE4;text-align:center;background:#FBFAF7;color:#A39B8B;">1</span>
+                <span style="padding:11px 12px;border-right:1px solid #F1EDE4;">Northwind</span>
+                <span style="padding:11px 12px;border-right:1px solid #F1EDE4;font-family:'Geist Mono',monospace;">#A-198</span>
+                <span style="padding:11px 12px;border-right:1px solid #F1EDE4;font-family:'Geist Mono',monospace;">$3,400</span>
+                <span style="padding:11px 12px;border-right:1px solid #F1EDE4;">Jul 20</span>
+                <span style="padding:11px 12px;"><span style="font-size:11px;color:#3F8F5B;background:#E4F0E8;padding:2px 8px;border-radius:999px;">Paid</span></span>
+              </div>
+              <div style="display:grid;grid-template-columns:28px 1.3fr 0.8fr 0.8fr 0.7fr 0.9fr;min-width:560px;border-top:1px solid #F1EDE4;color:#57534A;">
+                <span style="padding:11px 8px;border-right:1px solid #F1EDE4;text-align:center;background:#FBFAF7;color:#A39B8B;">2</span>
+                <span style="padding:11px 12px;border-right:1px solid #F1EDE4;">Globex</span>
+                <span style="padding:11px 12px;border-right:1px solid #F1EDE4;font-family:'Geist Mono',monospace;">#A-201</span>
+                <span style="padding:11px 12px;border-right:1px solid #F1EDE4;font-family:'Geist Mono',monospace;">$8,750</span>
+                <span style="padding:11px 12px;border-right:1px solid #F1EDE4;">Jul 28</span>
+                <span style="padding:11px 12px;"><span style="font-size:11px;color:#B08A2E;background:#F6ECD4;padding:2px 8px;border-radius:999px;">Sent</span></span>
+              </div>
+              <div style="display:grid;grid-template-columns:28px 1.3fr 0.8fr 0.8fr 0.7fr 0.9fr;min-width:560px;border-top:1px solid #F3D6CB;font-weight:600;color:#211E18;background:#FDF1EC;box-shadow:inset 3px 0 0 var(--accent);animation:flash 6s ease-in-out infinite;">
+                <span style="padding:11px 8px;border-right:1px solid #F3D6CB;text-align:center;color:var(--accent);font-weight:500;">3</span>
+                <span style="padding:11px 12px;border-right:1px solid #F3D6CB;">Acme Inc</span>
+                <span style="padding:11px 12px;border-right:1px solid #F3D6CB;font-family:'Geist Mono',monospace;">#A-204</span>
+                <span style="padding:11px 12px;border-right:1px solid #F3D6CB;font-family:'Geist Mono',monospace;color:var(--accent);">$12,000</span>
+                <span style="padding:11px 12px;border-right:1px solid #F3D6CB;">Aug 1</span>
+                <span style="padding:11px 12px;"><span style="font-size:11px;color:var(--accent);background:#FBE0D6;padding:2px 8px;border-radius:999px;">Approved</span></span>
+              </div>
+              <div style="display:grid;grid-template-columns:28px 1.3fr 0.8fr 0.8fr 0.7fr 0.9fr;min-width:560px;border-top:1px solid #F1EDE4;color:#57534A;">
+                <span style="padding:11px 8px;border-right:1px solid #F1EDE4;text-align:center;background:#FBFAF7;color:#A39B8B;">4</span>
+                <span style="padding:11px 12px;border-right:1px solid #F1EDE4;">Initech</span>
+                <span style="padding:11px 12px;border-right:1px solid #F1EDE4;font-family:'Geist Mono',monospace;">#A-205</span>
+                <span style="padding:11px 12px;border-right:1px solid #F1EDE4;font-family:'Geist Mono',monospace;">$2,120</span>
+                <span style="padding:11px 12px;border-right:1px solid #F1EDE4;">Aug 4</span>
+                <span style="padding:11px 12px;"><span style="font-size:11px;color:#B08A2E;background:#F6ECD4;padding:2px 8px;border-radius:999px;">Sent</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
