@@ -1,0 +1,43 @@
+import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
+import { ingest, IngestError } from "@/lib/ingest/store";
+import type { IngestEnvelope } from "@/lib/ingest/types";
+
+// The capture core needs Node built-ins (crypto, zlib) and the service key.
+export const runtime = "nodejs";
+
+function authorized(req: Request): boolean {
+  const secret = process.env.INGEST_WEBHOOK_SECRET;
+  const provided = req.headers.get("x-ingest-secret") ?? "";
+  if (!secret) return false;
+  const a = Buffer.from(secret);
+  const b = Buffer.from(provided);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+// Generic, provider-independent ingestion endpoint. Provider adapters
+// (email/whatsapp/…) normalize their payloads into an IngestEnvelope and POST
+// it here with the shared secret.
+export async function POST(req: Request) {
+  if (!authorized(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  let env: IngestEnvelope;
+  try {
+    env = (await req.json()) as IngestEnvelope;
+  } catch {
+    return NextResponse.json({ error: "invalid json" }, { status: 400 });
+  }
+
+  try {
+    const result = await ingest(env);
+    return NextResponse.json(result, { status: result.deduped ? 200 : 201 });
+  } catch (e) {
+    if (e instanceof IngestError) {
+      return NextResponse.json({ error: e.message, code: e.code }, { status: e.status });
+    }
+    console.error("[ingest] failed", e);
+    return NextResponse.json({ error: "ingestion failed" }, { status: 500 });
+  }
+}
