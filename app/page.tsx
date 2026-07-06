@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
+import { Logo } from "@/components/logo";
 
 export const metadata = {
   title: "datamodo — Forward the mess. Get back a spreadsheet.",
@@ -8,46 +9,6 @@ export const metadata = {
 };
 
 /* ---- shared bits ---------------------------------------------------- */
-
-function Logo({
-  dataSize = 30,
-  modoSize = 21,
-  color = "#211E18",
-}: {
-  dataSize?: number;
-  modoSize?: number;
-  color?: string;
-}) {
-  return (
-    <span style={{ display: "inline-flex", alignItems: "baseline" }}>
-      <span
-        className="dm-script"
-        style={{
-          fontWeight: 700,
-          fontSize: dataSize,
-          lineHeight: 1,
-          color,
-          display: "inline-block",
-          transform: "rotate(-4deg)",
-          marginRight: 1,
-        }}
-      >
-        data
-      </span>
-      <span
-        className="dm-display"
-        style={{
-          fontWeight: 700,
-          fontSize: modoSize,
-          letterSpacing: "-0.03em",
-          color,
-        }}
-      >
-        modo
-      </span>
-    </span>
-  );
-}
 
 const trafficLight: CSSProperties = {
   width: 12,
@@ -143,6 +104,7 @@ const th: CSSProperties = {
 const invoiceGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "26px 1.3fr 0.85fr 0.85fr 0.7fr 0.85fr",
+  minWidth: 340,
 };
 
 const channels: { src: string; label: string }[] = [
@@ -277,15 +239,17 @@ export default function Home() {
             color: "#514C43",
           }}
         >
-          <a href="#how" className="dm-link">
-            How it works
-          </a>
-          <a href="#uses" className="dm-link">
-            Use cases
-          </a>
-          <a href="#brain" className="dm-link">
-            Ask anything
-          </a>
+          <span className="dm-nav-secondary" style={{ display: "contents" }}>
+            <a href="#how" className="dm-link">
+              How it works
+            </a>
+            <a href="#uses" className="dm-link">
+              Use cases
+            </a>
+            <a href="#brain" className="dm-link">
+              Ask anything
+            </a>
+          </span>
           <Link href="/login" className="dm-link">
             Log in
           </Link>
@@ -425,8 +389,8 @@ export default function Home() {
           }}
         >
           {/* STEP 1 — macOS Mail window */}
-          <div style={flowCard}>
-            <div style={cardCol}>
+          <div className="dm-flow-card" style={flowCard}>
+            <div className="dm-fluid" style={cardCol}>
               <div
                 style={{
                   display: "flex",
@@ -447,7 +411,7 @@ export default function Home() {
                 datamodo address. That&apos;s the only step you ever do by hand.
               </p>
             </div>
-            <div style={visualCol}>
+            <div className="dm-fluid" style={visualCol}>
               <div
                 style={{
                   borderRadius: 14,
@@ -610,8 +574,8 @@ export default function Home() {
           <DownArrow />
 
           {/* STEP 2 — concept graph */}
-          <div style={flowCard}>
-            <div style={cardCol}>
+          <div className="dm-flow-card" style={flowCard}>
+            <div className="dm-fluid" style={cardCol}>
               <div
                 style={{
                   display: "flex",
@@ -633,8 +597,9 @@ export default function Home() {
                 relate.
               </p>
             </div>
-            <div style={visualCol}>
+            <div className="dm-fluid" style={visualCol}>
               <div
+                className="dm-graph"
                 style={{
                   position: "relative",
                   width: "100%",
@@ -687,7 +652,7 @@ export default function Home() {
                 ].map((e) => (
                   <span
                     key={e.text}
-                    className="dm-mono"
+                    className="dm-mono dm-edge"
                     style={{
                       position: "absolute",
                       left: e.left,
@@ -704,6 +669,7 @@ export default function Home() {
                 ))}
                 {/* nodes */}
                 <span
+                  className="dm-node"
                   style={{
                     position: "absolute",
                     left: "19%",
@@ -729,6 +695,7 @@ export default function Home() {
                   Sarah Chen
                 </span>
                 <span
+                  className="dm-node"
                   style={{
                     position: "absolute",
                     left: "50%",
@@ -754,7 +721,7 @@ export default function Home() {
                   Acme Inc
                 </span>
                 <span
-                  className="dm-mono"
+                  className="dm-mono dm-node dm-node-r"
                   style={{
                     position: "absolute",
                     left: "82%",
@@ -779,7 +746,7 @@ export default function Home() {
                   accounts@acme.com
                 </span>
                 <span
-                  className="dm-mono"
+                  className="dm-mono dm-node"
                   style={{
                     position: "absolute",
                     left: "19%",
@@ -805,7 +772,7 @@ export default function Home() {
                   #A-204
                 </span>
                 <span
-                  className="dm-mono"
+                  className="dm-mono dm-node dm-node-r"
                   style={{
                     position: "absolute",
                     left: "82%",
@@ -838,8 +805,8 @@ export default function Home() {
           <DownArrow />
 
           {/* STEP 3 — spreadsheet / DB */}
-          <div style={flowCard}>
-            <div style={cardCol}>
+          <div className="dm-flow-card" style={flowCard}>
+            <div className="dm-fluid" style={cardCol}>
               <div
                 style={{
                   display: "flex",
@@ -860,7 +827,7 @@ export default function Home() {
                 When no sheet fits yet, datamodo creates one automatically.
               </p>
             </div>
-            <div style={visualCol}>
+            <div className="dm-fluid" style={visualCol}>
               <div
                 style={{
                   borderRadius: 14,
@@ -903,7 +870,7 @@ export default function Home() {
                     + 1 row added
                   </span>
                 </div>
-                <div style={{ fontSize: 12.5 }}>
+                <div style={{ fontSize: 12.5, overflowX: "auto" }}>
                   <div
                     className="dm-mono"
                     style={{ ...invoiceGrid, background: "#F6F4EF", ...th }}
@@ -1213,7 +1180,7 @@ export default function Home() {
 
         {/* CASE 1 */}
         <div style={useCaseRow(false)}>
-          <div style={{ flex: "1 1 340px", minWidth: 280 }}>
+          <div className="dm-fluid" style={{ flex: "1 1 340px", minWidth: 280 }}>
             <p className="dm-mono" style={useCaseKicker}>
               01 — forward an email
             </p>
@@ -1226,7 +1193,7 @@ export default function Home() {
               the right table without you lifting a finger.
             </p>
           </div>
-          <div style={{ flex: "1 1 380px", minWidth: 300 }}>
+          <div className="dm-fluid" style={{ flex: "1 1 380px", minWidth: 300 }}>
             <div style={{ ...demoCard, padding: 20 }}>
               <div
                 className="dm-mono"
@@ -1279,7 +1246,7 @@ export default function Home() {
 
         {/* CASE 2 */}
         <div style={useCaseRow(true)}>
-          <div style={{ flex: "1 1 340px", minWidth: 280 }}>
+          <div className="dm-fluid" style={{ flex: "1 1 340px", minWidth: 280 }}>
             <p className="dm-mono" style={useCaseKicker}>
               02 — add the bot to a group chat
             </p>
@@ -1292,7 +1259,7 @@ export default function Home() {
               scroll — and hands it back structured.
             </p>
           </div>
-          <div style={{ flex: "1 1 380px", minWidth: 300 }}>
+          <div className="dm-fluid" style={{ flex: "1 1 380px", minWidth: 300 }}>
             <div style={{ ...demoCard, padding: 18 }}>
               <div
                 className="dm-mono"
@@ -1378,7 +1345,7 @@ export default function Home() {
 
         {/* CASE 3 */}
         <div style={useCaseRow(false)}>
-          <div style={{ flex: "1 1 340px", minWidth: 280 }}>
+          <div className="dm-fluid" style={{ flex: "1 1 340px", minWidth: 280 }}>
             <p className="dm-mono" style={useCaseKicker}>
               03 — dump anything, in any order
             </p>
@@ -1391,7 +1358,7 @@ export default function Home() {
               the right pile automatically.
             </p>
           </div>
-          <div style={{ flex: "1 1 380px", minWidth: 300 }}>
+          <div className="dm-fluid" style={{ flex: "1 1 380px", minWidth: 300 }}>
             <div
               style={{
                 ...demoCard,
@@ -1470,7 +1437,7 @@ export default function Home() {
 
         {/* CASE 4 */}
         <div style={{ ...useCaseRow(true), marginBottom: 0 }}>
-          <div style={{ flex: "1 1 340px", minWidth: 280 }}>
+          <div className="dm-fluid" style={{ flex: "1 1 340px", minWidth: 280 }}>
             <p className="dm-mono" style={useCaseKicker}>
               04 — your second brain
             </p>
@@ -1483,7 +1450,7 @@ export default function Home() {
               year of travel, spending or clients is already there.
             </p>
           </div>
-          <div style={{ flex: "1 1 380px", minWidth: 300 }}>
+          <div className="dm-fluid" style={{ flex: "1 1 380px", minWidth: 300 }}>
             <div
               style={{
                 ...demoCard,
@@ -1602,7 +1569,7 @@ export default function Home() {
             flexWrap: "wrap",
           }}
         >
-          <div style={{ flex: "1 1 360px", minWidth: 280 }}>
+          <div className="dm-fluid" style={{ flex: "1 1 360px", minWidth: 280 }}>
             <p className="dm-mono" style={sectionEyebrow}>
               ask anything
             </p>
@@ -1624,7 +1591,7 @@ export default function Home() {
               number.
             </p>
           </div>
-          <div style={{ flex: "1 1 380px", minWidth: 300 }}>
+          <div className="dm-fluid" style={{ flex: "1 1 380px", minWidth: 300 }}>
             <div
               style={{
                 background: "#2B2720",

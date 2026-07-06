@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { login } from "@/app/auth/actions";
-import { OAuthButtons } from "@/components/oauth-buttons";
+import { Logo } from "@/components/logo";
+import { GoogleButton } from "@/components/google-button";
+import { BrandAside } from "@/components/brand-aside";
+import { MailIcon, LockIcon } from "@/components/field-icons";
 
 export default async function LoginPage({
   searchParams,
@@ -11,40 +14,85 @@ export default async function LoginPage({
   const next = redirectTo ?? "/dashboard";
 
   return (
-    <main className="auth-page">
-      <div className="auth-card">
-        <h1>Log in</h1>
-        <p className="muted">Welcome back to Datamodo.</p>
+    <main className="dm-auth">
+      <div className="dm-auth-wrap">
+        <div className="dm-auth-card">
+          <div className="dm-auth-card-body">
+            <div style={{ marginBottom: 34 }}>
+              <Logo />
+            </div>
+            <h2 className="dm-auth-h2">Welcome back.</h2>
+            <p className="dm-auth-sub">Sign in to your second brain.</p>
 
-        <OAuthButtons next={next} />
+            <GoogleButton next={next} label="Continue with Google" />
 
-        <div className="divider"><span>or</span></div>
+            <div className="dm-auth-or">
+              <span>or</span>
+            </div>
 
-        <form action={login} className="auth-form">
-          <input type="hidden" name="redirectTo" value={next} />
-          <label>
-            Email
-            <input type="email" name="email" required autoComplete="email" />
-          </label>
-          <label>
-            Password
-            <input
-              type="password"
-              name="password"
-              required
-              autoComplete="current-password"
-            />
-          </label>
-          <button type="submit" className="btn btn-primary">
-            Log in
-          </button>
-        </form>
+            <form action={login}>
+              <input type="hidden" name="redirectTo" value={next} />
 
-        {error && <p className="form-error">{error}</p>}
+              <label className="dm-auth-label" htmlFor="email">
+                Email
+              </label>
+              <div className="dm-auth-field">
+                <span className="glyph">
+                  <MailIcon />
+                </span>
+                <input
+                  id="email"
+                  type="email"
+                  name="email"
+                  required
+                  autoComplete="email"
+                  placeholder="you@company.com"
+                />
+              </div>
 
-        <p className="muted">
-          No account? <Link href="/register">Create one</Link>
-        </p>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  justifyContent: "space-between",
+                  marginBottom: 6,
+                }}
+              >
+                <label className="dm-auth-label" htmlFor="password" style={{ marginBottom: 0 }}>
+                  Password
+                </label>
+                <a href="#" className="dm-auth-forgot">
+                  Forgot?
+                </a>
+              </div>
+              <div className="dm-auth-field" style={{ marginBottom: 24 }}>
+                <span className="glyph">
+                  <LockIcon />
+                </span>
+                <input
+                  id="password"
+                  type="password"
+                  name="password"
+                  required
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                />
+              </div>
+
+              <button type="submit" className="dm-auth-submit">
+                Sign in
+              </button>
+            </form>
+
+            {error && <p className="dm-auth-error">{error}</p>}
+          </div>
+
+          <div className="dm-auth-foot">
+            New here? <Link href="/register">Create an account</Link>
+          </div>
+        </div>
+
+        <BrandAside />
       </div>
     </main>
   );
