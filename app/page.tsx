@@ -189,21 +189,6 @@ const demoCard: CSSProperties = {
   boxShadow: "0 18px 44px -30px rgba(33,30,24,.35)",
 };
 
-const fieldTile = (accent = false): CSSProperties => ({
-  background: accent ? "#FDF1EC" : "#FAF6EE",
-  border: `1px solid ${accent ? "#F3D6CB" : "#EFE9DC"}`,
-  borderRadius: 11,
-  padding: 12,
-});
-
-const fieldLabel: CSSProperties = {
-  fontSize: 10.5,
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
-  color: "#A39B8B",
-  marginBottom: 5,
-};
-
 const chatBubble: CSSProperties = {
   alignSelf: "flex-start",
   maxWidth: "76%",
@@ -244,7 +229,7 @@ export default function Home() {
               How it works
             </a>
             <a href="#uses" className="dm-link">
-              Use cases
+              Features
             </a>
             <a href="#brain" className="dm-link">
               Ask anything
@@ -1167,388 +1152,415 @@ export default function Home() {
         </div>
       </section>
 
-      {/* USE CASES */}
+      {/* FEATURES — how you use it */}
       <section id="uses" style={{ maxWidth: 1160, margin: "0 auto", padding: "96px 28px 40px" }}>
-        <div style={{ maxWidth: 640, marginBottom: 56 }}>
+        <div style={{ maxWidth: 680, marginBottom: 56 }}>
           <p className="dm-mono" style={sectionEyebrow}>
-            use cases
+            how you use it
           </p>
-          <h2 className="dm-display" style={{ ...h2, marginBottom: 0 }}>
-            The same trick, everywhere your data hides.
+          <h2 className="dm-display" style={{ ...h2, marginBottom: 16 }}>
+            One agent. However you want to work.
           </h2>
+          <p style={{ fontSize: 17, color: "#57534A", maxWidth: "54ch" }}>
+            datamodo bends to your workflow — reach it in any channel, wake it on
+            demand or let it always listen, and let it choose what matters or hand
+            it a standing order.
+          </p>
         </div>
 
-        {/* CASE 1 */}
+        {/* FEATURE 1 — multichannel + the three ways in */}
         <div style={useCaseRow(false)}>
           <div className="dm-fluid" style={{ flex: "1 1 340px", minWidth: 280 }}>
             <p className="dm-mono" style={useCaseKicker}>
-              01 — forward an email
+              01 — meet it anywhere
             </p>
             <h3 className="dm-display" style={useCaseH3}>
-              One receipt in, one clean row out.
+              Add it to a chat. CC a thread. Or just send it stuff.
             </h3>
             <p style={useCaseBody}>
-              Forward the confirmation, the invoice, the booking. datamodo pulls
-              the vendor, the amount, the date and the category — and files it in
-              the right table without you lifting a finger.
+              datamodo lives where your info already flows. Drop it into a group
+              chat, cc it on an email chain, or forward and dump content straight
+              to its inbox — one agent, every channel.
             </p>
           </div>
           <div className="dm-fluid" style={{ flex: "1 1 380px", minWidth: 300 }}>
-            <div style={{ ...demoCard, padding: 20 }}>
-              <div
-                className="dm-mono"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 9,
-                  fontSize: 12,
-                  color: "#8A8477",
-                  marginBottom: 14,
-                }}
-              >
-                <span
-                  style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent)" }}
-                />
-                Fwd: Order confirmed — Delta #DL2291
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                {[
-                  { label: "Airline", value: "Delta", delay: "0s", accent: false },
-                  { label: "Route", value: "JFK → SFO", delay: ".4s", accent: false },
-                  { label: "Depart", value: "Sep 14", delay: ".8s", accent: false },
-                  { label: "Fare", value: "$389.00", delay: "1.2s", accent: true },
-                ].map((f) => (
-                  <div
-                    key={f.label}
+            <div
+              style={{
+                ...demoCard,
+                padding: 18,
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+              }}
+            >
+              {[
+                {
+                  logo: "/logos/whatsapp-icon.svg",
+                  title: "Ski trip 🏔 · group chat",
+                  tag: "@datamodo added",
+                  delay: "0s",
+                },
+                {
+                  logo: "/logos/google-gmail.svg",
+                  title: "Re: Q3 retainer — invoice",
+                  tag: "cc'd in",
+                  delay: ".6s",
+                },
+                {
+                  logo: "/logos/telegram.svg",
+                  title: "You → datamodo · 3 receipts",
+                  tag: "sent direct",
+                  delay: "1.2s",
+                },
+              ].map((r) => (
+                <div
+                  key={r.title}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 11,
+                    background: "#FAF6EE",
+                    border: "1px solid #EFE9DC",
+                    borderRadius: 12,
+                    padding: "11px 13px",
+                    animation: `dm-pop 9s ease-in-out ${r.delay} infinite`,
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={r.logo}
+                    alt=""
+                    style={{ height: 20, width: 20, flexShrink: 0, display: "block" }}
+                  />
+                  <span
                     style={{
-                      ...fieldTile(f.accent),
-                      animation: `dm-pop 8s ease-in-out ${f.delay} infinite`,
+                      fontSize: 13.5,
+                      fontWeight: 500,
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    <div className="dm-mono" style={fieldLabel}>
-                      {f.label}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 15,
-                        fontWeight: 600,
-                        ...(f.accent ? { color: "var(--accent)" } : {}),
-                      }}
-                    >
-                      {f.value}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    {r.title}
+                  </span>
+                  <span
+                    className="dm-mono"
+                    style={{
+                      marginLeft: "auto",
+                      fontSize: 10.5,
+                      color: "var(--accent)",
+                      background: "#FDF1EC",
+                      border: "1px solid #F3D6CB",
+                      padding: "3px 8px",
+                      borderRadius: 999,
+                      whiteSpace: "nowrap",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {r.tag}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
-        {/* CASE 2 */}
+        {/* FEATURE 2 — on call vs always on */}
         <div style={useCaseRow(true)}>
           <div className="dm-fluid" style={{ flex: "1 1 340px", minWidth: 280 }}>
             <p className="dm-mono" style={useCaseKicker}>
-              02 — add the bot to a group chat
+              02 — on call or always on
             </p>
             <h3 className="dm-display" style={useCaseH3}>
-              It listens so nobody has to take notes.
+              Summon it when you need it — or let it always listen.
             </h3>
             <p style={useCaseBody}>
-              Drop @datamodo into your family, team or trip group chat. It quietly
-              catches every decision, address, amount and to-do buried in the
-              scroll — and hands it back structured.
+              Call datamodo in with an @mention or a cc the moment something&apos;s
+              worth keeping. Or switch on auto mode and it watches the whole
+              channel, capturing as things happen — no nudge required.
             </p>
           </div>
           <div className="dm-fluid" style={{ flex: "1 1 380px", minWidth: 300 }}>
-            <div style={{ ...demoCard, padding: 18 }}>
-              <div
-                className="dm-mono"
-                style={{ fontSize: 11.5, color: "#8A8477", marginBottom: 14 }}
-              >
-                Ski trip 🏔 · 6 members
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                <div style={{ ...chatBubble, animation: "dm-pop 9s ease-in-out infinite" }}>
-                  Booked the cabin — $1,450 total, split 6 ways
-                </div>
-                <div style={{ ...chatBubble, animation: "dm-pop 9s ease-in-out 1s infinite" }}>
-                  I&apos;ll grab lift passes, drop off Fri 3pm
-                </div>
-                <div style={{ ...chatBubble, animation: "dm-pop 9s ease-in-out 2s infinite" }}>
-                  @datamodo track who paid
-                </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* On call */}
+              <div style={{ ...demoCard, padding: 16 }}>
                 <div
                   style={{
-                    alignSelf: "flex-end",
-                    maxWidth: "82%",
-                    background: "#211E18",
-                    color: "#F1ECE1",
-                    borderRadius: "14px 14px 4px 14px",
-                    padding: "11px 13px",
-                    animation: "dm-pop 9s ease-in-out 3s infinite",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 12,
                   }}
                 >
-                  <div
-                    className="dm-mono"
-                    style={{
-                      fontSize: 10.5,
-                      color: "var(--accent)",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                      marginBottom: 7,
-                    }}
-                  >
-                    datamodo · payments
+                  <span className="dm-display" style={{ fontWeight: 600, fontSize: 14 }}>
+                    On call
+                  </span>
+                  <span className="dm-mono" style={{ fontSize: 10, color: "#8A8477" }}>
+                    @mention · cc
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ ...chatBubble, fontSize: 13 }}>
+                    @datamodo save this — invoice #A-204, $12,000
                   </div>
                   <div
                     style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: 13,
-                      padding: "3px 0",
+                      alignSelf: "flex-end",
+                      maxWidth: "88%",
+                      background: "#211E18",
+                      color: "#F1ECE1",
+                      borderRadius: "14px 14px 4px 14px",
+                      padding: "9px 12px",
+                      fontSize: 12.5,
                     }}
                   >
-                    <span>Cabin</span>
-                    <span className="dm-mono">$1,450 · ÷6</span>
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: 13,
-                      padding: "3px 0",
-                      borderTop: "1px solid #3A352C",
-                    }}
-                  >
-                    <span>Per person</span>
-                    <span className="dm-mono" style={{ color: "#F1ECE1" }}>
-                      $241.67
+                    <span className="dm-mono" style={{ fontSize: 10, color: "var(--accent)" }}>
+                      datamodo
                     </span>
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: 13,
-                      padding: "3px 0",
-                      borderTop: "1px solid #3A352C",
-                    }}
-                  >
-                    <span>Passes</span>
-                    <span className="dm-mono">Fri 3pm · Mia</span>
+                    <div style={{ marginTop: 3 }}>
+                      Saved to <b>Invoices</b> · row added ✓
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-
-        {/* CASE 3 */}
-        <div style={useCaseRow(false)}>
-          <div className="dm-fluid" style={{ flex: "1 1 340px", minWidth: 280 }}>
-            <p className="dm-mono" style={useCaseKicker}>
-              03 — dump anything, in any order
-            </p>
-            <h3 className="dm-display" style={useCaseH3}>
-              A junk drawer that sorts itself.
-            </h3>
-            <p style={useCaseBody}>
-              Screenshots, links, voice notes, half-thoughts — throw it all in.
-              datamodo reads each one, figures out what it is, and drops it into
-              the right pile automatically.
-            </p>
-          </div>
-          <div className="dm-fluid" style={{ flex: "1 1 380px", minWidth: 300 }}>
-            <div
-              style={{
-                ...demoCard,
-                padding: 20,
-                display: "grid",
-                gridTemplateColumns: "repeat(3,1fr)",
-                gap: 12,
-              }}
-            >
-              {[
-                {
-                  label: "Receipts",
-                  items: [
-                    { t: "Uber $18", delay: "0s" },
-                    { t: "Cafe $6.40", delay: "1.6s" },
-                  ],
-                },
-                {
-                  label: "Contacts",
-                  items: [
-                    { t: "Dr. Lee", delay: ".8s" },
-                    { t: "Plumber", delay: "2.4s" },
-                  ],
-                },
-                {
-                  label: "To read",
-                  items: [
-                    { t: "Link · AI", delay: "1.2s" },
-                    { t: "Book note", delay: "3s" },
-                  ],
-                },
-              ].map((bucket) => (
+              {/* Always on */}
+              <div style={{ ...demoCard, padding: 16 }}>
                 <div
-                  key={bucket.label}
                   style={{
-                    background: "#FAF6EE",
-                    border: "1px solid #EFE9DC",
-                    borderRadius: 13,
-                    padding: 13,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 12,
                   }}
                 >
-                  <div
+                  <span className="dm-display" style={{ fontWeight: 600, fontSize: 14 }}>
+                    Always on
+                  </span>
+                  <span
                     className="dm-mono"
                     style={{
-                      fontSize: 10.5,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.04em",
-                      color: "var(--accent)",
-                      marginBottom: 10,
+                      fontSize: 10,
+                      color: "#3F8F5B",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
                     }}
                   >
-                    {bucket.label}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                    {bucket.items.map((it) => (
-                      <div
-                        key={it.t}
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: "50%",
+                        background: "#3F8F5B",
+                        animation: "dm-pulse 2.4s ease-out infinite",
+                      }}
+                    />
+                    listening
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {[
+                    { t: "“lunch was $42, split 3 ways”", d: "0s" },
+                    { t: "“new client: Initech, net-30”", d: "1.2s" },
+                    { t: "“flight AA22 → Tokyo, Sep 9”", d: "2.4s" },
+                  ].map((m) => (
+                    <div
+                      key={m.t}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 9,
+                        fontSize: 12.5,
+                        color: "#57534A",
+                        animation: `dm-dropin 8s ease-in-out ${m.d} infinite`,
+                      }}
+                    >
+                      <span
+                        className="dm-mono"
                         style={{
-                          fontSize: 12.5,
-                          background: "#FFF",
-                          border: "1px solid #EFE9DC",
-                          borderRadius: 8,
-                          padding: "6px 9px",
-                          animation: `dm-dropin 8s ease-in-out ${it.delay} infinite`,
+                          fontSize: 9.5,
+                          color: "var(--accent)",
+                          background: "#FDF1EC",
+                          border: "1px solid #F3D6CB",
+                          padding: "2px 7px",
+                          borderRadius: 999,
+                          flexShrink: 0,
                         }}
                       >
-                        {it.t}
-                      </div>
-                    ))}
-                  </div>
+                        captured
+                      </span>
+                      <span
+                        style={{
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {m.t}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* CASE 4 */}
-        <div style={{ ...useCaseRow(true), marginBottom: 0 }}>
+        {/* FEATURE 3 — suggestion vs objective */}
+        <div style={{ ...useCaseRow(false), marginBottom: 0 }}>
           <div className="dm-fluid" style={{ flex: "1 1 340px", minWidth: 280 }}>
             <p className="dm-mono" style={useCaseKicker}>
-              04 — your second brain
+              03 — suggests, or follows orders
             </p>
             <h3 className="dm-display" style={useCaseH3}>
-              It builds the dataset you didn&apos;t ask for — but needed.
+              Let it decide what matters. Or give it a job.
             </h3>
             <p style={useCaseBody}>
-              datamodo notices patterns across everything you&apos;ve fed it and
-              quietly assembles a table. One day you open it up and your whole
-              year of travel, spending or clients is already there.
+              In suggestion mode, datamodo reads the context and decides what&apos;s
+              worth storing. Give it an objective instead — “capture every invoice
+              in this chat” — and it files what matches on autopilot, ignoring the
+              rest.
             </p>
           </div>
           <div className="dm-fluid" style={{ flex: "1 1 380px", minWidth: 300 }}>
-            <div
-              style={{
-                ...demoCard,
-                position: "relative",
-                padding: 20,
-                overflow: "hidden",
-              }}
-            >
-              <div
-                style={{
-                  position: "absolute",
-                  left: 20,
-                  right: 20,
-                  top: 64,
-                  height: 2,
-                  background:
-                    "linear-gradient(90deg,transparent,var(--accent),transparent)",
-                  animation: "dm-scan 6s ease-in-out infinite",
-                }}
-              />
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  marginBottom: 14,
-                }}
-              >
-                <span className="dm-display" style={{ fontWeight: 600, fontSize: 15 }}>
-                  Trips 2026 · auto-built
-                </span>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* Suggestion mode */}
+              <div style={{ ...demoCard, padding: 16 }}>
                 <span
                   className="dm-mono"
                   style={{
-                    fontSize: 10.5,
-                    color: "var(--accent)",
-                    background: "#FBEAE3",
-                    padding: "4px 9px",
-                    borderRadius: 999,
+                    fontSize: 10,
+                    color: "#8A8477",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
                   }}
                 >
-                  live
+                  suggestion mode
                 </span>
-              </div>
-              <div
-                className="dm-mono"
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1.1fr 0.9fr 0.8fr",
-                  fontSize: 10.5,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                  color: "#A39B8B",
-                  padding: "8px 0",
-                  borderBottom: "1px solid #EFE9DC",
-                }}
-              >
-                <span>Trip</span>
-                <span>Spend</span>
-                <span>Nights</span>
-              </div>
-              {[
-                { trip: "Lisbon", spend: "$1,120", nights: "4", delay: "0s", accent: false },
-                { trip: "Tahoe", spend: "$690", nights: "3", delay: "1.4s", accent: false },
-                { trip: "Tokyo", spend: "$3,240", nights: "9", delay: "2.8s", accent: true },
-              ].map((r) => (
                 <div
-                  key={r.trip}
                   style={{
-                    display: "grid",
-                    gridTemplateColumns: "1.1fr 0.9fr 0.8fr",
-                    fontSize: 13.5,
-                    padding: "9px 0",
-                    borderBottom: "1px solid #F3EEE3",
-                    animation: `dm-dropin 7s ease-in-out ${r.delay} infinite`,
+                    marginTop: 10,
+                    background: "#FDF1EC",
+                    border: "1px solid #F3D6CB",
+                    borderRadius: 12,
+                    padding: "12px 13px",
                   }}
                 >
-                  <span>{r.trip}</span>
+                  <div style={{ fontSize: 13.5, marginBottom: 10, lineHeight: 1.5 }}>
+                    <b>This looks like an invoice</b> — Acme Inc, $12,000. Save it
+                    to <b>Invoices</b>?
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "#FFF8F4",
+                        background: "var(--accent)",
+                        borderRadius: 9,
+                        padding: "6px 15px",
+                      }}
+                    >
+                      Save
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "#57534A",
+                        background: "#fff",
+                        border: "1px solid #E1D9C8",
+                        borderRadius: 9,
+                        padding: "6px 15px",
+                      }}
+                    >
+                      Skip
+                    </span>
+                  </div>
+                </div>
+              </div>
+              {/* Objective mode */}
+              <div style={{ ...demoCard, padding: 16 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 12,
+                  }}
+                >
                   <span
                     className="dm-mono"
-                    style={r.accent ? { color: "var(--accent)" } : undefined}
+                    style={{
+                      fontSize: 10,
+                      color: "#8A8477",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                    }}
                   >
-                    {r.spend}
+                    objective mode
                   </span>
-                  <span>{r.nights}</span>
+                  <span
+                    className="dm-mono"
+                    style={{
+                      fontSize: 10,
+                      color: "var(--accent)",
+                      background: "#FBEAE3",
+                      padding: "3px 8px",
+                      borderRadius: 999,
+                    }}
+                  >
+                    running
+                  </span>
                 </div>
-              ))}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  padding: "11px 0 2px",
-                }}
-              >
-                <span>Total</span>
-                <span className="dm-mono">$5,050 · 16 nights</span>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 10,
+                    background: "#FAF6EE",
+                    border: "1px solid #EFE9DC",
+                    borderRadius: 12,
+                    padding: "12px 13px",
+                    marginBottom: 10,
+                  }}
+                >
+                  <span style={{ fontSize: 15, lineHeight: 1.2 }}>🎯</span>
+                  <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>
+                    Capture <b>every invoice</b> in{" "}
+                    <span className="dm-mono" style={{ fontSize: 12.5 }}>
+                      #finance
+                    </span>{" "}
+                    → <b>Invoices</b> sheet
+                  </div>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 14,
+                    fontSize: 12.5,
+                    color: "#57534A",
+                  }}
+                >
+                  <span>
+                    <b className="dm-mono">18</b> filed
+                  </span>
+                  <span>
+                    <b className="dm-mono" style={{ color: "#3F8F5B" }}>
+                      0
+                    </b>{" "}
+                    missed
+                  </span>
+                  <span
+                    className="dm-mono"
+                    style={{ marginLeft: "auto", color: "#A39B8B", fontSize: 11 }}
+                  >
+                    everything else ignored
+                  </span>
+                </div>
               </div>
             </div>
           </div>

@@ -1,0 +1,1284 @@
+"use client";
+
+/**
+ * Datamodo Control Center — the signed-in workspace.
+ *
+ * Ported from the "Datamodo Control Center.dc.html" design handoff. It is a
+ * pure front-end experience: every panel is driven by local state and the mock
+ * data below. The ONLY thing wired to the backend is the account (real name /
+ * email / forwarding inbox are passed in from the server, and Sign out calls
+ * the Supabase server action). Everything else — agents, tables, suggestions,
+ * the create-agent wizard — is illustrative and does not persist.
+ */
+
+import {
+  createElement,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { signout } from "@/app/auth/actions";
+
+/* ------------------------------------------------------------------ */
+/* Hover helper — inline styles win over CSS :hover, so hover states   */
+/* that sit on top of data-driven inline styles are swapped in JS.     */
+/* ------------------------------------------------------------------ */
+type HovProps = {
+  tag?: "button" | "div" | "a" | "label" | "span";
+  base: CSSProperties;
+  hover?: CSSProperties;
+  children?: ReactNode;
+  className?: string;
+  type?: "button" | "submit";
+  title?: string;
+  onClick?: () => void;
+};
+function Hov({ tag = "button", base, hover, children, ...rest }: HovProps) {
+  const [h, setH] = useState(false);
+  const props: Record<string, unknown> = {
+    ...rest,
+    style: h && hover ? { ...base, ...hover } : base,
+    onMouseEnter: () => setH(true),
+    onMouseLeave: () => setH(false),
+  };
+  if (tag === "button") props.type = rest.type ?? "button";
+  return createElement(tag, props, children);
+}
+
+/* ------------------------------------------------------------------ */
+/* Palette                                                             */
+/* ------------------------------------------------------------------ */
+const C = {
+  ink: "#211E18",
+  accent: "#E4593B",
+  accentPress: "#CF4A2F",
+  green: "#3F8F5B",
+  gold: "#B08A2E",
+  blue: "#5A6B86",
+};
+
+const LOGO: Record<string, string> = {
+  gmail: "/logos/google-gmail.svg",
+  outlook: "/logos/microsoft-outlook.svg",
+  whatsapp: "/logos/whatsapp-icon.svg",
+  slack: "/logos/slack-icon.svg",
+  telegram: "/logos/telegram.svg",
+};
+const CH_NAMES: Record<string, string> = {
+  gmail: "Gmail",
+  outlook: "Outlook",
+  whatsapp: "WhatsApp",
+  slack: "Slack",
+  telegram: "Telegram",
+};
+
+/* ------------------------------------------------------------------ */
+/* Mock data                                                           */
+/* ------------------------------------------------------------------ */
+type SugRow = {
+  a: string;
+  b: string;
+  c: string;
+  cColor: string;
+  tag: string;
+  tagColor: string;
+  bg: string;
+  stripe: string;
+};
+type Suggestion = {
+  id: string;
+  name: string;
+  initial: string;
+  avatarBg: string;
+  meta: string;
+  versionTag: string;
+  target: string;
+  message: string;
+  changeSummary: string;
+  confidence: string;
+  vOld: string;
+  vNew: string;
+  oldValue: string;
+  newValue: string;
+  rows: SugRow[];
+};
+const SUGGESTIONS: Suggestion[] = [
+  {
+    id: "s1",
+    name: "Ledger",
+    initial: "L",
+    avatarBg: C.accent,
+    meta: "· 2h ago · Gmail",
+    versionTag: "Invoices · v12 → v13",
+    target: "Invoices",
+    message:
+      "I found 3 new invoices in your Gmail this morning. Two are brand new; one updates an amount that changed since the version you last accepted.",
+    changeSummary: "2 added · 1 changed",
+    confidence: "94% confident",
+    vOld: "v12",
+    vNew: "v13",
+    oldValue: "Globex · #A-201 · $8,750 · Sent",
+    newValue:
+      "Globex · #A-201 · $9,120 · Sent  (amount corrected from a revised PDF)",
+    rows: [
+      { a: "Acme Inc", b: "#A-204", c: "$12,000", cColor: C.accent, tag: "new", tagColor: C.green, bg: "#F6FBF7", stripe: `inset 3px 0 0 ${C.green}` },
+      { a: "Umbrella", b: "#A-206", c: "$4,300", cColor: "#57534A", tag: "new", tagColor: C.green, bg: "#F6FBF7", stripe: `inset 3px 0 0 ${C.green}` },
+      { a: "Globex", b: "#A-201", c: "$9,120", cColor: C.ink, tag: "changed", tagColor: C.gold, bg: "#FCF8EC", stripe: `inset 3px 0 0 ${C.gold}` },
+    ],
+  },
+  {
+    id: "s2",
+    name: "Rolodex",
+    initial: "R",
+    avatarBg: C.ink,
+    meta: "· 5h ago · WhatsApp",
+    versionTag: "Contacts · v7 → v8",
+    target: "Contacts",
+    message:
+      "You pinged me about the people you met at the Acme dinner. I pulled 2 new contacts and linked them to Acme Inc.",
+    changeSummary: "2 added",
+    confidence: "88% confident",
+    vOld: "v7",
+    vNew: "v8",
+    oldValue: "64 contacts · last synced yesterday",
+    newValue: "66 contacts · +Sarah Chen, +Miguel Ortiz (both → Acme Inc)",
+    rows: [
+      { a: "Sarah Chen", b: "sarah@acme.com", c: "Acme Inc", cColor: "#57534A", tag: "new", tagColor: C.green, bg: "#F6FBF7", stripe: `inset 3px 0 0 ${C.green}` },
+      { a: "Miguel Ortiz", b: "miguel@acme.com", c: "Acme Inc", cColor: "#57534A", tag: "new", tagColor: C.green, bg: "#F6FBF7", stripe: `inset 3px 0 0 ${C.green}` },
+    ],
+  },
+];
+
+type Agent = {
+  name: string;
+  initial: string;
+  avatarBg: string;
+  statusLabel: string;
+  statusColor: string;
+  statusDot: string;
+  channels: string[];
+  modeLabel: string;
+  purpose: string;
+  feeds: string;
+  pending: number;
+  scope: "org" | "me" | "people";
+};
+const AGENTS: Agent[] = [
+  { name: "Ledger", initial: "L", avatarBg: C.accent, statusLabel: "Active", statusColor: C.green, statusDot: C.green, channels: ["gmail", "outlook"], modeLabel: "Auto", purpose: "Invoices, receipts & payment confirmations from your billing inbox.", feeds: "Invoices · Receipts", pending: 3, scope: "org" },
+  { name: "Rolodex", initial: "R", avatarBg: C.ink, statusLabel: "Active", statusColor: C.green, statusDot: C.green, channels: ["whatsapp"], modeLabel: "On ping", purpose: "People & companies you meet — tag it and it files the contact.", feeds: "Contacts · Companies", pending: 2, scope: "me" },
+  { name: "Nomad", initial: "N", avatarBg: C.green, statusLabel: "Active", statusColor: C.green, statusDot: C.green, channels: ["gmail"], modeLabel: "Auto", purpose: "Trips, bookings & travel confirmations, kept in one timeline.", feeds: "Trips", pending: 0, scope: "people" },
+  { name: "Scout", initial: "S", avatarBg: C.gold, statusLabel: "Paused", statusColor: C.gold, statusDot: C.gold, channels: ["slack"], modeLabel: "On ping", purpose: "Product feedback & bug reports flagged from your team channels.", feeds: "Feedback", pending: 0, scope: "org" },
+  { name: "Telegraph", initial: "T", avatarBg: C.blue, statusLabel: "Active", statusColor: C.green, statusDot: C.green, channels: ["telegram"], modeLabel: "Auto", purpose: "Newsletter highlights & links worth keeping for later reading.", feeds: "Reading", pending: 0, scope: "me" },
+];
+
+type TableInfo = {
+  name: string;
+  rows: string;
+  fields: string[];
+  agent: string;
+  agentInitial: string;
+  agentBg: string;
+  updated: string;
+};
+const TABLES: TableInfo[] = [
+  { name: "Invoices", rows: "28 rows", fields: ["Client", "Invoice", "Amount", "Due", "Status"], agent: "Ledger", agentInitial: "L", agentBg: C.accent, updated: "2h ago" },
+  { name: "Receipts", rows: "112 rows", fields: ["Merchant", "Category", "Amount", "Date", "Method"], agent: "Ledger", agentInitial: "L", agentBg: C.accent, updated: "5h ago" },
+  { name: "Contacts", rows: "64 rows", fields: ["Name", "Email", "Company", "Role", "Met"], agent: "Rolodex", agentInitial: "R", agentBg: C.ink, updated: "1d ago" },
+  { name: "Companies", rows: "19 rows", fields: ["Name", "Domain", "Industry", "Contacts"], agent: "Rolodex", agentInitial: "R", agentBg: C.ink, updated: "1d ago" },
+  { name: "Trips", rows: "7 rows", fields: ["Destination", "Dates", "Booking", "Cost"], agent: "Nomad", agentInitial: "N", agentBg: C.green, updated: "3h ago" },
+  { name: "Reading", rows: "156 rows", fields: ["Title", "Source", "Topic", "Saved"], agent: "Telegraph", agentInitial: "T", agentBg: C.blue, updated: "6h ago" },
+];
+
+type Status = "Paid" | "Sent" | "Approved";
+type InvRow = { n: number; client: string; invoice: string; amount: string; due: string; status: Status; hl?: boolean };
+const INVOICE_ROWS: InvRow[] = [
+  { n: 1, client: "Northwind", invoice: "#A-198", amount: "$3,400", due: "Jul 20", status: "Paid" },
+  { n: 2, client: "Globex", invoice: "#A-201", amount: "$9,120", due: "Jul 28", status: "Sent" },
+  { n: 3, client: "Acme Inc", invoice: "#A-204", amount: "$12,000", due: "Aug 1", status: "Approved", hl: true },
+  { n: 4, client: "Initech", invoice: "#A-205", amount: "$2,120", due: "Aug 4", status: "Sent" },
+];
+const STATUS_STYLE: Record<Status, { c: string; b: string }> = {
+  Paid: { c: C.green, b: "#E4F0E8" },
+  Sent: { c: C.gold, b: "#F6ECD4" },
+  Approved: { c: C.accent, b: "#FBE0D6" },
+};
+
+const TEAMMATES = [
+  { name: "Jordan Lee", email: "jordan@acme.com", initial: "J", bg: C.accent },
+  { name: "Priya Nair", email: "priya@acme.com", initial: "P", bg: C.green },
+  { name: "Marcus Webb", email: "marcus@acme.com", initial: "M", bg: C.blue },
+  { name: "Dana Cho", email: "dana@acme.com", initial: "D", bg: C.gold },
+];
+
+const PENDING_COUNT = 4;
+
+/* ------------------------------------------------------------------ */
+/* Style helpers (mirror the design's DCLogic helpers)                 */
+/* ------------------------------------------------------------------ */
+const navBase: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  width: "100%",
+  background: "none",
+  border: "none",
+  padding: "9px 10px",
+  borderRadius: 9,
+  fontFamily: "inherit",
+  fontSize: 14,
+  cursor: "pointer",
+  textAlign: "left",
+  transition: "background .15s ease, color .15s ease",
+};
+const navStyle = (active: boolean): CSSProperties =>
+  active
+    ? { ...navBase, background: "#2B2720", color: "#F1ECE1", fontWeight: 500 }
+    : { ...navBase, color: "#B7AF9F" };
+
+const modeCard = (active: boolean): CSSProperties => ({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  width: "100%",
+  textAlign: "left",
+  background: "#fff",
+  borderRadius: 13,
+  padding: "15px 16px",
+  cursor: "pointer",
+  fontFamily: "inherit",
+  // Buttons don't inherit `color`; without this the title text falls back to
+  // the UA default (white in dark color-scheme) and vanishes on the card.
+  color: C.ink,
+  transition: "border-color .15s ease, box-shadow .15s ease",
+  border: active ? "1.5px solid #E4593B" : "1.5px solid #E7E0D2",
+  boxShadow: active ? "0 0 0 3px rgba(228,89,59,.1)" : "none",
+});
+const radioDot = (active: boolean): CSSProperties => ({
+  width: 20,
+  height: 20,
+  borderRadius: "50%",
+  flexShrink: 0,
+  border: `2px solid ${active ? C.accent : "#D8CFBD"}`,
+  background: active
+    ? "radial-gradient(circle, #E4593B 0 5px, #fff 6px 20px)"
+    : "#fff",
+});
+const segStyle = (active: boolean): CSSProperties => ({
+  border: "none",
+  borderRadius: 7,
+  padding: "5px 11px",
+  fontFamily: "inherit",
+  fontSize: 12,
+  fontWeight: 500,
+  cursor: "pointer",
+  transition: "background .15s ease, color .15s ease",
+  ...(active
+    ? { background: "#fff", color: C.ink, boxShadow: "0 1px 2px rgba(33,30,24,.14)" }
+    : { background: "transparent", color: "#8A8477" }),
+});
+const bar = (active: boolean): CSSProperties => ({
+  flex: 1,
+  height: 4,
+  borderRadius: 999,
+  background: active ? C.accent : "#E1D9C8",
+});
+const toggleTrack = (on: boolean): CSSProperties => ({
+  width: 38,
+  height: 22,
+  borderRadius: 999,
+  background: on ? C.accent : "#D8CFBD",
+  position: "relative",
+  display: "inline-block",
+  transition: "background .15s ease",
+  flexShrink: 0,
+});
+const toggleKnob = (on: boolean): CSSProperties => ({
+  position: "absolute",
+  top: 2,
+  left: on ? 18 : 2,
+  width: 18,
+  height: 18,
+  borderRadius: "50%",
+  background: "#fff",
+  transition: "left .15s ease",
+  boxShadow: "0 1px 3px rgba(0,0,0,.2)",
+});
+const channelTile = (active: boolean): CSSProperties => ({
+  position: "relative",
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  background: "#fff",
+  borderRadius: 12,
+  padding: "12px 14px",
+  cursor: "pointer",
+  fontFamily: "inherit",
+  color: C.ink,
+  transition: "border-color .15s ease, box-shadow .15s ease",
+  border: active ? "1.5px solid #E4593B" : "1.5px solid #E7E0D2",
+  boxShadow: active ? "0 0 0 3px rgba(228,89,59,.1)" : "none",
+});
+const teammateStyle = (sel: boolean): CSSProperties => ({
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  width: "100%",
+  textAlign: "left",
+  background: "#fff",
+  borderRadius: 10,
+  padding: "8px 11px",
+  cursor: "pointer",
+  fontFamily: "inherit",
+  border: sel ? "1.5px solid #E4593B" : "1px solid #E7E0D2",
+});
+const targetChip = (sel: boolean, freestyle: boolean): CSSProperties => {
+  const b: CSSProperties = {
+    fontSize: 11,
+    padding: "6px 11px",
+    borderRadius: 9,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    background: "#fff",
+  };
+  if (freestyle) return { ...b, border: "1px solid #ECE5D8", color: "#B7AF9F" };
+  return sel
+    ? { ...b, border: "1.5px solid #E4593B", color: C.accent, background: "#FDF1EC" }
+    : { ...b, border: "1px solid #E1D9C8", color: "#57534A" };
+};
+
+/* small shared style atoms */
+const monoLabel: CSSProperties = {
+  fontSize: 10,
+  textTransform: "uppercase",
+  letterSpacing: "0.05em",
+  color: "#A39B8B",
+};
+/* ================================================================== */
+/* Component                                                           */
+/* ================================================================== */
+type Tab = "agents" | "data" | "search";
+export type ControlCenterProps = {
+  fullName: string;
+  initial: string;
+  inbox: string;
+};
+
+export default function ControlCenter({ fullName, initial, inbox }: ControlCenterProps) {
+  const [tab, setTab] = useState<Tab>("agents");
+  const [populated, setPopulated] = useState(true);
+  const [runtime, setRuntime] = useState<"cloud" | "byok">("cloud");
+  const [autoAccept, setAutoAccept] = useState(false);
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [accountType, setAccountType] = useState<"org" | "single">("org");
+
+  // modal state
+  const [modalOpen, setModalOpen] = useState(false);
+  const [step, setStep] = useState(1);
+  const [channels, setChannels] = useState<string[]>(["gmail", "outlook"]);
+  const [mode, setMode] = useState<"auto" | "ping">("auto");
+  const [purpose, setPurpose] = useState<"curate" | "auto">("curate");
+  const [scope, setScope] = useState<"org" | "people" | "me">("org");
+  const [sharePeople, setSharePeople] = useState<string[]>(["Jordan Lee", "Priya Nair"]);
+  const [targetTables, setTargetTables] = useState<string[]>(["Invoices"]);
+  const [freestyle, setFreestyle] = useState(false);
+
+  const cloud = runtime === "cloud";
+  const isOrg = accountType === "org";
+
+  const openModal = () => {
+    setStep(1);
+    setModalOpen(true);
+  };
+  const nextStep = () => {
+    if (step >= 4) {
+      setModalOpen(false);
+      setStep(1);
+    } else setStep(step + 1);
+  };
+  const prevStep = () => setStep(Math.max(1, step - 1));
+  const toggle = <T,>(list: T[], v: T) =>
+    list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
+
+  const suggestions = SUGGESTIONS.filter((x) => !dismissed.includes(x.id));
+
+  const titles: Record<Tab, { t: string; sub: string }> = {
+    agents: { t: "Agents", sub: populated ? "4 of 5 running · watching your channels" : "No agents yet — create your first one" },
+    data: { t: "Data", sub: populated ? "6 tables · parsed automatically from your messages" : "No tables yet" },
+    search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
+  };
+
+  const runtimeLabel = cloud ? "Datamodo cloud" : "Your own key";
+  const runtimeSub = cloud ? "We run every agent for you." : "Runs on your ChatGPT / Claude plan.";
+  const runtimeDot = cloud ? C.green : C.gold;
+
+  return (
+    <div className="cc-shell">
+      {/* ================= SIDEBAR ================= */}
+      <aside className="cc-side">
+        <div style={{ padding: "2px 8px 22px", display: "flex", alignItems: "baseline" }}>
+          <span className="dm-script" style={{ fontWeight: 700, fontSize: 27, lineHeight: 1, color: "#F1ECE1", display: "inline-block", transform: "rotate(-4deg)", marginRight: 1 }}>data</span>
+          <span className="dm-display" style={{ fontWeight: 700, fontSize: 20, letterSpacing: "-0.03em", color: "#F1ECE1" }}>modo</span>
+        </div>
+
+        {/* New agent + workspace nav — a plain stack on desktop; on mobile
+            this whole group becomes one horizontally-scrollable row so the
+            action and the tabs stay aligned together. */}
+        <div className="cc-navgroup">
+        <Hov
+          onClick={openModal}
+          className="cc-new"
+          base={{ display: "flex", alignItems: "center", gap: 10, background: "#2B2720", border: "none", borderRadius: 11, padding: "11px 12px", color: "#F1ECE1", fontFamily: "inherit", fontSize: 14, fontWeight: 500, marginBottom: 22, cursor: "pointer", width: "100%", textAlign: "left" }}
+          hover={{ background: "#322D25" }}
+        >
+          <span style={{ width: 24, height: 24, borderRadius: 7, background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0, lineHeight: 1 }}>+</span>
+          New agent
+        </Hov>
+
+        <p className="dm-mono cc-side-label" style={{ ...monoLabel, letterSpacing: "0.09em", padding: "0 8px 8px", margin: 0, color: "#7C766B" }}>Workspace</p>
+        <nav className="cc-nav" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          {([
+            { key: "agents", label: "Agents", count: "5", icon: <><rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8V4" /><circle cx="12" cy="3" r="1.4" fill="currentColor" stroke="none" /><path d="M9 14h.01M15 14h.01" /></> },
+            { key: "data", label: "Data", count: "6", icon: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></> },
+            { key: "search", label: "Search", count: null, icon: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></> },
+          ] as const).map((item) => {
+            const active = tab === item.key;
+            return (
+              <Hov
+                key={item.key}
+                onClick={() => setTab(item.key)}
+                base={navStyle(active)}
+                hover={active ? undefined : { background: "#2B2720", color: "#F1ECE1" }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: 11, color: active ? C.accent : "#8A8477" }}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">{item.icon}</svg>
+                  <span style={{ color: active ? "#F1ECE1" : "#B7AF9F" }}>{item.label}</span>
+                </span>
+                {item.count && <span className="dm-mono" style={{ fontSize: 11, color: active ? "#8A8477" : "#7C766B" }}>{item.count}</span>}
+              </Hov>
+            );
+          })}
+        </nav>
+        </div>
+
+        <div className="cc-review" style={{ marginTop: 26 }}>
+          <p className="dm-mono" style={{ ...monoLabel, letterSpacing: "0.09em", padding: "0 8px 8px", margin: 0, color: "#7C766B" }}>Needs review</p>
+          <Hov
+            onClick={() => setTab("agents")}
+            base={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "none", border: "none", padding: "9px 10px", borderRadius: 9, color: "#B7AF9F", fontFamily: "inherit", fontSize: 14, cursor: "pointer", textAlign: "left" }}
+            hover={{ background: "#2B2720", color: "#F1ECE1" }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: 11 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.accent, animation: "cc-pulse 2.6s ease-in-out infinite" }} />
+              Suggestions
+            </span>
+            <span className="dm-mono" style={{ fontSize: 11, color: "#fff", background: C.accent, borderRadius: 999, padding: "1px 8px" }}>{PENDING_COUNT}</span>
+          </Hov>
+        </div>
+
+        {/* runtime / compute */}
+        <div className="cc-compute" style={{ marginTop: "auto", background: "#2B2720", border: "1px solid #3A352C", borderRadius: 12, padding: "11px 12px", marginBottom: 14 }}>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.08em", color: "#7C766B", marginBottom: 7 }}>Compute · account-wide</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: runtimeDot, flexShrink: 0 }} />
+              <span style={{ fontSize: 13, color: "#F1ECE1", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{runtimeLabel}</span>
+            </div>
+            <Hov onClick={() => setRuntime(cloud ? "byok" : "cloud")} tag="button" base={{ background: "none", border: "none", fontSize: 10.5, color: "#A39B8B", cursor: "pointer", flexShrink: 0 }} hover={{ color: "#F1ECE1" }}>
+              <span className="dm-mono">switch</span>
+            </Hov>
+          </div>
+          <div style={{ fontSize: 11, color: "#7C766B", marginTop: 5, lineHeight: 1.35 }}>{runtimeSub}</div>
+        </div>
+
+        {/* user */}
+        <div className="cc-user" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 8px", borderTop: "1px solid #3A352C" }}>
+          <span style={{ width: 30, height: 30, borderRadius: "50%", background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{initial}</span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, color: "#F1ECE1", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</div>
+            <div className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B" }}>{isOrg ? "Acme · Team" : "Pro · solo"}</div>
+          </div>
+          <form action={signout} style={{ marginLeft: "auto" }}>
+            <Hov tag="button" type="submit" title="Sign out" base={{ background: "none", border: "none", color: "#7C766B", fontSize: 11, cursor: "pointer" }} hover={{ color: "#F1ECE1" }}>
+              <span className="dm-mono">Sign out</span>
+            </Hov>
+          </form>
+        </div>
+      </aside>
+
+      {/* ================= MAIN ================= */}
+      <main className="cc-main">
+        {/* topbar */}
+        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "18px 26px", borderBottom: "1px solid #E7E0D2", background: "#F6F2E9", flexWrap: "wrap" }}>
+          <div style={{ minWidth: 0 }}>
+            <div className="dm-display" style={{ fontWeight: 700, fontSize: 21, letterSpacing: "-0.025em", lineHeight: 1.1 }}>{titles[tab].t}</div>
+            <div style={{ fontSize: 13, color: "#8A8477", marginTop: 2 }}>{titles[tab].sub}</div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginLeft: "auto" }}>
+            <div style={{ display: "inline-flex", background: "#EFE9DC", border: "1px solid #E1D9C8", borderRadius: 9, padding: 3 }}>
+              <button type="button" onClick={() => setPopulated(true)} style={segStyle(populated)}>Live</button>
+              <button type="button" onClick={() => setPopulated(false)} style={segStyle(!populated)}>First run</button>
+            </div>
+            <span style={{ width: 1, height: 24, background: "#E1D9C8" }} />
+            <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#6B665B", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px" }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.green }} />{inbox}
+            </div>
+            <Hov onClick={() => setAccountType(isOrg ? "single" : "org")} base={{ display: "flex", alignItems: "center", gap: 9, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "5px 9px 5px 6px", cursor: "pointer", fontFamily: "inherit" }} hover={{ border: "1px solid #D8CFBD", background: "#FBF8F1" }}>
+              <span style={{ width: 26, height: 26, borderRadius: 7, background: "#FDF1EC", border: "1px solid #F3D6CB", color: C.accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                {isOrg ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18" /><rect x="4" y="4" width="16" height="16" rx="1.5" /><path d="M9.5 21v-5h5v5" /><path d="M8 8h.01M12 8h.01M16 8h.01" /></svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" /></svg>
+                )}
+              </span>
+              <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.15 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{isOrg ? "Acme" : "Personal"}</span>
+                <span className="dm-mono" style={{ fontSize: 9.5, color: "#A39B8B" }}>{isOrg ? "Team workspace" : "Solo account"}</span>
+              </span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A39B8B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2 }}><path d="m6 9 6 6 6-6" /></svg>
+            </Hov>
+          </div>
+        </div>
+
+        <div className="cc-scroll" style={{ padding: "24px 26px", overflow: "auto", flex: 1 }}>
+          {tab === "agents" && (populated ? <AgentsFull suggestions={suggestions} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} dismiss={(id) => setDismissed((d) => [...d, id])} isOrg={isOrg} openModal={openModal} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
+          {tab === "data" && (populated ? <DataFull /> : <DataEmpty openModal={openModal} />)}
+          {tab === "search" && <SearchTab populated={populated} />}
+        </div>
+      </main>
+
+      {/* ================= CREATE AGENT MODAL ================= */}
+      {modalOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 50, alignItems: "center", justifyContent: "center", padding: 24, display: "flex" }}>
+          <div onClick={() => setModalOpen(false)} style={{ position: "absolute", inset: 0, background: "rgba(33,30,24,.5)", backdropFilter: "blur(2px)" }} />
+          <div style={{ position: "relative", width: "100%", maxWidth: 600, background: "#F6F2E9", border: "1px solid #E1D9C8", borderRadius: 20, overflow: "hidden", boxShadow: "0 40px 90px -40px rgba(33,30,24,.7)", maxHeight: "88vh", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px 16px" }}>
+              <div>
+                <div className="dm-display" style={{ fontWeight: 700, fontSize: 19, letterSpacing: "-0.025em" }}>New agent</div>
+                <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginTop: 2 }}>Step {step} of 4 · {["Channels", "Access", "Purpose", "Review"][step - 1]}</div>
+              </div>
+              <Hov onClick={() => setModalOpen(false)} base={{ width: 32, height: 32, borderRadius: 9, border: "1px solid #E1D9C8", background: "#fff", color: "#8A8477", cursor: "pointer", fontSize: 15, lineHeight: 1 }} hover={{ background: "#FBF8F1", color: C.ink }}>✕</Hov>
+            </div>
+            <div style={{ display: "flex", gap: 6, padding: "0 24px 18px" }}>
+              {[1, 2, 3, 4].map((n) => <span key={n} style={bar(step >= n)} />)}
+            </div>
+
+            <div className="cc-scroll" style={{ padding: "4px 24px 8px", overflow: "auto" }}>
+              {step === 1 && (
+                <ModalStep1 channels={channels} setChannels={setChannels} toggle={toggle} />
+              )}
+              {step === 2 && (
+                <ModalStep2 mode={mode} setMode={setMode} isOrg={isOrg} scope={scope} setScope={setScope} sharePeople={sharePeople} setSharePeople={setSharePeople} toggle={toggle} />
+              )}
+              {step === 3 && (
+                <ModalStep3 purpose={purpose} setPurpose={setPurpose} freestyle={freestyle} setFreestyle={setFreestyle} targetTables={targetTables} setTargetTables={setTargetTables} toggle={toggle} />
+              )}
+              {step === 4 && (
+                <ModalStep4 channels={channels} mode={mode} isOrg={isOrg} scope={scope} sharePeople={sharePeople} purpose={purpose} freestyle={freestyle} targetTables={targetTables} runtimeDot={runtimeDot} runtimeLabel={runtimeLabel} />
+              )}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 24px 20px", borderTop: "1px solid #E7E0D2", background: "#F0EBDE" }}>
+              <button type="button" onClick={prevStep} style={{ background: "none", border: "none", color: step === 1 ? "#C9C1B2" : "#57534A", fontFamily: "inherit", fontSize: 14, fontWeight: 500, cursor: "pointer", padding: "11px 8px" }}>Back</button>
+              <Hov onClick={nextStep} base={{ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 11, padding: "11px 22px", fontFamily: "inherit", fontSize: 14, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 16px rgba(228,89,59,.28)" }} hover={{ background: C.accentPress }}>
+                {step >= 4 ? "Create agent" : "Continue"}
+              </Hov>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ================================================================== */
+/* AGENTS TAB                                                          */
+/* ================================================================== */
+function AgentsFull({ suggestions, autoAccept, setAutoAccept, expanded, setExpanded, dismiss, isOrg, openModal }: {
+  suggestions: Suggestion[];
+  autoAccept: boolean;
+  setAutoAccept: (v: boolean) => void;
+  expanded: string | null;
+  setExpanded: (v: string | null) => void;
+  dismiss: (id: string) => void;
+  isOrg: boolean;
+  openModal: () => void;
+}) {
+  return (
+    <div>
+      {/* REVIEW / SUGGESTIONS */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+            <span className="dm-display" style={{ fontWeight: 700, fontSize: 16, letterSpacing: "-0.02em" }}>Your agents have suggestions</span>
+            <span className="dm-mono" style={{ fontSize: 11, color: "#fff", background: C.accent, borderRadius: 999, padding: "1px 8px" }}>{PENDING_COUNT}</span>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", fontSize: 13, color: "#57534A" }}>
+            Auto-accept from trusted agents
+            <span onClick={() => setAutoAccept(!autoAccept)} style={toggleTrack(autoAccept)}>
+              <span style={toggleKnob(autoAccept)} />
+            </span>
+          </label>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {suggestions.map((s) => (
+            <SuggestionCard key={s.id} s={s} expanded={expanded === s.id} onCompare={() => setExpanded(expanded === s.id ? null : s.id)} onAccept={() => dismiss(s.id)} onDismiss={() => dismiss(s.id)} />
+          ))}
+          {suggestions.length === 0 && (
+            <div style={{ background: "#fff", border: "1px dashed #E1D9C8", borderRadius: 16, padding: 26, textAlign: "center" }}>
+              <div style={{ fontSize: 14, color: "#57534A" }}>All caught up — no suggestions waiting.</div>
+              <div className="dm-mono" style={{ fontSize: 11.5, color: "#A39B8B", marginTop: 5 }}>Your agents will drop new proposals here as messages arrive.</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* AGENT GRID */}
+      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12 }}>
+        <span className="dm-display" style={{ fontWeight: 700, fontSize: 16, letterSpacing: "-0.02em" }}>Your agents</span>
+        <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>5</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(268px,1fr))", gap: 16 }}>
+        {AGENTS.map((a) => <AgentCard key={a.name} a={a} isOrg={isOrg} />)}
+        <Hov onClick={openModal} base={{ background: "none", border: "1.5px dashed #D8CFBD", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", minHeight: 180, color: "#8A8477", fontFamily: "inherit", transition: "border-color .15s ease, background .15s ease" }} hover={{ border: `1.5px dashed ${C.accent}`, background: "#FDF1EC", color: C.accent }}>
+          <span style={{ width: 42, height: 42, borderRadius: 12, background: "#F1EDE4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, lineHeight: 1 }}>+</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>New agent</span>
+          <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", textAlign: "center" }}>watch a channel, fill a table</span>
+        </Hov>
+      </div>
+    </div>
+  );
+}
+
+function SuggestionCard({ s, expanded, onCompare, onAccept, onDismiss }: {
+  s: Suggestion;
+  expanded: boolean;
+  onCompare: () => void;
+  onAccept: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: "18px 18px 16px", boxShadow: "0 18px 44px -34px rgba(33,30,24,.35)", animation: "cc-rise .4s ease both" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+        <span className="dm-display" style={{ width: 38, height: 38, borderRadius: "50%", background: s.avatarBg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 16, flexShrink: 0 }}>{s.initial}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 600, fontSize: 14.5 }}>{s.name}</span>
+            <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>{s.meta}</span>
+            <span className="dm-mono" style={{ fontSize: 10.5, color: "#57534A", background: "#F1EDE4", border: "1px solid #E7E0D2", borderRadius: 6, padding: "2px 7px" }}>{s.versionTag}</span>
+          </div>
+          <p style={{ margin: "7px 0 0", fontSize: 14, color: "#514C43", lineHeight: 1.5, maxWidth: "62ch" }}>{s.message}</p>
+        </div>
+      </div>
+
+      {/* proposed rows */}
+      <div style={{ margin: "14px 0 0 50px", border: "1px solid #ECE5D8", borderRadius: 11, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "#FAF6EE", borderBottom: "1px solid #ECE5D8" }}>
+          <span className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em", color: "#A39B8B" }}>Proposed → {s.target}</span>
+          <span className="dm-mono" style={{ fontSize: 10.5, color: C.green }}>{s.changeSummary}</span>
+        </div>
+        {s.rows.map((r, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "1.4fr 0.8fr 0.9fr 1.1fr", gap: 8, alignItems: "center", padding: "9px 12px", borderTop: "1px solid #F3EEE3", background: r.bg, boxShadow: r.stripe }}>
+            <span style={{ fontSize: 12.5, color: C.ink }}>{r.a}</span>
+            <span className="dm-mono" style={{ fontSize: 12, color: "#57534A" }}>{r.b}</span>
+            <span className="dm-mono" style={{ fontSize: 12, color: r.cColor }}>{r.c}</span>
+            <span className="dm-mono" style={{ fontSize: 11, color: r.tagColor, display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: r.tagColor }} />{r.tag}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* version compare */}
+      {expanded && (
+        <div style={{ margin: "12px 0 0 50px", display: "grid", gridTemplateColumns: "1fr 24px 1fr", gap: 0, alignItems: "stretch" }}>
+          <div style={{ border: "1px solid #E7E0D2", borderRadius: 11, padding: "12px 14px", background: "#FBFAF7" }}>
+            <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em", color: "#A39B8B", marginBottom: 8 }}>Last accepted · {s.vOld}</div>
+            <div style={{ fontSize: 13, color: "#8A8477", lineHeight: 1.6 }}>{s.oldValue}</div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", color: "#C98467", fontSize: 14 }}>→</div>
+          <div style={{ border: "1px solid #F3D6CB", borderRadius: 11, padding: "12px 14px", background: "#FDF1EC" }}>
+            <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em", color: "#C98467", marginBottom: 8 }}>Proposed · {s.vNew}</div>
+            <div style={{ fontSize: 13, color: C.ink, fontWeight: 500, lineHeight: 1.6 }}>{s.newValue}</div>
+          </div>
+        </div>
+      )}
+
+      {/* actions */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0 0 50px", flexWrap: "wrap" }}>
+        <Hov onClick={onAccept} base={{ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 10, padding: "9px 16px", fontFamily: "inherit", fontSize: 13.5, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 16px rgba(228,89,59,.28)" }} hover={{ background: C.accentPress }}>Accept all</Hov>
+        <Hov onClick={onCompare} base={{ background: "#fff", color: C.ink, border: "1px solid #DCD3C2", borderRadius: 10, padding: "9px 15px", fontFamily: "inherit", fontSize: 13.5, fontWeight: 500, cursor: "pointer" }} hover={{ background: "#FBF8F1" }}>{expanded ? "Hide compare" : "Review & compare"}</Hov>
+        <Hov onClick={onDismiss} base={{ background: "none", color: "#8A8477", border: "none", borderRadius: 10, padding: "9px 12px", fontFamily: "inherit", fontSize: 13.5, fontWeight: 500, cursor: "pointer" }} hover={{ color: C.ink }}>Dismiss</Hov>
+        <span className="dm-mono" style={{ marginLeft: "auto", fontSize: 11, color: "#A39B8B" }}>{s.confidence}</span>
+      </div>
+    </div>
+  );
+}
+
+function AgentCard({ a, isOrg }: { a: Agent; isOrg: boolean }) {
+  const accent = a.modeLabel === "Auto";
+  const modePill: CSSProperties = {
+    fontSize: 10.5,
+    padding: "3px 9px",
+    borderRadius: 999,
+    ...(accent
+      ? { color: C.accent, background: "#FDF1EC", border: "1px solid #F3D6CB" }
+      : { color: "#57534A", background: "#F6F2E9", border: "1px solid #E7E0D2" }),
+  };
+  const scopeLabel = a.scope === "org" ? "Org" : a.scope === "people" ? "Shared" : "Private";
+  const scopeChip: CSSProperties = {
+    marginLeft: "auto",
+    fontSize: 10,
+    padding: "2px 8px",
+    borderRadius: 999,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    ...(a.scope === "me"
+      ? { color: "#8A8477", background: "none", border: "1px solid #E7E0D2" }
+      : { color: "#57534A", background: "#F1EDE4", border: "1px solid #E7E0D2" }),
+  };
+  const pendBadge: CSSProperties = a.pending > 0
+    ? { fontSize: 10.5, color: C.accent, background: "#FDF1EC", border: "1px solid #F3D6CB", borderRadius: 999, padding: "2px 8px", flexShrink: 0 }
+    : { fontSize: 10.5, color: "#A39B8B", flexShrink: 0 };
+
+  return (
+    <Hov tag="div" base={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", gap: 14, transition: "box-shadow .15s ease, transform .15s ease" }} hover={{ boxShadow: "0 20px 40px -30px rgba(33,30,24,.4)", transform: "translateY(-2px)" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+        <span className="dm-display" style={{ width: 40, height: 40, borderRadius: 12, background: a.avatarBg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 17, flexShrink: 0 }}>{a.initial}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 15, letterSpacing: "-0.01em" }}>{a.name}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: a.statusDot }} />
+            <span className="dm-mono" style={{ fontSize: 11, color: a.statusColor }}>{a.statusLabel}</span>
+          </div>
+        </div>
+        <span style={{ color: "#B7AF9F", fontSize: 16, lineHeight: 1, padding: 2 }}>⋯</span>
+      </div>
+      <p style={{ margin: 0, fontSize: 13, color: "#57534A", lineHeight: 1.45, minHeight: 38 }}>{a.purpose}</p>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span className="dm-mono" style={modePill}>{a.modeLabel}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, marginLeft: 2 }}>
+          {a.channels.map((c) => (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img key={c} src={LOGO[c]} alt={CH_NAMES[c]} title={CH_NAMES[c]} style={{ width: 18, height: 18, borderRadius: 4 }} />
+          ))}
+        </div>
+        {isOrg && <span className="dm-mono" style={scopeChip}>{scopeLabel}</span>}
+      </div>
+      <div style={{ borderTop: "1px solid #F1EDE4", paddingTop: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}><span style={{ color: "#C98467" }}>→</span><span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.feeds}</span></span>
+        <span className="dm-mono" style={pendBadge}>{a.pending > 0 ? `${a.pending} pending` : "up to date"}</span>
+      </div>
+    </Hov>
+  );
+}
+
+function AgentsEmpty({ openModal, inbox }: { openModal: () => void; inbox: string }) {
+  const steps = [
+    { n: "01", t: "Pick a channel", d: "Gmail, Outlook, WhatsApp, Slack or Telegram." },
+    { n: "02", t: "Tell it what to watch", d: "Auto, or ping it when you want something saved." },
+    { n: "03", t: "It fills your tables", d: "Structured rows you can query, export or sync." },
+  ];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "44px 20px 60px" }}>
+      <div style={{ width: 70, height: 70, borderRadius: 20, background: "#FDF1EC", border: "1px solid #F3D6CB", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 22 }}>
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8V4" /><circle cx="12" cy="3" r="1.4" fill={C.accent} stroke="none" /><path d="M9 14h.01M15 14h.01" /></svg>
+      </div>
+      <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 30, letterSpacing: "-0.03em", margin: "0 0 10px" }}>Create your first agent</h2>
+      <p style={{ fontSize: 15.5, color: "#57534A", maxWidth: "46ch", margin: "0 0 30px", lineHeight: 1.55 }}>An agent quietly watches one of your channels and turns the messages you care about into clean, tabular data — no copy-paste, ever.</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14, maxWidth: 640, width: "100%", marginBottom: 32 }}>
+        {steps.map((s) => (
+          <div key={s.n} style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 14, padding: "18px 16px", textAlign: "left" }}>
+            <div className="dm-mono" style={{ fontSize: 11, color: C.accent, marginBottom: 8 }}>{s.n}</div>
+            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{s.t}</div>
+            <div style={{ fontSize: 12.5, color: "#8A8477", lineHeight: 1.45 }}>{s.d}</div>
+          </div>
+        ))}
+      </div>
+      <Hov onClick={openModal} base={{ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 12, padding: "14px 26px", fontFamily: "inherit", fontSize: 15, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 18px rgba(228,89,59,.28)" }} hover={{ background: C.accentPress }}>Create an agent</Hov>
+      <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 18, fontSize: 12, color: "#8A8477" }}>
+        <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.green }} />
+        or forward anything to <span style={{ color: C.ink }}>{inbox}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/* DATA TAB                                                            */
+/* ================================================================== */
+function DataFull() {
+  const nodes = [
+    { l: "20%", t: "29%", label: "Contacts", n: "64", dot: C.green, dark: false, accent: false },
+    { l: "49%", t: "21%", label: "Companies", n: "19", dark: true, accent: false },
+    { l: "78%", t: "32%", label: "Invoices", n: "28", accent: true, dark: false },
+    { l: "78%", t: "73%", label: "Receipts", n: "112", dot: C.gold, dark: false, accent: false },
+    { l: "49%", t: "73%", label: "Trips", n: "7", dark: false, accent: false },
+    { l: "22%", t: "75%", label: "Reading", n: "156", dark: false, accent: false },
+  ];
+  const edges = [
+    { l: "30%", t: "16%", label: "works at" },
+    { l: "62%", t: "20%", label: "billed to" },
+    { l: "78%", t: "53%", label: "paid by" },
+    { l: "50%", t: "53%", label: "references" },
+    { l: "22%", t: "56%", label: "traveler" },
+  ];
+  return (
+    <div>
+      {/* export bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22, flexWrap: "wrap" }}>
+        <span className="dm-mono" style={{ fontSize: 12, color: "#8A8477" }}>6 tables · 5 agents feeding them</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+          <Hov base={exportBtn} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1E8E4E" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 9v12" /></svg>
+            Google Sheets
+          </Hov>
+          <Hov base={exportBtn} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#57534A" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
+            Export CSV
+          </Hov>
+          <Hov base={exportBtn} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#57534A" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="m8 6-6 6 6 6" /><path d="m16 6 6 6-6 6" /></svg>
+            API
+          </Hov>
+        </div>
+      </div>
+
+      {/* relationship map */}
+      <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 18, padding: "20px 22px 8px", marginBottom: 22, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <span className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em" }}>How your data connects</span>
+          <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>auto-linked · 1,904 relationships</span>
+        </div>
+        <div style={{ position: "relative", height: 280, width: "100%" }}>
+          <svg viewBox="0 0 900 280" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+            <g stroke="#E1D9C8" strokeWidth="1.5" fill="none">
+              {["M180,80 L440,60", "M440,60 L700,90", "M700,90 L700,205", "M440,60 L440,205", "M180,80 L200,210"].map((d, i) => (
+                <path key={i} d={d} style={{ strokeDasharray: 300, animation: `cc-draw 1.1s ease ${0.1 + i * 0.15}s both` }} />
+              ))}
+            </g>
+          </svg>
+          {edges.map((e) => (
+            <span key={e.label} className="dm-mono" style={{ position: "absolute", left: e.l, top: e.t, transform: "translate(-50%,-50%)", fontSize: 10, color: "#A39B8B", background: "#fff", padding: "0 4px" }}>{e.label}</span>
+          ))}
+          {nodes.map((n) => (
+            <span key={n.label} style={{ position: "absolute", left: n.l, top: n.t, transform: "translate(-50%,-50%)", display: "flex", alignItems: "center", gap: 7, borderRadius: 999, fontSize: n.dark ? 13 : 12.5, fontWeight: n.dark || n.accent ? 600 : 500, padding: n.dark ? "8px 15px" : "7px 13px", ...(n.dark ? { background: C.ink, color: "#F1ECE1", boxShadow: "0 10px 24px -12px rgba(33,30,24,.5)" } : n.accent ? { background: "#FDF1EC", border: "1px solid #F3D6CB", color: C.accent } : { background: "#F6F2E9", border: "1px solid #E1D9C8" }) }}>
+              {n.dot && <span style={{ width: 7, height: 7, borderRadius: "50%", background: n.dot }} />}
+              {n.label} <span className="dm-mono" style={{ fontSize: 10, color: n.dark ? "#9A9384" : n.accent ? "#C98467" : "#A39B8B" }}>{n.n}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* table cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 16, marginBottom: 24 }}>
+        {TABLES.map((t) => (
+          <Hov key={t.name} tag="div" base={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: "16px 17px", display: "flex", flexDirection: "column", gap: 12, transition: "box-shadow .15s ease" }} hover={{ boxShadow: "0 18px 38px -30px rgba(33,30,24,.4)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                <span style={{ width: 28, height: 28, borderRadius: 8, background: "#F6F2E9", border: "1px solid #ECE5D8", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8A8477" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></svg>
+                </span>
+                <span className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em" }}>{t.name}</span>
+              </div>
+              <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>{t.rows}</span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {t.fields.map((f) => (
+                <span key={f} className="dm-mono" style={{ fontSize: 10.5, color: "#57534A", background: "#F6F2E9", border: "1px solid #ECE5D8", borderRadius: 6, padding: "3px 7px" }}>{f}</span>
+              ))}
+            </div>
+            <div style={{ borderTop: "1px solid #F1EDE4", paddingTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+              <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                <span style={{ width: 14, height: 14, borderRadius: 4, background: t.agentBg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, flexShrink: 0 }}>{t.agentInitial}</span>
+                <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.agent}</span>
+              </span>
+              <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>{t.updated}</span>
+            </div>
+          </Hov>
+        ))}
+      </div>
+
+      {/* featured table */}
+      <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "15px 18px", borderBottom: "1px solid #EFE9DC", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span className="dm-display" style={{ fontWeight: 700, fontSize: 16 }}>Invoices</span>
+            <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>28 rows · fed by Ledger</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button type="button" className="dm-mono" style={{ fontSize: 11, color: "#6B665B", border: "1px solid #E1D9C8", borderRadius: 8, padding: "5px 10px", background: "none", cursor: "pointer" }}>Filter</button>
+            <button type="button" className="dm-mono" style={{ fontSize: 11, color: "#fff", background: C.ink, border: `1px solid ${C.ink}`, borderRadius: 8, padding: "5px 10px", cursor: "pointer" }}>Export CSV</button>
+          </div>
+        </div>
+        <div style={{ fontSize: 13, overflowX: "auto" }}>
+          <div className="dm-mono" style={{ display: "grid", gridTemplateColumns: "32px 1.3fr 0.8fr 0.8fr 0.7fr 0.9fr", minWidth: 560, background: "#FAF6EE", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.03em", color: "#A39B8B" }}>
+            <span style={{ padding: "9px 8px", borderRight: "1px solid #EFE9DC", textAlign: "center" }}>#</span>
+            <span style={{ padding: "9px 12px", borderRight: "1px solid #EFE9DC" }}>Client</span>
+            <span style={{ padding: "9px 12px", borderRight: "1px solid #EFE9DC" }}>Invoice</span>
+            <span style={{ padding: "9px 12px", borderRight: "1px solid #EFE9DC" }}>Amount</span>
+            <span style={{ padding: "9px 12px", borderRight: "1px solid #EFE9DC" }}>Due</span>
+            <span style={{ padding: "9px 12px" }}>Status</span>
+          </div>
+          {INVOICE_ROWS.map((r) => {
+            const border = r.hl ? "#F3D6CB" : "#F1EDE4";
+            const st = STATUS_STYLE[r.status];
+            const cell: CSSProperties = { padding: "11px 12px", borderRight: `1px solid ${border}` };
+            return (
+              <div key={r.n} style={{ display: "grid", gridTemplateColumns: "32px 1.3fr 0.8fr 0.8fr 0.7fr 0.9fr", minWidth: 560, borderTop: `1px solid ${border}`, color: r.hl ? C.ink : "#57534A", fontWeight: r.hl ? 600 : 400, background: r.hl ? "#FDF1EC" : "transparent", boxShadow: r.hl ? `inset 3px 0 0 ${C.accent}` : "none" }}>
+                <span style={{ padding: "11px 8px", borderRight: `1px solid ${border}`, textAlign: "center", background: r.hl ? "transparent" : "#FBFAF7", color: r.hl ? C.accent : "#A39B8B" }}>{r.n}</span>
+                <span style={cell}>{r.client}</span>
+                <span className="dm-mono" style={cell}>{r.invoice}</span>
+                <span className="dm-mono" style={{ ...cell, color: r.hl ? C.accent : "#57534A" }}>{r.amount}</span>
+                <span style={cell}>{r.due}</span>
+                <span style={{ padding: "11px 12px" }}><span style={{ fontSize: 11, color: st.c, background: st.b, padding: "2px 8px", borderRadius: 999 }}>{r.status}</span></span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+const exportBtn: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 7,
+  background: "#fff",
+  border: "1px solid #E1D9C8",
+  borderRadius: 9,
+  padding: "7px 12px",
+  fontFamily: "inherit",
+  fontSize: 13,
+  fontWeight: 500,
+  color: "#3A352C",
+  cursor: "pointer",
+  transition: "background .15s ease, border-color .15s ease",
+};
+
+function DataEmpty({ openModal }: { openModal: () => void }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "60px 20px" }}>
+      <div style={{ width: 64, height: 64, borderRadius: 18, background: "#F6F2E9", border: "1px solid #E7E0D2", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20 }}>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#A39B8B" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></svg>
+      </div>
+      <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 26, letterSpacing: "-0.03em", margin: "0 0 8px" }}>No tables yet</h2>
+      <p style={{ fontSize: 15, color: "#57534A", maxWidth: "40ch", margin: "0 0 24px", lineHeight: 1.55 }}>Tables appear automatically the moment your first agent captures something. Create an agent to get started.</p>
+      <Hov onClick={openModal} base={{ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 12, padding: "12px 22px", fontFamily: "inherit", fontSize: 14.5, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 18px rgba(228,89,59,.28)" }} hover={{ background: C.accentPress }}>Create an agent</Hov>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/* SEARCH TAB                                                          */
+/* ================================================================== */
+function SearchTab({ populated }: { populated: boolean }) {
+  const recents = [
+    { q: "Which trips are still unpaid?", meta: "Trips · 2" },
+    { q: "Everyone I met at Acme this year", meta: "Contacts · 5" },
+    { q: "Total spend on flights this quarter", meta: "Receipts · $2,847" },
+  ];
+  const gnodes = [
+    { l: "18%", t: "30%", label: "Sarah Chen", dot: C.green, kind: "plain" },
+    { l: "50%", t: "50%", label: "Acme Inc", kind: "dark" },
+    { l: "80%", t: "26%", label: "#A-204", kind: "accent" },
+    { l: "80%", t: "76%", label: "$12,000", kind: "accent" },
+    { l: "20%", t: "78%", label: "accounts@acme.com", kind: "email" },
+  ];
+  const gedges = [
+    { l: "34%", t: "33%", label: "works at" },
+    { l: "66%", t: "31%", label: "billed to" },
+    { l: "66%", t: "66%", label: "amount" },
+    { l: "33%", t: "69%", label: "contact" },
+  ];
+  return (
+    <div style={{ maxWidth: 820 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 13, padding: "14px 16px", boxShadow: "0 18px 44px -34px rgba(33,30,24,.35)" }}>
+        <span style={{ color: C.accent, fontSize: 16 }}>✦</span>
+        <span style={{ flex: 1, fontSize: 15.5, color: C.ink }}>How much did I invoice Acme this quarter?<span style={{ display: "inline-block", width: 2, height: 17, background: C.accent, marginLeft: 2, verticalAlign: -3, animation: "cc-caret 1s step-end infinite" }} /></span>
+        <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", border: "1px solid #E1D9C8", borderRadius: 6, padding: "3px 8px" }}>Ask ↵</span>
+      </div>
+
+      {populated && (
+        <>
+          <div style={{ marginTop: 16, background: C.ink, color: "#F1ECE1", borderRadius: 18, padding: "24px 26px" }}>
+            <div className="dm-mono" style={{ fontSize: 11, color: "#9A9384", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Answer</div>
+            <div className="dm-display" style={{ fontWeight: 800, fontSize: 40, letterSpacing: "-0.03em", lineHeight: 1.05 }}>$20,750 <span style={{ fontSize: 19, fontWeight: 600, color: "#B7AF9F" }}>across 2 invoices</span></div>
+            <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "#C9C1B2" }}><span style={{ color: "#C98467" }}>↳</span>Acme Inc · <span className="dm-mono" style={{ color: "#F1ECE1" }}>#A-204</span> · <span className="dm-mono" style={{ color: C.accent }}>$12,000</span> · Approved</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "#C9C1B2" }}><span style={{ color: "#C98467" }}>↳</span>Acme Inc · <span className="dm-mono" style={{ color: "#F1ECE1" }}>#A-188</span> · <span className="dm-mono" style={{ color: "#F1ECE1" }}>$8,750</span> · Paid</div>
+            </div>
+            <div className="dm-mono" style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #3A352C", fontSize: 11, color: "#7C766B" }}>sourced from 2 forwarded emails · captured by Ledger · Invoices sheet</div>
+          </div>
+
+          <div style={{ marginTop: 16, background: "#fff", border: "1px solid #E7E0D2", borderRadius: 18, padding: "18px 20px 8px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+              <span className="dm-display" style={{ fontWeight: 700, fontSize: 14, letterSpacing: "-0.02em" }}>How this answer connects</span>
+              <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B" }}>knowledge graph · advanced</span>
+            </div>
+            <div style={{ position: "relative", height: 230 }}>
+              <svg viewBox="0 0 820 230" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+                <g stroke="#E1D9C8" strokeWidth="1.5" fill="none">
+                  {["M150,70 L410,115", "M410,115 L660,60", "M410,115 L660,175", "M410,115 L180,180"].map((d, i) => (
+                    <path key={i} d={d} style={{ strokeDasharray: 300, animation: `cc-draw 1.1s ease ${0.1 + i * 0.2}s both` }} />
+                  ))}
+                </g>
+              </svg>
+              {gedges.map((e) => (
+                <span key={e.label} className="dm-mono" style={{ position: "absolute", left: e.l, top: e.t, transform: "translate(-50%,-50%)", fontSize: 9.5, color: "#A39B8B", background: "#fff", padding: "0 4px" }}>{e.label}</span>
+              ))}
+              {gnodes.map((n) => (
+                <span key={n.label} className={n.kind === "accent" || n.kind === "email" ? "dm-mono" : undefined} style={{ position: "absolute", left: n.l, top: n.t, transform: "translate(-50%,-50%)", display: "flex", alignItems: "center", gap: 7, borderRadius: 999, ...(n.kind === "dark" ? { background: C.ink, color: "#F1ECE1", padding: "8px 16px", fontSize: 13, fontWeight: 600, boxShadow: "0 10px 24px -12px rgba(33,30,24,.5)" } : n.kind === "accent" ? { background: "#FDF1EC", border: "1px solid #F3D6CB", color: C.accent, padding: "6px 12px", fontSize: 12, fontWeight: 600 } : n.kind === "email" ? { background: "#F6F2E9", border: "1px solid #E1D9C8", color: "#57534A", padding: "6px 12px", fontSize: 11.5 } : { background: "#F6F2E9", border: "1px solid #E1D9C8", padding: "6px 12px", fontSize: 12, fontWeight: 500 }) }}>
+                  {n.dot && <span style={{ width: 7, height: 7, borderRadius: "50%", background: n.dot }} />}
+                  {n.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      <div style={{ marginTop: 20 }}>
+        <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 10 }}>Recent questions</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {recents.map((r) => (
+            <Hov key={r.q} base={{ textAlign: "left", background: "#fff", border: "1px solid #E7E0D2", borderRadius: 11, padding: "12px 15px", fontFamily: "inherit", fontSize: 14, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }} hover={{ border: "1px solid #F3D6CB", background: "#FDF1EC" }}>
+              {r.q}<span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>{r.meta}</span>
+            </Hov>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/* MODAL STEPS                                                         */
+/* ================================================================== */
+function ModalStep1({ channels, setChannels, toggle }: { channels: string[]; setChannels: (v: string[]) => void; toggle: <T>(l: T[], v: T) => T[] }) {
+  return (
+    <div>
+      <h3 className="dm-display" style={{ fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", margin: "0 0 4px" }}>Which channels should it watch?</h3>
+      <p style={{ fontSize: 13.5, color: "#8A8477", margin: "0 0 18px" }}>Pick one or more. The agent listens only to what you choose.</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 10 }}>
+        {Object.keys(LOGO).map((k) => {
+          const active = channels.includes(k);
+          return (
+            <button key={k} type="button" onClick={() => setChannels(toggle(channels, k))} style={channelTile(active)}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={LOGO[k]} alt={CH_NAMES[k]} style={{ width: 24, height: 24, borderRadius: 5 }} />
+              <span style={{ fontSize: 13.5, fontWeight: 500 }}>{CH_NAMES[k]}</span>
+              {active && <span style={{ position: "absolute", top: 8, right: 9, width: 16, height: 16, borderRadius: "50%", background: C.accent, color: "#fff", fontSize: 10, lineHeight: "16px", textAlign: "center" }}>✓</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ModalStep2({ mode, setMode, isOrg, scope, setScope, sharePeople, setSharePeople, toggle }: {
+  mode: "auto" | "ping"; setMode: (v: "auto" | "ping") => void;
+  isOrg: boolean; scope: "org" | "people" | "me"; setScope: (v: "org" | "people" | "me") => void;
+  sharePeople: string[]; setSharePeople: (v: string[]) => void; toggle: <T>(l: T[], v: T) => T[];
+}) {
+  return (
+    <div>
+      <h3 className="dm-display" style={{ fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", margin: "0 0 4px" }}>How much access does it get?</h3>
+      <p style={{ fontSize: 13.5, color: "#8A8477", margin: "0 0 18px" }}>You can change this any time.</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <button type="button" onClick={() => setMode("auto")} style={modeCard(mode === "auto")}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ width: 38, height: 38, borderRadius: 11, background: "#FDF1EC", border: "1px solid #F3D6CB", display: "flex", alignItems: "center", justifyContent: "center", color: C.accent, flexShrink: 0 }}>
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" /><circle cx="12" cy="12" r="3.5" /></svg>
+            </span>
+            <div style={{ textAlign: "left" }}>
+              <div style={{ fontWeight: 600, fontSize: 14.5 }}>Automatic</div>
+              <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Reads every new message and saves what fits its purpose.</div>
+            </div>
+          </div>
+          <span style={radioDot(mode === "auto")} />
+        </button>
+        <button type="button" onClick={() => setMode("ping")} style={modeCard(mode === "ping")}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ width: 38, height: 38, borderRadius: 11, background: "#F6F2E9", border: "1px solid #E7E0D2", display: "flex", alignItems: "center", justifyContent: "center", color: "#57534A", flexShrink: 0 }}>
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></svg>
+            </span>
+            <div style={{ textAlign: "left" }}>
+              <div style={{ fontWeight: 600, fontSize: 14.5 }}>On ping</div>
+              <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Stays quiet until you tag or forward it something to save.</div>
+            </div>
+          </div>
+          <span style={radioDot(mode === "ping")} />
+        </button>
+      </div>
+
+      <div style={{ marginTop: 22 }}>
+        <div className="dm-mono" style={{ ...monoLabel, marginBottom: 10 }}>Who can use it</div>
+        {isOrg ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <button type="button" onClick={() => setScope("org")} style={modeCard(scope === "org")}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ width: 38, height: 38, borderRadius: 11, background: "#FDF1EC", border: "1px solid #F3D6CB", display: "flex", alignItems: "center", justifyContent: "center", color: C.accent, flexShrink: 0 }}>
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18" /><rect x="4" y="4" width="16" height="16" rx="1.5" /><path d="M9.5 21v-5h5v5" /><path d="M8 8h.01M12 8h.01M16 8h.01M8 12h.01M16 12h.01" /></svg>
+                </span>
+                <div style={{ textAlign: "left" }}>
+                  <div style={{ fontWeight: 600, fontSize: 14.5 }}>Everyone at Acme</div>
+                  <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Org-wide — anyone in your organization can use it.</div>
+                </div>
+              </div>
+              <span style={radioDot(scope === "org")} />
+            </button>
+            <button type="button" onClick={() => setScope("people")} style={modeCard(scope === "people")}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ width: 38, height: 38, borderRadius: 11, background: "#F6F2E9", border: "1px solid #E7E0D2", display: "flex", alignItems: "center", justifyContent: "center", color: "#57534A", flexShrink: 0 }}>
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="8" r="3.2" /><path d="M2.5 20c0-3.3 2.9-5.2 6.5-5.2s6.5 1.9 6.5 5.2" /><path d="M16.4 5.3a3.1 3.1 0 0 1 0 5.6" /><path d="M18 14.5c2.2.5 3.7 1.9 3.7 4" /></svg>
+                </span>
+                <div style={{ textAlign: "left" }}>
+                  <div style={{ fontWeight: 600, fontSize: 14.5 }}>Specific people</div>
+                  <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Share with teammates you choose.</div>
+                </div>
+              </div>
+              <span style={radioDot(scope === "people")} />
+            </button>
+            {scope === "people" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 12px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
+                {TEAMMATES.map((p) => {
+                  const sel = sharePeople.includes(p.name);
+                  return (
+                    <button key={p.name} type="button" onClick={() => setSharePeople(toggle(sharePeople, p.name))} style={teammateStyle(sel)}>
+                      <span style={{ width: 28, height: 28, borderRadius: "50%", background: p.bg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, flexShrink: 0 }}>{p.initial}</span>
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ display: "block", fontSize: 13, fontWeight: 500, color: C.ink }}>{p.name}</span>
+                        <span className="dm-mono" style={{ display: "block", fontSize: 10.5, color: "#A39B8B" }}>{p.email}</span>
+                      </span>
+                      <span style={{ marginLeft: "auto", width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, flexShrink: 0, ...(sel ? { background: C.accent, color: "#fff", border: `1px solid ${C.accent}` } : { background: "#fff", color: "transparent", border: "1.5px solid #D8CFBD" }) }}>✓</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <button type="button" onClick={() => setScope("me")} style={modeCard(scope === "me")}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ width: 38, height: 38, borderRadius: 11, background: "#F6F2E9", border: "1px solid #E7E0D2", display: "flex", alignItems: "center", justifyContent: "center", color: "#57534A", flexShrink: 0 }}>
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" /></svg>
+                </span>
+                <div style={{ textAlign: "left" }}>
+                  <div style={{ fontWeight: 600, fontSize: 14.5 }}>Just me</div>
+                  <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Private to your account — no one else sees it.</div>
+                </div>
+              </div>
+              <span style={radioDot(scope === "me")} />
+            </button>
+          </div>
+        ) : (
+          <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#8A8477", background: "#F1EDE4", border: "1px solid #E7E0D2", borderRadius: 9, padding: "10px 12px", lineHeight: 1.4 }}>
+            <span style={{ color: "#C98467", flexShrink: 0 }}>◇</span>Solo account — every agent is private to you. Add teammates to share agents across a workspace.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ModalStep3({ purpose, setPurpose, freestyle, setFreestyle, targetTables, setTargetTables, toggle }: {
+  purpose: "curate" | "auto"; setPurpose: (v: "curate" | "auto") => void;
+  freestyle: boolean; setFreestyle: (v: boolean) => void;
+  targetTables: string[]; setTargetTables: (v: string[]) => void; toggle: <T>(l: T[], v: T) => T[];
+}) {
+  const selectTable = (name: string) => {
+    setFreestyle(false);
+    setTargetTables(toggle(targetTables, name));
+  };
+  return (
+    <div>
+      <h3 className="dm-display" style={{ fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", margin: "0 0 4px" }}>What should it capture?</h3>
+      <p style={{ fontSize: 13.5, color: "#8A8477", margin: "0 0 18px" }}>Give it a focus, or let it read your general context.</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <button type="button" onClick={() => setPurpose("curate")} style={modeCard(purpose === "curate")}>
+          <div style={{ textAlign: "left" }}>
+            <div style={{ fontWeight: 600, fontSize: 14.5 }}>Curate specific data</div>
+            <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Only save things that match a purpose you describe.</div>
+          </div>
+          <span style={radioDot(purpose === "curate")} />
+        </button>
+        {purpose === "curate" && (
+          <div style={{ margin: "-4px 2px 0" }}>
+            <input type="text" placeholder="e.g. only invoices, receipts & payment confirmations" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 11, padding: "12px 14px", fontFamily: "inherit", fontSize: 14, color: C.ink, background: "#fff", outline: "none" }} />
+          </div>
+        )}
+        <button type="button" onClick={() => setPurpose("auto")} style={modeCard(purpose === "auto")}>
+          <div style={{ textAlign: "left" }}>
+            <div style={{ fontWeight: 600, fontSize: 14.5 }}>Auto from my context</div>
+            <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Learns what matters to you and organizes it on its own.</div>
+          </div>
+          <span style={radioDot(purpose === "auto")} />
+        </button>
+      </div>
+      <div style={{ marginTop: 20 }}>
+        <div className="dm-mono" style={{ ...monoLabel, marginBottom: 10 }}>Feeds into an existing table</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+          {TABLES.map((t) => (
+            <button key={t.name} type="button" onClick={() => selectTable(t.name)} className="dm-mono" style={targetChip(!freestyle && targetTables.includes(t.name), freestyle)}>
+              {t.name} <span style={{ color: "#A39B8B", fontSize: 10 }}>{t.rows}</span>
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={() => { setFreestyle(true); setTargetTables([]); }} style={modeCard(freestyle)}>
+          <div style={{ textAlign: "left" }}>
+            <div style={{ fontWeight: 600, fontSize: 14.5 }}>Freestyle</div>
+            <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Let the agent decide, and create new tables when it needs to.</div>
+          </div>
+          <span style={radioDot(freestyle)} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ModalStep4({ channels, mode, isOrg, scope, sharePeople, purpose, freestyle, targetTables, runtimeDot, runtimeLabel }: {
+  channels: string[]; mode: "auto" | "ping"; isOrg: boolean; scope: "org" | "people" | "me";
+  sharePeople: string[]; purpose: "curate" | "auto"; freestyle: boolean; targetTables: string[];
+  runtimeDot: string; runtimeLabel: string;
+}) {
+  const reviewChannels = channels.length ? channels.map((k) => CH_NAMES[k]).join(", ") : "None selected";
+  const reviewMode = mode === "auto" ? "Automatic — reads everything" : "On ping — only when tagged";
+  const reviewPurpose = purpose === "curate" ? "Curated to a purpose" : "Auto from context";
+  const reviewScope = isOrg
+    ? scope === "org" ? "Everyone at Acme" : scope === "people" ? `Shared with ${sharePeople.length} ${sharePeople.length === 1 ? "person" : "people"}` : "Just me"
+    : "Just me · solo account";
+  const reviewFeeds = freestyle ? "Freestyle · auto tables" : targetTables.length ? targetTables.join(", ") : "Auto tables";
+  const rows = [
+    { l: "Channels", v: reviewChannels },
+    { l: "Access", v: reviewMode },
+    { l: "Visibility", v: reviewScope },
+    { l: "Captures", v: reviewPurpose },
+    { l: "Feeds into", v: reviewFeeds },
+  ];
+  return (
+    <div>
+      <h3 className="dm-display" style={{ fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", margin: "0 0 4px" }}>Name your agent</h3>
+      <p style={{ fontSize: 13.5, color: "#8A8477", margin: "0 0 18px" }}>Almost done.</p>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
+        <span className="dm-display" style={{ width: 46, height: 46, borderRadius: 13, background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 19, flexShrink: 0 }}>L</span>
+        <input type="text" defaultValue="Ledger" style={{ flex: 1, border: "1px solid #DDD5C5", borderRadius: 11, padding: "12px 14px", fontFamily: "inherit", fontSize: 15, fontWeight: 500, color: C.ink, background: "#fff", outline: "none" }} />
+      </div>
+      <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 13, padding: "4px 16px" }}>
+        {rows.map((r) => (
+          <div key={r.l} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0", borderBottom: "1px solid #F1EDE4" }}>
+            <span style={{ fontSize: 13, color: "#8A8477" }}>{r.l}</span>
+            <span style={{ fontSize: 13.5, fontWeight: 500 }}>{r.v}</span>
+          </div>
+        ))}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0" }}>
+          <span style={{ fontSize: 13, color: "#8A8477" }}>Runs on</span>
+          <span className="dm-mono" style={{ fontSize: 12, color: "#57534A", display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: runtimeDot }} />{runtimeLabel}</span>
+        </div>
+      </div>
+      <div className="dm-mono" style={{ marginTop: 12, fontSize: 11, color: "#A39B8B", textAlign: "center" }}>Compute is account-wide · change it in the sidebar</div>
+    </div>
+  );
+}
