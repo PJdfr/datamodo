@@ -3,21 +3,25 @@
 /**
  * Datamodo Control Center — the signed-in workspace.
  *
- * Ported from the "Datamodo Control Center.dc.html" design handoff. It is a
- * pure front-end experience: every panel is driven by local state and the mock
- * data below. The ONLY thing wired to the backend is the account (real name /
- * email / forwarding inbox are passed in from the server, and Sign out calls
- * the Supabase server action). Everything else — agents, tables, suggestions,
- * the create-agent wizard — is illustrative and does not persist.
+ * Ported from the "Datamodo Control Center.dc.html" design handoff. Agents and
+ * data tables are now REAL: they are loaded from Supabase by the server
+ * component and the create-agent wizard persists via a Server Action. The
+ * suggestions feed, relationship graph, and NL search remain illustrative (see
+ * app/dashboard/README.md for the roadmap).
  */
 
 import {
   createElement,
+  useMemo,
   useState,
+  useTransition,
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { useRouter } from "next/navigation";
 import { signout } from "@/app/auth/actions";
+import { createAgentAction } from "./actions";
+import type { AgentRecord, DatasetView } from "@/lib/datamodo/types";
 
 /* ------------------------------------------------------------------ */
 /* Hover helper — inline styles win over CSS :hover, so hover states   */
@@ -163,13 +167,6 @@ type Agent = {
   pending: number;
   scope: "org" | "me" | "people";
 };
-const AGENTS: Agent[] = [
-  { name: "Ledger", initial: "L", avatarBg: C.accent, statusLabel: "Active", statusColor: C.green, statusDot: C.green, channels: ["gmail", "outlook"], modeLabel: "Auto", purpose: "Invoices, receipts & payment confirmations from your billing inbox.", feeds: "Invoices · Receipts", pending: 3, scope: "org" },
-  { name: "Rolodex", initial: "R", avatarBg: C.ink, statusLabel: "Active", statusColor: C.green, statusDot: C.green, channels: ["whatsapp"], modeLabel: "On ping", purpose: "People & companies you meet — tag it and it files the contact.", feeds: "Contacts · Companies", pending: 2, scope: "me" },
-  { name: "Nomad", initial: "N", avatarBg: C.green, statusLabel: "Active", statusColor: C.green, statusDot: C.green, channels: ["gmail"], modeLabel: "Auto", purpose: "Trips, bookings & travel confirmations, kept in one timeline.", feeds: "Trips", pending: 0, scope: "people" },
-  { name: "Scout", initial: "S", avatarBg: C.gold, statusLabel: "Paused", statusColor: C.gold, statusDot: C.gold, channels: ["slack"], modeLabel: "On ping", purpose: "Product feedback & bug reports flagged from your team channels.", feeds: "Feedback", pending: 0, scope: "org" },
-  { name: "Telegraph", initial: "T", avatarBg: C.blue, statusLabel: "Active", statusColor: C.green, statusDot: C.green, channels: ["telegram"], modeLabel: "Auto", purpose: "Newsletter highlights & links worth keeping for later reading.", feeds: "Reading", pending: 0, scope: "me" },
-];
 
 type TableInfo = {
   name: string;
@@ -179,28 +176,6 @@ type TableInfo = {
   agentInitial: string;
   agentBg: string;
   updated: string;
-};
-const TABLES: TableInfo[] = [
-  { name: "Invoices", rows: "28 rows", fields: ["Client", "Invoice", "Amount", "Due", "Status"], agent: "Ledger", agentInitial: "L", agentBg: C.accent, updated: "2h ago" },
-  { name: "Receipts", rows: "112 rows", fields: ["Merchant", "Category", "Amount", "Date", "Method"], agent: "Ledger", agentInitial: "L", agentBg: C.accent, updated: "5h ago" },
-  { name: "Contacts", rows: "64 rows", fields: ["Name", "Email", "Company", "Role", "Met"], agent: "Rolodex", agentInitial: "R", agentBg: C.ink, updated: "1d ago" },
-  { name: "Companies", rows: "19 rows", fields: ["Name", "Domain", "Industry", "Contacts"], agent: "Rolodex", agentInitial: "R", agentBg: C.ink, updated: "1d ago" },
-  { name: "Trips", rows: "7 rows", fields: ["Destination", "Dates", "Booking", "Cost"], agent: "Nomad", agentInitial: "N", agentBg: C.green, updated: "3h ago" },
-  { name: "Reading", rows: "156 rows", fields: ["Title", "Source", "Topic", "Saved"], agent: "Telegraph", agentInitial: "T", agentBg: C.blue, updated: "6h ago" },
-];
-
-type Status = "Paid" | "Sent" | "Approved";
-type InvRow = { n: number; client: string; invoice: string; amount: string; due: string; status: Status; hl?: boolean };
-const INVOICE_ROWS: InvRow[] = [
-  { n: 1, client: "Northwind", invoice: "#A-198", amount: "$3,400", due: "Jul 20", status: "Paid" },
-  { n: 2, client: "Globex", invoice: "#A-201", amount: "$9,120", due: "Jul 28", status: "Sent" },
-  { n: 3, client: "Acme Inc", invoice: "#A-204", amount: "$12,000", due: "Aug 1", status: "Approved", hl: true },
-  { n: 4, client: "Initech", invoice: "#A-205", amount: "$2,120", due: "Aug 4", status: "Sent" },
-];
-const STATUS_STYLE: Record<Status, { c: string; b: string }> = {
-  Paid: { c: C.green, b: "#E4F0E8" },
-  Sent: { c: C.gold, b: "#F6ECD4" },
-  Approved: { c: C.accent, b: "#FBE0D6" },
 };
 
 const TEAMMATES = [
@@ -263,19 +238,6 @@ const radioDot = (active: boolean): CSSProperties => ({
   background: active
     ? "radial-gradient(circle, #E4593B 0 5px, #fff 6px 20px)"
     : "#fff",
-});
-const segStyle = (active: boolean): CSSProperties => ({
-  border: "none",
-  borderRadius: 7,
-  padding: "5px 11px",
-  fontFamily: "inherit",
-  fontSize: 12,
-  fontWeight: 500,
-  cursor: "pointer",
-  transition: "background .15s ease, color .15s ease",
-  ...(active
-    ? { background: "#fff", color: C.ink, boxShadow: "0 1px 2px rgba(33,30,24,.14)" }
-    : { background: "transparent", color: "#8A8477" }),
 });
 const bar = (active: boolean): CSSProperties => ({
   flex: 1,
@@ -364,40 +326,141 @@ export type ControlCenterProps = {
   fullName: string;
   initial: string;
   inbox: string;
+  isOrg: boolean;
+  agents: AgentRecord[];
+  datasets: DatasetView[];
 };
 
-export default function ControlCenter({ fullName, initial, inbox }: ControlCenterProps) {
+// Palette used to give agents/tables a stable accent when the DB has none.
+const AVATAR_PALETTE = [C.accent, C.ink, C.green, C.gold, C.blue];
+const pickColor = (seed: string) =>
+  AVATAR_PALETTE[
+    [...seed].reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_PALETTE.length
+  ];
+
+const relTime = (iso: string): string => {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "—";
+  const s = Math.max(0, (Date.now() - then) / 1000);
+  if (s < 60) return "just now";
+  const m = s / 60;
+  if (m < 60) return `${Math.floor(m)}m ago`;
+  const h = m / 60;
+  if (h < 24) return `${Math.floor(h)}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+};
+
+export default function ControlCenter({ fullName, initial, inbox, isOrg: isOrgAccount, agents, datasets }: ControlCenterProps) {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("agents");
-  const [populated, setPopulated] = useState(true);
   const [runtime, setRuntime] = useState<"cloud" | "byok">("cloud");
   const [autoAccept, setAutoAccept] = useState(false);
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [accountType, setAccountType] = useState<"org" | "single">("org");
+  const [accountType, setAccountType] = useState<"org" | "single">(isOrgAccount ? "org" : "single");
+
+  // Map the persisted records onto the shapes the panels render.
+  const datasetsByAgent = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const d of datasets) {
+      if (!d.agent_id) continue;
+      const arr = m.get(d.agent_id) ?? [];
+      arr.push(d.name);
+      m.set(d.agent_id, arr);
+    }
+    return m;
+  }, [datasets]);
+
+  const uiAgents: Agent[] = useMemo(
+    () =>
+      agents.map((a) => ({
+        name: a.name,
+        initial: (a.name.charAt(0) || "?").toUpperCase(),
+        avatarBg: a.avatar_bg ?? pickColor(a.name),
+        statusLabel: a.status === "active" ? "Active" : "Paused",
+        statusColor: a.status === "active" ? C.green : C.gold,
+        statusDot: a.status === "active" ? C.green : C.gold,
+        channels: a.channels,
+        modeLabel: a.mode === "auto" ? "Auto" : "On ping",
+        purpose: a.purpose_text ?? "",
+        feeds: (datasetsByAgent.get(a.id) ?? []).join(" · ") || "—",
+        pending: 0,
+        scope: a.scope,
+      })),
+    [agents, datasetsByAgent],
+  );
+
+  const uiTables: TableInfo[] = useMemo(
+    () =>
+      datasets.map((d) => ({
+        name: d.name,
+        rows: `${d.rowCount} ${d.rowCount === 1 ? "row" : "rows"}`,
+        fields: d.columns.map((c) => c.label),
+        agent: d.agentName ?? "—",
+        agentInitial: (d.agentName?.charAt(0) ?? "—").toUpperCase(),
+        agentBg: pickColor(d.agentName ?? d.name),
+        updated: relTime(d.updated_at),
+      })),
+    [datasets],
+  );
+
+  const populated = uiAgents.length > 0;
+  const activeCount = agents.filter((a) => a.status === "active").length;
 
   // modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [step, setStep] = useState(1);
+  const [name, setName] = useState("");
+  const [purposeText, setPurposeText] = useState("");
   const [channels, setChannels] = useState<string[]>(["gmail", "outlook"]);
   const [mode, setMode] = useState<"auto" | "ping">("auto");
   const [purpose, setPurpose] = useState<"curate" | "auto">("curate");
   const [scope, setScope] = useState<"org" | "people" | "me">("org");
-  const [sharePeople, setSharePeople] = useState<string[]>(["Jordan Lee", "Priya Nair"]);
-  const [targetTables, setTargetTables] = useState<string[]>(["Invoices"]);
+  const [sharePeople, setSharePeople] = useState<string[]>([]);
+  const [targetTables, setTargetTables] = useState<string[]>([]);
   const [freestyle, setFreestyle] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [submitting, startSubmit] = useTransition();
 
   const cloud = runtime === "cloud";
   const isOrg = accountType === "org";
 
   const openModal = () => {
     setStep(1);
+    setName("");
+    setPurposeText("");
+    setCreateError(null);
     setModalOpen(true);
   };
-  const nextStep = () => {
-    if (step >= 4) {
+  const submitAgent = () => {
+    setCreateError(null);
+    if (!name.trim()) {
+      setCreateError("Give the agent a name.");
+      return;
+    }
+    startSubmit(async () => {
+      const res = await createAgentAction({
+        name: name.trim(),
+        purposeText,
+        purpose,
+        channels,
+        mode,
+        scope: isOrg ? scope : "me",
+        freestyle,
+        targetDatasetNames: freestyle ? [] : targetTables,
+      });
+      if (!res.ok) {
+        setCreateError(res.error);
+        return;
+      }
       setModalOpen(false);
       setStep(1);
-    } else setStep(step + 1);
+      router.refresh();
+    });
+  };
+  const nextStep = () => {
+    if (step >= 4) submitAgent();
+    else setStep(step + 1);
   };
   const prevStep = () => setStep(Math.max(1, step - 1));
   const toggle = <T,>(list: T[], v: T) =>
@@ -406,8 +469,8 @@ export default function ControlCenter({ fullName, initial, inbox }: ControlCente
   const suggestions = SUGGESTIONS.filter((x) => !dismissed.includes(x.id));
 
   const titles: Record<Tab, { t: string; sub: string }> = {
-    agents: { t: "Agents", sub: populated ? "4 of 5 running · watching your channels" : "No agents yet — create your first one" },
-    data: { t: "Data", sub: populated ? "6 tables · parsed automatically from your messages" : "No tables yet" },
+    agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
+    data: { t: "Data", sub: uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · parsed automatically from your messages` : "No tables yet" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
   };
 
@@ -441,8 +504,8 @@ export default function ControlCenter({ fullName, initial, inbox }: ControlCente
         <p className="dm-mono cc-side-label" style={{ ...monoLabel, letterSpacing: "0.09em", padding: "0 8px 8px", margin: 0, color: "#7C766B" }}>Workspace</p>
         <nav className="cc-nav" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
           {([
-            { key: "agents", label: "Agents", count: "5", icon: <><rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8V4" /><circle cx="12" cy="3" r="1.4" fill="currentColor" stroke="none" /><path d="M9 14h.01M15 14h.01" /></> },
-            { key: "data", label: "Data", count: "6", icon: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></> },
+            { key: "agents", label: "Agents", count: uiAgents.length ? String(uiAgents.length) : null, icon: <><rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8V4" /><circle cx="12" cy="3" r="1.4" fill="currentColor" stroke="none" /><path d="M9 14h.01M15 14h.01" /></> },
+            { key: "data", label: "Data", count: uiTables.length ? String(uiTables.length) : null, icon: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></> },
             { key: "search", label: "Search", count: null, icon: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></> },
           ] as const).map((item) => {
             const active = tab === item.key;
@@ -518,11 +581,6 @@ export default function ControlCenter({ fullName, initial, inbox }: ControlCente
             <div style={{ fontSize: 13, color: "#8A8477", marginTop: 2 }}>{titles[tab].sub}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginLeft: "auto" }}>
-            <div style={{ display: "inline-flex", background: "#EFE9DC", border: "1px solid #E1D9C8", borderRadius: 9, padding: 3 }}>
-              <button type="button" onClick={() => setPopulated(true)} style={segStyle(populated)}>Live</button>
-              <button type="button" onClick={() => setPopulated(false)} style={segStyle(!populated)}>First run</button>
-            </div>
-            <span style={{ width: 1, height: 24, background: "#E1D9C8" }} />
             <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#6B665B", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px" }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.green }} />{inbox}
             </div>
@@ -544,8 +602,8 @@ export default function ControlCenter({ fullName, initial, inbox }: ControlCente
         </div>
 
         <div className="cc-scroll" style={{ padding: "24px 26px", overflow: "auto", flex: 1 }}>
-          {tab === "agents" && (populated ? <AgentsFull suggestions={suggestions} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} dismiss={(id) => setDismissed((d) => [...d, id])} isOrg={isOrg} openModal={openModal} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
-          {tab === "data" && (populated ? <DataFull /> : <DataEmpty openModal={openModal} />)}
+          {tab === "agents" && (populated ? <AgentsFull agents={uiAgents} suggestions={suggestions} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} dismiss={(id) => setDismissed((d) => [...d, id])} isOrg={isOrg} openModal={openModal} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
+          {tab === "data" && (uiTables.length ? <DataFull tables={uiTables} /> : <DataEmpty openModal={openModal} />)}
           {tab === "search" && <SearchTab populated={populated} />}
         </div>
       </main>
@@ -568,13 +626,13 @@ export default function ControlCenter({ fullName, initial, inbox }: ControlCente
 
             <div className="cc-scroll" style={{ padding: "4px 24px 8px", overflow: "auto" }}>
               {step === 1 && (
-                <ModalStep1 channels={channels} setChannels={setChannels} toggle={toggle} />
+                <ModalStep1 name={name} setName={setName} channels={channels} setChannels={setChannels} toggle={toggle} />
               )}
               {step === 2 && (
                 <ModalStep2 mode={mode} setMode={setMode} isOrg={isOrg} scope={scope} setScope={setScope} sharePeople={sharePeople} setSharePeople={setSharePeople} toggle={toggle} />
               )}
               {step === 3 && (
-                <ModalStep3 purpose={purpose} setPurpose={setPurpose} freestyle={freestyle} setFreestyle={setFreestyle} targetTables={targetTables} setTargetTables={setTargetTables} toggle={toggle} />
+                <ModalStep3 purposeText={purposeText} setPurposeText={setPurposeText} tables={uiTables} purpose={purpose} setPurpose={setPurpose} freestyle={freestyle} setFreestyle={setFreestyle} targetTables={targetTables} setTargetTables={setTargetTables} toggle={toggle} />
               )}
               {step === 4 && (
                 <ModalStep4 channels={channels} mode={mode} isOrg={isOrg} scope={scope} sharePeople={sharePeople} purpose={purpose} freestyle={freestyle} targetTables={targetTables} runtimeDot={runtimeDot} runtimeLabel={runtimeLabel} />
@@ -583,9 +641,12 @@ export default function ControlCenter({ fullName, initial, inbox }: ControlCente
 
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 24px 20px", borderTop: "1px solid #E7E0D2", background: "#F0EBDE" }}>
               <button type="button" onClick={prevStep} style={{ background: "none", border: "none", color: step === 1 ? "#C9C1B2" : "#57534A", fontFamily: "inherit", fontSize: 14, fontWeight: 500, cursor: "pointer", padding: "11px 8px" }}>Back</button>
-              <Hov onClick={nextStep} base={{ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 11, padding: "11px 22px", fontFamily: "inherit", fontSize: 14, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 16px rgba(228,89,59,.28)" }} hover={{ background: C.accentPress }}>
-                {step >= 4 ? "Create agent" : "Continue"}
-              </Hov>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                {createError && <span className="dm-mono" style={{ fontSize: 11, color: C.accent, textAlign: "right", maxWidth: 200 }}>{createError}</span>}
+                <Hov onClick={submitting ? undefined : nextStep} base={{ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 11, padding: "11px 22px", fontFamily: "inherit", fontSize: 14, fontWeight: 600, cursor: submitting ? "default" : "pointer", opacity: submitting ? 0.7 : 1, boxShadow: "0 6px 16px rgba(228,89,59,.28)" }} hover={{ background: C.accentPress }}>
+                  {step >= 4 ? (submitting ? "Creating…" : "Create agent") : "Continue"}
+                </Hov>
+              </div>
             </div>
           </div>
         </div>
@@ -597,7 +658,8 @@ export default function ControlCenter({ fullName, initial, inbox }: ControlCente
 /* ================================================================== */
 /* AGENTS TAB                                                          */
 /* ================================================================== */
-function AgentsFull({ suggestions, autoAccept, setAutoAccept, expanded, setExpanded, dismiss, isOrg, openModal }: {
+function AgentsFull({ agents, suggestions, autoAccept, setAutoAccept, expanded, setExpanded, dismiss, isOrg, openModal }: {
+  agents: Agent[];
   suggestions: Suggestion[];
   autoAccept: boolean;
   setAutoAccept: (v: boolean) => void;
@@ -640,10 +702,10 @@ function AgentsFull({ suggestions, autoAccept, setAutoAccept, expanded, setExpan
       {/* AGENT GRID */}
       <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12 }}>
         <span className="dm-display" style={{ fontWeight: 700, fontSize: 16, letterSpacing: "-0.02em" }}>Your agents</span>
-        <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>5</span>
+        <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>{agents.length}</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(268px,1fr))", gap: 16 }}>
-        {AGENTS.map((a) => <AgentCard key={a.name} a={a} isOrg={isOrg} />)}
+        {agents.map((a) => <AgentCard key={a.name} a={a} isOrg={isOrg} />)}
         <Hov onClick={openModal} base={{ background: "none", border: "1.5px dashed #D8CFBD", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", minHeight: 180, color: "#8A8477", fontFamily: "inherit", transition: "border-color .15s ease, background .15s ease" }} hover={{ border: `1.5px dashed ${C.accent}`, background: "#FDF1EC", color: C.accent }}>
           <span style={{ width: 42, height: 42, borderRadius: 12, background: "#F1EDE4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, lineHeight: 1 }}>+</span>
           <span style={{ fontSize: 14, fontWeight: 600 }}>New agent</span>
@@ -810,27 +872,13 @@ function AgentsEmpty({ openModal, inbox }: { openModal: () => void; inbox: strin
 /* ================================================================== */
 /* DATA TAB                                                            */
 /* ================================================================== */
-function DataFull() {
-  const nodes = [
-    { l: "20%", t: "29%", label: "Contacts", n: "64", dot: C.green, dark: false, accent: false },
-    { l: "49%", t: "21%", label: "Companies", n: "19", dark: true, accent: false },
-    { l: "78%", t: "32%", label: "Invoices", n: "28", accent: true, dark: false },
-    { l: "78%", t: "73%", label: "Receipts", n: "112", dot: C.gold, dark: false, accent: false },
-    { l: "49%", t: "73%", label: "Trips", n: "7", dark: false, accent: false },
-    { l: "22%", t: "75%", label: "Reading", n: "156", dark: false, accent: false },
-  ];
-  const edges = [
-    { l: "30%", t: "16%", label: "works at" },
-    { l: "62%", t: "20%", label: "billed to" },
-    { l: "78%", t: "53%", label: "paid by" },
-    { l: "50%", t: "53%", label: "references" },
-    { l: "22%", t: "56%", label: "traveler" },
-  ];
+function DataFull({ tables }: { tables: TableInfo[] }) {
+  const feeding = new Set(tables.map((t) => t.agent).filter((a) => a && a !== "—")).size;
   return (
     <div>
       {/* export bar */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22, flexWrap: "wrap" }}>
-        <span className="dm-mono" style={{ fontSize: 12, color: "#8A8477" }}>6 tables · 5 agents feeding them</span>
+        <span className="dm-mono" style={{ fontSize: 12, color: "#8A8477" }}>{tables.length} {tables.length === 1 ? "table" : "tables"} · {feeding} {feeding === 1 ? "agent" : "agents"} feeding them</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
           <Hov base={exportBtn} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1E8E4E" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 9v12" /></svg>
@@ -847,35 +895,9 @@ function DataFull() {
         </div>
       </div>
 
-      {/* relationship map */}
-      <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 18, padding: "20px 22px 8px", marginBottom: 22, overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <span className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em" }}>How your data connects</span>
-          <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>auto-linked · 1,904 relationships</span>
-        </div>
-        <div style={{ position: "relative", height: 280, width: "100%" }}>
-          <svg viewBox="0 0 900 280" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
-            <g stroke="#E1D9C8" strokeWidth="1.5" fill="none">
-              {["M180,80 L440,60", "M440,60 L700,90", "M700,90 L700,205", "M440,60 L440,205", "M180,80 L200,210"].map((d, i) => (
-                <path key={i} d={d} style={{ strokeDasharray: 300, animation: `cc-draw 1.1s ease ${0.1 + i * 0.15}s both` }} />
-              ))}
-            </g>
-          </svg>
-          {edges.map((e) => (
-            <span key={e.label} className="dm-mono" style={{ position: "absolute", left: e.l, top: e.t, transform: "translate(-50%,-50%)", fontSize: 10, color: "#A39B8B", background: "#fff", padding: "0 4px" }}>{e.label}</span>
-          ))}
-          {nodes.map((n) => (
-            <span key={n.label} style={{ position: "absolute", left: n.l, top: n.t, transform: "translate(-50%,-50%)", display: "flex", alignItems: "center", gap: 7, borderRadius: 999, fontSize: n.dark ? 13 : 12.5, fontWeight: n.dark || n.accent ? 600 : 500, padding: n.dark ? "8px 15px" : "7px 13px", ...(n.dark ? { background: C.ink, color: "#F1ECE1", boxShadow: "0 10px 24px -12px rgba(33,30,24,.5)" } : n.accent ? { background: "#FDF1EC", border: "1px solid #F3D6CB", color: C.accent } : { background: "#F6F2E9", border: "1px solid #E1D9C8" }) }}>
-              {n.dot && <span style={{ width: 7, height: 7, borderRadius: "50%", background: n.dot }} />}
-              {n.label} <span className="dm-mono" style={{ fontSize: 10, color: n.dark ? "#9A9384" : n.accent ? "#C98467" : "#A39B8B" }}>{n.n}</span>
-            </span>
-          ))}
-        </div>
-      </div>
-
       {/* table cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 16, marginBottom: 24 }}>
-        {TABLES.map((t) => (
+        {tables.map((t) => (
           <Hov key={t.name} tag="div" base={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: "16px 17px", display: "flex", flexDirection: "column", gap: 12, transition: "box-shadow .15s ease" }} hover={{ boxShadow: "0 18px 38px -30px rgba(33,30,24,.4)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
@@ -900,45 +922,6 @@ function DataFull() {
             </div>
           </Hov>
         ))}
-      </div>
-
-      {/* featured table */}
-      <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "15px 18px", borderBottom: "1px solid #EFE9DC", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span className="dm-display" style={{ fontWeight: 700, fontSize: 16 }}>Invoices</span>
-            <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>28 rows · fed by Ledger</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button type="button" className="dm-mono" style={{ fontSize: 11, color: "#6B665B", border: "1px solid #E1D9C8", borderRadius: 8, padding: "5px 10px", background: "none", cursor: "pointer" }}>Filter</button>
-            <button type="button" className="dm-mono" style={{ fontSize: 11, color: "#fff", background: C.ink, border: `1px solid ${C.ink}`, borderRadius: 8, padding: "5px 10px", cursor: "pointer" }}>Export CSV</button>
-          </div>
-        </div>
-        <div style={{ fontSize: 13, overflowX: "auto" }}>
-          <div className="dm-mono" style={{ display: "grid", gridTemplateColumns: "32px 1.3fr 0.8fr 0.8fr 0.7fr 0.9fr", minWidth: 560, background: "#FAF6EE", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.03em", color: "#A39B8B" }}>
-            <span style={{ padding: "9px 8px", borderRight: "1px solid #EFE9DC", textAlign: "center" }}>#</span>
-            <span style={{ padding: "9px 12px", borderRight: "1px solid #EFE9DC" }}>Client</span>
-            <span style={{ padding: "9px 12px", borderRight: "1px solid #EFE9DC" }}>Invoice</span>
-            <span style={{ padding: "9px 12px", borderRight: "1px solid #EFE9DC" }}>Amount</span>
-            <span style={{ padding: "9px 12px", borderRight: "1px solid #EFE9DC" }}>Due</span>
-            <span style={{ padding: "9px 12px" }}>Status</span>
-          </div>
-          {INVOICE_ROWS.map((r) => {
-            const border = r.hl ? "#F3D6CB" : "#F1EDE4";
-            const st = STATUS_STYLE[r.status];
-            const cell: CSSProperties = { padding: "11px 12px", borderRight: `1px solid ${border}` };
-            return (
-              <div key={r.n} style={{ display: "grid", gridTemplateColumns: "32px 1.3fr 0.8fr 0.8fr 0.7fr 0.9fr", minWidth: 560, borderTop: `1px solid ${border}`, color: r.hl ? C.ink : "#57534A", fontWeight: r.hl ? 600 : 400, background: r.hl ? "#FDF1EC" : "transparent", boxShadow: r.hl ? `inset 3px 0 0 ${C.accent}` : "none" }}>
-                <span style={{ padding: "11px 8px", borderRight: `1px solid ${border}`, textAlign: "center", background: r.hl ? "transparent" : "#FBFAF7", color: r.hl ? C.accent : "#A39B8B" }}>{r.n}</span>
-                <span style={cell}>{r.client}</span>
-                <span className="dm-mono" style={cell}>{r.invoice}</span>
-                <span className="dm-mono" style={{ ...cell, color: r.hl ? C.accent : "#57534A" }}>{r.amount}</span>
-                <span style={cell}>{r.due}</span>
-                <span style={{ padding: "11px 12px" }}><span style={{ fontSize: 11, color: st.c, background: st.b, padding: "2px 8px", borderRadius: 999 }}>{r.status}</span></span>
-              </div>
-            );
-          })}
-        </div>
       </div>
     </div>
   );
@@ -1058,9 +1041,19 @@ function SearchTab({ populated }: { populated: boolean }) {
 /* ================================================================== */
 /* MODAL STEPS                                                         */
 /* ================================================================== */
-function ModalStep1({ channels, setChannels, toggle }: { channels: string[]; setChannels: (v: string[]) => void; toggle: <T>(l: T[], v: T) => T[] }) {
+function ModalStep1({ name, setName, channels, setChannels, toggle }: { name: string; setName: (v: string) => void; channels: string[]; setChannels: (v: string[]) => void; toggle: <T>(l: T[], v: T) => T[] }) {
   return (
     <div>
+      <div style={{ marginBottom: 20 }}>
+        <div className="dm-mono" style={{ ...monoLabel, marginBottom: 8 }}>Name</div>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Ledger"
+          style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 11, padding: "12px 14px", fontFamily: "inherit", fontSize: 14, color: C.ink, background: "#fff", outline: "none" }}
+        />
+      </div>
       <h3 className="dm-display" style={{ fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", margin: "0 0 4px" }}>Which channels should it watch?</h3>
       <p style={{ fontSize: 13.5, color: "#8A8477", margin: "0 0 18px" }}>Pick one or more. The agent listens only to what you choose.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 10 }}>
@@ -1184,7 +1177,9 @@ function ModalStep2({ mode, setMode, isOrg, scope, setScope, sharePeople, setSha
   );
 }
 
-function ModalStep3({ purpose, setPurpose, freestyle, setFreestyle, targetTables, setTargetTables, toggle }: {
+function ModalStep3({ purposeText, setPurposeText, tables, purpose, setPurpose, freestyle, setFreestyle, targetTables, setTargetTables, toggle }: {
+  purposeText: string; setPurposeText: (v: string) => void;
+  tables: TableInfo[];
   purpose: "curate" | "auto"; setPurpose: (v: "curate" | "auto") => void;
   freestyle: boolean; setFreestyle: (v: boolean) => void;
   targetTables: string[]; setTargetTables: (v: string[]) => void; toggle: <T>(l: T[], v: T) => T[];
@@ -1207,7 +1202,7 @@ function ModalStep3({ purpose, setPurpose, freestyle, setFreestyle, targetTables
         </button>
         {purpose === "curate" && (
           <div style={{ margin: "-4px 2px 0" }}>
-            <input type="text" placeholder="e.g. only invoices, receipts & payment confirmations" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 11, padding: "12px 14px", fontFamily: "inherit", fontSize: 14, color: C.ink, background: "#fff", outline: "none" }} />
+            <input type="text" value={purposeText} onChange={(e) => setPurposeText(e.target.value)} placeholder="e.g. only invoices, receipts & payment confirmations" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 11, padding: "12px 14px", fontFamily: "inherit", fontSize: 14, color: C.ink, background: "#fff", outline: "none" }} />
           </div>
         )}
         <button type="button" onClick={() => setPurpose("auto")} style={modeCard(purpose === "auto")}>
@@ -1220,13 +1215,17 @@ function ModalStep3({ purpose, setPurpose, freestyle, setFreestyle, targetTables
       </div>
       <div style={{ marginTop: 20 }}>
         <div className="dm-mono" style={{ ...monoLabel, marginBottom: 10 }}>Feeds into an existing table</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-          {TABLES.map((t) => (
-            <button key={t.name} type="button" onClick={() => selectTable(t.name)} className="dm-mono" style={targetChip(!freestyle && targetTables.includes(t.name), freestyle)}>
-              {t.name} <span style={{ color: "#A39B8B", fontSize: 10 }}>{t.rows}</span>
-            </button>
-          ))}
-        </div>
+        {tables.length > 0 ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+            {tables.map((t) => (
+              <button key={t.name} type="button" onClick={() => selectTable(t.name)} className="dm-mono" style={targetChip(!freestyle && targetTables.includes(t.name), freestyle)}>
+                {t.name} <span style={{ color: "#A39B8B", fontSize: 10 }}>{t.rows}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginBottom: 12 }}>No tables yet — pick Freestyle and the agent will create one.</div>
+        )}
         <button type="button" onClick={() => { setFreestyle(true); setTargetTables([]); }} style={modeCard(freestyle)}>
           <div style={{ textAlign: "left" }}>
             <div style={{ fontWeight: 600, fontSize: 14.5 }}>Freestyle</div>

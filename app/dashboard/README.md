@@ -1,9 +1,7 @@
 # Control Center — front-end ↔ backend map
 
-The dashboard (`/dashboard`) is **UI-complete but backend-mocked**. Everything
-you see is driven by local React state and the hardcoded fixtures in
-[`control-center.tsx`](./control-center.tsx). The **only** things wired to a
-real backend today are:
+The dashboard (`/dashboard`) is **partially wired**. The things backed by a real
+backend today are:
 
 - **Authentication** — Supabase email/password + Google OAuth, signup / login /
   signout, email confirmation, session refresh (`proxy.ts`,
@@ -11,9 +9,16 @@ real backend today are:
 - **The signed-in account** — the server component
   [`page.tsx`](./page.tsx) reads the real `user` and their
   **forwarding inbox** (`forwarding_addresses`) and passes them in as props.
+- **Agents** — real `agents` table + RLS; the Agents grid and header counts are
+  loaded from the DB and the New-agent wizard persists via the
+  `createAgentAction` Server Action (`actions.ts`, `lib/datamodo/`).
+- **Data tables** — real `datasets` / `dataset_rows`; the Data tab renders the
+  org's actual datasets (columns, owning agent, live row counts).
 
-Nothing else persists. Reloading the page resets every toggle, wizard step,
-accepted suggestion, etc.
+The remaining surfaces are still driven by local React state / hardcoded
+fixtures in [`control-center.tsx`](./control-center.tsx): the **suggestions /
+review feed**, the **relationship graph**, **NL search**, and the export
+buttons. Accepting a suggestion, etc., does not yet persist.
 
 This document lists what has to be built to turn the mock into a product, and
 flags the ambiguous / risky parts up front.
@@ -32,10 +37,12 @@ Worth knowing before building — a fair amount of foundation is in place:
 | Generic capture endpoint `POST /api/ingest` | ✅ real | `app/api/ingest/route.ts`, `lib/ingest/` |
 | Content-addressed blob store (dedup + gzip), `items` / `attachments` / `blobs` | ✅ real | `supabase/migrations/…_ingest_store.sql`, `lib/ingest/store.ts` |
 | Channel-agnostic ingest envelope (email / whatsapp / slack / teams / sms / upload) | ✅ real (shape only) | `lib/ingest/types.ts` |
+| Agents (config + scope + RLS) + create/list/status/delete | ✅ real | `supabase/migrations/…_agents_datasets.sql`, `lib/datamodo/agents.ts` |
+| Datasets + dataset_rows (dynamic jsonb columns, provenance, review status) | ✅ real (schema + read/create) | `…_agents_datasets.sql`, `lib/datamodo/datasets.ts` |
 
-So raw messages **can** already be captured and stored per-org. What's missing
-is everything that turns a raw `item` into structured, queryable data — and all
-the surfaces the dashboard shows on top of that.
+So raw messages can be captured and stored per-org, and users can define agents
+and datasets. What's still missing is the **extraction pipeline** that turns a
+raw `item` into `dataset_rows` — and the review/search/graph surfaces above it.
 
 ---
 
