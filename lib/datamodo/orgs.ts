@@ -1,10 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ActiveOrg } from "./types";
 
-// Resolve the org the dashboard should act in. Until a real org switcher lands
-// (roadmap step 1), we pick deterministically: a team org if the user has one,
-// otherwise their personal org. Org switching will later persist an explicit
-// choice instead.
+// Resolve the user's personal org — the invisible per-user data boundary every
+// account gets at signup. This product is individual-only: there are no team
+// orgs, so this is simply "the user's bucket".
 export async function getActiveOrg(
   db: SupabaseClient,
   userId: string,
@@ -35,7 +34,7 @@ export async function getActiveOrg(
     role: r.role,
   }));
 
-  // Prefer a shared/team org; fall back to the personal one.
-  const team = rows.find((r) => !r.isPersonal);
-  return team ?? rows[0];
+  // Every user has exactly one personal org; fall back to the first membership.
+  const personal = rows.find((r) => r.isPersonal);
+  return personal ?? rows[0];
 }

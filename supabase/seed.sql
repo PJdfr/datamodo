@@ -69,19 +69,19 @@ begin
   end if;
 
   -- Agents ---------------------------------------------------------------
-  insert into public.agents (org_id, owner_user_id, name, purpose_text, purpose, channels, mode, scope, status)
+  insert into public.agents (org_id, owner_user_id, name, purpose_text, purpose, channels, mode, status)
   values (v_org, v_uid, 'Ledger', 'Invoices, receipts & payment confirmations from your billing inbox.',
-          'curate', array['gmail','outlook'], 'auto', 'org', 'active')
+          'curate', array['gmail','outlook'], 'auto', 'active')
   returning id into v_ledger;
 
-  insert into public.agents (org_id, owner_user_id, name, purpose_text, purpose, channels, mode, scope, status)
+  insert into public.agents (org_id, owner_user_id, name, purpose_text, purpose, channels, mode, status)
   values (v_org, v_uid, 'Rolodex', 'People & companies you meet — tag it and it files the contact.',
-          'curate', array['whatsapp'], 'ping', 'me', 'active')
+          'curate', array['whatsapp'], 'ping', 'active')
   returning id into v_rolodex;
 
-  insert into public.agents (org_id, owner_user_id, name, purpose_text, purpose, channels, mode, scope, status)
+  insert into public.agents (org_id, owner_user_id, name, purpose_text, purpose, channels, mode, status)
   values (v_org, v_uid, 'Nomad', 'Trips, bookings & travel confirmations, kept in one timeline.',
-          'curate', array['gmail'], 'auto', 'org', 'paused')
+          'curate', array['gmail'], 'auto', 'paused')
   returning id into v_nomad;
 
   -- Datasets -------------------------------------------------------------

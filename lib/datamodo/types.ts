@@ -4,7 +4,6 @@
 
 export type AgentMode = "auto" | "ping";
 export type AgentPurposeKind = "curate" | "auto";
-export type AgentScope = "org" | "people" | "me";
 export type AgentStatus = "active" | "paused";
 export type DatasetRowStatus = "accepted" | "proposed";
 
@@ -18,7 +17,6 @@ export interface AgentRecord {
   purpose: AgentPurposeKind;
   channels: string[];
   mode: AgentMode;
-  scope: AgentScope;
   status: AgentStatus;
   freestyle: boolean;
   avatar_bg: string | null;
@@ -59,13 +57,10 @@ export interface NewAgentInput {
   purpose?: AgentPurposeKind;
   channels?: string[];
   mode?: AgentMode;
-  scope?: AgentScope;
   freestyle?: boolean;
   avatarBg?: string | null;
   /** Existing dataset names to bind this agent to (best-effort). */
   targetDatasetNames?: string[];
-  /** Teammate user ids to share with (scope='people'). */
-  sharedUserIds?: string[];
 }
 
 export interface ActiveOrg {

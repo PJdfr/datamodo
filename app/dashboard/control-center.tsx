@@ -167,7 +167,6 @@ type Agent = {
   purpose: string;
   feeds: string;
   pending: number;
-  scope: "org" | "me" | "people";
 };
 
 type TableInfo = {
@@ -180,13 +179,6 @@ type TableInfo = {
   agentBg: string;
   updated: string;
 };
-
-const TEAMMATES = [
-  { name: "Jordan Lee", email: "jordan@acme.com", initial: "J", bg: C.accent },
-  { name: "Priya Nair", email: "priya@acme.com", initial: "P", bg: C.green },
-  { name: "Marcus Webb", email: "marcus@acme.com", initial: "M", bg: C.blue },
-  { name: "Dana Cho", email: "dana@acme.com", initial: "D", bg: C.gold },
-];
 
 const PENDING_COUNT = 4;
 
@@ -284,19 +276,6 @@ const channelTile = (active: boolean): CSSProperties => ({
   border: active ? "1.5px solid #E4593B" : "1.5px solid #E7E0D2",
   boxShadow: active ? "0 0 0 3px rgba(228,89,59,.1)" : "none",
 });
-const teammateStyle = (sel: boolean): CSSProperties => ({
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  width: "100%",
-  textAlign: "left",
-  background: "#fff",
-  borderRadius: 10,
-  padding: "8px 11px",
-  cursor: "pointer",
-  fontFamily: "inherit",
-  border: sel ? "1.5px solid #E4593B" : "1px solid #E7E0D2",
-});
 const targetChip = (sel: boolean, freestyle: boolean): CSSProperties => {
   const b: CSSProperties = {
     fontSize: 11,
@@ -329,7 +308,6 @@ export type ControlCenterProps = {
   fullName: string;
   initial: string;
   inbox: string;
-  isOrg: boolean;
   agents: AgentRecord[];
   datasets: DatasetView[];
 };
@@ -353,14 +331,13 @@ const relTime = (iso: string): string => {
   return `${Math.floor(h / 24)}d ago`;
 };
 
-export default function ControlCenter({ fullName, initial, inbox, isOrg: isOrgAccount, agents, datasets }: ControlCenterProps) {
+export default function ControlCenter({ fullName, initial, inbox, agents, datasets }: ControlCenterProps) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("agents");
   const [runtime, setRuntime] = useState<"cloud" | "byok">("cloud");
   const [autoAccept, setAutoAccept] = useState(false);
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [accountType, setAccountType] = useState<"org" | "single">(isOrgAccount ? "org" : "single");
 
   // Map the persisted records onto the shapes the panels render.
   const datasetsByAgent = useMemo(() => {
@@ -388,7 +365,6 @@ export default function ControlCenter({ fullName, initial, inbox, isOrg: isOrgAc
         purpose: a.purpose_text ?? "",
         feeds: (datasetsByAgent.get(a.id) ?? []).join(" · ") || "—",
         pending: 0,
-        scope: a.scope,
       })),
     [agents, datasetsByAgent],
   );
@@ -419,15 +395,12 @@ export default function ControlCenter({ fullName, initial, inbox, isOrg: isOrgAc
   const [channels, setChannels] = useState<string[]>(["gmail", "outlook"]);
   const [mode, setMode] = useState<"auto" | "ping">("auto");
   const [purpose, setPurpose] = useState<"curate" | "auto">("curate");
-  const [scope, setScope] = useState<"org" | "people" | "me">("org");
-  const [sharePeople, setSharePeople] = useState<string[]>([]);
   const [targetTables, setTargetTables] = useState<string[]>([]);
   const [freestyle, setFreestyle] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [submitting, startSubmit] = useTransition();
 
   const cloud = runtime === "cloud";
-  const isOrg = accountType === "org";
 
   const openModal = () => {
     setStep(1);
@@ -449,7 +422,6 @@ export default function ControlCenter({ fullName, initial, inbox, isOrg: isOrgAc
         purpose,
         channels,
         mode,
-        scope: isOrg ? scope : "me",
         freestyle,
         targetDatasetNames: freestyle ? [] : targetTables,
       });
@@ -505,7 +477,7 @@ export default function ControlCenter({ fullName, initial, inbox, isOrg: isOrgAc
           New agent
         </Hov>
 
-        <p className="dm-mono cc-side-label" style={{ ...monoLabel, letterSpacing: "0.09em", padding: "0 8px 8px", margin: 0, color: "#7C766B" }}>Workspace</p>
+        <p className="dm-mono cc-side-label" style={{ ...monoLabel, letterSpacing: "0.09em", padding: "0 8px 8px", margin: 0, color: "#7C766B" }}>Menu</p>
         <nav className="cc-nav" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
           {([
             { key: "agents", label: "Agents", count: uiAgents.length ? String(uiAgents.length) : null, icon: <><rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8V4" /><circle cx="12" cy="3" r="1.4" fill="currentColor" stroke="none" /><path d="M9 14h.01M15 14h.01" /></> },
@@ -566,7 +538,7 @@ export default function ControlCenter({ fullName, initial, inbox, isOrg: isOrgAc
           <span style={{ width: 30, height: 30, borderRadius: "50%", background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{initial}</span>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, color: "#F1ECE1", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</div>
-            <div className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B" }}>{isOrg ? "Acme · Team" : "Pro · solo"}</div>
+            <div className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B" }}>Pro · solo</div>
           </div>
           <form action={signout} style={{ marginLeft: "auto" }}>
             <Hov tag="button" type="submit" title="Sign out" base={{ background: "none", border: "none", color: "#7C766B", fontSize: 11, cursor: "pointer" }} hover={{ color: "#F1ECE1" }}>
@@ -588,25 +560,11 @@ export default function ControlCenter({ fullName, initial, inbox, isOrg: isOrgAc
             <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#6B665B", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px" }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.green }} />{inbox}
             </div>
-            <Hov onClick={() => setAccountType(isOrg ? "single" : "org")} base={{ display: "flex", alignItems: "center", gap: 9, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "5px 9px 5px 6px", cursor: "pointer", fontFamily: "inherit" }} hover={{ border: "1px solid #D8CFBD", background: "#FBF8F1" }}>
-              <span style={{ width: 26, height: 26, borderRadius: 7, background: "#FDF1EC", border: "1px solid #F3D6CB", color: C.accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                {isOrg ? (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18" /><rect x="4" y="4" width="16" height="16" rx="1.5" /><path d="M9.5 21v-5h5v5" /><path d="M8 8h.01M12 8h.01M16 8h.01" /></svg>
-                ) : (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" /></svg>
-                )}
-              </span>
-              <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.15 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{isOrg ? "Acme" : "Personal"}</span>
-                <span className="dm-mono" style={{ fontSize: 9.5, color: "#A39B8B" }}>{isOrg ? "Team workspace" : "Solo account"}</span>
-              </span>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A39B8B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2 }}><path d="m6 9 6 6 6-6" /></svg>
-            </Hov>
           </div>
         </div>
 
         <div className="cc-scroll" style={{ padding: "24px 26px", overflow: "auto", flex: 1 }}>
-          {tab === "agents" && (populated ? <AgentsFull agents={uiAgents} suggestions={suggestions} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} dismiss={(id) => setDismissed((d) => [...d, id])} isOrg={isOrg} openModal={openModal} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
+          {tab === "agents" && (populated ? <AgentsFull agents={uiAgents} suggestions={suggestions} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} dismiss={(id) => setDismissed((d) => [...d, id])} openModal={openModal} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
           {tab === "data" && (uiTables.length ? <DataFull tables={uiTables} /> : <DataEmpty openModal={openModal} />)}
           {tab === "search" && <SearchTab populated={populated} />}
         </div>
@@ -633,13 +591,13 @@ export default function ControlCenter({ fullName, initial, inbox, isOrg: isOrgAc
                 <ModalStep1 name={name} setName={setName} channels={channels} setChannels={setChannels} toggle={toggle} />
               )}
               {step === 2 && (
-                <ModalStep2 mode={mode} setMode={setMode} isOrg={isOrg} scope={scope} setScope={setScope} sharePeople={sharePeople} setSharePeople={setSharePeople} toggle={toggle} />
+                <ModalStep2 mode={mode} setMode={setMode} />
               )}
               {step === 3 && (
                 <ModalStep3 purposeText={purposeText} setPurposeText={setPurposeText} tables={uiTables} purpose={purpose} setPurpose={setPurpose} freestyle={freestyle} setFreestyle={setFreestyle} targetTables={targetTables} setTargetTables={setTargetTables} toggle={toggle} />
               )}
               {step === 4 && (
-                <ModalStep4 channels={channels} mode={mode} isOrg={isOrg} scope={scope} sharePeople={sharePeople} purpose={purpose} freestyle={freestyle} targetTables={targetTables} runtimeDot={runtimeDot} runtimeLabel={runtimeLabel} />
+                <ModalStep4 channels={channels} mode={mode} purpose={purpose} freestyle={freestyle} targetTables={targetTables} runtimeDot={runtimeDot} runtimeLabel={runtimeLabel} />
               )}
             </div>
 
@@ -662,7 +620,7 @@ export default function ControlCenter({ fullName, initial, inbox, isOrg: isOrgAc
 /* ================================================================== */
 /* AGENTS TAB                                                          */
 /* ================================================================== */
-function AgentsFull({ agents, suggestions, autoAccept, setAutoAccept, expanded, setExpanded, dismiss, isOrg, openModal }: {
+function AgentsFull({ agents, suggestions, autoAccept, setAutoAccept, expanded, setExpanded, dismiss, openModal }: {
   agents: Agent[];
   suggestions: Suggestion[];
   autoAccept: boolean;
@@ -670,7 +628,6 @@ function AgentsFull({ agents, suggestions, autoAccept, setAutoAccept, expanded, 
   expanded: string | null;
   setExpanded: (v: string | null) => void;
   dismiss: (id: string) => void;
-  isOrg: boolean;
   openModal: () => void;
 }) {
   return (
@@ -709,7 +666,7 @@ function AgentsFull({ agents, suggestions, autoAccept, setAutoAccept, expanded, 
         <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>{agents.length}</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(268px,1fr))", gap: 16 }}>
-        {agents.map((a) => <AgentCard key={a.name} a={a} isOrg={isOrg} />)}
+        {agents.map((a) => <AgentCard key={a.name} a={a} />)}
         <Hov onClick={openModal} base={{ background: "none", border: "1.5px dashed #D8CFBD", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", minHeight: 180, color: "#8A8477", fontFamily: "inherit", transition: "border-color .15s ease, background .15s ease" }} hover={{ border: `1.5px dashed ${C.accent}`, background: "#FDF1EC", color: C.accent }}>
           <span style={{ width: 42, height: 42, borderRadius: 12, background: "#F1EDE4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, lineHeight: 1 }}>+</span>
           <span style={{ fontSize: 14, fontWeight: 600 }}>New agent</span>
@@ -783,7 +740,7 @@ function SuggestionCard({ s, expanded, onCompare, onAccept, onDismiss }: {
   );
 }
 
-function AgentCard({ a, isOrg }: { a: Agent; isOrg: boolean }) {
+function AgentCard({ a }: { a: Agent }) {
   const accent = a.modeLabel === "Auto";
   const modePill: CSSProperties = {
     fontSize: 10.5,
@@ -792,19 +749,6 @@ function AgentCard({ a, isOrg }: { a: Agent; isOrg: boolean }) {
     ...(accent
       ? { color: C.accent, background: "#FDF1EC", border: "1px solid #F3D6CB" }
       : { color: "#57534A", background: "#F6F2E9", border: "1px solid #E7E0D2" }),
-  };
-  const scopeLabel = a.scope === "org" ? "Org" : a.scope === "people" ? "Shared" : "Private";
-  const scopeChip: CSSProperties = {
-    marginLeft: "auto",
-    fontSize: 10,
-    padding: "2px 8px",
-    borderRadius: 999,
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 4,
-    ...(a.scope === "me"
-      ? { color: "#8A8477", background: "none", border: "1px solid #E7E0D2" }
-      : { color: "#57534A", background: "#F1EDE4", border: "1px solid #E7E0D2" }),
   };
   const pendBadge: CSSProperties = a.pending > 0
     ? { fontSize: 10.5, color: C.accent, background: "#FDF1EC", border: "1px solid #F3D6CB", borderRadius: 999, padding: "2px 8px", flexShrink: 0 }
@@ -832,7 +776,6 @@ function AgentCard({ a, isOrg }: { a: Agent; isOrg: boolean }) {
             <img key={c} src={LOGO[c]} alt={CH_NAMES[c]} title={CH_NAMES[c]} style={{ width: 18, height: 18, borderRadius: 4 }} />
           ))}
         </div>
-        {isOrg && <span className="dm-mono" style={scopeChip}>{scopeLabel}</span>}
       </div>
       <div style={{ borderTop: "1px solid #F1EDE4", paddingTop: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}><span style={{ color: "#C98467" }}>→</span><span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.feeds}</span></span>
@@ -1086,10 +1029,8 @@ function ModalStep1({ name, setName, channels, setChannels, toggle }: { name: st
   );
 }
 
-function ModalStep2({ mode, setMode, isOrg, scope, setScope, sharePeople, setSharePeople, toggle }: {
+function ModalStep2({ mode, setMode }: {
   mode: "auto" | "ping"; setMode: (v: "auto" | "ping") => void;
-  isOrg: boolean; scope: "org" | "people" | "me"; setScope: (v: "org" | "people" | "me") => void;
-  sharePeople: string[]; setSharePeople: (v: string[]) => void; toggle: <T>(l: T[], v: T) => T[];
 }) {
   return (
     <div>
@@ -1120,71 +1061,6 @@ function ModalStep2({ mode, setMode, isOrg, scope, setScope, sharePeople, setSha
           </div>
           <span style={radioDot(mode === "ping")} />
         </button>
-      </div>
-
-      <div style={{ marginTop: 22 }}>
-        <div className="dm-mono" style={{ ...monoLabel, marginBottom: 10 }}>Who can use it</div>
-        {isOrg ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <button type="button" onClick={() => setScope("org")} style={modeCard(scope === "org")}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ width: 38, height: 38, borderRadius: 11, background: "#FDF1EC", border: "1px solid #F3D6CB", display: "flex", alignItems: "center", justifyContent: "center", color: C.accent, flexShrink: 0 }}>
-                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18" /><rect x="4" y="4" width="16" height="16" rx="1.5" /><path d="M9.5 21v-5h5v5" /><path d="M8 8h.01M12 8h.01M16 8h.01M8 12h.01M16 12h.01" /></svg>
-                </span>
-                <div style={{ textAlign: "left" }}>
-                  <div style={{ fontWeight: 600, fontSize: 14.5 }}>Everyone at Acme</div>
-                  <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Org-wide — anyone in your organization can use it.</div>
-                </div>
-              </div>
-              <span style={radioDot(scope === "org")} />
-            </button>
-            <button type="button" onClick={() => setScope("people")} style={modeCard(scope === "people")}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ width: 38, height: 38, borderRadius: 11, background: "#F6F2E9", border: "1px solid #E7E0D2", display: "flex", alignItems: "center", justifyContent: "center", color: "#57534A", flexShrink: 0 }}>
-                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="8" r="3.2" /><path d="M2.5 20c0-3.3 2.9-5.2 6.5-5.2s6.5 1.9 6.5 5.2" /><path d="M16.4 5.3a3.1 3.1 0 0 1 0 5.6" /><path d="M18 14.5c2.2.5 3.7 1.9 3.7 4" /></svg>
-                </span>
-                <div style={{ textAlign: "left" }}>
-                  <div style={{ fontWeight: 600, fontSize: 14.5 }}>Specific people</div>
-                  <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Share with teammates you choose.</div>
-                </div>
-              </div>
-              <span style={radioDot(scope === "people")} />
-            </button>
-            {scope === "people" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 12px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
-                {TEAMMATES.map((p) => {
-                  const sel = sharePeople.includes(p.name);
-                  return (
-                    <button key={p.name} type="button" onClick={() => setSharePeople(toggle(sharePeople, p.name))} style={teammateStyle(sel)}>
-                      <span style={{ width: 28, height: 28, borderRadius: "50%", background: p.bg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, flexShrink: 0 }}>{p.initial}</span>
-                      <span style={{ minWidth: 0 }}>
-                        <span style={{ display: "block", fontSize: 13, fontWeight: 500, color: C.ink }}>{p.name}</span>
-                        <span className="dm-mono" style={{ display: "block", fontSize: 10.5, color: "#A39B8B" }}>{p.email}</span>
-                      </span>
-                      <span style={{ marginLeft: "auto", width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, flexShrink: 0, ...(sel ? { background: C.accent, color: "#fff", border: `1px solid ${C.accent}` } : { background: "#fff", color: "transparent", border: "1.5px solid #D8CFBD" }) }}>✓</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            <button type="button" onClick={() => setScope("me")} style={modeCard(scope === "me")}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ width: 38, height: 38, borderRadius: 11, background: "#F6F2E9", border: "1px solid #E7E0D2", display: "flex", alignItems: "center", justifyContent: "center", color: "#57534A", flexShrink: 0 }}>
-                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" /></svg>
-                </span>
-                <div style={{ textAlign: "left" }}>
-                  <div style={{ fontWeight: 600, fontSize: 14.5 }}>Just me</div>
-                  <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Private to your account — no one else sees it.</div>
-                </div>
-              </div>
-              <span style={radioDot(scope === "me")} />
-            </button>
-          </div>
-        ) : (
-          <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#8A8477", background: "#F1EDE4", border: "1px solid #E7E0D2", borderRadius: 9, padding: "10px 12px", lineHeight: 1.4 }}>
-            <span style={{ color: "#C98467", flexShrink: 0 }}>◇</span>Solo account — every agent is private to you. Add teammates to share agents across a workspace.
-          </div>
-        )}
       </div>
     </div>
   );
@@ -1251,22 +1127,18 @@ function ModalStep3({ purposeText, setPurposeText, tables, purpose, setPurpose, 
   );
 }
 
-function ModalStep4({ channels, mode, isOrg, scope, sharePeople, purpose, freestyle, targetTables, runtimeDot, runtimeLabel }: {
-  channels: string[]; mode: "auto" | "ping"; isOrg: boolean; scope: "org" | "people" | "me";
-  sharePeople: string[]; purpose: "curate" | "auto"; freestyle: boolean; targetTables: string[];
+function ModalStep4({ channels, mode, purpose, freestyle, targetTables, runtimeDot, runtimeLabel }: {
+  channels: string[]; mode: "auto" | "ping";
+  purpose: "curate" | "auto"; freestyle: boolean; targetTables: string[];
   runtimeDot: string; runtimeLabel: string;
 }) {
   const reviewChannels = channels.length ? channels.map((k) => CH_NAMES[k]).join(", ") : "None selected";
   const reviewMode = mode === "auto" ? "Automatic — reads everything" : "On ping — only when tagged";
   const reviewPurpose = purpose === "curate" ? "Curated to a purpose" : "Auto from context";
-  const reviewScope = isOrg
-    ? scope === "org" ? "Everyone at Acme" : scope === "people" ? `Shared with ${sharePeople.length} ${sharePeople.length === 1 ? "person" : "people"}` : "Just me"
-    : "Just me · solo account";
   const reviewFeeds = freestyle ? "Freestyle · auto tables" : targetTables.length ? targetTables.join(", ") : "Auto tables";
   const rows = [
     { l: "Channels", v: reviewChannels },
     { l: "Access", v: reviewMode },
-    { l: "Visibility", v: reviewScope },
     { l: "Captures", v: reviewPurpose },
     { l: "Feeds into", v: reviewFeeds },
   ];

@@ -2,8 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AgentRecord, NewAgentInput } from "./types";
 
 // Data access for agents. Every call goes through the caller's authenticated
-// Supabase client, so RLS (org membership + agent scope) gates every row —
-// these helpers never bypass it.
+// Supabase client, so RLS (owner-only) gates every row — these helpers never
+// bypass it. Agents are private to their owner; there is no sharing.
 
 export async function listAgents(
   db: SupabaseClient,
@@ -37,7 +37,6 @@ export async function createAgent(
       purpose: input.purpose ?? "curate",
       channels: input.channels ?? [],
       mode: input.mode ?? "auto",
-      scope: input.scope ?? "org",
       freestyle: input.freestyle ?? false,
       avatar_bg: input.avatarBg ?? null,
     })
@@ -46,17 +45,7 @@ export async function createAgent(
   if (error) throw error;
   const created = agent as AgentRecord;
 
-  // Share with chosen teammates (scope='people').
-  if (input.scope === "people" && input.sharedUserIds?.length) {
-    const rows = input.sharedUserIds.map((user_id) => ({
-      agent_id: created.id,
-      user_id,
-    }));
-    const { error: shareErr } = await db.from("agent_shares").insert(rows);
-    if (shareErr) throw shareErr;
-  }
-
-  // Best-effort: bind existing datasets (by name, in this org) to the new agent.
+  // Best-effort: bind existing datasets (by name) to the new agent.
   if (!input.freestyle && input.targetDatasetNames?.length) {
     const { error: linkErr } = await db
       .from("datasets")

@@ -24,6 +24,12 @@ fixtures in [`control-center.tsx`](./control-center.tsx): the **suggestions /
 review feed**, the **relationship graph**, and **NL search**. Accepting a
 suggestion, etc., does not yet persist.
 
+> **Individual-only.** The product has no teams, orgs, sharing, or agent
+> scoping — every agent/dataset/row is private to its owner (see the root
+> `CLAUDE.md`). Any roadmap item below about org switching, `org`/`people`/`me`
+> scope, teammates, or "specific people" sharing (esp. §10 and risk §8) is
+> **obsolete** and intentionally removed.
+
 This document lists what has to be built to turn the mock into a product, and
 flags the ambiguous / risky parts up front.
 
@@ -41,7 +47,7 @@ Worth knowing before building — a fair amount of foundation is in place:
 | Generic capture endpoint `POST /api/ingest` | ✅ real | `app/api/ingest/route.ts`, `lib/ingest/` |
 | Content-addressed blob store (dedup + gzip), `items` / `attachments` / `blobs` | ✅ real | `supabase/migrations/…_ingest_store.sql`, `lib/ingest/store.ts` |
 | Channel-agnostic ingest envelope (email / whatsapp / slack / teams / sms / upload) | ✅ real (shape only) | `lib/ingest/types.ts` |
-| Agents (config + scope + RLS) + create/list/status/delete | ✅ real | `supabase/migrations/…_agents_datasets.sql`, `lib/datamodo/agents.ts` |
+| Agents (config, owner-only RLS) + create/list/status/delete | ✅ real | `supabase/migrations/…_agents_datasets.sql`, `lib/datamodo/agents.ts` |
 | Datasets + dataset_rows (dynamic jsonb columns, provenance, review status) | ✅ real (schema + read/create) | `…_agents_datasets.sql`, `lib/datamodo/datasets.ts` |
 
 So raw messages can be captured and stored per-org, and users can define agents

@@ -28,11 +28,9 @@ export default async function DashboardPage() {
   // Real structured layer: the user's active org, its agents, and its datasets.
   let agents: AgentRecord[] = [];
   let datasets: DatasetView[] = [];
-  let isOrg = true;
   if (user) {
     const org = await getActiveOrg(supabase, user.id);
     if (org) {
-      isOrg = !org.isPersonal;
       [agents, datasets] = await Promise.all([
         listAgents(supabase, org.id),
         listDatasets(supabase, org.id),
@@ -45,7 +43,6 @@ export default async function DashboardPage() {
       fullName={fullName}
       initial={initial}
       inbox={inbox}
-      isOrg={isOrg}
       agents={agents}
       datasets={datasets}
     />
