@@ -52,6 +52,37 @@ export async function listDatasets(
   }));
 }
 
+/** Fetch a single dataset by id (RLS returns null when not visible). */
+export async function getDataset(
+  db: SupabaseClient,
+  datasetId: string,
+): Promise<DatasetRecord | null> {
+  const { data, error } = await db
+    .from("datasets")
+    .select("*")
+    .eq("id", datasetId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const d = data as DatasetRecord;
+  return { ...d, columns: Array.isArray(d.columns) ? d.columns : [] };
+}
+
+/** Accepted rows for a dataset, oldest first — the exportable/live rows. */
+export async function listAcceptedRows(
+  db: SupabaseClient,
+  datasetId: string,
+): Promise<{ data: Record<string, unknown> }[]> {
+  const { data, error } = await db
+    .from("dataset_rows")
+    .select("data")
+    .eq("dataset_id", datasetId)
+    .eq("status", "accepted")
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as { data: Record<string, unknown> }[];
+}
+
 export async function createDataset(
   db: SupabaseClient,
   orgId: string,

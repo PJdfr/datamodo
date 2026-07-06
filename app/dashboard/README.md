@@ -15,10 +15,14 @@ backend today are:
 - **Data tables** — real `datasets` / `dataset_rows`; the Data tab renders the
   org's actual datasets (columns, owning agent, live row counts).
 
+- **CSV export** — each data table exports its accepted rows as a real CSV via
+  `GET /api/datasets/[id]/export` (RLS-gated). Google Sheets / API export are
+  still stubs.
+
 The remaining surfaces are still driven by local React state / hardcoded
 fixtures in [`control-center.tsx`](./control-center.tsx): the **suggestions /
-review feed**, the **relationship graph**, **NL search**, and the export
-buttons. Accepting a suggestion, etc., does not yet persist.
+review feed**, the **relationship graph**, and **NL search**. Accepting a
+suggestion, etc., does not yet persist.
 
 This document lists what has to be built to turn the mock into a product, and
 flags the ambiguous / risky parts up front.

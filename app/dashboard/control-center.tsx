@@ -35,6 +35,8 @@ type HovProps = {
   className?: string;
   type?: "button" | "submit";
   title?: string;
+  href?: string;
+  download?: boolean | string;
   onClick?: () => void;
 };
 function Hov({ tag = "button", base, hover, children, ...rest }: HovProps) {
@@ -169,6 +171,7 @@ type Agent = {
 };
 
 type TableInfo = {
+  id: string;
   name: string;
   rows: string;
   fields: string[];
@@ -393,6 +396,7 @@ export default function ControlCenter({ fullName, initial, inbox, isOrg: isOrgAc
   const uiTables: TableInfo[] = useMemo(
     () =>
       datasets.map((d) => ({
+        id: d.id,
         name: d.name,
         rows: `${d.rowCount} ${d.rowCount === 1 ? "row" : "rows"}`,
         fields: d.columns.map((c) => c.label),
@@ -920,6 +924,15 @@ function DataFull({ tables }: { tables: TableInfo[] }) {
               </span>
               <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>{t.updated}</span>
             </div>
+            <Hov
+              tag="a"
+              href={`/api/datasets/${t.id}/export`}
+              base={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, textDecoration: "none", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 8, padding: "6px 10px", fontFamily: "inherit", fontSize: 11.5, fontWeight: 500, color: "#3A352C", cursor: "pointer" }}
+              hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#57534A" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
+              Export CSV
+            </Hov>
           </Hov>
         ))}
       </div>
