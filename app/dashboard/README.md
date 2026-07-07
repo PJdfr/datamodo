@@ -15,9 +15,15 @@ backend today are:
 - **Data tables** — real `datasets` / `dataset_rows`; the Data tab renders the
   org's actual datasets (columns, owning agent, live row counts).
 
-- **CSV export** — each data table exports its accepted rows as a real CSV via
-  `GET /api/datasets/[id]/export` (RLS-gated). Google Sheets / API export are
-  still stubs.
+- **Agent management** — click an agent card to edit (name, purpose, channels,
+  mode, status) or delete it.
+- **Table editing** — click a table to open a full editor: add/edit/delete rows,
+  add/remove/retype columns (new columns backfill a default), rename, delete,
+  and create a table from scratch.
+- **Excel export** — export a single table (`GET /api/datasets/[id]/export`) or
+  many at once (`GET /api/datasets/export?ids=…`, one sheet per table) as
+  `.xlsx`. We only export Excel — never CSV. Google Sheets / API export remain
+  stubs.
 
 The remaining surfaces are still driven by local React state / hardcoded
 fixtures in [`control-center.tsx`](./control-center.tsx): the **suggestions /

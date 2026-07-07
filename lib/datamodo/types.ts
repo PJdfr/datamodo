@@ -44,10 +44,17 @@ export interface DatasetRecord {
   updated_at: string;
 }
 
-/** A dataset enriched with derived fields for the dashboard. */
+/** One editable row of a dataset. */
+export interface DatasetRowRecord {
+  id: string;
+  data: Record<string, unknown>;
+}
+
+/** A dataset enriched with derived fields + its rows for the dashboard. */
 export interface DatasetView extends DatasetRecord {
   agentName: string | null;
   rowCount: number;
+  rows: DatasetRowRecord[];
 }
 
 /** Input for creating an agent (collected by the New-agent wizard). */

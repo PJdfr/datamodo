@@ -58,6 +58,35 @@ export async function createAgent(
   return created;
 }
 
+export async function updateAgent(
+  db: SupabaseClient,
+  agentId: string,
+  patch: {
+    name?: string;
+    purposeText?: string | null;
+    channels?: string[];
+    mode?: "auto" | "ping";
+    status?: "active" | "paused";
+    freestyle?: boolean;
+  },
+): Promise<void> {
+  const update: Record<string, unknown> = {};
+  if (patch.name !== undefined) {
+    const name = patch.name.trim();
+    if (!name) throw new Error("Agent name is required");
+    update.name = name;
+  }
+  if (patch.purposeText !== undefined) update.purpose_text = patch.purposeText?.trim() || null;
+  if (patch.channels !== undefined) update.channels = patch.channels;
+  if (patch.mode !== undefined) update.mode = patch.mode;
+  if (patch.status !== undefined) update.status = patch.status;
+  if (patch.freestyle !== undefined) update.freestyle = patch.freestyle;
+  if (Object.keys(update).length === 0) return;
+
+  const { error } = await db.from("agents").update(update).eq("id", agentId);
+  if (error) throw error;
+}
+
 export async function setAgentStatus(
   db: SupabaseClient,
   agentId: string,

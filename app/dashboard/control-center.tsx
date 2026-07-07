@@ -20,8 +20,21 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { signout } from "@/app/auth/actions";
-import { createAgentAction } from "./actions";
-import type { AgentRecord, DatasetView } from "@/lib/datamodo/types";
+import {
+  createAgentAction,
+  updateAgentAction,
+  deleteAgentAction,
+  createDatasetAction,
+  renameDatasetAction,
+  deleteDatasetAction,
+  addColumnAction,
+  removeColumnAction,
+  addRowAction,
+  updateRowAction,
+  deleteRowAction,
+  type ActionResult,
+} from "./actions";
+import type { AgentRecord, DatasetColumn, DatasetRowRecord, DatasetView } from "@/lib/datamodo/types";
 
 /* ------------------------------------------------------------------ */
 /* Hover helper — inline styles win over CSS :hover, so hover states   */
@@ -156,6 +169,7 @@ const SUGGESTIONS: Suggestion[] = [
 ];
 
 type Agent = {
+  id: string;
   name: string;
   initial: string;
   avatarBg: string;
@@ -354,6 +368,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const uiAgents: Agent[] = useMemo(
     () =>
       agents.map((a) => ({
+        id: a.id,
         name: a.name,
         initial: (a.name.charAt(0) || "?").toUpperCase(),
         avatarBg: a.avatar_bg ?? pickColor(a.name),
@@ -399,6 +414,14 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const [freestyle, setFreestyle] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [submitting, startSubmit] = useTransition();
+
+  // Manage-agent / table-editor / create-table / bulk-export state.
+  const [manageAgentId, setManageAgentId] = useState<string | null>(null);
+  const [openTableId, setOpenTableId] = useState<string | null>(null);
+  const [createTableOpen, setCreateTableOpen] = useState(false);
+  const [selectedTables, setSelectedTables] = useState<string[]>([]);
+  const manageAgent = agents.find((a) => a.id === manageAgentId) ?? null;
+  const openTable = datasets.find((d) => d.id === openTableId) ?? null;
 
   const cloud = runtime === "cloud";
 
@@ -564,8 +587,8 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
         </div>
 
         <div className="cc-scroll" style={{ padding: "24px 26px", overflow: "auto", flex: 1 }}>
-          {tab === "agents" && (populated ? <AgentsFull agents={uiAgents} suggestions={suggestions} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} dismiss={(id) => setDismissed((d) => [...d, id])} openModal={openModal} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
-          {tab === "data" && (uiTables.length ? <DataFull tables={uiTables} /> : <DataEmpty openModal={openModal} />)}
+          {tab === "agents" && (populated ? <AgentsFull agents={uiAgents} suggestions={suggestions} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} dismiss={(id) => setDismissed((d) => [...d, id])} openModal={openModal} onManage={setManageAgentId} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
+          {tab === "data" && (uiTables.length || createTableOpen ? <DataFull tables={uiTables} onOpen={setOpenTableId} onCreate={() => setCreateTableOpen(true)} selected={selectedTables} toggleSelect={(id) => setSelectedTables((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])} /> : <DataEmpty openModal={() => setCreateTableOpen(true)} />)}
           {tab === "search" && <SearchTab populated={populated} />}
         </div>
       </main>
@@ -613,14 +636,52 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           </div>
         </div>
       )}
+
+      {manageAgent && (
+        <AgentEditModal
+          agent={manageAgent}
+          onClose={() => setManageAgentId(null)}
+          onSaved={() => { setManageAgentId(null); router.refresh(); }}
+        />
+      )}
+      {openTable && (
+        <TableDetailModal
+          table={openTable}
+          onClose={() => setOpenTableId(null)}
+          onChanged={() => router.refresh()}
+        />
+      )}
+      {createTableOpen && (
+        <CreateTableModal
+          onClose={() => setCreateTableOpen(false)}
+          onCreated={() => { setCreateTableOpen(false); router.refresh(); }}
+        />
+      )}
     </div>
   );
 }
 
 /* ================================================================== */
+/* Shared: run a Server Action with pending + error state.             */
+/* ================================================================== */
+function useAction() {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const run = (fn: () => Promise<ActionResult>, after?: () => void) => {
+    setError(null);
+    start(async () => {
+      const res = await fn();
+      if (!res.ok) { setError(res.error); return; }
+      after?.();
+    });
+  };
+  return { pending, error, setError, run };
+}
+
+/* ================================================================== */
 /* AGENTS TAB                                                          */
 /* ================================================================== */
-function AgentsFull({ agents, suggestions, autoAccept, setAutoAccept, expanded, setExpanded, dismiss, openModal }: {
+function AgentsFull({ agents, suggestions, autoAccept, setAutoAccept, expanded, setExpanded, dismiss, openModal, onManage }: {
   agents: Agent[];
   suggestions: Suggestion[];
   autoAccept: boolean;
@@ -629,6 +690,7 @@ function AgentsFull({ agents, suggestions, autoAccept, setAutoAccept, expanded, 
   setExpanded: (v: string | null) => void;
   dismiss: (id: string) => void;
   openModal: () => void;
+  onManage: (id: string) => void;
 }) {
   return (
     <div>
@@ -666,7 +728,7 @@ function AgentsFull({ agents, suggestions, autoAccept, setAutoAccept, expanded, 
         <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>{agents.length}</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(268px,1fr))", gap: 16 }}>
-        {agents.map((a) => <AgentCard key={a.name} a={a} />)}
+        {agents.map((a) => <AgentCard key={a.id} a={a} onManage={onManage} />)}
         <Hov onClick={openModal} base={{ background: "none", border: "1.5px dashed #D8CFBD", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", minHeight: 180, color: "#8A8477", fontFamily: "inherit", transition: "border-color .15s ease, background .15s ease" }} hover={{ border: `1.5px dashed ${C.accent}`, background: "#FDF1EC", color: C.accent }}>
           <span style={{ width: 42, height: 42, borderRadius: 12, background: "#F1EDE4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, lineHeight: 1 }}>+</span>
           <span style={{ fontSize: 14, fontWeight: 600 }}>New agent</span>
@@ -740,7 +802,7 @@ function SuggestionCard({ s, expanded, onCompare, onAccept, onDismiss }: {
   );
 }
 
-function AgentCard({ a }: { a: Agent }) {
+function AgentCard({ a, onManage }: { a: Agent; onManage: (id: string) => void }) {
   const accent = a.modeLabel === "Auto";
   const modePill: CSSProperties = {
     fontSize: 10.5,
@@ -755,7 +817,7 @@ function AgentCard({ a }: { a: Agent }) {
     : { fontSize: 10.5, color: "#A39B8B", flexShrink: 0 };
 
   return (
-    <Hov tag="div" base={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", gap: 14, transition: "box-shadow .15s ease, transform .15s ease" }} hover={{ boxShadow: "0 20px 40px -30px rgba(33,30,24,.4)", transform: "translateY(-2px)" }}>
+    <Hov tag="div" onClick={() => onManage(a.id)} base={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", gap: 14, cursor: "pointer", transition: "box-shadow .15s ease, transform .15s ease" }} hover={{ boxShadow: "0 20px 40px -30px rgba(33,30,24,.4)", transform: "translateY(-2px)" }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
         <span className="dm-display" style={{ width: 40, height: 40, borderRadius: 12, background: a.avatarBg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 17, flexShrink: 0 }}>{a.initial}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -765,7 +827,7 @@ function AgentCard({ a }: { a: Agent }) {
             <span className="dm-mono" style={{ fontSize: 11, color: a.statusColor }}>{a.statusLabel}</span>
           </div>
         </div>
-        <span style={{ color: "#B7AF9F", fontSize: 16, lineHeight: 1, padding: 2 }}>⋯</span>
+        <span title="Manage" style={{ color: "#B7AF9F", fontSize: 16, lineHeight: 1, padding: 2 }}>⋯</span>
       </div>
       <p style={{ margin: 0, fontSize: 13, color: "#57534A", lineHeight: 1.45, minHeight: 38 }}>{a.purpose}</p>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -819,39 +881,50 @@ function AgentsEmpty({ openModal, inbox }: { openModal: () => void; inbox: strin
 /* ================================================================== */
 /* DATA TAB                                                            */
 /* ================================================================== */
-function DataFull({ tables }: { tables: TableInfo[] }) {
+function DataFull({ tables, onOpen, onCreate, selected, toggleSelect }: {
+  tables: TableInfo[];
+  onOpen: (id: string) => void;
+  onCreate: () => void;
+  selected: string[];
+  toggleSelect: (id: string) => void;
+}) {
   const feeding = new Set(tables.map((t) => t.agent).filter((a) => a && a !== "—")).size;
+  const exportAllHref = "/api/datasets/export";
+  const exportSelectedHref = `/api/datasets/export?ids=${selected.join(",")}`;
   return (
     <div>
-      {/* export bar */}
+      {/* toolbar */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22, flexWrap: "wrap" }}>
         <span className="dm-mono" style={{ fontSize: 12, color: "#8A8477" }}>{tables.length} {tables.length === 1 ? "table" : "tables"} · {feeding} {feeding === 1 ? "agent" : "agents"} feeding them</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
-          <Hov base={exportBtn} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
+          {selected.length > 0 && (
+            <Hov tag="a" href={exportSelectedHref} base={{ ...exportBtn, textDecoration: "none", color: C.accent, borderColor: "#F3D6CB", background: "#FDF1EC" }} hover={{ background: "#FBE7DF" }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
+              Export {selected.length} selected
+            </Hov>
+          )}
+          <Hov tag="a" href={exportAllHref} base={{ ...exportBtn, textDecoration: "none" }} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1E8E4E" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 9v12" /></svg>
-            Google Sheets
+            Export all (Excel)
           </Hov>
-          <Hov base={exportBtn} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#57534A" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
-            Export CSV
-          </Hov>
-          <Hov base={exportBtn} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#57534A" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="m8 6-6 6 6 6" /><path d="m16 6 6 6-6 6" /></svg>
-            API
+          <Hov onClick={onCreate} base={{ ...exportBtn, background: C.ink, color: "#F1ECE1", border: `1px solid ${C.ink}` }} hover={{ background: "#322D25" }}>
+            <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> New table
           </Hov>
         </div>
       </div>
 
       {/* table cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 16, marginBottom: 24 }}>
-        {tables.map((t) => (
-          <Hov key={t.name} tag="div" base={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: "16px 17px", display: "flex", flexDirection: "column", gap: 12, transition: "box-shadow .15s ease" }} hover={{ boxShadow: "0 18px 38px -30px rgba(33,30,24,.4)" }}>
+        {tables.map((t) => {
+          const sel = selected.includes(t.id);
+          return (
+          <div key={t.id} style={{ background: "#fff", border: sel ? `1px solid ${C.accent}` : "1px solid #E7E0D2", borderRadius: 16, padding: "16px 17px", display: "flex", flexDirection: "column", gap: 12, transition: "box-shadow .15s ease" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                <span style={{ width: 28, height: 28, borderRadius: 8, background: "#F6F2E9", border: "1px solid #ECE5D8", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8A8477" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></svg>
-                </span>
-                <span className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em" }}>{t.name}</span>
+                <span onClick={() => toggleSelect(t.id)} title="Select" style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, ...(sel ? { background: C.accent, color: "#fff", border: `1px solid ${C.accent}` } : { background: "#fff", color: "transparent", border: "1.5px solid #D8CFBD" }) }}>✓</span>
+                <button type="button" onClick={() => onOpen(t.id)} title="Open table" style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit" }}>
+                  <span className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink }}>{t.name}</span>
+                </button>
               </div>
               <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>{t.rows}</span>
             </div>
@@ -867,17 +940,18 @@ function DataFull({ tables }: { tables: TableInfo[] }) {
               </span>
               <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>{t.updated}</span>
             </div>
-            <Hov
-              tag="a"
-              href={`/api/datasets/${t.id}/export`}
-              base={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, textDecoration: "none", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 8, padding: "6px 10px", fontFamily: "inherit", fontSize: 11.5, fontWeight: 500, color: "#3A352C", cursor: "pointer" }}
-              hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#57534A" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
-              Export CSV
-            </Hov>
-          </Hov>
-        ))}
+            <div style={{ display: "flex", gap: 8 }}>
+              <Hov onClick={() => onOpen(t.id)} base={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#F6F2E9", border: "1px solid #E7E0D2", borderRadius: 8, padding: "6px 10px", fontFamily: "inherit", fontSize: 11.5, fontWeight: 500, color: "#3A352C", cursor: "pointer" }} hover={{ background: "#EFE9DC" }}>
+                Open & edit
+              </Hov>
+              <Hov tag="a" href={`/api/datasets/${t.id}/export`} base={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, textDecoration: "none", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 8, padding: "6px 10px", fontFamily: "inherit", fontSize: 11.5, fontWeight: 500, color: "#3A352C", cursor: "pointer" }} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1E8E4E" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 9v12" /></svg>
+                Excel
+              </Hov>
+            </div>
+          </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1164,5 +1238,279 @@ function ModalStep4({ channels, mode, purpose, freestyle, targetTables, runtimeD
       </div>
       <div className="dm-mono" style={{ marginTop: 12, fontSize: 11, color: "#A39B8B", textAlign: "center" }}>Compute is account-wide · change it in the sidebar</div>
     </div>
+  );
+}
+
+/* ================================================================== */
+/* MANAGE / EDIT MODALS                                               */
+/* ================================================================== */
+const fieldInput: CSSProperties = { width: "100%", border: "1px solid #DDD5C5", borderRadius: 10, padding: "10px 12px", fontFamily: "inherit", fontSize: 14, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" };
+const fieldLabel: CSSProperties = { ...monoLabel, marginBottom: 7 };
+const primaryBtn = (disabled: boolean): CSSProperties => ({ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 11, padding: "10px 20px", fontFamily: "inherit", fontSize: 14, fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.7 : 1, boxShadow: "0 6px 16px rgba(228,89,59,.28)" });
+const ghostBtn: CSSProperties = { background: "#fff", border: "1px solid #DCD3C2", borderRadius: 9, padding: "7px 12px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 500, color: "#3A352C", cursor: "pointer" };
+
+function coerceByType(type: string, raw: string): string | number | null {
+  if (raw === "") return null;
+  if (type === "number") { const n = Number(raw); return Number.isNaN(n) ? raw : n; }
+  return raw;
+}
+const slugify = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+const COLUMN_TYPES = [{ v: "text", label: "Text" }, { v: "number", label: "Number" }, { v: "date", label: "Date" }, { v: "status", label: "Status" }];
+
+function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { v: T; label: string }[] }) {
+  return (
+    <div style={{ display: "inline-flex", background: "#EFE9DC", border: "1px solid #E1D9C8", borderRadius: 9, padding: 3 }}>
+      {options.map((o) => (
+        <button key={o.v} type="button" onClick={() => onChange(o.v)} style={{ border: "none", borderRadius: 7, padding: "6px 12px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 500, cursor: "pointer", ...(value === o.v ? { background: "#fff", color: C.ink, boxShadow: "0 1px 2px rgba(33,30,24,.14)" } : { background: "transparent", color: "#8A8477" }) }}>{o.label}</button>
+      ))}
+    </div>
+  );
+}
+
+function ModalShell({ title, subtitle, onClose, children, footer, maxWidth = 600 }: { title: ReactNode; subtitle?: string; onClose: () => void; children: ReactNode; footer?: ReactNode; maxWidth?: number }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 60, alignItems: "center", justifyContent: "center", padding: 24, display: "flex" }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(33,30,24,.5)", backdropFilter: "blur(2px)" }} />
+      <div style={{ position: "relative", width: "100%", maxWidth, background: "#F6F2E9", border: "1px solid #E1D9C8", borderRadius: 20, overflow: "hidden", boxShadow: "0 40px 90px -40px rgba(33,30,24,.7)", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "18px 22px", borderBottom: "1px solid #E7E0D2" }}>
+          <div style={{ minWidth: 0 }}>
+            <div className="dm-display" style={{ fontWeight: 700, fontSize: 18, letterSpacing: "-0.025em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+            {subtitle && <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginTop: 2 }}>{subtitle}</div>}
+          </div>
+          <Hov onClick={onClose} base={{ width: 32, height: 32, borderRadius: 9, border: "1px solid #E1D9C8", background: "#fff", color: "#8A8477", cursor: "pointer", fontSize: 15, lineHeight: 1, flexShrink: 0 }} hover={{ background: "#FBF8F1", color: C.ink }}>✕</Hov>
+        </div>
+        <div className="cc-scroll" style={{ padding: "20px 22px", overflow: "auto", flex: 1 }}>{children}</div>
+        {footer && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 22px", borderTop: "1px solid #E7E0D2", background: "#F0EBDE" }}>{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+function AgentEditModal({ agent, onClose, onSaved }: { agent: AgentRecord; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(agent.name);
+  const [purposeText, setPurposeText] = useState(agent.purpose_text ?? "");
+  const [channels, setChannels] = useState<string[]>(agent.channels);
+  const [mode, setMode] = useState<"auto" | "ping">(agent.mode);
+  const [status, setStatus] = useState<"active" | "paused">(agent.status);
+  const { pending, error, run } = useAction();
+  const toggleCh = (k: string) => setChannels((c) => c.includes(k) ? c.filter((x) => x !== k) : [...c, k]);
+  const save = () => run(() => updateAgentAction(agent.id, { name, purposeText, channels, mode, status }), onSaved);
+  const del = () => { if (confirm(`Delete agent “${agent.name}”? Its tables are kept.`)) run(() => deleteAgentAction(agent.id), onSaved); };
+
+  return (
+    <ModalShell title="Manage agent" subtitle={agent.name} onClose={onClose}
+      footer={(
+        <>
+          <Hov onClick={del} base={{ background: "none", border: "none", color: "#B44536", fontFamily: "inherit", fontSize: 13.5, fontWeight: 500, cursor: "pointer", padding: "8px 4px" }} hover={{ color: "#8f2f23" }}>Delete agent</Hov>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {error && <span className="dm-mono" style={{ fontSize: 11, color: C.accent, maxWidth: 200, textAlign: "right" }}>{error}</span>}
+            <Hov onClick={pending ? undefined : save} base={primaryBtn(pending)} hover={{ background: C.accentPress }}>{pending ? "Saving…" : "Save"}</Hov>
+          </div>
+        </>
+      )}
+    >
+      <div style={{ marginBottom: 16 }}>
+        <div className="dm-mono" style={fieldLabel}>Name</div>
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)} style={fieldInput} />
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <div className="dm-mono" style={fieldLabel}>Purpose</div>
+        <textarea value={purposeText} onChange={(e) => setPurposeText(e.target.value)} rows={2} style={{ ...fieldInput, resize: "vertical" }} />
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <div className="dm-mono" style={fieldLabel}>Channels</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(130px,1fr))", gap: 8 }}>
+          {Object.keys(LOGO).map((k) => {
+            const active = channels.includes(k);
+            return (
+              <button key={k} type="button" onClick={() => toggleCh(k)} style={channelTile(active)}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={LOGO[k]} alt={CH_NAMES[k]} style={{ width: 20, height: 20, borderRadius: 4 }} />
+                <span style={{ fontSize: 13, fontWeight: 500 }}>{CH_NAMES[k]}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+        <div>
+          <div className="dm-mono" style={fieldLabel}>Mode</div>
+          <Segmented value={mode} onChange={setMode} options={[{ v: "auto", label: "Automatic" }, { v: "ping", label: "On ping" }]} />
+        </div>
+        <div>
+          <div className="dm-mono" style={fieldLabel}>Status</div>
+          <Segmented value={status} onChange={setStatus} options={[{ v: "active", label: "Active" }, { v: "paused", label: "Paused" }]} />
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function CreateTableModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [name, setName] = useState("");
+  const [cols, setCols] = useState<{ label: string; type: string }[]>([{ label: "", type: "text" }]);
+  const { pending, error, setError, run } = useAction();
+  const update = (i: number, patch: Partial<{ label: string; type: string }>) => setCols((cs) => cs.map((c, idx) => idx === i ? { ...c, ...patch } : c));
+
+  const create = () => {
+    if (!name.trim()) { setError("Give the table a name."); return; }
+    const seen = new Set<string>();
+    const columns: DatasetColumn[] = cols.filter((c) => c.label.trim()).map((c) => {
+      const base = slugify(c.label) || "col";
+      let key = base; let n = 2;
+      while (seen.has(key)) key = `${base}_${n++}`;
+      seen.add(key);
+      return { key, label: c.label.trim(), type: c.type };
+    });
+    run(() => createDatasetAction({ name: name.trim(), columns }), onCreated);
+  };
+
+  return (
+    <ModalShell title="New table" subtitle="Define a table from scratch" onClose={onClose}
+      footer={(
+        <>
+          <span />
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {error && <span className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{error}</span>}
+            <Hov onClick={pending ? undefined : create} base={primaryBtn(pending)} hover={{ background: C.accentPress }}>{pending ? "Creating…" : "Create table"}</Hov>
+          </div>
+        </>
+      )}
+    >
+      <div style={{ marginBottom: 18 }}>
+        <div className="dm-mono" style={fieldLabel}>Table name</div>
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Clients" style={fieldInput} />
+      </div>
+      <div className="dm-mono" style={fieldLabel}>Columns</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {cols.map((c, i) => (
+          <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input type="text" value={c.label} onChange={(e) => update(i, { label: e.target.value })} placeholder={`Column ${i + 1}`} style={{ ...fieldInput, flex: 1 }} />
+            <select value={c.type} onChange={(e) => update(i, { type: e.target.value })} style={{ ...fieldInput, width: 120, flex: "0 0 120px" }}>
+              {COLUMN_TYPES.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
+            </select>
+            <button type="button" onClick={() => setCols((cs) => cs.length > 1 ? cs.filter((_, idx) => idx !== i) : cs)} title="Remove column" style={{ width: 32, height: 32, flexShrink: 0, borderRadius: 8, border: "1px solid #E1D9C8", background: "#fff", color: "#8A8477", cursor: "pointer", fontSize: 15 }}>×</button>
+          </div>
+        ))}
+      </div>
+      <Hov onClick={() => setCols((cs) => [...cs, { label: "", type: "text" }])} base={{ ...ghostBtn, marginTop: 10 }} hover={{ background: "#FBF8F1" }}>+ Add column</Hov>
+    </ModalShell>
+  );
+}
+
+function TableCell({ row, col, onSave }: { row: DatasetRowRecord; col: DatasetColumn; onSave: (data: Record<string, unknown>) => void }) {
+  const initial = row.data?.[col.key];
+  const [val, setVal] = useState(initial === null || initial === undefined ? "" : String(initial));
+  const commit = () => {
+    const next = coerceByType(col.type, val);
+    if (JSON.stringify(next) !== JSON.stringify(initial ?? null)) onSave({ ...row.data, [col.key]: next });
+  };
+  const type = col.type === "number" ? "number" : col.type === "date" ? "date" : "text";
+  return (
+    <input
+      type={type}
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      style={{ width: "100%", boxSizing: "border-box", border: "none", background: "transparent", fontFamily: "inherit", fontSize: 13, color: "#3A352C", padding: "9px 10px", outline: "none" }}
+    />
+  );
+}
+
+function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; onClose: () => void; onChanged: () => void }) {
+  const { pending, error, run } = useAction();
+  const [addingCol, setAddingCol] = useState(false);
+  const [colLabel, setColLabel] = useState("");
+  const [colType, setColType] = useState("text");
+  const [colDefault, setColDefault] = useState("");
+  const cols = table.columns;
+
+  const addRow = () => run(() => addRowAction(table.id, Object.fromEntries(cols.map((c) => [c.key, null]))), onChanged);
+  const submitCol = () => run(
+    () => addColumnAction(table.id, { label: colLabel, type: colType, defaultValue: coerceByType(colType, colDefault) }),
+    () => { setAddingCol(false); setColLabel(""); setColDefault(""); setColType("text"); onChanged(); },
+  );
+  const removeCol = (key: string, label: string) => { if (confirm(`Remove column “${label}”? Its values are deleted from every row.`)) run(() => removeColumnAction(table.id, key), onChanged); };
+  const delRow = (id: string) => run(() => deleteRowAction(id), onChanged);
+  const delTable = () => { if (confirm(`Delete table “${table.name}” and all ${table.rowCount} rows?`)) run(() => deleteDatasetAction(table.id), () => { onClose(); onChanged(); }); };
+  const rename = () => { const n = prompt("Rename table", table.name); if (n && n.trim() && n.trim() !== table.name) run(() => renameDatasetAction(table.id, n.trim()), onChanged); };
+
+  const cellBorder = "1px solid #EFE9DC";
+  return (
+    <ModalShell maxWidth={900} onClose={onClose}
+      title={table.name}
+      subtitle={`${table.rowCount} ${table.rowCount === 1 ? "row" : "rows"} · ${cols.length} ${cols.length === 1 ? "column" : "columns"}${table.agentName ? ` · fed by ${table.agentName}` : ""}`}
+      footer={(
+        <>
+          <Hov onClick={delTable} base={{ background: "none", border: "none", color: "#B44536", fontFamily: "inherit", fontSize: 13.5, fontWeight: 500, cursor: "pointer", padding: "8px 4px" }} hover={{ color: "#8f2f23" }}>Delete table</Hov>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {error && <span className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{error}</span>}
+            {pending && <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>Saving…</span>}
+            <Hov tag="a" href={`/api/datasets/${table.id}/export`} base={{ ...ghostBtn, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }} hover={{ background: "#FBF8F1" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1E8E4E" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 9v12" /></svg>
+              Export Excel
+            </Hov>
+          </div>
+        </>
+      )}
+    >
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <Hov onClick={addRow} base={ghostBtn} hover={{ background: "#FBF8F1" }}>+ Add row</Hov>
+        <Hov onClick={() => setAddingCol((v) => !v)} base={ghostBtn} hover={{ background: "#FBF8F1" }}>+ Add column</Hov>
+        <Hov onClick={rename} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Rename</Hov>
+      </div>
+
+      {addingCol && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 14, padding: "12px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
+          <input type="text" value={colLabel} onChange={(e) => setColLabel(e.target.value)} placeholder="Column name" style={{ ...fieldInput, flex: "1 1 140px", width: "auto" }} />
+          <select value={colType} onChange={(e) => setColType(e.target.value)} style={{ ...fieldInput, width: 120, flex: "0 0 120px" }}>
+            {COLUMN_TYPES.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
+          </select>
+          <input type="text" value={colDefault} onChange={(e) => setColDefault(e.target.value)} placeholder="Default (optional)" style={{ ...fieldInput, flex: "1 1 140px", width: "auto" }} />
+          <Hov onClick={pending ? undefined : submitCol} base={primaryBtn(pending)} hover={{ background: C.accentPress }}>Add</Hov>
+        </div>
+      )}
+
+      {cols.length === 0 ? (
+        <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>No columns yet — add one to start.</div>
+      ) : (
+        <div style={{ overflowX: "auto", border: "1px solid #E7E0D2", borderRadius: 12 }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: cols.length * 140 + 44 }}>
+            <thead>
+              <tr style={{ background: "#FAF6EE" }}>
+                {cols.map((c) => (
+                  <th key={c.key} style={{ textAlign: "left", padding: "9px 10px", borderRight: cellBorder, borderBottom: "1px solid #EFE9DC", minWidth: 140 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: "#3A352C" }}>{c.label}</span>
+                      <button type="button" onClick={() => removeCol(c.key, c.label)} title="Remove column" style={{ border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+                    </div>
+                    <span className="dm-mono" style={{ fontSize: 9.5, color: "#A39B8B", textTransform: "uppercase", letterSpacing: "0.04em" }}>{c.type}</span>
+                  </th>
+                ))}
+                <th style={{ width: 40, borderBottom: "1px solid #EFE9DC" }} />
+              </tr>
+            </thead>
+            <tbody>
+              {table.rows.map((r) => (
+                <tr key={r.id} style={{ borderTop: cellBorder }}>
+                  {cols.map((c) => (
+                    <td key={c.key} style={{ borderRight: cellBorder, borderTop: cellBorder }}>
+                      <TableCell row={r} col={c} onSave={(data) => run(() => updateRowAction(r.id, data), onChanged)} />
+                    </td>
+                  ))}
+                  <td style={{ borderTop: cellBorder, textAlign: "center" }}>
+                    <button type="button" onClick={() => delRow(r.id)} title="Delete row" style={{ border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 14, padding: "6px 8px" }}>🗑</button>
+                  </td>
+                </tr>
+              ))}
+              {table.rows.length === 0 && (
+                <tr><td colSpan={cols.length + 1} className="dm-mono" style={{ padding: "18px 12px", fontSize: 12.5, color: "#A39B8B", textAlign: "center" }}>No rows yet — “Add row” to create one.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ModalShell>
   );
 }
