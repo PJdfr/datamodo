@@ -27,17 +27,34 @@ export default async function DashboardPage() {
   const initial = fullName.charAt(0).toUpperCase();
 
   // Real structured layer: the user's active org, its agents, and its datasets.
+  // Loads are defensive: if a query fails (most often because the database is
+  // behind on migrations), we render an empty dashboard with a notice rather
+  // than crashing the whole page ("this page could not load").
   let agents: AgentRecord[] = [];
   let datasets: DatasetView[] = [];
   let settings: UserSettings = { plan: "free", computeMode: "byok", aiProvider: "anthropic", byokKeySet: false, planStatus: null, currentPeriodEnd: null };
+  let notice: string | null = null;
+  const SCHEMA_NOTICE =
+    "Some data couldn’t load — your database may be missing a migration. Run `supabase db push` (hosted) or `supabase db reset` (local) to apply the latest migrations.";
+
   if (user) {
-    const org = await getActiveOrg(supabase, user.id);
-    settings = await getSettings(supabase, user.id);
-    if (org) {
-      [agents, datasets] = await Promise.all([
-        listAgents(supabase, org.id),
-        listDatasets(supabase, org.id),
-      ]);
+    try {
+      const org = await getActiveOrg(supabase, user.id);
+      try {
+        settings = await getSettings(supabase, user.id);
+      } catch {
+        notice = SCHEMA_NOTICE;
+      }
+      if (org) {
+        const [ag, ds] = await Promise.allSettled([
+          listAgents(supabase, org.id),
+          listDatasets(supabase, org.id),
+        ]);
+        if (ag.status === "fulfilled") agents = ag.value; else notice = SCHEMA_NOTICE;
+        if (ds.status === "fulfilled") datasets = ds.value; else notice = SCHEMA_NOTICE;
+      }
+    } catch {
+      notice = SCHEMA_NOTICE;
     }
   }
 
@@ -49,6 +66,7 @@ export default async function DashboardPage() {
       agents={agents}
       datasets={datasets}
       settings={settings}
+      notice={notice}
     />
   );
 }

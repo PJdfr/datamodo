@@ -338,6 +338,7 @@ export type ControlCenterProps = {
   agents: AgentRecord[];
   datasets: DatasetView[];
   settings: UserSettings;
+  notice?: string | null;
 };
 
 // Palette used to give agents/tables a stable accent when the DB has none.
@@ -359,9 +360,10 @@ const relTime = (iso: string): string => {
   return `${Math.floor(h / 24)}d ago`;
 };
 
-export default function ControlCenter({ fullName, initial, inbox, agents, datasets, settings }: ControlCenterProps) {
+export default function ControlCenter({ fullName, initial, inbox, agents, datasets, settings, notice }: ControlCenterProps) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("agents");
+  const [noticeOpen, setNoticeOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [autoAccept, setAutoAccept] = useState(false);
   const [dismissed, setDismissed] = useState<string[]>([]);
@@ -495,6 +497,13 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
 
   return (
     <div className="cc-shell">
+      {notice && noticeOpen && (
+        <div style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 200, maxWidth: 620, width: "calc(100% - 24px)", display: "flex", alignItems: "flex-start", gap: 10, padding: "11px 14px", background: "#FBEFD6", border: "1px solid #E6CF92", borderRadius: 12, boxShadow: "0 12px 30px -12px rgba(33,30,24,.4)" }}>
+          <span style={{ fontSize: 15, lineHeight: 1.3, flexShrink: 0 }}>⚠️</span>
+          <span style={{ fontSize: 12.5, color: "#6B551F", lineHeight: 1.4, flex: 1 }}>{notice}</span>
+          <button type="button" onClick={() => setNoticeOpen(false)} style={{ border: "none", background: "none", color: "#9A8043", cursor: "pointer", fontSize: 15, lineHeight: 1, flexShrink: 0 }} title="Dismiss">✕</button>
+        </div>
+      )}
       {/* ================= SIDEBAR ================= */}
       <aside className="cc-side">
         <div style={{ padding: "2px 8px 22px", display: "flex", alignItems: "baseline" }}>
