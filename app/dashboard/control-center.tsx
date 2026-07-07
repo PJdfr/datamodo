@@ -1355,21 +1355,40 @@ function Segmented<T extends string>({ value, onChange, options }: { value: T; o
   );
 }
 
-function ModalShell({ title, subtitle, onClose, children, footer, maxWidth = 600 }: { title: ReactNode; subtitle?: string; onClose: () => void; children: ReactNode; footer?: ReactNode; maxWidth?: number }) {
+function ModalShell({ title, subtitle, onClose, children, footer, maxWidth = 600, badge }: { title: ReactNode; subtitle?: string; onClose: () => void; children: ReactNode; footer?: ReactNode; maxWidth?: number; badge?: { initial: string; bg: string } }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 60, alignItems: "center", justifyContent: "center", padding: 24, display: "flex" }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(33,30,24,.5)", backdropFilter: "blur(2px)" }} />
       <div style={{ position: "relative", width: "100%", maxWidth, background: "#F6F2E9", border: "1px solid #E1D9C8", borderRadius: 20, overflow: "hidden", boxShadow: "0 40px 90px -40px rgba(33,30,24,.7)", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "18px 22px", borderBottom: "1px solid #E7E0D2" }}>
-          <div style={{ minWidth: 0 }}>
-            <div className="dm-display" style={{ fontWeight: 700, fontSize: 18, letterSpacing: "-0.025em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
-            {subtitle && <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginTop: 2 }}>{subtitle}</div>}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            {badge && (
+              <span className="dm-display" style={{ width: 40, height: 40, borderRadius: 12, background: badge.bg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 17, flexShrink: 0 }}>{badge.initial}</span>
+            )}
+            <div style={{ minWidth: 0 }}>
+              <div className="dm-display" style={{ fontWeight: 700, fontSize: 18, letterSpacing: "-0.025em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+              {subtitle && <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginTop: 2 }}>{subtitle}</div>}
+            </div>
           </div>
           <Hov onClick={onClose} base={{ width: 32, height: 32, borderRadius: 9, border: "1px solid #E1D9C8", background: "#fff", color: "#8A8477", cursor: "pointer", fontSize: 15, lineHeight: 1, flexShrink: 0 }} hover={{ background: "#FBF8F1", color: C.ink }}>✕</Hov>
         </div>
         <div className="cc-scroll" style={{ padding: "20px 22px", overflow: "auto", flex: 1 }}>{children}</div>
         {footer && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 22px", borderTop: "1px solid #E7E0D2", background: "#F0EBDE" }}>{footer}</div>}
       </div>
+    </div>
+  );
+}
+
+/* Framed panel with a soft header-bar — the "clean" signature borrowed from the
+   suggestion / proposal cards: mono-uppercase label left, a summary slot right. */
+function Panel({ label, summary, summaryColor = "#A39B8B", children, style }: { label: ReactNode; summary?: ReactNode; summaryColor?: string; children: ReactNode; style?: CSSProperties }) {
+  return (
+    <div style={{ border: "1px solid #ECE5D8", borderRadius: 12, overflow: "hidden", background: "#fff", ...style }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 14px", background: "#FAF6EE", borderBottom: "1px solid #ECE5D8" }}>
+        <span className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em", color: "#A39B8B" }}>{label}</span>
+        {summary != null && <span className="dm-mono" style={{ fontSize: 10.5, color: summaryColor }}>{summary}</span>}
+      </div>
+      {children}
     </div>
   );
 }
@@ -1386,7 +1405,8 @@ function AgentEditModal({ agent, onClose, onSaved }: { agent: AgentRecord; onClo
   const del = () => { if (confirm(`Delete agent “${agent.name}”? Its tables are kept.`)) run(() => deleteAgentAction(agent.id), onSaved); };
 
   return (
-    <ModalShell title="Manage agent" subtitle={agent.name} onClose={onClose}
+    <ModalShell title={agent.name} subtitle="Manage agent" onClose={onClose}
+      badge={{ initial: agent.name.slice(0, 1).toUpperCase() || "A", bg: pickColor(agent.name) }}
       footer={(
         <>
           <Hov onClick={del} base={{ background: "none", border: "none", color: "#B44536", fontFamily: "inherit", fontSize: 13.5, fontWeight: 500, cursor: "pointer", padding: "8px 4px" }} hover={{ color: "#8f2f23" }}>Delete agent</Hov>
@@ -1782,9 +1802,10 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
   const delTable = () => { if (confirm(`Delete table “${table.name}” and all ${table.rowCount} rows?`)) run(() => deleteDatasetAction(table.id), () => { onClose(); onChanged(); }); };
   const rename = () => { const n = prompt("Rename table", table.name); if (n && n.trim() && n.trim() !== table.name) run(() => renameDatasetAction(table.id, n.trim()), onChanged); };
 
-  const cellBorder = "1px solid #EFE9DC";
+  const rowSep = "1px solid #F3EEE3";
   return (
     <ModalShell maxWidth={920} onClose={onClose}
+      badge={{ initial: table.name.slice(0, 1).toUpperCase() || "T", bg: pickColor(table.name) }}
       title={table.name}
       subtitle={`${table.rowCount} ${table.rowCount === 1 ? "row" : "rows"} · ${cols.length} ${cols.length === 1 ? "column" : "columns"}${table.agentName ? ` · fed by ${table.agentName}` : ""}`}
       footer={(
@@ -1847,47 +1868,55 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
       )}
 
       {cols.length === 0 ? (
-        <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>No columns yet — add one to start.</div>
+        <Panel label="Rows" summary="No columns yet">
+          <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 14px" }}>Add a column above to start.</div>
+        </Panel>
       ) : (
-        <div style={{ overflowX: "auto", border: "1px solid #E7E0D2", borderRadius: 12 }}>
-          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: cols.length * 140 + 68 }}>
-            <thead>
-              <tr style={{ background: "#FAF6EE" }}>
-                <th style={{ width: 24, borderBottom: "1px solid #EFE9DC" }} />
-                {cols.map((c) => (
-                  <th key={c.key} style={{ textAlign: "left", padding: "9px 10px", borderRight: cellBorder, borderBottom: "1px solid #EFE9DC", minWidth: 140 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 600, color: "#3A352C" }}>{c.label}</span>
-                      <button type="button" onClick={() => removeCol(c.key, c.label)} title="Remove column" style={{ border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
-                    </div>
-                    <span className="dm-mono" style={{ fontSize: 9.5, color: "#A39B8B", textTransform: "uppercase", letterSpacing: "0.04em" }}>{c.type}</span>
-                  </th>
-                ))}
-                <th style={{ width: 40, borderBottom: "1px solid #EFE9DC" }} />
-              </tr>
-            </thead>
-            <tbody>
-              {table.rows.map((r) => (
-                <tr key={r.id} style={{ borderTop: cellBorder }}>
-                  <td style={{ borderTop: cellBorder, textAlign: "center" }}>
-                    {r.humanEdited && <span title="You edited this row — agents can’t overwrite it" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: C.ink }} />}
-                  </td>
+        <Panel
+          label="Rows"
+          summary={table.agentName ? `fed by ${table.agentName}` : `${cols.length} ${cols.length === 1 ? "column" : "columns"}`}
+          summaryColor={table.agentName ? C.green : "#A39B8B"}
+        >
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ borderCollapse: "collapse", width: "100%", minWidth: cols.length * 140 + 68 }}>
+              <thead>
+                <tr style={{ background: "#FBFAF7" }}>
+                  <th style={{ width: 24, borderBottom: rowSep }} />
                   {cols.map((c) => (
-                    <td key={c.key} style={{ borderRight: cellBorder, borderTop: cellBorder }}>
-                      <TableCell row={r} col={c} onSave={(data) => run(() => updateRowAction(table.id, r.id, data), onChanged)} />
-                    </td>
+                    <th key={c.key} style={{ textAlign: "left", padding: "9px 12px", borderBottom: rowSep, minWidth: 140 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 600, color: "#3A352C" }}>{c.label}</span>
+                        <button type="button" onClick={() => removeCol(c.key, c.label)} title="Remove column" style={{ border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+                      </div>
+                      <span className="dm-mono" style={{ fontSize: 9.5, color: "#A39B8B", textTransform: "uppercase", letterSpacing: "0.04em" }}>{c.type}</span>
+                    </th>
                   ))}
-                  <td style={{ borderTop: cellBorder, textAlign: "center" }}>
-                    <button type="button" onClick={() => delRow(r.id)} title="Delete row" style={{ border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 14, padding: "6px 8px" }}>🗑</button>
-                  </td>
+                  <th style={{ width: 40, borderBottom: rowSep }} />
                 </tr>
-              ))}
-              {table.rows.length === 0 && (
-                <tr><td colSpan={cols.length + 2} className="dm-mono" style={{ padding: "18px 12px", fontSize: 12.5, color: "#A39B8B", textAlign: "center" }}>No rows yet — “Add row” to create one.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {table.rows.map((r, ri) => (
+                  <tr key={r.id} style={{ borderTop: rowSep, background: ri % 2 ? "#FCFBF8" : "#fff" }}>
+                    <td style={{ textAlign: "center" }}>
+                      {r.humanEdited && <span title="You edited this row — agents can’t overwrite it" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: C.ink }} />}
+                    </td>
+                    {cols.map((c) => (
+                      <td key={c.key}>
+                        <TableCell row={r} col={c} onSave={(data) => run(() => updateRowAction(table.id, r.id, data), onChanged)} />
+                      </td>
+                    ))}
+                    <td style={{ textAlign: "center" }}>
+                      <button type="button" onClick={() => delRow(r.id)} title="Delete row" style={{ border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 14, padding: "6px 8px" }}>🗑</button>
+                    </td>
+                  </tr>
+                ))}
+                {table.rows.length === 0 && (
+                  <tr><td colSpan={cols.length + 2} className="dm-mono" style={{ padding: "18px 12px", fontSize: 12.5, color: "#A39B8B", textAlign: "center" }}>No rows yet — “Add row” to create one.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
       )}
     </ModalShell>
   );
