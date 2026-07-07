@@ -1,0 +1,11 @@
+name = "datamodo-email-ingest"
+main = "src/index.ts"
+compatibility_date = "2024-11-06"
+
+# The deployed app the Worker forwards normalized mail to. Override per env.
+# INGEST_WEBHOOK_SECRET is a secret (not here): `npx wrangler secret put INGEST_WEBHOOK_SECRET`.
+[vars]
+APP_URL = "https://your-app.example.com"
+
+# Inbound routing (catch-all → this Worker) is configured in the Cloudflare
+# dashboard under Email → Email Routing, not in this file. See README.md.

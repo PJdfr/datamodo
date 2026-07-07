@@ -7,6 +7,7 @@ import { listRelations } from "@/lib/datamodo/relations";
 import { listPendingChanges } from "@/lib/datamodo/review";
 import { listAgentActivity } from "@/lib/datamodo/activity";
 import { getSettings, type UserSettings } from "@/lib/datamodo/settings";
+import { inboundEmailDomain, provisionInbox } from "@/lib/datamodo/inbox";
 import type { AgentActivityEntry, AgentRecord, DatasetRelation, DatasetView, ReviewItem } from "@/lib/datamodo/types";
 import ControlCenter from "./control-center";
 
@@ -16,12 +17,7 @@ export default async function DashboardPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Best-effort: show the user's real forwarding inbox if the table exists.
-  const { data: addrs } = await supabase
-    .from("forwarding_addresses")
-    .select("address")
-    .limit(1);
-  const inbox = addrs?.[0]?.address ?? "u8x2@datamodo.in";
+  let inbox = `you@${inboundEmailDomain()}`;
 
   const fullName =
     (user?.user_metadata?.full_name as string | undefined)?.trim() ||
@@ -52,6 +48,12 @@ export default async function DashboardPage() {
         notice = SCHEMA_NOTICE;
       }
       if (org) {
+        // Ensure the user has a capture inbox (best-effort — never blocks render).
+        try {
+          inbox = await provisionInbox(supabase, org.id, user.id);
+        } catch {
+          /* keep the placeholder */
+        }
         const [ag, ds, rel, pend, act] = await Promise.allSettled([
           listAgents(supabase, org.id),
           listDatasets(supabase, org.id),

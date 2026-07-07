@@ -27,6 +27,7 @@ import {
   updateRow,
 } from "@/lib/datamodo/datasets";
 import { createRelation, deleteRelation } from "@/lib/datamodo/relations";
+import { regenerateInbox } from "@/lib/datamodo/inbox";
 import { getSettings, updateComputeSettings, countAgents } from "@/lib/datamodo/settings";
 import { planLimits, type AiProvider, type ComputeMode } from "@/lib/datamodo/plans";
 import type { DatasetColumn, NewAgentInput, SnapshotFull } from "@/lib/datamodo/types";
@@ -404,6 +405,24 @@ export async function deleteRelationAction(id: string): Promise<ActionResult> {
     return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message ?? "Failed to delete relationship." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Inbound email address (the agent's capture inbox)
+// ---------------------------------------------------------------------------
+
+/** Retire the current inbound address and mint a fresh one. */
+export async function regenerateInboxAction(): Promise<ActionResult & { address?: string }> {
+  try {
+    const { db, user, org } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    if (!org) return { ok: false, error: "No organization found." };
+    const address = await regenerateInbox(db, org.id, user.id);
+    revalidatePath("/dashboard");
+    return { ok: true, address };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to regenerate inbox." };
   }
 }
 
