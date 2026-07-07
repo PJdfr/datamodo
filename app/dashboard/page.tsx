@@ -1,5 +1,9 @@
 import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
+import { getActiveOrg } from "@/lib/datamodo/orgs";
+import { listAgents } from "@/lib/datamodo/agents";
+import { listDatasets } from "@/lib/datamodo/datasets";
+import type { AgentRecord, DatasetView } from "@/lib/datamodo/types";
 import ControlCenter from "./control-center";
 
 export default async function DashboardPage() {
@@ -21,5 +25,26 @@ export default async function DashboardPage() {
     "You";
   const initial = fullName.charAt(0).toUpperCase();
 
-  return <ControlCenter fullName={fullName} initial={initial} inbox={inbox} />;
+  // Real structured layer: the user's active org, its agents, and its datasets.
+  let agents: AgentRecord[] = [];
+  let datasets: DatasetView[] = [];
+  if (user) {
+    const org = await getActiveOrg(supabase, user.id);
+    if (org) {
+      [agents, datasets] = await Promise.all([
+        listAgents(supabase, org.id),
+        listDatasets(supabase, org.id),
+      ]);
+    }
+  }
+
+  return (
+    <ControlCenter
+      fullName={fullName}
+      initial={initial}
+      inbox={inbox}
+      agents={agents}
+      datasets={datasets}
+    />
+  );
 }

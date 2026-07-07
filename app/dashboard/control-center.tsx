@@ -3,21 +3,38 @@
 /**
  * Datamodo Control Center — the signed-in workspace.
  *
- * Ported from the "Datamodo Control Center.dc.html" design handoff. It is a
- * pure front-end experience: every panel is driven by local state and the mock
- * data below. The ONLY thing wired to the backend is the account (real name /
- * email / forwarding inbox are passed in from the server, and Sign out calls
- * the Supabase server action). Everything else — agents, tables, suggestions,
- * the create-agent wizard — is illustrative and does not persist.
+ * Ported from the "Datamodo Control Center.dc.html" design handoff. Agents and
+ * data tables are now REAL: they are loaded from Supabase by the server
+ * component and the create-agent wizard persists via a Server Action. The
+ * suggestions feed, relationship graph, and NL search remain illustrative (see
+ * app/dashboard/README.md for the roadmap).
  */
 
 import {
   createElement,
+  useMemo,
   useState,
+  useTransition,
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { useRouter } from "next/navigation";
 import { signout } from "@/app/auth/actions";
+import {
+  createAgentAction,
+  updateAgentAction,
+  deleteAgentAction,
+  createDatasetAction,
+  renameDatasetAction,
+  deleteDatasetAction,
+  addColumnAction,
+  removeColumnAction,
+  addRowAction,
+  updateRowAction,
+  deleteRowAction,
+  type ActionResult,
+} from "./actions";
+import type { AgentRecord, DatasetColumn, DatasetRowRecord, DatasetView } from "@/lib/datamodo/types";
 
 /* ------------------------------------------------------------------ */
 /* Hover helper — inline styles win over CSS :hover, so hover states   */
@@ -31,6 +48,8 @@ type HovProps = {
   className?: string;
   type?: "button" | "submit";
   title?: string;
+  href?: string;
+  download?: boolean | string;
   onClick?: () => void;
 };
 function Hov({ tag = "button", base, hover, children, ...rest }: HovProps) {
@@ -150,6 +169,7 @@ const SUGGESTIONS: Suggestion[] = [
 ];
 
 type Agent = {
+  id: string;
   name: string;
   initial: string;
   avatarBg: string;
@@ -161,17 +181,10 @@ type Agent = {
   purpose: string;
   feeds: string;
   pending: number;
-  scope: "org" | "me" | "people";
 };
-const AGENTS: Agent[] = [
-  { name: "Ledger", initial: "L", avatarBg: C.accent, statusLabel: "Active", statusColor: C.green, statusDot: C.green, channels: ["gmail", "outlook"], modeLabel: "Auto", purpose: "Invoices, receipts & payment confirmations from your billing inbox.", feeds: "Invoices · Receipts", pending: 3, scope: "org" },
-  { name: "Rolodex", initial: "R", avatarBg: C.ink, statusLabel: "Active", statusColor: C.green, statusDot: C.green, channels: ["whatsapp"], modeLabel: "On ping", purpose: "People & companies you meet — tag it and it files the contact.", feeds: "Contacts · Companies", pending: 2, scope: "me" },
-  { name: "Nomad", initial: "N", avatarBg: C.green, statusLabel: "Active", statusColor: C.green, statusDot: C.green, channels: ["gmail"], modeLabel: "Auto", purpose: "Trips, bookings & travel confirmations, kept in one timeline.", feeds: "Trips", pending: 0, scope: "people" },
-  { name: "Scout", initial: "S", avatarBg: C.gold, statusLabel: "Paused", statusColor: C.gold, statusDot: C.gold, channels: ["slack"], modeLabel: "On ping", purpose: "Product feedback & bug reports flagged from your team channels.", feeds: "Feedback", pending: 0, scope: "org" },
-  { name: "Telegraph", initial: "T", avatarBg: C.blue, statusLabel: "Active", statusColor: C.green, statusDot: C.green, channels: ["telegram"], modeLabel: "Auto", purpose: "Newsletter highlights & links worth keeping for later reading.", feeds: "Reading", pending: 0, scope: "me" },
-];
 
 type TableInfo = {
+  id: string;
   name: string;
   rows: string;
   fields: string[];
@@ -180,35 +193,6 @@ type TableInfo = {
   agentBg: string;
   updated: string;
 };
-const TABLES: TableInfo[] = [
-  { name: "Invoices", rows: "28 rows", fields: ["Client", "Invoice", "Amount", "Due", "Status"], agent: "Ledger", agentInitial: "L", agentBg: C.accent, updated: "2h ago" },
-  { name: "Receipts", rows: "112 rows", fields: ["Merchant", "Category", "Amount", "Date", "Method"], agent: "Ledger", agentInitial: "L", agentBg: C.accent, updated: "5h ago" },
-  { name: "Contacts", rows: "64 rows", fields: ["Name", "Email", "Company", "Role", "Met"], agent: "Rolodex", agentInitial: "R", agentBg: C.ink, updated: "1d ago" },
-  { name: "Companies", rows: "19 rows", fields: ["Name", "Domain", "Industry", "Contacts"], agent: "Rolodex", agentInitial: "R", agentBg: C.ink, updated: "1d ago" },
-  { name: "Trips", rows: "7 rows", fields: ["Destination", "Dates", "Booking", "Cost"], agent: "Nomad", agentInitial: "N", agentBg: C.green, updated: "3h ago" },
-  { name: "Reading", rows: "156 rows", fields: ["Title", "Source", "Topic", "Saved"], agent: "Telegraph", agentInitial: "T", agentBg: C.blue, updated: "6h ago" },
-];
-
-type Status = "Paid" | "Sent" | "Approved";
-type InvRow = { n: number; client: string; invoice: string; amount: string; due: string; status: Status; hl?: boolean };
-const INVOICE_ROWS: InvRow[] = [
-  { n: 1, client: "Northwind", invoice: "#A-198", amount: "$3,400", due: "Jul 20", status: "Paid" },
-  { n: 2, client: "Globex", invoice: "#A-201", amount: "$9,120", due: "Jul 28", status: "Sent" },
-  { n: 3, client: "Acme Inc", invoice: "#A-204", amount: "$12,000", due: "Aug 1", status: "Approved", hl: true },
-  { n: 4, client: "Initech", invoice: "#A-205", amount: "$2,120", due: "Aug 4", status: "Sent" },
-];
-const STATUS_STYLE: Record<Status, { c: string; b: string }> = {
-  Paid: { c: C.green, b: "#E4F0E8" },
-  Sent: { c: C.gold, b: "#F6ECD4" },
-  Approved: { c: C.accent, b: "#FBE0D6" },
-};
-
-const TEAMMATES = [
-  { name: "Jordan Lee", email: "jordan@acme.com", initial: "J", bg: C.accent },
-  { name: "Priya Nair", email: "priya@acme.com", initial: "P", bg: C.green },
-  { name: "Marcus Webb", email: "marcus@acme.com", initial: "M", bg: C.blue },
-  { name: "Dana Cho", email: "dana@acme.com", initial: "D", bg: C.gold },
-];
 
 const PENDING_COUNT = 4;
 
@@ -264,19 +248,6 @@ const radioDot = (active: boolean): CSSProperties => ({
     ? "radial-gradient(circle, #E4593B 0 5px, #fff 6px 20px)"
     : "#fff",
 });
-const segStyle = (active: boolean): CSSProperties => ({
-  border: "none",
-  borderRadius: 7,
-  padding: "5px 11px",
-  fontFamily: "inherit",
-  fontSize: 12,
-  fontWeight: 500,
-  cursor: "pointer",
-  transition: "background .15s ease, color .15s ease",
-  ...(active
-    ? { background: "#fff", color: C.ink, boxShadow: "0 1px 2px rgba(33,30,24,.14)" }
-    : { background: "transparent", color: "#8A8477" }),
-});
 const bar = (active: boolean): CSSProperties => ({
   flex: 1,
   height: 4,
@@ -319,19 +290,6 @@ const channelTile = (active: boolean): CSSProperties => ({
   border: active ? "1.5px solid #E4593B" : "1.5px solid #E7E0D2",
   boxShadow: active ? "0 0 0 3px rgba(228,89,59,.1)" : "none",
 });
-const teammateStyle = (sel: boolean): CSSProperties => ({
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  width: "100%",
-  textAlign: "left",
-  background: "#fff",
-  borderRadius: 10,
-  padding: "8px 11px",
-  cursor: "pointer",
-  fontFamily: "inherit",
-  border: sel ? "1.5px solid #E4593B" : "1px solid #E7E0D2",
-});
 const targetChip = (sel: boolean, freestyle: boolean): CSSProperties => {
   const b: CSSProperties = {
     fontSize: 11,
@@ -364,40 +322,144 @@ export type ControlCenterProps = {
   fullName: string;
   initial: string;
   inbox: string;
+  agents: AgentRecord[];
+  datasets: DatasetView[];
 };
 
-export default function ControlCenter({ fullName, initial, inbox }: ControlCenterProps) {
+// Palette used to give agents/tables a stable accent when the DB has none.
+const AVATAR_PALETTE = [C.accent, C.ink, C.green, C.gold, C.blue];
+const pickColor = (seed: string) =>
+  AVATAR_PALETTE[
+    [...seed].reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_PALETTE.length
+  ];
+
+const relTime = (iso: string): string => {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "—";
+  const s = Math.max(0, (Date.now() - then) / 1000);
+  if (s < 60) return "just now";
+  const m = s / 60;
+  if (m < 60) return `${Math.floor(m)}m ago`;
+  const h = m / 60;
+  if (h < 24) return `${Math.floor(h)}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+};
+
+export default function ControlCenter({ fullName, initial, inbox, agents, datasets }: ControlCenterProps) {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("agents");
-  const [populated, setPopulated] = useState(true);
   const [runtime, setRuntime] = useState<"cloud" | "byok">("cloud");
   const [autoAccept, setAutoAccept] = useState(false);
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [accountType, setAccountType] = useState<"org" | "single">("org");
+
+  // Map the persisted records onto the shapes the panels render.
+  const datasetsByAgent = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const d of datasets) {
+      if (!d.agent_id) continue;
+      const arr = m.get(d.agent_id) ?? [];
+      arr.push(d.name);
+      m.set(d.agent_id, arr);
+    }
+    return m;
+  }, [datasets]);
+
+  const uiAgents: Agent[] = useMemo(
+    () =>
+      agents.map((a) => ({
+        id: a.id,
+        name: a.name,
+        initial: (a.name.charAt(0) || "?").toUpperCase(),
+        avatarBg: a.avatar_bg ?? pickColor(a.name),
+        statusLabel: a.status === "active" ? "Active" : "Paused",
+        statusColor: a.status === "active" ? C.green : C.gold,
+        statusDot: a.status === "active" ? C.green : C.gold,
+        channels: a.channels,
+        modeLabel: a.mode === "auto" ? "Auto" : "On ping",
+        purpose: a.purpose_text ?? "",
+        feeds: (datasetsByAgent.get(a.id) ?? []).join(" · ") || "—",
+        pending: 0,
+      })),
+    [agents, datasetsByAgent],
+  );
+
+  const uiTables: TableInfo[] = useMemo(
+    () =>
+      datasets.map((d) => ({
+        id: d.id,
+        name: d.name,
+        rows: `${d.rowCount} ${d.rowCount === 1 ? "row" : "rows"}`,
+        fields: d.columns.map((c) => c.label),
+        agent: d.agentName ?? "—",
+        agentInitial: (d.agentName?.charAt(0) ?? "—").toUpperCase(),
+        agentBg: pickColor(d.agentName ?? d.name),
+        updated: relTime(d.updated_at),
+      })),
+    [datasets],
+  );
+
+  const populated = uiAgents.length > 0;
+  const activeCount = agents.filter((a) => a.status === "active").length;
 
   // modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [step, setStep] = useState(1);
+  const [name, setName] = useState("");
+  const [purposeText, setPurposeText] = useState("");
   const [channels, setChannels] = useState<string[]>(["gmail", "outlook"]);
   const [mode, setMode] = useState<"auto" | "ping">("auto");
   const [purpose, setPurpose] = useState<"curate" | "auto">("curate");
-  const [scope, setScope] = useState<"org" | "people" | "me">("org");
-  const [sharePeople, setSharePeople] = useState<string[]>(["Jordan Lee", "Priya Nair"]);
-  const [targetTables, setTargetTables] = useState<string[]>(["Invoices"]);
+  const [targetTables, setTargetTables] = useState<string[]>([]);
   const [freestyle, setFreestyle] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [submitting, startSubmit] = useTransition();
+
+  // Manage-agent / table-editor / create-table / bulk-export state.
+  const [manageAgentId, setManageAgentId] = useState<string | null>(null);
+  const [openTableId, setOpenTableId] = useState<string | null>(null);
+  const [createTableOpen, setCreateTableOpen] = useState(false);
+  const [selectedTables, setSelectedTables] = useState<string[]>([]);
+  const manageAgent = agents.find((a) => a.id === manageAgentId) ?? null;
+  const openTable = datasets.find((d) => d.id === openTableId) ?? null;
 
   const cloud = runtime === "cloud";
-  const isOrg = accountType === "org";
 
   const openModal = () => {
     setStep(1);
+    setName("");
+    setPurposeText("");
+    setCreateError(null);
     setModalOpen(true);
   };
-  const nextStep = () => {
-    if (step >= 4) {
+  const submitAgent = () => {
+    setCreateError(null);
+    if (!name.trim()) {
+      setCreateError("Give the agent a name.");
+      return;
+    }
+    startSubmit(async () => {
+      const res = await createAgentAction({
+        name: name.trim(),
+        purposeText,
+        purpose,
+        channels,
+        mode,
+        freestyle,
+        targetDatasetNames: freestyle ? [] : targetTables,
+      });
+      if (!res.ok) {
+        setCreateError(res.error);
+        return;
+      }
       setModalOpen(false);
       setStep(1);
-    } else setStep(step + 1);
+      router.refresh();
+    });
+  };
+  const nextStep = () => {
+    if (step >= 4) submitAgent();
+    else setStep(step + 1);
   };
   const prevStep = () => setStep(Math.max(1, step - 1));
   const toggle = <T,>(list: T[], v: T) =>
@@ -406,8 +468,8 @@ export default function ControlCenter({ fullName, initial, inbox }: ControlCente
   const suggestions = SUGGESTIONS.filter((x) => !dismissed.includes(x.id));
 
   const titles: Record<Tab, { t: string; sub: string }> = {
-    agents: { t: "Agents", sub: populated ? "4 of 5 running · watching your channels" : "No agents yet — create your first one" },
-    data: { t: "Data", sub: populated ? "6 tables · parsed automatically from your messages" : "No tables yet" },
+    agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
+    data: { t: "Data", sub: uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · parsed automatically from your messages` : "No tables yet" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
   };
 
@@ -438,11 +500,11 @@ export default function ControlCenter({ fullName, initial, inbox }: ControlCente
           New agent
         </Hov>
 
-        <p className="dm-mono cc-side-label" style={{ ...monoLabel, letterSpacing: "0.09em", padding: "0 8px 8px", margin: 0, color: "#7C766B" }}>Workspace</p>
+        <p className="dm-mono cc-side-label" style={{ ...monoLabel, letterSpacing: "0.09em", padding: "0 8px 8px", margin: 0, color: "#7C766B" }}>Menu</p>
         <nav className="cc-nav" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
           {([
-            { key: "agents", label: "Agents", count: "5", icon: <><rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8V4" /><circle cx="12" cy="3" r="1.4" fill="currentColor" stroke="none" /><path d="M9 14h.01M15 14h.01" /></> },
-            { key: "data", label: "Data", count: "6", icon: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></> },
+            { key: "agents", label: "Agents", count: uiAgents.length ? String(uiAgents.length) : null, icon: <><rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8V4" /><circle cx="12" cy="3" r="1.4" fill="currentColor" stroke="none" /><path d="M9 14h.01M15 14h.01" /></> },
+            { key: "data", label: "Data", count: uiTables.length ? String(uiTables.length) : null, icon: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></> },
             { key: "search", label: "Search", count: null, icon: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></> },
           ] as const).map((item) => {
             const active = tab === item.key;
@@ -499,7 +561,7 @@ export default function ControlCenter({ fullName, initial, inbox }: ControlCente
           <span style={{ width: 30, height: 30, borderRadius: "50%", background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{initial}</span>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, color: "#F1ECE1", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</div>
-            <div className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B" }}>{isOrg ? "Acme · Team" : "Pro · solo"}</div>
+            <div className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B" }}>Pro · solo</div>
           </div>
           <form action={signout} style={{ marginLeft: "auto" }}>
             <Hov tag="button" type="submit" title="Sign out" base={{ background: "none", border: "none", color: "#7C766B", fontSize: 11, cursor: "pointer" }} hover={{ color: "#F1ECE1" }}>
@@ -518,34 +580,15 @@ export default function ControlCenter({ fullName, initial, inbox }: ControlCente
             <div style={{ fontSize: 13, color: "#8A8477", marginTop: 2 }}>{titles[tab].sub}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginLeft: "auto" }}>
-            <div style={{ display: "inline-flex", background: "#EFE9DC", border: "1px solid #E1D9C8", borderRadius: 9, padding: 3 }}>
-              <button type="button" onClick={() => setPopulated(true)} style={segStyle(populated)}>Live</button>
-              <button type="button" onClick={() => setPopulated(false)} style={segStyle(!populated)}>First run</button>
-            </div>
-            <span style={{ width: 1, height: 24, background: "#E1D9C8" }} />
             <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#6B665B", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px" }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.green }} />{inbox}
             </div>
-            <Hov onClick={() => setAccountType(isOrg ? "single" : "org")} base={{ display: "flex", alignItems: "center", gap: 9, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "5px 9px 5px 6px", cursor: "pointer", fontFamily: "inherit" }} hover={{ border: "1px solid #D8CFBD", background: "#FBF8F1" }}>
-              <span style={{ width: 26, height: 26, borderRadius: 7, background: "#FDF1EC", border: "1px solid #F3D6CB", color: C.accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                {isOrg ? (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18" /><rect x="4" y="4" width="16" height="16" rx="1.5" /><path d="M9.5 21v-5h5v5" /><path d="M8 8h.01M12 8h.01M16 8h.01" /></svg>
-                ) : (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" /></svg>
-                )}
-              </span>
-              <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.15 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{isOrg ? "Acme" : "Personal"}</span>
-                <span className="dm-mono" style={{ fontSize: 9.5, color: "#A39B8B" }}>{isOrg ? "Team workspace" : "Solo account"}</span>
-              </span>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A39B8B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2 }}><path d="m6 9 6 6 6-6" /></svg>
-            </Hov>
           </div>
         </div>
 
         <div className="cc-scroll" style={{ padding: "24px 26px", overflow: "auto", flex: 1 }}>
-          {tab === "agents" && (populated ? <AgentsFull suggestions={suggestions} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} dismiss={(id) => setDismissed((d) => [...d, id])} isOrg={isOrg} openModal={openModal} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
-          {tab === "data" && (populated ? <DataFull /> : <DataEmpty openModal={openModal} />)}
+          {tab === "agents" && (populated ? <AgentsFull agents={uiAgents} suggestions={suggestions} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} dismiss={(id) => setDismissed((d) => [...d, id])} openModal={openModal} onManage={setManageAgentId} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
+          {tab === "data" && (uiTables.length || createTableOpen ? <DataFull tables={uiTables} onOpen={setOpenTableId} onCreate={() => setCreateTableOpen(true)} selected={selectedTables} toggleSelect={(id) => setSelectedTables((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])} /> : <DataEmpty openModal={() => setCreateTableOpen(true)} />)}
           {tab === "search" && <SearchTab populated={populated} />}
         </div>
       </main>
@@ -568,44 +611,86 @@ export default function ControlCenter({ fullName, initial, inbox }: ControlCente
 
             <div className="cc-scroll" style={{ padding: "4px 24px 8px", overflow: "auto" }}>
               {step === 1 && (
-                <ModalStep1 channels={channels} setChannels={setChannels} toggle={toggle} />
+                <ModalStep1 name={name} setName={setName} channels={channels} setChannels={setChannels} toggle={toggle} />
               )}
               {step === 2 && (
-                <ModalStep2 mode={mode} setMode={setMode} isOrg={isOrg} scope={scope} setScope={setScope} sharePeople={sharePeople} setSharePeople={setSharePeople} toggle={toggle} />
+                <ModalStep2 mode={mode} setMode={setMode} />
               )}
               {step === 3 && (
-                <ModalStep3 purpose={purpose} setPurpose={setPurpose} freestyle={freestyle} setFreestyle={setFreestyle} targetTables={targetTables} setTargetTables={setTargetTables} toggle={toggle} />
+                <ModalStep3 purposeText={purposeText} setPurposeText={setPurposeText} tables={uiTables} purpose={purpose} setPurpose={setPurpose} freestyle={freestyle} setFreestyle={setFreestyle} targetTables={targetTables} setTargetTables={setTargetTables} toggle={toggle} />
               )}
               {step === 4 && (
-                <ModalStep4 channels={channels} mode={mode} isOrg={isOrg} scope={scope} sharePeople={sharePeople} purpose={purpose} freestyle={freestyle} targetTables={targetTables} runtimeDot={runtimeDot} runtimeLabel={runtimeLabel} />
+                <ModalStep4 channels={channels} mode={mode} purpose={purpose} freestyle={freestyle} targetTables={targetTables} runtimeDot={runtimeDot} runtimeLabel={runtimeLabel} />
               )}
             </div>
 
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 24px 20px", borderTop: "1px solid #E7E0D2", background: "#F0EBDE" }}>
               <button type="button" onClick={prevStep} style={{ background: "none", border: "none", color: step === 1 ? "#C9C1B2" : "#57534A", fontFamily: "inherit", fontSize: 14, fontWeight: 500, cursor: "pointer", padding: "11px 8px" }}>Back</button>
-              <Hov onClick={nextStep} base={{ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 11, padding: "11px 22px", fontFamily: "inherit", fontSize: 14, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 16px rgba(228,89,59,.28)" }} hover={{ background: C.accentPress }}>
-                {step >= 4 ? "Create agent" : "Continue"}
-              </Hov>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                {createError && <span className="dm-mono" style={{ fontSize: 11, color: C.accent, textAlign: "right", maxWidth: 200 }}>{createError}</span>}
+                <Hov onClick={submitting ? undefined : nextStep} base={{ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 11, padding: "11px 22px", fontFamily: "inherit", fontSize: 14, fontWeight: 600, cursor: submitting ? "default" : "pointer", opacity: submitting ? 0.7 : 1, boxShadow: "0 6px 16px rgba(228,89,59,.28)" }} hover={{ background: C.accentPress }}>
+                  {step >= 4 ? (submitting ? "Creating…" : "Create agent") : "Continue"}
+                </Hov>
+              </div>
             </div>
           </div>
         </div>
+      )}
+
+      {manageAgent && (
+        <AgentEditModal
+          agent={manageAgent}
+          onClose={() => setManageAgentId(null)}
+          onSaved={() => { setManageAgentId(null); router.refresh(); }}
+        />
+      )}
+      {openTable && (
+        <TableDetailModal
+          table={openTable}
+          onClose={() => setOpenTableId(null)}
+          onChanged={() => router.refresh()}
+        />
+      )}
+      {createTableOpen && (
+        <CreateTableModal
+          onClose={() => setCreateTableOpen(false)}
+          onCreated={() => { setCreateTableOpen(false); router.refresh(); }}
+        />
       )}
     </div>
   );
 }
 
 /* ================================================================== */
+/* Shared: run a Server Action with pending + error state.             */
+/* ================================================================== */
+function useAction() {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const run = (fn: () => Promise<ActionResult>, after?: () => void) => {
+    setError(null);
+    start(async () => {
+      const res = await fn();
+      if (!res.ok) { setError(res.error); return; }
+      after?.();
+    });
+  };
+  return { pending, error, setError, run };
+}
+
+/* ================================================================== */
 /* AGENTS TAB                                                          */
 /* ================================================================== */
-function AgentsFull({ suggestions, autoAccept, setAutoAccept, expanded, setExpanded, dismiss, isOrg, openModal }: {
+function AgentsFull({ agents, suggestions, autoAccept, setAutoAccept, expanded, setExpanded, dismiss, openModal, onManage }: {
+  agents: Agent[];
   suggestions: Suggestion[];
   autoAccept: boolean;
   setAutoAccept: (v: boolean) => void;
   expanded: string | null;
   setExpanded: (v: string | null) => void;
   dismiss: (id: string) => void;
-  isOrg: boolean;
   openModal: () => void;
+  onManage: (id: string) => void;
 }) {
   return (
     <div>
@@ -640,10 +725,10 @@ function AgentsFull({ suggestions, autoAccept, setAutoAccept, expanded, setExpan
       {/* AGENT GRID */}
       <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12 }}>
         <span className="dm-display" style={{ fontWeight: 700, fontSize: 16, letterSpacing: "-0.02em" }}>Your agents</span>
-        <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>5</span>
+        <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>{agents.length}</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(268px,1fr))", gap: 16 }}>
-        {AGENTS.map((a) => <AgentCard key={a.name} a={a} isOrg={isOrg} />)}
+        {agents.map((a) => <AgentCard key={a.id} a={a} onManage={onManage} />)}
         <Hov onClick={openModal} base={{ background: "none", border: "1.5px dashed #D8CFBD", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", minHeight: 180, color: "#8A8477", fontFamily: "inherit", transition: "border-color .15s ease, background .15s ease" }} hover={{ border: `1.5px dashed ${C.accent}`, background: "#FDF1EC", color: C.accent }}>
           <span style={{ width: 42, height: 42, borderRadius: 12, background: "#F1EDE4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, lineHeight: 1 }}>+</span>
           <span style={{ fontSize: 14, fontWeight: 600 }}>New agent</span>
@@ -717,7 +802,7 @@ function SuggestionCard({ s, expanded, onCompare, onAccept, onDismiss }: {
   );
 }
 
-function AgentCard({ a, isOrg }: { a: Agent; isOrg: boolean }) {
+function AgentCard({ a, onManage }: { a: Agent; onManage: (id: string) => void }) {
   const accent = a.modeLabel === "Auto";
   const modePill: CSSProperties = {
     fontSize: 10.5,
@@ -727,25 +812,12 @@ function AgentCard({ a, isOrg }: { a: Agent; isOrg: boolean }) {
       ? { color: C.accent, background: "#FDF1EC", border: "1px solid #F3D6CB" }
       : { color: "#57534A", background: "#F6F2E9", border: "1px solid #E7E0D2" }),
   };
-  const scopeLabel = a.scope === "org" ? "Org" : a.scope === "people" ? "Shared" : "Private";
-  const scopeChip: CSSProperties = {
-    marginLeft: "auto",
-    fontSize: 10,
-    padding: "2px 8px",
-    borderRadius: 999,
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 4,
-    ...(a.scope === "me"
-      ? { color: "#8A8477", background: "none", border: "1px solid #E7E0D2" }
-      : { color: "#57534A", background: "#F1EDE4", border: "1px solid #E7E0D2" }),
-  };
   const pendBadge: CSSProperties = a.pending > 0
     ? { fontSize: 10.5, color: C.accent, background: "#FDF1EC", border: "1px solid #F3D6CB", borderRadius: 999, padding: "2px 8px", flexShrink: 0 }
     : { fontSize: 10.5, color: "#A39B8B", flexShrink: 0 };
 
   return (
-    <Hov tag="div" base={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", gap: 14, transition: "box-shadow .15s ease, transform .15s ease" }} hover={{ boxShadow: "0 20px 40px -30px rgba(33,30,24,.4)", transform: "translateY(-2px)" }}>
+    <Hov tag="div" onClick={() => onManage(a.id)} base={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", gap: 14, cursor: "pointer", transition: "box-shadow .15s ease, transform .15s ease" }} hover={{ boxShadow: "0 20px 40px -30px rgba(33,30,24,.4)", transform: "translateY(-2px)" }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
         <span className="dm-display" style={{ width: 40, height: 40, borderRadius: 12, background: a.avatarBg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 17, flexShrink: 0 }}>{a.initial}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -755,7 +827,7 @@ function AgentCard({ a, isOrg }: { a: Agent; isOrg: boolean }) {
             <span className="dm-mono" style={{ fontSize: 11, color: a.statusColor }}>{a.statusLabel}</span>
           </div>
         </div>
-        <span style={{ color: "#B7AF9F", fontSize: 16, lineHeight: 1, padding: 2 }}>⋯</span>
+        <span title="Manage" style={{ color: "#B7AF9F", fontSize: 16, lineHeight: 1, padding: 2 }}>⋯</span>
       </div>
       <p style={{ margin: 0, fontSize: 13, color: "#57534A", lineHeight: 1.45, minHeight: 38 }}>{a.purpose}</p>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -766,7 +838,6 @@ function AgentCard({ a, isOrg }: { a: Agent; isOrg: boolean }) {
             <img key={c} src={LOGO[c]} alt={CH_NAMES[c]} title={CH_NAMES[c]} style={{ width: 18, height: 18, borderRadius: 4 }} />
           ))}
         </div>
-        {isOrg && <span className="dm-mono" style={scopeChip}>{scopeLabel}</span>}
       </div>
       <div style={{ borderTop: "1px solid #F1EDE4", paddingTop: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}><span style={{ color: "#C98467" }}>→</span><span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.feeds}</span></span>
@@ -810,79 +881,50 @@ function AgentsEmpty({ openModal, inbox }: { openModal: () => void; inbox: strin
 /* ================================================================== */
 /* DATA TAB                                                            */
 /* ================================================================== */
-function DataFull() {
-  const nodes = [
-    { l: "20%", t: "29%", label: "Contacts", n: "64", dot: C.green, dark: false, accent: false },
-    { l: "49%", t: "21%", label: "Companies", n: "19", dark: true, accent: false },
-    { l: "78%", t: "32%", label: "Invoices", n: "28", accent: true, dark: false },
-    { l: "78%", t: "73%", label: "Receipts", n: "112", dot: C.gold, dark: false, accent: false },
-    { l: "49%", t: "73%", label: "Trips", n: "7", dark: false, accent: false },
-    { l: "22%", t: "75%", label: "Reading", n: "156", dark: false, accent: false },
-  ];
-  const edges = [
-    { l: "30%", t: "16%", label: "works at" },
-    { l: "62%", t: "20%", label: "billed to" },
-    { l: "78%", t: "53%", label: "paid by" },
-    { l: "50%", t: "53%", label: "references" },
-    { l: "22%", t: "56%", label: "traveler" },
-  ];
+function DataFull({ tables, onOpen, onCreate, selected, toggleSelect }: {
+  tables: TableInfo[];
+  onOpen: (id: string) => void;
+  onCreate: () => void;
+  selected: string[];
+  toggleSelect: (id: string) => void;
+}) {
+  const feeding = new Set(tables.map((t) => t.agent).filter((a) => a && a !== "—")).size;
+  const exportAllHref = "/api/datasets/export";
+  const exportSelectedHref = `/api/datasets/export?ids=${selected.join(",")}`;
   return (
     <div>
-      {/* export bar */}
+      {/* toolbar */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22, flexWrap: "wrap" }}>
-        <span className="dm-mono" style={{ fontSize: 12, color: "#8A8477" }}>6 tables · 5 agents feeding them</span>
+        <span className="dm-mono" style={{ fontSize: 12, color: "#8A8477" }}>{tables.length} {tables.length === 1 ? "table" : "tables"} · {feeding} {feeding === 1 ? "agent" : "agents"} feeding them</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
-          <Hov base={exportBtn} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
+          {selected.length > 0 && (
+            <Hov tag="a" href={exportSelectedHref} base={{ ...exportBtn, textDecoration: "none", color: C.accent, borderColor: "#F3D6CB", background: "#FDF1EC" }} hover={{ background: "#FBE7DF" }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
+              Export {selected.length} selected
+            </Hov>
+          )}
+          <Hov tag="a" href={exportAllHref} base={{ ...exportBtn, textDecoration: "none" }} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1E8E4E" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 9v12" /></svg>
-            Google Sheets
+            Export all (Excel)
           </Hov>
-          <Hov base={exportBtn} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#57534A" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
-            Export CSV
+          <Hov onClick={onCreate} base={{ ...exportBtn, background: C.ink, color: "#F1ECE1", border: `1px solid ${C.ink}` }} hover={{ background: "#322D25" }}>
+            <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> New table
           </Hov>
-          <Hov base={exportBtn} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#57534A" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="m8 6-6 6 6 6" /><path d="m16 6 6 6-6 6" /></svg>
-            API
-          </Hov>
-        </div>
-      </div>
-
-      {/* relationship map */}
-      <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 18, padding: "20px 22px 8px", marginBottom: 22, overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <span className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em" }}>How your data connects</span>
-          <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>auto-linked · 1,904 relationships</span>
-        </div>
-        <div style={{ position: "relative", height: 280, width: "100%" }}>
-          <svg viewBox="0 0 900 280" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
-            <g stroke="#E1D9C8" strokeWidth="1.5" fill="none">
-              {["M180,80 L440,60", "M440,60 L700,90", "M700,90 L700,205", "M440,60 L440,205", "M180,80 L200,210"].map((d, i) => (
-                <path key={i} d={d} style={{ strokeDasharray: 300, animation: `cc-draw 1.1s ease ${0.1 + i * 0.15}s both` }} />
-              ))}
-            </g>
-          </svg>
-          {edges.map((e) => (
-            <span key={e.label} className="dm-mono" style={{ position: "absolute", left: e.l, top: e.t, transform: "translate(-50%,-50%)", fontSize: 10, color: "#A39B8B", background: "#fff", padding: "0 4px" }}>{e.label}</span>
-          ))}
-          {nodes.map((n) => (
-            <span key={n.label} style={{ position: "absolute", left: n.l, top: n.t, transform: "translate(-50%,-50%)", display: "flex", alignItems: "center", gap: 7, borderRadius: 999, fontSize: n.dark ? 13 : 12.5, fontWeight: n.dark || n.accent ? 600 : 500, padding: n.dark ? "8px 15px" : "7px 13px", ...(n.dark ? { background: C.ink, color: "#F1ECE1", boxShadow: "0 10px 24px -12px rgba(33,30,24,.5)" } : n.accent ? { background: "#FDF1EC", border: "1px solid #F3D6CB", color: C.accent } : { background: "#F6F2E9", border: "1px solid #E1D9C8" }) }}>
-              {n.dot && <span style={{ width: 7, height: 7, borderRadius: "50%", background: n.dot }} />}
-              {n.label} <span className="dm-mono" style={{ fontSize: 10, color: n.dark ? "#9A9384" : n.accent ? "#C98467" : "#A39B8B" }}>{n.n}</span>
-            </span>
-          ))}
         </div>
       </div>
 
       {/* table cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 16, marginBottom: 24 }}>
-        {TABLES.map((t) => (
-          <Hov key={t.name} tag="div" base={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: "16px 17px", display: "flex", flexDirection: "column", gap: 12, transition: "box-shadow .15s ease" }} hover={{ boxShadow: "0 18px 38px -30px rgba(33,30,24,.4)" }}>
+        {tables.map((t) => {
+          const sel = selected.includes(t.id);
+          return (
+          <div key={t.id} style={{ background: "#fff", border: sel ? `1px solid ${C.accent}` : "1px solid #E7E0D2", borderRadius: 16, padding: "16px 17px", display: "flex", flexDirection: "column", gap: 12, transition: "box-shadow .15s ease" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                <span style={{ width: 28, height: 28, borderRadius: 8, background: "#F6F2E9", border: "1px solid #ECE5D8", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8A8477" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></svg>
-                </span>
-                <span className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em" }}>{t.name}</span>
+                <span onClick={() => toggleSelect(t.id)} title="Select" style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, ...(sel ? { background: C.accent, color: "#fff", border: `1px solid ${C.accent}` } : { background: "#fff", color: "transparent", border: "1.5px solid #D8CFBD" }) }}>✓</span>
+                <button type="button" onClick={() => onOpen(t.id)} title="Open table" style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit" }}>
+                  <span className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink }}>{t.name}</span>
+                </button>
               </div>
               <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>{t.rows}</span>
             </div>
@@ -898,47 +940,18 @@ function DataFull() {
               </span>
               <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>{t.updated}</span>
             </div>
-          </Hov>
-        ))}
-      </div>
-
-      {/* featured table */}
-      <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "15px 18px", borderBottom: "1px solid #EFE9DC", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span className="dm-display" style={{ fontWeight: 700, fontSize: 16 }}>Invoices</span>
-            <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>28 rows · fed by Ledger</span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Hov onClick={() => onOpen(t.id)} base={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#F6F2E9", border: "1px solid #E7E0D2", borderRadius: 8, padding: "6px 10px", fontFamily: "inherit", fontSize: 11.5, fontWeight: 500, color: "#3A352C", cursor: "pointer" }} hover={{ background: "#EFE9DC" }}>
+                Open & edit
+              </Hov>
+              <Hov tag="a" href={`/api/datasets/${t.id}/export`} base={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, textDecoration: "none", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 8, padding: "6px 10px", fontFamily: "inherit", fontSize: 11.5, fontWeight: 500, color: "#3A352C", cursor: "pointer" }} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1E8E4E" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 9v12" /></svg>
+                Excel
+              </Hov>
+            </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button type="button" className="dm-mono" style={{ fontSize: 11, color: "#6B665B", border: "1px solid #E1D9C8", borderRadius: 8, padding: "5px 10px", background: "none", cursor: "pointer" }}>Filter</button>
-            <button type="button" className="dm-mono" style={{ fontSize: 11, color: "#fff", background: C.ink, border: `1px solid ${C.ink}`, borderRadius: 8, padding: "5px 10px", cursor: "pointer" }}>Export CSV</button>
-          </div>
-        </div>
-        <div style={{ fontSize: 13, overflowX: "auto" }}>
-          <div className="dm-mono" style={{ display: "grid", gridTemplateColumns: "32px 1.3fr 0.8fr 0.8fr 0.7fr 0.9fr", minWidth: 560, background: "#FAF6EE", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.03em", color: "#A39B8B" }}>
-            <span style={{ padding: "9px 8px", borderRight: "1px solid #EFE9DC", textAlign: "center" }}>#</span>
-            <span style={{ padding: "9px 12px", borderRight: "1px solid #EFE9DC" }}>Client</span>
-            <span style={{ padding: "9px 12px", borderRight: "1px solid #EFE9DC" }}>Invoice</span>
-            <span style={{ padding: "9px 12px", borderRight: "1px solid #EFE9DC" }}>Amount</span>
-            <span style={{ padding: "9px 12px", borderRight: "1px solid #EFE9DC" }}>Due</span>
-            <span style={{ padding: "9px 12px" }}>Status</span>
-          </div>
-          {INVOICE_ROWS.map((r) => {
-            const border = r.hl ? "#F3D6CB" : "#F1EDE4";
-            const st = STATUS_STYLE[r.status];
-            const cell: CSSProperties = { padding: "11px 12px", borderRight: `1px solid ${border}` };
-            return (
-              <div key={r.n} style={{ display: "grid", gridTemplateColumns: "32px 1.3fr 0.8fr 0.8fr 0.7fr 0.9fr", minWidth: 560, borderTop: `1px solid ${border}`, color: r.hl ? C.ink : "#57534A", fontWeight: r.hl ? 600 : 400, background: r.hl ? "#FDF1EC" : "transparent", boxShadow: r.hl ? `inset 3px 0 0 ${C.accent}` : "none" }}>
-                <span style={{ padding: "11px 8px", borderRight: `1px solid ${border}`, textAlign: "center", background: r.hl ? "transparent" : "#FBFAF7", color: r.hl ? C.accent : "#A39B8B" }}>{r.n}</span>
-                <span style={cell}>{r.client}</span>
-                <span className="dm-mono" style={cell}>{r.invoice}</span>
-                <span className="dm-mono" style={{ ...cell, color: r.hl ? C.accent : "#57534A" }}>{r.amount}</span>
-                <span style={cell}>{r.due}</span>
-                <span style={{ padding: "11px 12px" }}><span style={{ fontSize: 11, color: st.c, background: st.b, padding: "2px 8px", borderRadius: 999 }}>{r.status}</span></span>
-              </div>
-            );
-          })}
-        </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1058,9 +1071,19 @@ function SearchTab({ populated }: { populated: boolean }) {
 /* ================================================================== */
 /* MODAL STEPS                                                         */
 /* ================================================================== */
-function ModalStep1({ channels, setChannels, toggle }: { channels: string[]; setChannels: (v: string[]) => void; toggle: <T>(l: T[], v: T) => T[] }) {
+function ModalStep1({ name, setName, channels, setChannels, toggle }: { name: string; setName: (v: string) => void; channels: string[]; setChannels: (v: string[]) => void; toggle: <T>(l: T[], v: T) => T[] }) {
   return (
     <div>
+      <div style={{ marginBottom: 20 }}>
+        <div className="dm-mono" style={{ ...monoLabel, marginBottom: 8 }}>Name</div>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Ledger"
+          style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 11, padding: "12px 14px", fontFamily: "inherit", fontSize: 14, color: C.ink, background: "#fff", outline: "none" }}
+        />
+      </div>
       <h3 className="dm-display" style={{ fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", margin: "0 0 4px" }}>Which channels should it watch?</h3>
       <p style={{ fontSize: 13.5, color: "#8A8477", margin: "0 0 18px" }}>Pick one or more. The agent listens only to what you choose.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 10 }}>
@@ -1080,10 +1103,8 @@ function ModalStep1({ channels, setChannels, toggle }: { channels: string[]; set
   );
 }
 
-function ModalStep2({ mode, setMode, isOrg, scope, setScope, sharePeople, setSharePeople, toggle }: {
+function ModalStep2({ mode, setMode }: {
   mode: "auto" | "ping"; setMode: (v: "auto" | "ping") => void;
-  isOrg: boolean; scope: "org" | "people" | "me"; setScope: (v: "org" | "people" | "me") => void;
-  sharePeople: string[]; setSharePeople: (v: string[]) => void; toggle: <T>(l: T[], v: T) => T[];
 }) {
   return (
     <div>
@@ -1115,76 +1136,13 @@ function ModalStep2({ mode, setMode, isOrg, scope, setScope, sharePeople, setSha
           <span style={radioDot(mode === "ping")} />
         </button>
       </div>
-
-      <div style={{ marginTop: 22 }}>
-        <div className="dm-mono" style={{ ...monoLabel, marginBottom: 10 }}>Who can use it</div>
-        {isOrg ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <button type="button" onClick={() => setScope("org")} style={modeCard(scope === "org")}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ width: 38, height: 38, borderRadius: 11, background: "#FDF1EC", border: "1px solid #F3D6CB", display: "flex", alignItems: "center", justifyContent: "center", color: C.accent, flexShrink: 0 }}>
-                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18" /><rect x="4" y="4" width="16" height="16" rx="1.5" /><path d="M9.5 21v-5h5v5" /><path d="M8 8h.01M12 8h.01M16 8h.01M8 12h.01M16 12h.01" /></svg>
-                </span>
-                <div style={{ textAlign: "left" }}>
-                  <div style={{ fontWeight: 600, fontSize: 14.5 }}>Everyone at Acme</div>
-                  <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Org-wide — anyone in your organization can use it.</div>
-                </div>
-              </div>
-              <span style={radioDot(scope === "org")} />
-            </button>
-            <button type="button" onClick={() => setScope("people")} style={modeCard(scope === "people")}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ width: 38, height: 38, borderRadius: 11, background: "#F6F2E9", border: "1px solid #E7E0D2", display: "flex", alignItems: "center", justifyContent: "center", color: "#57534A", flexShrink: 0 }}>
-                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="8" r="3.2" /><path d="M2.5 20c0-3.3 2.9-5.2 6.5-5.2s6.5 1.9 6.5 5.2" /><path d="M16.4 5.3a3.1 3.1 0 0 1 0 5.6" /><path d="M18 14.5c2.2.5 3.7 1.9 3.7 4" /></svg>
-                </span>
-                <div style={{ textAlign: "left" }}>
-                  <div style={{ fontWeight: 600, fontSize: 14.5 }}>Specific people</div>
-                  <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Share with teammates you choose.</div>
-                </div>
-              </div>
-              <span style={radioDot(scope === "people")} />
-            </button>
-            {scope === "people" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 12px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
-                {TEAMMATES.map((p) => {
-                  const sel = sharePeople.includes(p.name);
-                  return (
-                    <button key={p.name} type="button" onClick={() => setSharePeople(toggle(sharePeople, p.name))} style={teammateStyle(sel)}>
-                      <span style={{ width: 28, height: 28, borderRadius: "50%", background: p.bg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, flexShrink: 0 }}>{p.initial}</span>
-                      <span style={{ minWidth: 0 }}>
-                        <span style={{ display: "block", fontSize: 13, fontWeight: 500, color: C.ink }}>{p.name}</span>
-                        <span className="dm-mono" style={{ display: "block", fontSize: 10.5, color: "#A39B8B" }}>{p.email}</span>
-                      </span>
-                      <span style={{ marginLeft: "auto", width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, flexShrink: 0, ...(sel ? { background: C.accent, color: "#fff", border: `1px solid ${C.accent}` } : { background: "#fff", color: "transparent", border: "1.5px solid #D8CFBD" }) }}>✓</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            <button type="button" onClick={() => setScope("me")} style={modeCard(scope === "me")}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ width: 38, height: 38, borderRadius: 11, background: "#F6F2E9", border: "1px solid #E7E0D2", display: "flex", alignItems: "center", justifyContent: "center", color: "#57534A", flexShrink: 0 }}>
-                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" /></svg>
-                </span>
-                <div style={{ textAlign: "left" }}>
-                  <div style={{ fontWeight: 600, fontSize: 14.5 }}>Just me</div>
-                  <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Private to your account — no one else sees it.</div>
-                </div>
-              </div>
-              <span style={radioDot(scope === "me")} />
-            </button>
-          </div>
-        ) : (
-          <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#8A8477", background: "#F1EDE4", border: "1px solid #E7E0D2", borderRadius: 9, padding: "10px 12px", lineHeight: 1.4 }}>
-            <span style={{ color: "#C98467", flexShrink: 0 }}>◇</span>Solo account — every agent is private to you. Add teammates to share agents across a workspace.
-          </div>
-        )}
-      </div>
     </div>
   );
 }
 
-function ModalStep3({ purpose, setPurpose, freestyle, setFreestyle, targetTables, setTargetTables, toggle }: {
+function ModalStep3({ purposeText, setPurposeText, tables, purpose, setPurpose, freestyle, setFreestyle, targetTables, setTargetTables, toggle }: {
+  purposeText: string; setPurposeText: (v: string) => void;
+  tables: TableInfo[];
   purpose: "curate" | "auto"; setPurpose: (v: "curate" | "auto") => void;
   freestyle: boolean; setFreestyle: (v: boolean) => void;
   targetTables: string[]; setTargetTables: (v: string[]) => void; toggle: <T>(l: T[], v: T) => T[];
@@ -1207,7 +1165,7 @@ function ModalStep3({ purpose, setPurpose, freestyle, setFreestyle, targetTables
         </button>
         {purpose === "curate" && (
           <div style={{ margin: "-4px 2px 0" }}>
-            <input type="text" placeholder="e.g. only invoices, receipts & payment confirmations" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 11, padding: "12px 14px", fontFamily: "inherit", fontSize: 14, color: C.ink, background: "#fff", outline: "none" }} />
+            <input type="text" value={purposeText} onChange={(e) => setPurposeText(e.target.value)} placeholder="e.g. only invoices, receipts & payment confirmations" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 11, padding: "12px 14px", fontFamily: "inherit", fontSize: 14, color: C.ink, background: "#fff", outline: "none" }} />
           </div>
         )}
         <button type="button" onClick={() => setPurpose("auto")} style={modeCard(purpose === "auto")}>
@@ -1220,13 +1178,17 @@ function ModalStep3({ purpose, setPurpose, freestyle, setFreestyle, targetTables
       </div>
       <div style={{ marginTop: 20 }}>
         <div className="dm-mono" style={{ ...monoLabel, marginBottom: 10 }}>Feeds into an existing table</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-          {TABLES.map((t) => (
-            <button key={t.name} type="button" onClick={() => selectTable(t.name)} className="dm-mono" style={targetChip(!freestyle && targetTables.includes(t.name), freestyle)}>
-              {t.name} <span style={{ color: "#A39B8B", fontSize: 10 }}>{t.rows}</span>
-            </button>
-          ))}
-        </div>
+        {tables.length > 0 ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+            {tables.map((t) => (
+              <button key={t.name} type="button" onClick={() => selectTable(t.name)} className="dm-mono" style={targetChip(!freestyle && targetTables.includes(t.name), freestyle)}>
+                {t.name} <span style={{ color: "#A39B8B", fontSize: 10 }}>{t.rows}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginBottom: 12 }}>No tables yet — pick Freestyle and the agent will create one.</div>
+        )}
         <button type="button" onClick={() => { setFreestyle(true); setTargetTables([]); }} style={modeCard(freestyle)}>
           <div style={{ textAlign: "left" }}>
             <div style={{ fontWeight: 600, fontSize: 14.5 }}>Freestyle</div>
@@ -1239,22 +1201,18 @@ function ModalStep3({ purpose, setPurpose, freestyle, setFreestyle, targetTables
   );
 }
 
-function ModalStep4({ channels, mode, isOrg, scope, sharePeople, purpose, freestyle, targetTables, runtimeDot, runtimeLabel }: {
-  channels: string[]; mode: "auto" | "ping"; isOrg: boolean; scope: "org" | "people" | "me";
-  sharePeople: string[]; purpose: "curate" | "auto"; freestyle: boolean; targetTables: string[];
+function ModalStep4({ channels, mode, purpose, freestyle, targetTables, runtimeDot, runtimeLabel }: {
+  channels: string[]; mode: "auto" | "ping";
+  purpose: "curate" | "auto"; freestyle: boolean; targetTables: string[];
   runtimeDot: string; runtimeLabel: string;
 }) {
   const reviewChannels = channels.length ? channels.map((k) => CH_NAMES[k]).join(", ") : "None selected";
   const reviewMode = mode === "auto" ? "Automatic — reads everything" : "On ping — only when tagged";
   const reviewPurpose = purpose === "curate" ? "Curated to a purpose" : "Auto from context";
-  const reviewScope = isOrg
-    ? scope === "org" ? "Everyone at Acme" : scope === "people" ? `Shared with ${sharePeople.length} ${sharePeople.length === 1 ? "person" : "people"}` : "Just me"
-    : "Just me · solo account";
   const reviewFeeds = freestyle ? "Freestyle · auto tables" : targetTables.length ? targetTables.join(", ") : "Auto tables";
   const rows = [
     { l: "Channels", v: reviewChannels },
     { l: "Access", v: reviewMode },
-    { l: "Visibility", v: reviewScope },
     { l: "Captures", v: reviewPurpose },
     { l: "Feeds into", v: reviewFeeds },
   ];
@@ -1280,5 +1238,279 @@ function ModalStep4({ channels, mode, isOrg, scope, sharePeople, purpose, freest
       </div>
       <div className="dm-mono" style={{ marginTop: 12, fontSize: 11, color: "#A39B8B", textAlign: "center" }}>Compute is account-wide · change it in the sidebar</div>
     </div>
+  );
+}
+
+/* ================================================================== */
+/* MANAGE / EDIT MODALS                                               */
+/* ================================================================== */
+const fieldInput: CSSProperties = { width: "100%", border: "1px solid #DDD5C5", borderRadius: 10, padding: "10px 12px", fontFamily: "inherit", fontSize: 14, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" };
+const fieldLabel: CSSProperties = { ...monoLabel, marginBottom: 7 };
+const primaryBtn = (disabled: boolean): CSSProperties => ({ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 11, padding: "10px 20px", fontFamily: "inherit", fontSize: 14, fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.7 : 1, boxShadow: "0 6px 16px rgba(228,89,59,.28)" });
+const ghostBtn: CSSProperties = { background: "#fff", border: "1px solid #DCD3C2", borderRadius: 9, padding: "7px 12px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 500, color: "#3A352C", cursor: "pointer" };
+
+function coerceByType(type: string, raw: string): string | number | null {
+  if (raw === "") return null;
+  if (type === "number") { const n = Number(raw); return Number.isNaN(n) ? raw : n; }
+  return raw;
+}
+const slugify = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+const COLUMN_TYPES = [{ v: "text", label: "Text" }, { v: "number", label: "Number" }, { v: "date", label: "Date" }, { v: "status", label: "Status" }];
+
+function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { v: T; label: string }[] }) {
+  return (
+    <div style={{ display: "inline-flex", background: "#EFE9DC", border: "1px solid #E1D9C8", borderRadius: 9, padding: 3 }}>
+      {options.map((o) => (
+        <button key={o.v} type="button" onClick={() => onChange(o.v)} style={{ border: "none", borderRadius: 7, padding: "6px 12px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 500, cursor: "pointer", ...(value === o.v ? { background: "#fff", color: C.ink, boxShadow: "0 1px 2px rgba(33,30,24,.14)" } : { background: "transparent", color: "#8A8477" }) }}>{o.label}</button>
+      ))}
+    </div>
+  );
+}
+
+function ModalShell({ title, subtitle, onClose, children, footer, maxWidth = 600 }: { title: ReactNode; subtitle?: string; onClose: () => void; children: ReactNode; footer?: ReactNode; maxWidth?: number }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 60, alignItems: "center", justifyContent: "center", padding: 24, display: "flex" }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(33,30,24,.5)", backdropFilter: "blur(2px)" }} />
+      <div style={{ position: "relative", width: "100%", maxWidth, background: "#F6F2E9", border: "1px solid #E1D9C8", borderRadius: 20, overflow: "hidden", boxShadow: "0 40px 90px -40px rgba(33,30,24,.7)", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "18px 22px", borderBottom: "1px solid #E7E0D2" }}>
+          <div style={{ minWidth: 0 }}>
+            <div className="dm-display" style={{ fontWeight: 700, fontSize: 18, letterSpacing: "-0.025em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+            {subtitle && <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginTop: 2 }}>{subtitle}</div>}
+          </div>
+          <Hov onClick={onClose} base={{ width: 32, height: 32, borderRadius: 9, border: "1px solid #E1D9C8", background: "#fff", color: "#8A8477", cursor: "pointer", fontSize: 15, lineHeight: 1, flexShrink: 0 }} hover={{ background: "#FBF8F1", color: C.ink }}>✕</Hov>
+        </div>
+        <div className="cc-scroll" style={{ padding: "20px 22px", overflow: "auto", flex: 1 }}>{children}</div>
+        {footer && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 22px", borderTop: "1px solid #E7E0D2", background: "#F0EBDE" }}>{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+function AgentEditModal({ agent, onClose, onSaved }: { agent: AgentRecord; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(agent.name);
+  const [purposeText, setPurposeText] = useState(agent.purpose_text ?? "");
+  const [channels, setChannels] = useState<string[]>(agent.channels);
+  const [mode, setMode] = useState<"auto" | "ping">(agent.mode);
+  const [status, setStatus] = useState<"active" | "paused">(agent.status);
+  const { pending, error, run } = useAction();
+  const toggleCh = (k: string) => setChannels((c) => c.includes(k) ? c.filter((x) => x !== k) : [...c, k]);
+  const save = () => run(() => updateAgentAction(agent.id, { name, purposeText, channels, mode, status }), onSaved);
+  const del = () => { if (confirm(`Delete agent “${agent.name}”? Its tables are kept.`)) run(() => deleteAgentAction(agent.id), onSaved); };
+
+  return (
+    <ModalShell title="Manage agent" subtitle={agent.name} onClose={onClose}
+      footer={(
+        <>
+          <Hov onClick={del} base={{ background: "none", border: "none", color: "#B44536", fontFamily: "inherit", fontSize: 13.5, fontWeight: 500, cursor: "pointer", padding: "8px 4px" }} hover={{ color: "#8f2f23" }}>Delete agent</Hov>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {error && <span className="dm-mono" style={{ fontSize: 11, color: C.accent, maxWidth: 200, textAlign: "right" }}>{error}</span>}
+            <Hov onClick={pending ? undefined : save} base={primaryBtn(pending)} hover={{ background: C.accentPress }}>{pending ? "Saving…" : "Save"}</Hov>
+          </div>
+        </>
+      )}
+    >
+      <div style={{ marginBottom: 16 }}>
+        <div className="dm-mono" style={fieldLabel}>Name</div>
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)} style={fieldInput} />
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <div className="dm-mono" style={fieldLabel}>Purpose</div>
+        <textarea value={purposeText} onChange={(e) => setPurposeText(e.target.value)} rows={2} style={{ ...fieldInput, resize: "vertical" }} />
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <div className="dm-mono" style={fieldLabel}>Channels</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(130px,1fr))", gap: 8 }}>
+          {Object.keys(LOGO).map((k) => {
+            const active = channels.includes(k);
+            return (
+              <button key={k} type="button" onClick={() => toggleCh(k)} style={channelTile(active)}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={LOGO[k]} alt={CH_NAMES[k]} style={{ width: 20, height: 20, borderRadius: 4 }} />
+                <span style={{ fontSize: 13, fontWeight: 500 }}>{CH_NAMES[k]}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+        <div>
+          <div className="dm-mono" style={fieldLabel}>Mode</div>
+          <Segmented value={mode} onChange={setMode} options={[{ v: "auto", label: "Automatic" }, { v: "ping", label: "On ping" }]} />
+        </div>
+        <div>
+          <div className="dm-mono" style={fieldLabel}>Status</div>
+          <Segmented value={status} onChange={setStatus} options={[{ v: "active", label: "Active" }, { v: "paused", label: "Paused" }]} />
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function CreateTableModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [name, setName] = useState("");
+  const [cols, setCols] = useState<{ label: string; type: string }[]>([{ label: "", type: "text" }]);
+  const { pending, error, setError, run } = useAction();
+  const update = (i: number, patch: Partial<{ label: string; type: string }>) => setCols((cs) => cs.map((c, idx) => idx === i ? { ...c, ...patch } : c));
+
+  const create = () => {
+    if (!name.trim()) { setError("Give the table a name."); return; }
+    const seen = new Set<string>();
+    const columns: DatasetColumn[] = cols.filter((c) => c.label.trim()).map((c) => {
+      const base = slugify(c.label) || "col";
+      let key = base; let n = 2;
+      while (seen.has(key)) key = `${base}_${n++}`;
+      seen.add(key);
+      return { key, label: c.label.trim(), type: c.type };
+    });
+    run(() => createDatasetAction({ name: name.trim(), columns }), onCreated);
+  };
+
+  return (
+    <ModalShell title="New table" subtitle="Define a table from scratch" onClose={onClose}
+      footer={(
+        <>
+          <span />
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {error && <span className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{error}</span>}
+            <Hov onClick={pending ? undefined : create} base={primaryBtn(pending)} hover={{ background: C.accentPress }}>{pending ? "Creating…" : "Create table"}</Hov>
+          </div>
+        </>
+      )}
+    >
+      <div style={{ marginBottom: 18 }}>
+        <div className="dm-mono" style={fieldLabel}>Table name</div>
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Clients" style={fieldInput} />
+      </div>
+      <div className="dm-mono" style={fieldLabel}>Columns</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {cols.map((c, i) => (
+          <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input type="text" value={c.label} onChange={(e) => update(i, { label: e.target.value })} placeholder={`Column ${i + 1}`} style={{ ...fieldInput, flex: 1 }} />
+            <select value={c.type} onChange={(e) => update(i, { type: e.target.value })} style={{ ...fieldInput, width: 120, flex: "0 0 120px" }}>
+              {COLUMN_TYPES.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
+            </select>
+            <button type="button" onClick={() => setCols((cs) => cs.length > 1 ? cs.filter((_, idx) => idx !== i) : cs)} title="Remove column" style={{ width: 32, height: 32, flexShrink: 0, borderRadius: 8, border: "1px solid #E1D9C8", background: "#fff", color: "#8A8477", cursor: "pointer", fontSize: 15 }}>×</button>
+          </div>
+        ))}
+      </div>
+      <Hov onClick={() => setCols((cs) => [...cs, { label: "", type: "text" }])} base={{ ...ghostBtn, marginTop: 10 }} hover={{ background: "#FBF8F1" }}>+ Add column</Hov>
+    </ModalShell>
+  );
+}
+
+function TableCell({ row, col, onSave }: { row: DatasetRowRecord; col: DatasetColumn; onSave: (data: Record<string, unknown>) => void }) {
+  const initial = row.data?.[col.key];
+  const [val, setVal] = useState(initial === null || initial === undefined ? "" : String(initial));
+  const commit = () => {
+    const next = coerceByType(col.type, val);
+    if (JSON.stringify(next) !== JSON.stringify(initial ?? null)) onSave({ ...row.data, [col.key]: next });
+  };
+  const type = col.type === "number" ? "number" : col.type === "date" ? "date" : "text";
+  return (
+    <input
+      type={type}
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      style={{ width: "100%", boxSizing: "border-box", border: "none", background: "transparent", fontFamily: "inherit", fontSize: 13, color: "#3A352C", padding: "9px 10px", outline: "none" }}
+    />
+  );
+}
+
+function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; onClose: () => void; onChanged: () => void }) {
+  const { pending, error, run } = useAction();
+  const [addingCol, setAddingCol] = useState(false);
+  const [colLabel, setColLabel] = useState("");
+  const [colType, setColType] = useState("text");
+  const [colDefault, setColDefault] = useState("");
+  const cols = table.columns;
+
+  const addRow = () => run(() => addRowAction(table.id, Object.fromEntries(cols.map((c) => [c.key, null]))), onChanged);
+  const submitCol = () => run(
+    () => addColumnAction(table.id, { label: colLabel, type: colType, defaultValue: coerceByType(colType, colDefault) }),
+    () => { setAddingCol(false); setColLabel(""); setColDefault(""); setColType("text"); onChanged(); },
+  );
+  const removeCol = (key: string, label: string) => { if (confirm(`Remove column “${label}”? Its values are deleted from every row.`)) run(() => removeColumnAction(table.id, key), onChanged); };
+  const delRow = (id: string) => run(() => deleteRowAction(id), onChanged);
+  const delTable = () => { if (confirm(`Delete table “${table.name}” and all ${table.rowCount} rows?`)) run(() => deleteDatasetAction(table.id), () => { onClose(); onChanged(); }); };
+  const rename = () => { const n = prompt("Rename table", table.name); if (n && n.trim() && n.trim() !== table.name) run(() => renameDatasetAction(table.id, n.trim()), onChanged); };
+
+  const cellBorder = "1px solid #EFE9DC";
+  return (
+    <ModalShell maxWidth={900} onClose={onClose}
+      title={table.name}
+      subtitle={`${table.rowCount} ${table.rowCount === 1 ? "row" : "rows"} · ${cols.length} ${cols.length === 1 ? "column" : "columns"}${table.agentName ? ` · fed by ${table.agentName}` : ""}`}
+      footer={(
+        <>
+          <Hov onClick={delTable} base={{ background: "none", border: "none", color: "#B44536", fontFamily: "inherit", fontSize: 13.5, fontWeight: 500, cursor: "pointer", padding: "8px 4px" }} hover={{ color: "#8f2f23" }}>Delete table</Hov>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {error && <span className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{error}</span>}
+            {pending && <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>Saving…</span>}
+            <Hov tag="a" href={`/api/datasets/${table.id}/export`} base={{ ...ghostBtn, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }} hover={{ background: "#FBF8F1" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1E8E4E" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 9v12" /></svg>
+              Export Excel
+            </Hov>
+          </div>
+        </>
+      )}
+    >
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <Hov onClick={addRow} base={ghostBtn} hover={{ background: "#FBF8F1" }}>+ Add row</Hov>
+        <Hov onClick={() => setAddingCol((v) => !v)} base={ghostBtn} hover={{ background: "#FBF8F1" }}>+ Add column</Hov>
+        <Hov onClick={rename} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Rename</Hov>
+      </div>
+
+      {addingCol && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 14, padding: "12px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
+          <input type="text" value={colLabel} onChange={(e) => setColLabel(e.target.value)} placeholder="Column name" style={{ ...fieldInput, flex: "1 1 140px", width: "auto" }} />
+          <select value={colType} onChange={(e) => setColType(e.target.value)} style={{ ...fieldInput, width: 120, flex: "0 0 120px" }}>
+            {COLUMN_TYPES.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
+          </select>
+          <input type="text" value={colDefault} onChange={(e) => setColDefault(e.target.value)} placeholder="Default (optional)" style={{ ...fieldInput, flex: "1 1 140px", width: "auto" }} />
+          <Hov onClick={pending ? undefined : submitCol} base={primaryBtn(pending)} hover={{ background: C.accentPress }}>Add</Hov>
+        </div>
+      )}
+
+      {cols.length === 0 ? (
+        <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>No columns yet — add one to start.</div>
+      ) : (
+        <div style={{ overflowX: "auto", border: "1px solid #E7E0D2", borderRadius: 12 }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: cols.length * 140 + 44 }}>
+            <thead>
+              <tr style={{ background: "#FAF6EE" }}>
+                {cols.map((c) => (
+                  <th key={c.key} style={{ textAlign: "left", padding: "9px 10px", borderRight: cellBorder, borderBottom: "1px solid #EFE9DC", minWidth: 140 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: "#3A352C" }}>{c.label}</span>
+                      <button type="button" onClick={() => removeCol(c.key, c.label)} title="Remove column" style={{ border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+                    </div>
+                    <span className="dm-mono" style={{ fontSize: 9.5, color: "#A39B8B", textTransform: "uppercase", letterSpacing: "0.04em" }}>{c.type}</span>
+                  </th>
+                ))}
+                <th style={{ width: 40, borderBottom: "1px solid #EFE9DC" }} />
+              </tr>
+            </thead>
+            <tbody>
+              {table.rows.map((r) => (
+                <tr key={r.id} style={{ borderTop: cellBorder }}>
+                  {cols.map((c) => (
+                    <td key={c.key} style={{ borderRight: cellBorder, borderTop: cellBorder }}>
+                      <TableCell row={r} col={c} onSave={(data) => run(() => updateRowAction(r.id, data), onChanged)} />
+                    </td>
+                  ))}
+                  <td style={{ borderTop: cellBorder, textAlign: "center" }}>
+                    <button type="button" onClick={() => delRow(r.id)} title="Delete row" style={{ border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 14, padding: "6px 8px" }}>🗑</button>
+                  </td>
+                </tr>
+              ))}
+              {table.rows.length === 0 && (
+                <tr><td colSpan={cols.length + 1} className="dm-mono" style={{ padding: "18px 12px", fontSize: 12.5, color: "#A39B8B", textAlign: "center" }}>No rows yet — “Add row” to create one.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ModalShell>
   );
 }
