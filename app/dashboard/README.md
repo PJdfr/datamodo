@@ -20,6 +20,13 @@ backend today are:
 - **Table editing** — click a table to open a full editor: add/edit/delete rows,
   add/remove/retype columns (new columns backfill a default), rename, delete,
   and create a table from scratch.
+- **Version history + safe merges** — every change is snapshotted (`dataset_snapshots`)
+  with a plain-language summary + who made it; rewind any table with Restore.
+  Hand edits mark a row protected (`dataset_rows.human_edited`), so agent data
+  arrives as **proposals** you review (`status='proposed'`) — new rows to add,
+  and changes that show "Yours vs the agent's" when they touch a row you edited
+  (Keep mine / Use theirs). A "Simulate agent update" button demos the flow
+  until the extraction pipeline exists.
 - **Excel export** — export a single table (`GET /api/datasets/[id]/export`) or
   many at once (`GET /api/datasets/export?ids=…`, one sheet per table) as
   `.xlsx`. We only export Excel — never CSV. Google Sheets / API export remain

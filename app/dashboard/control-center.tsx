@@ -12,6 +12,7 @@
 
 import {
   createElement,
+  Fragment,
   useMemo,
   useState,
   useTransition,
@@ -32,9 +33,13 @@ import {
   addRowAction,
   updateRowAction,
   deleteRowAction,
+  restoreSnapshotAction,
+  simulateAgentUpdateAction,
+  acceptProposalAction,
+  rejectProposalAction,
   type ActionResult,
 } from "./actions";
-import type { AgentRecord, DatasetColumn, DatasetRowRecord, DatasetView } from "@/lib/datamodo/types";
+import type { AgentRecord, DatasetColumn, DatasetRowRecord, DatasetView, Proposal, SnapshotMeta } from "@/lib/datamodo/types";
 
 /* ------------------------------------------------------------------ */
 /* Hover helper — inline styles win over CSS :hover, so hover states   */
@@ -1418,13 +1423,79 @@ function TableCell({ row, col, onSave }: { row: DatasetRowRecord; col: DatasetCo
   );
 }
 
+const showVal = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v));
+
+function HistoryPanel({ history, onRestore, pending }: { history: SnapshotMeta[]; onRestore: (id: string) => void; pending: boolean }) {
+  return (
+    <div style={{ marginBottom: 14, border: "1px solid #E7E0D2", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
+      <div className="dm-mono" style={{ ...monoLabel, padding: "10px 14px", borderBottom: "1px solid #F1EDE4", margin: 0 }}>Version history — rewind to any point</div>
+      {history.length === 0 ? (
+        <div className="dm-mono" style={{ fontSize: 12, color: "#A39B8B", padding: "14px" }}>No versions yet. Every change you or an agent makes is saved here.</div>
+      ) : (
+        <div style={{ maxHeight: 220, overflow: "auto" }}>
+          {history.map((h, i) => {
+            const you = h.actor === "You";
+            return (
+              <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderTop: i === 0 ? "none" : "1px solid #F5F1E8" }}>
+                <span style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, background: you ? C.ink : C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{you ? "Y" : h.actor.charAt(0).toUpperCase()}</span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13, color: "#3A352C" }}>{h.summary}</div>
+                  <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>{you ? "You" : h.actor} · {relTime(h.createdAt)}{i === 0 ? " · current" : ""}</div>
+                </div>
+                {i !== 0 && <Hov onClick={pending ? undefined : () => { if (confirm("Rewind the table to this version? Your current rows are saved to history first.")) onRestore(h.id); }} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Restore</Hov>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProposalCard({ p, columns, onAccept, onReject, pending }: { p: Proposal; columns: DatasetColumn[]; onAccept: () => void; onReject: () => void; pending: boolean }) {
+  const label = showVal((p.currentData ?? p.data)[columns[0]?.key ?? ""]);
+  const changed = p.kind === "update" && p.currentData
+    ? columns.filter((c) => JSON.stringify(p.data[c.key] ?? null) !== JSON.stringify(p.currentData?.[c.key] ?? null))
+    : columns;
+  return (
+    <div style={{ border: `1px solid ${p.conflict ? "#F3D6CB" : "#E7E0D2"}`, borderRadius: 12, background: p.conflict ? "#FDF4F0" : "#fff", padding: "12px 14px", marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+        <span style={{ width: 20, height: 20, borderRadius: "50%", background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{p.proposedBy.charAt(0).toUpperCase()}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>
+          {p.kind === "add" ? `${p.proposedBy} wants to add a row` : `${p.proposedBy} wants to update “${label}”`}
+        </span>
+        {p.conflict && <span className="dm-mono" style={{ fontSize: 10, color: "#fff", background: C.accent, borderRadius: 999, padding: "1px 7px" }}>you edited this</span>}
+      </div>
+      {p.conflict && <div style={{ fontSize: 12, color: "#8f5a3c", marginBottom: 8 }}>You changed this row by hand. {p.proposedBy} has different values — pick which to keep.</div>}
+      <div style={{ display: "grid", gridTemplateColumns: p.kind === "update" && p.currentData ? "1fr 1fr 1fr" : "1fr 2fr", gap: 4, fontSize: 12, marginBottom: 10 }}>
+        {p.kind === "update" && p.currentData && <><span /><span className="dm-mono" style={{ fontSize: 9.5, color: "#A39B8B", textTransform: "uppercase" }}>Yours</span><span className="dm-mono" style={{ fontSize: 9.5, color: C.accent, textTransform: "uppercase" }}>{p.proposedBy}</span></>}
+        {changed.map((c) => (
+          <Fragment key={c.key}>
+            <span style={{ color: "#8A8477" }}>{c.label}</span>
+            {p.kind === "update" && p.currentData && <span style={{ color: "#3A352C" }}>{showVal(p.currentData[c.key])}</span>}
+            <span style={{ color: p.conflict ? C.accent : "#3A352C", fontWeight: p.conflict ? 600 : 400 }}>{showVal(p.data[c.key])}</span>
+          </Fragment>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Hov onClick={pending ? undefined : onAccept} base={{ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 9, padding: "7px 14px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} hover={{ background: C.accentPress }}>
+          {p.kind === "add" ? "Add row" : p.conflict ? `Use ${p.proposedBy}’s` : "Apply"}
+        </Hov>
+        <Hov onClick={pending ? undefined : onReject} base={ghostBtn} hover={{ background: "#FBF8F1" }}>{p.conflict ? "Keep mine" : "Ignore"}</Hov>
+      </div>
+    </div>
+  );
+}
+
 function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; onClose: () => void; onChanged: () => void }) {
   const { pending, error, run } = useAction();
   const [addingCol, setAddingCol] = useState(false);
   const [colLabel, setColLabel] = useState("");
   const [colType, setColType] = useState("text");
   const [colDefault, setColDefault] = useState("");
+  const [panel, setPanel] = useState<"none" | "history" | "review">(table.proposals.length ? "review" : "none");
   const cols = table.columns;
+  const proposalCount = table.proposals.length;
 
   const addRow = () => run(() => addRowAction(table.id, Object.fromEntries(cols.map((c) => [c.key, null]))), onChanged);
   const submitCol = () => run(
@@ -1432,13 +1503,13 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
     () => { setAddingCol(false); setColLabel(""); setColDefault(""); setColType("text"); onChanged(); },
   );
   const removeCol = (key: string, label: string) => { if (confirm(`Remove column “${label}”? Its values are deleted from every row.`)) run(() => removeColumnAction(table.id, key), onChanged); };
-  const delRow = (id: string) => run(() => deleteRowAction(id), onChanged);
+  const delRow = (id: string) => run(() => deleteRowAction(table.id, id), onChanged);
   const delTable = () => { if (confirm(`Delete table “${table.name}” and all ${table.rowCount} rows?`)) run(() => deleteDatasetAction(table.id), () => { onClose(); onChanged(); }); };
   const rename = () => { const n = prompt("Rename table", table.name); if (n && n.trim() && n.trim() !== table.name) run(() => renameDatasetAction(table.id, n.trim()), onChanged); };
 
   const cellBorder = "1px solid #EFE9DC";
   return (
-    <ModalShell maxWidth={900} onClose={onClose}
+    <ModalShell maxWidth={920} onClose={onClose}
       title={table.name}
       subtitle={`${table.rowCount} ${table.rowCount === 1 ? "row" : "rows"} · ${cols.length} ${cols.length === 1 ? "column" : "columns"}${table.agentName ? ` · fed by ${table.agentName}` : ""}`}
       footer={(
@@ -1459,7 +1530,26 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
         <Hov onClick={addRow} base={ghostBtn} hover={{ background: "#FBF8F1" }}>+ Add row</Hov>
         <Hov onClick={() => setAddingCol((v) => !v)} base={ghostBtn} hover={{ background: "#FBF8F1" }}>+ Add column</Hov>
         <Hov onClick={rename} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Rename</Hov>
+        <Hov onClick={() => setPanel((p) => p === "history" ? "none" : "history")} base={panel === "history" ? { ...ghostBtn, background: "#EFE9DC" } : ghostBtn} hover={{ background: "#FBF8F1" }}>History ({table.history.length})</Hov>
+        <Hov onClick={() => setPanel((p) => p === "review" ? "none" : "review")} base={proposalCount ? { ...ghostBtn, background: "#FDF1EC", borderColor: "#F3D6CB", color: C.accent } : ghostBtn} hover={{ background: "#FBF8F1" }}>Review changes{proposalCount ? ` (${proposalCount})` : ""}</Hov>
+        <Hov onClick={() => run(() => simulateAgentUpdateAction(table.id), () => { setPanel("review"); onChanged(); })} base={{ ...ghostBtn, marginLeft: "auto", borderStyle: "dashed" }} hover={{ background: "#FBF8F1" }} title="Demo: pretend an agent sent new data">⚡ Simulate agent update</Hov>
       </div>
+
+      {panel === "history" && <HistoryPanel history={table.history} onRestore={(id) => run(() => restoreSnapshotAction(id), () => { setPanel("none"); onChanged(); })} pending={pending} />}
+
+      {panel === "review" && (
+        <div style={{ marginBottom: 14 }}>
+          <div className="dm-mono" style={{ ...monoLabel, marginBottom: 8 }}>Changes waiting for you — agents never overwrite your edits</div>
+          {proposalCount === 0 ? (
+            <div className="dm-mono" style={{ fontSize: 12, color: "#A39B8B" }}>Nothing to review. When an agent has new data it lands here first.</div>
+          ) : table.proposals.map((p) => (
+            <ProposalCard key={p.id} p={p} columns={cols} pending={pending}
+              onAccept={() => run(() => acceptProposalAction(p.id), onChanged)}
+              onReject={() => run(() => rejectProposalAction(p.id), onChanged)}
+            />
+          ))}
+        </div>
+      )}
 
       {addingCol && (
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 14, padding: "12px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
@@ -1476,9 +1566,10 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
         <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>No columns yet — add one to start.</div>
       ) : (
         <div style={{ overflowX: "auto", border: "1px solid #E7E0D2", borderRadius: 12 }}>
-          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: cols.length * 140 + 44 }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: cols.length * 140 + 68 }}>
             <thead>
               <tr style={{ background: "#FAF6EE" }}>
+                <th style={{ width: 24, borderBottom: "1px solid #EFE9DC" }} />
                 {cols.map((c) => (
                   <th key={c.key} style={{ textAlign: "left", padding: "9px 10px", borderRight: cellBorder, borderBottom: "1px solid #EFE9DC", minWidth: 140 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
@@ -1494,9 +1585,12 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
             <tbody>
               {table.rows.map((r) => (
                 <tr key={r.id} style={{ borderTop: cellBorder }}>
+                  <td style={{ borderTop: cellBorder, textAlign: "center" }}>
+                    {r.humanEdited && <span title="You edited this row — agents can’t overwrite it" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: C.ink }} />}
+                  </td>
                   {cols.map((c) => (
                     <td key={c.key} style={{ borderRight: cellBorder, borderTop: cellBorder }}>
-                      <TableCell row={r} col={c} onSave={(data) => run(() => updateRowAction(r.id, data), onChanged)} />
+                      <TableCell row={r} col={c} onSave={(data) => run(() => updateRowAction(table.id, r.id, data), onChanged)} />
                     </td>
                   ))}
                   <td style={{ borderTop: cellBorder, textAlign: "center" }}>
@@ -1505,7 +1599,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
                 </tr>
               ))}
               {table.rows.length === 0 && (
-                <tr><td colSpan={cols.length + 1} className="dm-mono" style={{ padding: "18px 12px", fontSize: 12.5, color: "#A39B8B", textAlign: "center" }}>No rows yet — “Add row” to create one.</td></tr>
+                <tr><td colSpan={cols.length + 2} className="dm-mono" style={{ padding: "18px 12px", fontSize: 12.5, color: "#A39B8B", textAlign: "center" }}>No rows yet — “Add row” to create one.</td></tr>
               )}
             </tbody>
           </table>

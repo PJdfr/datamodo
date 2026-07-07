@@ -48,6 +48,29 @@ export interface DatasetRecord {
 export interface DatasetRowRecord {
   id: string;
   data: Record<string, unknown>;
+  /** True once a human has edited this row — protects it from silent overwrite. */
+  humanEdited: boolean;
+}
+
+/** A version-history entry (metadata only; full rows loaded on restore). */
+export interface SnapshotMeta {
+  id: string;
+  actor: string;
+  summary: string;
+  createdAt: string;
+}
+
+/** A pending change proposed by an agent, awaiting the user's review. */
+export interface Proposal {
+  id: string;
+  kind: "add" | "update";
+  proposedBy: string;
+  data: Record<string, unknown>;
+  /** For 'update': the row it targets and that row's current values. */
+  targetRowId: string | null;
+  currentData: Record<string, unknown> | null;
+  /** True when it changes a row the human already edited (a real conflict). */
+  conflict: boolean;
 }
 
 /** A dataset enriched with derived fields + its rows for the dashboard. */
@@ -55,6 +78,8 @@ export interface DatasetView extends DatasetRecord {
   agentName: string | null;
   rowCount: number;
   rows: DatasetRowRecord[];
+  history: SnapshotMeta[];
+  proposals: Proposal[];
 }
 
 /** Input for creating an agent (collected by the New-agent wizard). */

@@ -4,12 +4,25 @@ import type {
   DatasetRecord,
   DatasetRowRecord,
   DatasetView,
+  Proposal,
+  SnapshotMeta,
 } from "./types";
 
 // Data access for datasets + their rows. Like agents.ts, all reads/writes go
 // through the caller's authenticated client and are gated by RLS.
 
-/** List datasets in an org, enriched with owning-agent name + their rows. */
+type RawRow = {
+  id: string;
+  dataset_id: string;
+  data: Record<string, unknown>;
+  human_edited: boolean;
+  status: string;
+  proposed_kind: string | null;
+  target_row_id: string | null;
+  proposed_by: string | null;
+};
+
+/** List datasets in an org, enriched with rows, version history, + proposals. */
 export async function listDatasets(
   db: SupabaseClient,
   orgId: string,
@@ -25,24 +38,59 @@ export async function listDatasets(
   const datasets = (data ?? []) as unknown as Joined[];
   if (datasets.length === 0) return [];
 
-  // Load all accepted rows for the org in one query, then group per dataset.
+  // Load every row for the org once (accepted rows + agent proposals).
   const { data: rowData, error: rowErr } = await db
     .from("dataset_rows")
-    .select("id, dataset_id, data")
+    .select("id, dataset_id, data, human_edited, status, proposed_kind, target_row_id, proposed_by")
     .eq("org_id", orgId)
-    .eq("status", "accepted")
     .order("created_at", { ascending: true });
   if (rowErr) throw rowErr;
+  const allRows = (rowData ?? []) as RawRow[];
 
-  const rowsByDataset = new Map<string, DatasetRowRecord[]>();
-  for (const r of (rowData ?? []) as { id: string; dataset_id: string; data: Record<string, unknown> }[]) {
-    const arr = rowsByDataset.get(r.dataset_id) ?? [];
-    arr.push({ id: r.id, data: r.data ?? {} });
-    rowsByDataset.set(r.dataset_id, arr);
+  const accepted = new Map<string, DatasetRowRecord[]>();
+  const acceptedById = new Map<string, RawRow>();
+  const proposedByDataset = new Map<string, RawRow[]>();
+  for (const r of allRows) {
+    if (r.status === "accepted") {
+      const arr = accepted.get(r.dataset_id) ?? [];
+      arr.push({ id: r.id, data: r.data ?? {}, humanEdited: r.human_edited });
+      accepted.set(r.dataset_id, arr);
+      acceptedById.set(r.id, r);
+    } else if (r.status === "proposed") {
+      const arr = proposedByDataset.get(r.dataset_id) ?? [];
+      arr.push(r);
+      proposedByDataset.set(r.dataset_id, arr);
+    }
+  }
+
+  // Version-history metadata (no heavy payloads).
+  const { data: snapData, error: snapErr } = await db
+    .from("dataset_snapshots")
+    .select("id, dataset_id, actor, summary, created_at")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false });
+  if (snapErr) throw snapErr;
+  const historyByDataset = new Map<string, SnapshotMeta[]>();
+  for (const s of (snapData ?? []) as { id: string; dataset_id: string; actor: string; summary: string; created_at: string }[]) {
+    const arr = historyByDataset.get(s.dataset_id) ?? [];
+    arr.push({ id: s.id, actor: s.actor, summary: s.summary, createdAt: s.created_at });
+    historyByDataset.set(s.dataset_id, arr);
   }
 
   return datasets.map((d) => {
-    const rows = rowsByDataset.get(d.id) ?? [];
+    const rows = accepted.get(d.id) ?? [];
+    const proposals: Proposal[] = (proposedByDataset.get(d.id) ?? []).map((p) => {
+      const target = p.target_row_id ? acceptedById.get(p.target_row_id) : null;
+      return {
+        id: p.id,
+        kind: p.proposed_kind === "update" ? "update" : "add",
+        proposedBy: p.proposed_by ?? "An agent",
+        data: p.data ?? {},
+        targetRowId: p.target_row_id,
+        currentData: target?.data ?? null,
+        conflict: !!target && target.human_edited,
+      };
+    });
     return {
       id: d.id,
       org_id: d.org_id,
@@ -56,8 +104,188 @@ export async function listDatasets(
       agentName: d.agents?.name ?? null,
       rowCount: rows.length,
       rows,
+      history: historyByDataset.get(d.id) ?? [],
+      proposals,
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Version history: snapshots + restore
+// ---------------------------------------------------------------------------
+
+/** Save a full point-in-time copy of a table with a plain-language summary. */
+export async function snapshotDataset(
+  db: SupabaseClient,
+  datasetId: string,
+  actor: string,
+  summary: string,
+): Promise<void> {
+  const ds = await getDataset(db, datasetId);
+  if (!ds) return;
+  const rows = await listAcceptedRows(db, datasetId);
+  const { error } = await db.from("dataset_snapshots").insert({
+    dataset_id: datasetId,
+    org_id: ds.org_id,
+    actor,
+    summary,
+    columns: ds.columns,
+    rows,
+  });
+  if (error) throw error;
+}
+
+/** Create an "Original version" checkpoint the first time a table is changed. */
+export async function ensureBaseline(db: SupabaseClient, datasetId: string): Promise<void> {
+  const { count, error } = await db
+    .from("dataset_snapshots")
+    .select("id", { count: "exact", head: true })
+    .eq("dataset_id", datasetId);
+  if (error) throw error;
+  if ((count ?? 0) === 0) await snapshotDataset(db, datasetId, "You", "Original version");
+}
+
+/** Run a mutation between a baseline check and a post-change checkpoint. */
+export async function checkpoint(
+  db: SupabaseClient,
+  datasetId: string,
+  summary: string,
+  apply: () => Promise<void>,
+  actor = "You",
+): Promise<void> {
+  await ensureBaseline(db, datasetId);
+  await apply();
+  await snapshotDataset(db, datasetId, actor, summary);
+}
+
+/** Rewind a table to a saved version (its rows + columns), keeping proposals. */
+export async function restoreSnapshot(db: SupabaseClient, snapshotId: string): Promise<void> {
+  const { data, error } = await db
+    .from("dataset_snapshots")
+    .select("dataset_id, org_id, columns, rows, created_at")
+    .eq("id", snapshotId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("Version not found");
+  const snap = data as { dataset_id: string; org_id: string; columns: DatasetColumn[]; rows: { data: Record<string, unknown> }[]; created_at: string };
+
+  await db.from("datasets").update({ columns: snap.columns }).eq("id", snap.dataset_id);
+  await db.from("dataset_rows").delete().eq("dataset_id", snap.dataset_id).eq("status", "accepted");
+  if (snap.rows.length) {
+    const insert = snap.rows.map((r) => ({
+      dataset_id: snap.dataset_id,
+      org_id: snap.org_id,
+      data: r.data ?? {},
+      status: "accepted" as const,
+      origin: "manual",
+    }));
+    const { error: insErr } = await db.from("dataset_rows").insert(insert);
+    if (insErr) throw insErr;
+  }
+  const when = new Date(snap.created_at).toLocaleString();
+  await snapshotDataset(db, snap.dataset_id, "You", `Restored to the version from ${when}`);
+}
+
+// ---------------------------------------------------------------------------
+// Agent proposals: agents suggest, humans decide
+// ---------------------------------------------------------------------------
+
+/** Queue agent-proposed rows/changes for the user to review. */
+export async function proposeAgentRows(
+  db: SupabaseClient,
+  orgId: string,
+  datasetId: string,
+  agentName: string,
+  adds: Record<string, unknown>[],
+  updates: { targetRowId: string; data: Record<string, unknown> }[],
+): Promise<void> {
+  const rows = [
+    ...adds.map((data) => ({ org_id: orgId, dataset_id: datasetId, data, status: "proposed" as const, origin: "agent", proposed_kind: "add", proposed_by: agentName })),
+    ...updates.map((u) => ({ org_id: orgId, dataset_id: datasetId, data: u.data, status: "proposed" as const, origin: "agent", proposed_kind: "update", target_row_id: u.targetRowId, proposed_by: agentName })),
+  ];
+  if (!rows.length) return;
+  const { error } = await db.from("dataset_rows").insert(rows);
+  if (error) throw error;
+}
+
+/** Apply a proposal: add the new row, or write the update onto its target row. */
+export async function acceptProposal(db: SupabaseClient, proposalId: string): Promise<{ datasetId: string; summary: string; actor: string } | null> {
+  const { data, error } = await db
+    .from("dataset_rows")
+    .select("id, dataset_id, data, proposed_kind, target_row_id, proposed_by")
+    .eq("id", proposalId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const p = data as { id: string; dataset_id: string; data: Record<string, unknown>; proposed_kind: string | null; target_row_id: string | null; proposed_by: string | null };
+  const actor = p.proposed_by ?? "An agent";
+
+  if (p.proposed_kind === "update" && p.target_row_id) {
+    await db.from("dataset_rows").update({ data: p.data, origin: "agent", human_edited: false }).eq("id", p.target_row_id);
+    await db.from("dataset_rows").delete().eq("id", p.id);
+    return { datasetId: p.dataset_id, summary: `Applied ${actor}'s change`, actor };
+  }
+  // 'add': promote the proposal into an accepted row.
+  await db.from("dataset_rows").update({ status: "accepted", proposed_kind: null, target_row_id: null }).eq("id", p.id);
+  return { datasetId: p.dataset_id, summary: `Added ${actor}'s row`, actor };
+}
+
+export async function rejectProposal(db: SupabaseClient, proposalId: string): Promise<void> {
+  const { error } = await db.from("dataset_rows").delete().eq("id", proposalId);
+  if (error) throw error;
+}
+
+/**
+ * Demo helper: fabricate an incoming agent update so the review/conflict flow
+ * can be seen without a live extraction pipeline. Proposes one brand-new row
+ * and one change to the first existing row.
+ */
+export async function simulateAgentUpdate(
+  db: SupabaseClient,
+  orgId: string,
+  datasetId: string,
+): Promise<void> {
+  const { data: dsRow } = await db
+    .from("datasets")
+    .select("columns, agents ( name )")
+    .eq("id", datasetId)
+    .maybeSingle();
+  const ds = dsRow as { columns: DatasetColumn[]; agents: { name: string } | null } | null;
+  if (!ds) throw new Error("Table not found");
+  const cols = Array.isArray(ds.columns) ? ds.columns : [];
+  const agentName = ds.agents?.name ?? "An agent";
+
+  const { data: rowsData } = await db
+    .from("dataset_rows")
+    .select("id, data")
+    .eq("dataset_id", datasetId)
+    .eq("status", "accepted")
+    .order("created_at", { ascending: true })
+    .limit(1);
+  const first = (rowsData ?? [])[0] as { id: string; data: Record<string, unknown> } | undefined;
+
+  // A brand-new row.
+  const addData: Record<string, unknown> = {};
+  for (const c of cols) {
+    addData[c.key] = c.type === "number" ? 1000 : c.type === "date" ? new Date().toISOString().slice(0, 10) : `New from ${agentName}`;
+  }
+
+  // A change to the first row: bump a number, else append to the first text field.
+  const updates: { targetRowId: string; data: Record<string, unknown> }[] = [];
+  if (first) {
+    const next = { ...first.data };
+    const numCol = cols.find((c) => c.type === "number");
+    const textCol = cols.find((c) => c.type !== "number" && c.type !== "date");
+    if (numCol) {
+      const cur = Number(next[numCol.key]) || 0;
+      next[numCol.key] = Math.round(cur * 1.1);
+    } else if (textCol) {
+      next[textCol.key] = `${next[textCol.key] ?? ""} (updated by ${agentName})`.trim();
+    }
+    updates.push({ targetRowId: first.id, data: next });
+  }
+
+  await proposeAgentRows(db, orgId, datasetId, agentName, [addData], updates);
 }
 
 /** Fetch a single dataset by id (RLS returns null when not visible). */
@@ -224,12 +452,14 @@ export async function insertRow(
   if (error) throw error;
 }
 
+/** Manual row edit — marks the row human-edited so agents can't silently
+ *  overwrite it (their differing values become a conflict to review). */
 export async function updateRow(
   db: SupabaseClient,
   rowId: string,
   data: Record<string, unknown>,
 ): Promise<void> {
-  const { error } = await db.from("dataset_rows").update({ data }).eq("id", rowId);
+  const { error } = await db.from("dataset_rows").update({ data, human_edited: true }).eq("id", rowId);
   if (error) throw error;
 }
 
