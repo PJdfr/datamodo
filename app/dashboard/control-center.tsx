@@ -45,6 +45,7 @@ import {
   deleteRowAction,
   restoreSnapshotAction,
   getSnapshotsAction,
+  getDatasetRowsAction,
   simulateAgentUpdateAction,
   acceptProposalAction,
   rejectProposalAction,
@@ -1706,14 +1707,27 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
   const viewingPast = versionId !== null;
   const pastSnap = viewingPast ? snaps?.find((s) => s.id === versionId) ?? null : null;
 
-  const addRow = () => run(() => addRowAction(table.id, Object.fromEntries(cols.map((c) => [c.key, null]))), onChanged);
+  // Rows load lazily (the dashboard no longer ships them). `rows === null` = still
+  // loading. `refresh` reloads the rows locally AND asks the page to revalidate.
+  const [rows, setRows] = useState<DatasetRowRecord[] | null>(null);
+  const [total, setTotal] = useState(table.rowCount);
+  const reloadRows = () => getDatasetRowsAction(table.id).then((r) => { if (r.ok) { setRows(r.rows); setTotal(r.total); } });
+  useEffect(() => {
+    let alive = true;
+    setRows(null);
+    getDatasetRowsAction(table.id).then((r) => { if (alive && r.ok) { setRows(r.rows); setTotal(r.total); } });
+    return () => { alive = false; };
+  }, [table.id]);
+  const refresh = () => { void reloadRows(); onChanged(); };
+
+  const addRow = () => run(() => addRowAction(table.id, Object.fromEntries(cols.map((c) => [c.key, null]))), refresh);
   const submitCol = () => run(
     () => addColumnAction(table.id, { label: colLabel, type: colType, defaultValue: coerceByType(colType, colDefault) }),
-    () => { setAddingCol(false); setColLabel(""); setColDefault(""); setColType("text"); onChanged(); },
+    () => { setAddingCol(false); setColLabel(""); setColDefault(""); setColType("text"); refresh(); },
   );
-  const removeCol = (key: string, label: string) => { if (confirm(`Remove column “${label}”? Its values are deleted from every row.`)) run(() => removeColumnAction(table.id, key), onChanged); };
-  const delRow = (id: string) => run(() => deleteRowAction(table.id, id), onChanged);
-  const delTable = () => { if (confirm(`Delete table “${table.name}” and all ${table.rowCount} rows?`)) run(() => deleteDatasetAction(table.id), () => { onClose(); onChanged(); }); };
+  const removeCol = (key: string, label: string) => { if (confirm(`Remove column “${label}”? Its values are deleted from every row.`)) run(() => removeColumnAction(table.id, key), refresh); };
+  const delRow = (id: string) => run(() => deleteRowAction(table.id, id), refresh);
+  const delTable = () => { if (confirm(`Delete table “${table.name}” and all ${total} rows?`)) run(() => deleteDatasetAction(table.id), () => { onClose(); onChanged(); }); };
   const rename = () => { const n = prompt("Rename table", table.name); if (n && n.trim() && n.trim() !== table.name) run(() => renameDatasetAction(table.id, n.trim()), onChanged); };
 
   const rowSep = "1px solid #F3EEE3";
@@ -1753,7 +1767,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
         );
       },
       cell: ({ row }) => (
-        <TableCell row={row.original} col={c} onSave={(data) => run(() => updateRowAction(table.id, row.original.id, data), onChanged)} />
+        <TableCell row={row.original} col={c} onSave={(data) => run(() => updateRowAction(table.id, row.original.id, data), refresh)} />
       ),
     })),
     {
@@ -1766,7 +1780,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
     },
   ];
   const grid = useReactTable({
-    data: table.rows,
+    data: rows ?? [],
     columns: gridColumns,
     state: { sorting },
     onSortingChange: setSorting,
@@ -1779,7 +1793,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
     <ModalShell maxWidth={920} onClose={onClose}
       badge={{ initial: table.name.slice(0, 1).toUpperCase() || "T", bg: pickColor(table.name) }}
       title={table.name}
-      subtitle={`${table.rowCount} ${table.rowCount === 1 ? "row" : "rows"} · ${cols.length} ${cols.length === 1 ? "column" : "columns"}${table.agentName ? ` · fed by ${table.agentName}` : ""}`}
+      subtitle={`${total} ${total === 1 ? "row" : "rows"} · ${cols.length} ${cols.length === 1 ? "column" : "columns"}${table.agentName ? ` · fed by ${table.agentName}` : ""}`}
       footer={(
         <>
           <Hov onClick={delTable} base={{ background: "none", border: "none", color: "#B44536", fontFamily: "inherit", fontSize: 13.5, fontWeight: 500, cursor: "pointer", padding: "8px 4px" }} hover={{ color: "#8f2f23" }}>Delete table</Hov>
@@ -1820,7 +1834,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
         </>}
       </div>
 
-      {!viewingPast && panel === "history" && <HistoryPanel datasetId={table.id} onRestore={(id) => run(() => restoreSnapshotAction(id), () => { setPanel("none"); onChanged(); })} pending={pending} />}
+      {!viewingPast && panel === "history" && <HistoryPanel datasetId={table.id} onRestore={(id) => run(() => restoreSnapshotAction(id), () => { setPanel("none"); refresh(); })} pending={pending} />}
 
       {!viewingPast && panel === "review" && (
         <div style={{ marginBottom: 14 }}>
@@ -1854,7 +1868,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
           <Panel label="Version" summary={`saved ${new Date(pastSnap.createdAt).toLocaleString()}`}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
               <span className="dm-mono" style={{ fontSize: 11, color: "#8f5a3c", background: "#FBEFD6", border: "1px solid #E6CF92", borderRadius: 8, padding: "3px 9px" }}>Read-only · saved version from {new Date(pastSnap.createdAt).toLocaleString()}</span>
-              <Hov onClick={pending ? undefined : () => run(() => restoreSnapshotAction(pastSnap.id), () => { setVersionId(null); onChanged(); })} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Restore this version</Hov>
+              <Hov onClick={pending ? undefined : () => run(() => restoreSnapshotAction(pastSnap.id), () => { setVersionId(null); refresh(); })} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Restore this version</Hov>
             </div>
             <SnapshotPreview snap={pastSnap} diff={null} />
           </Panel>
@@ -1897,7 +1911,10 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
                     ))}
                   </tr>
                 ))}
-                {table.rows.length === 0 && (
+                {rows === null && (
+                  <tr><td colSpan={cols.length + 2} className="dm-mono" style={{ padding: "18px 12px", fontSize: 12.5, color: "#A39B8B", textAlign: "center" }}>Loading rows…</td></tr>
+                )}
+                {rows !== null && rows.length === 0 && (
                   <tr><td colSpan={cols.length + 2} className="dm-mono" style={{ padding: "18px 12px", fontSize: 12.5, color: "#A39B8B", textAlign: "center" }}>No rows yet — “Add row” to create one.</td></tr>
                 )}
               </tbody>

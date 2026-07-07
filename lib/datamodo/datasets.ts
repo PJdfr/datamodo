@@ -42,17 +42,41 @@ export async function listDatasets(
   const datasets = (data ?? []) as unknown as Joined[];
   if (datasets.length === 0) return [];
 
-  // Load every row for the org once (accepted rows + agent proposals).
-  const { data: rowData, error: rowErr } = await db
+  // Load ONLY pending proposals here (usually a small set) — never every
+  // accepted row. The dashboard cards need counts, not the rows themselves;
+  // full rows load lazily when a table is opened (see listDatasetRows).
+  const { data: propData, error: propErr } = await db
     .from("dataset_rows")
     .select("id, dataset_id, data, human_edited, status, proposed_kind, target_row_id, proposed_by, batch_id, created_at, source_item_id")
     .eq("org_id", orgId)
+    .eq("status", "proposed")
     .order("created_at", { ascending: true });
-  if (rowErr) throw rowErr;
-  const allRows = (rowData ?? []) as RawRow[];
+  if (propErr) throw propErr;
+  const proposed = (propData ?? []) as RawRow[];
+
+  const proposedByDataset = new Map<string, RawRow[]>();
+  for (const r of proposed) {
+    const arr = proposedByDataset.get(r.dataset_id) ?? [];
+    arr.push(r);
+    proposedByDataset.set(r.dataset_id, arr);
+  }
+
+  // Fetch just the accepted rows those proposals target (for the yours-vs-theirs
+  // conflict diff) — a targeted `in (...)`, not a full-table load.
+  const targetIds = [...new Set(proposed.map((r) => r.target_row_id).filter(Boolean) as string[])];
+  const targetById = new Map<string, { data: Record<string, unknown>; human_edited: boolean }>();
+  if (targetIds.length) {
+    const { data: targets } = await db
+      .from("dataset_rows")
+      .select("id, data, human_edited")
+      .in("id", targetIds);
+    for (const t of (targets ?? []) as { id: string; data: Record<string, unknown>; human_edited: boolean }[]) {
+      targetById.set(t.id, { data: t.data ?? {}, human_edited: t.human_edited });
+    }
+  }
 
   // Label proposals with the message/email they were parsed from, when known.
-  const sourceIds = [...new Set(allRows.filter((r) => r.status === "proposed" && r.source_item_id).map((r) => r.source_item_id as string))];
+  const sourceIds = [...new Set(proposed.filter((r) => r.source_item_id).map((r) => r.source_item_id as string))];
   const sourceLabels = new Map<string, string>();
   if (sourceIds.length) {
     const { data: items } = await db
@@ -64,20 +88,11 @@ export async function listDatasets(
     }
   }
 
-  const accepted = new Map<string, DatasetRowRecord[]>();
-  const acceptedById = new Map<string, RawRow>();
-  const proposedByDataset = new Map<string, RawRow[]>();
-  for (const r of allRows) {
-    if (r.status === "accepted") {
-      const arr = accepted.get(r.dataset_id) ?? [];
-      arr.push({ id: r.id, data: r.data ?? {}, humanEdited: r.human_edited });
-      accepted.set(r.dataset_id, arr);
-      acceptedById.set(r.id, r);
-    } else if (r.status === "proposed") {
-      const arr = proposedByDataset.get(r.dataset_id) ?? [];
-      arr.push(r);
-      proposedByDataset.set(r.dataset_id, arr);
-    }
+  // Accepted-row counts, grouped in one query (no row payloads).
+  const countByDataset = new Map<string, number>();
+  const { data: counts } = await db.rpc("dataset_accepted_counts", { p_org_id: orgId });
+  for (const c of (counts ?? []) as { dataset_id: string; n: number }[]) {
+    countByDataset.set(c.dataset_id, Number(c.n));
   }
 
   // Version-history metadata (no heavy payloads).
@@ -95,9 +110,8 @@ export async function listDatasets(
   }
 
   return datasets.map((d) => {
-    const rows = accepted.get(d.id) ?? [];
     const proposals: Proposal[] = (proposedByDataset.get(d.id) ?? []).map((p) => {
-      const target = p.target_row_id ? acceptedById.get(p.target_row_id) : null;
+      const target = p.target_row_id ? targetById.get(p.target_row_id) : null;
       return {
         id: p.id,
         kind: p.proposed_kind === "update" ? "update" : "add",
@@ -122,12 +136,36 @@ export async function listDatasets(
       created_at: d.created_at,
       updated_at: d.updated_at,
       agentName: d.agents?.name ?? null,
-      rowCount: rows.length,
-      rows,
+      rowCount: countByDataset.get(d.id) ?? 0,
+      // Rows load lazily when a table is opened — the cards only need the count.
+      rows: [],
       history: historyByDataset.get(d.id) ?? [],
       proposals,
     };
   });
+}
+
+/** Load a page of a table's accepted (live) rows, newest access shape for the
+ *  table editor. Returns the rows plus the exact total so the UI can paginate. */
+export async function listDatasetRows(
+  db: SupabaseClient,
+  datasetId: string,
+  opts: { limit?: number; offset?: number } = {},
+): Promise<{ rows: DatasetRowRecord[]; total: number }> {
+  const limit = opts.limit ?? 500;
+  const offset = opts.offset ?? 0;
+  const { data, error, count } = await db
+    .from("dataset_rows")
+    .select("id, data, human_edited", { count: "exact" })
+    .eq("dataset_id", datasetId)
+    .eq("status", "accepted")
+    .order("created_at", { ascending: true })
+    .range(offset, offset + limit - 1);
+  if (error) throw error;
+  const rows = ((data ?? []) as { id: string; data: Record<string, unknown>; human_edited: boolean }[]).map(
+    (r) => ({ id: r.id, data: r.data ?? {}, humanEdited: r.human_edited }),
+  );
+  return { rows, total: count ?? rows.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -559,18 +597,15 @@ export async function addColumn(
   const columns = [...dataset.columns, { key, label, type: column.type || "text" }];
   await setColumns(db, datasetId, columns);
 
-  // Backfill existing rows with the default value for the new column.
+  // Backfill every row in a single set-based update (Postgres jsonb_set) instead
+  // of fetching + updating each row one at a time.
   const def = column.defaultValue ?? null;
-  const { data: rows, error } = await db
-    .from("dataset_rows")
-    .select("id, data")
-    .eq("dataset_id", datasetId);
+  const { error } = await db.rpc("add_dataset_column", {
+    p_dataset_id: datasetId,
+    p_key: key,
+    p_default: def,
+  });
   if (error) throw error;
-  for (const r of (rows ?? []) as { id: string; data: Record<string, unknown> }[]) {
-    if (!(key in (r.data ?? {}))) {
-      await db.from("dataset_rows").update({ data: { ...r.data, [key]: def } }).eq("id", r.id);
-    }
-  }
 }
 
 /** Remove a column definition and strip its key from every row. */
@@ -583,14 +618,9 @@ export async function removeColumn(
   if (!dataset) throw new Error("Table not found");
   await setColumns(db, datasetId, dataset.columns.filter((c) => c.key !== key));
 
-  const { data: rows } = await db.from("dataset_rows").select("id, data").eq("dataset_id", datasetId);
-  for (const r of (rows ?? []) as { id: string; data: Record<string, unknown> }[]) {
-    if (key in (r.data ?? {})) {
-      const next = { ...r.data };
-      delete next[key];
-      await db.from("dataset_rows").update({ data: next }).eq("id", r.id);
-    }
-  }
+  // Strip the key from every row in one set-based update.
+  const { error } = await db.rpc("remove_dataset_column", { p_dataset_id: datasetId, p_key: key });
+  if (error) throw error;
 }
 
 /** Insert one structured row into a dataset. */
