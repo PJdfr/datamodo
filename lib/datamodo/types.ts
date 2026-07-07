@@ -127,3 +127,71 @@ export interface ActiveOrg {
   isPersonal: boolean;
   role: string;
 }
+
+// ---------------------------------------------------------------------------
+// Relationships between tables (Data page graph)
+// ---------------------------------------------------------------------------
+
+/** An explicit link: `fromColumn` in one table references rows in another table
+ *  matched on `toColumn` (FK-like). */
+export interface DatasetRelation {
+  id: string;
+  fromDatasetId: string;
+  fromDatasetName: string;
+  fromColumn: string;
+  toDatasetId: string;
+  toDatasetName: string;
+  toColumn: string;
+  label: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Versioning surface (unified pull-request review)
+// ---------------------------------------------------------------------------
+
+/** One field's before/after inside an updated row's diff. */
+export interface DiffCell {
+  key: string;
+  label: string;
+  before: unknown;
+  after: unknown;
+  changed: boolean;
+}
+
+/** A single pending change across the whole workspace, enriched for review.
+ *  This is the atom the Versioning surface groups (by agent / table / comm)
+ *  and accepts/rejects (singly, in bulk, or as whole groups). */
+export interface ReviewItem {
+  id: string; // the proposal row id
+  kind: "add" | "update";
+  datasetId: string;
+  datasetName: string;
+  columns: DatasetColumn[];
+  agent: string;
+  batchId: string | null;
+  sourceLabel: string | null;
+  createdAt: string;
+  conflict: boolean;
+  /** New-row values (kind === 'add') keyed by column. */
+  data: Record<string, unknown>;
+  /** Per-column before/after for updates (kind === 'update'). */
+  cells: DiffCell[];
+}
+
+// ---------------------------------------------------------------------------
+// Agent activity feed (Agents surface)
+// ---------------------------------------------------------------------------
+
+/** One thing an agent did recently: a change it applied (from a snapshot) or a
+ *  change it's still proposing (pending review). */
+export interface AgentActivityEntry {
+  id: string;
+  kind: "applied" | "pending";
+  datasetName: string;
+  summary: string;
+  sourceLabel: string | null;
+  adds: number;
+  updates: number;
+  conflicts: number;
+  when: string;
+}

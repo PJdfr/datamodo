@@ -3,11 +3,11 @@
 /**
  * Datamodo Control Center — the signed-in workspace.
  *
- * Ported from the "Datamodo Control Center.dc.html" design handoff. Agents and
- * data tables are now REAL: they are loaded from Supabase by the server
- * component and the create-agent wizard persists via a Server Action. The
- * suggestions feed, relationship graph, and NL search remain illustrative (see
- * app/dashboard/README.md for the roadmap).
+ * Ported from the "Datamodo Control Center.dc.html" design handoff. Agents,
+ * data tables, the agent activity feed, the table relationship graph, and the
+ * unified Versioning ("pull request") review are all REAL — loaded from Supabase
+ * by the server component and mutated via Server Actions. Only NL Search remains
+ * illustrative (see app/dashboard/README.md for the roadmap).
  */
 
 import {
@@ -50,10 +50,14 @@ import {
   rejectProposalAction,
   acceptBatchAction,
   rejectBatchAction,
+  acceptProposalsAction,
+  rejectProposalsAction,
+  createRelationAction,
+  deleteRelationAction,
   updateComputeSettingsAction,
   type ActionResult,
 } from "./actions";
-import type { AgentRecord, ChangeChunk, DatasetColumn, DatasetRowRecord, DatasetView, Proposal, SnapshotFull } from "@/lib/datamodo/types";
+import type { AgentActivityEntry, AgentRecord, ChangeChunk, DatasetColumn, DatasetRelation, DatasetRowRecord, DatasetView, Proposal, ReviewItem, SnapshotFull } from "@/lib/datamodo/types";
 import type { UserSettings } from "@/lib/datamodo/settings";
 import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
 
@@ -112,83 +116,6 @@ const CH_NAMES: Record<string, string> = {
   telegram: "Telegram",
 };
 
-/* ------------------------------------------------------------------ */
-/* Mock data                                                           */
-/* ------------------------------------------------------------------ */
-type SugRow = {
-  a: string;
-  b: string;
-  c: string;
-  cColor: string;
-  tag: string;
-  tagColor: string;
-  bg: string;
-  stripe: string;
-};
-type Suggestion = {
-  id: string;
-  name: string;
-  initial: string;
-  avatarBg: string;
-  meta: string;
-  versionTag: string;
-  target: string;
-  message: string;
-  changeSummary: string;
-  confidence: string;
-  vOld: string;
-  vNew: string;
-  oldValue: string;
-  newValue: string;
-  rows: SugRow[];
-};
-const SUGGESTIONS: Suggestion[] = [
-  {
-    id: "s1",
-    name: "Ledger",
-    initial: "L",
-    avatarBg: C.accent,
-    meta: "· 2h ago · Gmail",
-    versionTag: "Invoices · v12 → v13",
-    target: "Invoices",
-    message:
-      "I found 3 new invoices in your Gmail this morning. Two are brand new; one updates an amount that changed since the version you last accepted.",
-    changeSummary: "2 added · 1 changed",
-    confidence: "94% confident",
-    vOld: "v12",
-    vNew: "v13",
-    oldValue: "Globex · #A-201 · $8,750 · Sent",
-    newValue:
-      "Globex · #A-201 · $9,120 · Sent  (amount corrected from a revised PDF)",
-    rows: [
-      { a: "Acme Inc", b: "#A-204", c: "$12,000", cColor: C.accent, tag: "new", tagColor: C.green, bg: "#F6FBF7", stripe: `inset 3px 0 0 ${C.green}` },
-      { a: "Umbrella", b: "#A-206", c: "$4,300", cColor: "#57534A", tag: "new", tagColor: C.green, bg: "#F6FBF7", stripe: `inset 3px 0 0 ${C.green}` },
-      { a: "Globex", b: "#A-201", c: "$9,120", cColor: C.ink, tag: "changed", tagColor: C.gold, bg: "#FCF8EC", stripe: `inset 3px 0 0 ${C.gold}` },
-    ],
-  },
-  {
-    id: "s2",
-    name: "Rolodex",
-    initial: "R",
-    avatarBg: C.ink,
-    meta: "· 5h ago · WhatsApp",
-    versionTag: "Contacts · v7 → v8",
-    target: "Contacts",
-    message:
-      "You pinged me about the people you met at the Acme dinner. I pulled 2 new contacts and linked them to Acme Inc.",
-    changeSummary: "2 added",
-    confidence: "88% confident",
-    vOld: "v7",
-    vNew: "v8",
-    oldValue: "64 contacts · last synced yesterday",
-    newValue: "66 contacts · +Sarah Chen, +Miguel Ortiz (both → Acme Inc)",
-    rows: [
-      { a: "Sarah Chen", b: "sarah@acme.com", c: "Acme Inc", cColor: "#57534A", tag: "new", tagColor: C.green, bg: "#F6FBF7", stripe: `inset 3px 0 0 ${C.green}` },
-      { a: "Miguel Ortiz", b: "miguel@acme.com", c: "Acme Inc", cColor: "#57534A", tag: "new", tagColor: C.green, bg: "#F6FBF7", stripe: `inset 3px 0 0 ${C.green}` },
-    ],
-  },
-];
-
 type Agent = {
   id: string;
   name: string;
@@ -214,8 +141,6 @@ type TableInfo = {
   agentBg: string;
   updated: string;
 };
-
-const PENDING_COUNT = 4;
 
 /* ------------------------------------------------------------------ */
 /* Style helpers (mirror the design's DCLogic helpers)                 */
@@ -338,13 +263,16 @@ const monoLabel: CSSProperties = {
 /* ================================================================== */
 /* Component                                                           */
 /* ================================================================== */
-type Tab = "agents" | "data" | "search";
+type Tab = "agents" | "data" | "versioning" | "search";
 export type ControlCenterProps = {
   fullName: string;
   initial: string;
   inbox: string;
   agents: AgentRecord[];
   datasets: DatasetView[];
+  relations: DatasetRelation[];
+  pendingChanges: ReviewItem[];
+  agentActivity: Record<string, AgentActivityEntry[]>;
   settings: UserSettings;
   notice?: string | null;
 };
@@ -368,14 +296,20 @@ const relTime = (iso: string): string => {
   return `${Math.floor(h / 24)}d ago`;
 };
 
-export default function ControlCenter({ fullName, initial, inbox, agents, datasets, settings, notice }: ControlCenterProps) {
+export default function ControlCenter({ fullName, initial, inbox, agents, datasets, relations, pendingChanges, agentActivity, settings, notice }: ControlCenterProps) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("agents");
   const [noticeOpen, setNoticeOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [autoAccept, setAutoAccept] = useState(false);
-  const [dismissed, setDismissed] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  // Pending changes proposed per agent (for the agent-card badges).
+  const pendingByAgent = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of pendingChanges) m.set(p.agent, (m.get(p.agent) ?? 0) + 1);
+    return m;
+  }, [pendingChanges]);
 
   // Map the persisted records onto the shapes the panels render.
   const datasetsByAgent = useMemo(() => {
@@ -403,9 +337,9 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
         modeLabel: a.mode === "auto" ? "Auto" : "On ping",
         purpose: a.purpose_text ?? "",
         feeds: (datasetsByAgent.get(a.id) ?? []).join(" · ") || "—",
-        pending: 0,
+        pending: pendingByAgent.get(a.name) ?? 0,
       })),
-    [agents, datasetsByAgent],
+    [agents, datasetsByAgent, pendingByAgent],
   );
 
   const uiTables: TableInfo[] = useMemo(
@@ -489,11 +423,14 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const toggle = <T,>(list: T[], v: T) =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
 
-  const suggestions = SUGGESTIONS.filter((x) => !dismissed.includes(x.id));
+  const pendingCount = pendingChanges.length;
+  const pendingTables = new Set(pendingChanges.map((p) => p.datasetId)).size;
+  const pendingAgents = new Set(pendingChanges.map((p) => p.agent)).size;
 
   const titles: Record<Tab, { t: string; sub: string }> = {
     agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
-    data: { t: "Data", sub: uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · parsed automatically from your messages` : "No tables yet" },
+    data: { t: "Data", sub: uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · ${relations.length} ${relations.length === 1 ? "relationship" : "relationships"}` : "No tables yet" },
+    versioning: { t: "Versioning", sub: pendingCount ? `${pendingCount} pending ${pendingCount === 1 ? "change" : "changes"} · ${pendingTables} ${pendingTables === 1 ? "table" : "tables"} · ${pendingAgents} ${pendingAgents === 1 ? "agent" : "agents"}` : "Everything's merged — no pending changes" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
   };
 
@@ -538,6 +475,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           {([
             { key: "agents", label: "Agents", count: uiAgents.length ? String(uiAgents.length) : null, icon: <><rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8V4" /><circle cx="12" cy="3" r="1.4" fill="currentColor" stroke="none" /><path d="M9 14h.01M15 14h.01" /></> },
             { key: "data", label: "Data", count: uiTables.length ? String(uiTables.length) : null, icon: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></> },
+            { key: "versioning", label: "Versioning", count: pendingCount ? String(pendingCount) : null, icon: <><circle cx="6" cy="6" r="2.4" /><circle cx="6" cy="18" r="2.4" /><circle cx="18" cy="9" r="2.4" /><path d="M6 8.4v7.2M8.3 6h5.2a3 3 0 0 1 3 3v0" /></> },
             { key: "search", label: "Search", count: null, icon: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></> },
           ] as const).map((item) => {
             const active = tab === item.key;
@@ -559,20 +497,22 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
         </nav>
         </div>
 
+        {pendingCount > 0 && (
         <div className="cc-review" style={{ marginTop: 26 }}>
           <p className="dm-mono" style={{ ...monoLabel, letterSpacing: "0.09em", padding: "0 8px 8px", margin: 0, color: "#7C766B" }}>Needs review</p>
           <Hov
-            onClick={() => setTab("agents")}
+            onClick={() => setTab("versioning")}
             base={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "none", border: "none", padding: "9px 10px", borderRadius: 9, color: "#B7AF9F", fontFamily: "inherit", fontSize: 14, cursor: "pointer", textAlign: "left" }}
             hover={{ background: "#2B2720", color: "#F1ECE1" }}
           >
             <span style={{ display: "flex", alignItems: "center", gap: 11 }}>
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.accent, animation: "cc-pulse 2.6s ease-in-out infinite" }} />
-              Suggestions
+              Pending changes
             </span>
-            <span className="dm-mono" style={{ fontSize: 11, color: "#fff", background: C.accent, borderRadius: 999, padding: "1px 8px" }}>{PENDING_COUNT}</span>
+            <span className="dm-mono" style={{ fontSize: 11, color: "#fff", background: C.accent, borderRadius: 999, padding: "1px 8px" }}>{pendingCount}</span>
           </Hov>
         </div>
+        )}
 
         {/* runtime / compute */}
         <div className="cc-compute" style={{ marginTop: "auto", background: "#2B2720", border: "1px solid #3A352C", borderRadius: 12, padding: "11px 12px", marginBottom: 14 }}>
@@ -620,8 +560,14 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
         </div>
 
         <div className="cc-scroll" style={{ padding: "24px 26px", overflow: "auto", flex: 1 }}>
-          {tab === "agents" && (populated ? <AgentsFull agents={uiAgents} suggestions={suggestions} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} dismiss={(id) => setDismissed((d) => [...d, id])} openModal={openModal} onManage={setManageAgentId} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
-          {tab === "data" && (uiTables.length || createTableOpen ? <DataFull tables={uiTables} onOpen={setOpenTableId} onCreate={() => setCreateTableOpen(true)} onImported={() => router.refresh()} selected={selectedTables} toggleSelect={(id) => setSelectedTables((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])} /> : <DataEmpty openModal={() => setCreateTableOpen(true)} />)}
+          {tab === "agents" && (populated ? <AgentsFull agents={uiAgents} activity={agentActivity} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} openModal={openModal} onManage={setManageAgentId} onReview={() => setTab("versioning")} pendingCount={pendingCount} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
+          {tab === "data" && (uiTables.length || createTableOpen ? (
+            <>
+              {uiTables.length > 0 && <RelationshipGraph tables={uiTables} relations={relations} datasets={datasets} onOpen={setOpenTableId} onChanged={() => router.refresh()} />}
+              <DataFull tables={uiTables} onOpen={setOpenTableId} onCreate={() => setCreateTableOpen(true)} onImported={() => router.refresh()} selected={selectedTables} toggleSelect={(id) => setSelectedTables((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])} />
+            </>
+          ) : <DataEmpty openModal={() => setCreateTableOpen(true)} />)}
+          {tab === "versioning" && <VersioningTab items={pendingChanges} onChanged={() => router.refresh()} onGoData={() => setTab("data")} />}
           {tab === "search" && <SearchTab populated={populated} />}
         </div>
       </main>
@@ -721,54 +667,42 @@ function useAction() {
 /* ================================================================== */
 /* AGENTS TAB                                                          */
 /* ================================================================== */
-function AgentsFull({ agents, suggestions, autoAccept, setAutoAccept, expanded, setExpanded, dismiss, openModal, onManage }: {
+function AgentsFull({ agents, activity, autoAccept, setAutoAccept, expanded, setExpanded, openModal, onManage, onReview, pendingCount }: {
   agents: Agent[];
-  suggestions: Suggestion[];
+  activity: Record<string, AgentActivityEntry[]>;
   autoAccept: boolean;
   setAutoAccept: (v: boolean) => void;
   expanded: string | null;
   setExpanded: (v: string | null) => void;
-  dismiss: (id: string) => void;
   openModal: () => void;
   onManage: (id: string) => void;
+  onReview: () => void;
+  pendingCount: number;
 }) {
   return (
     <div>
-      {/* REVIEW / SUGGESTIONS */}
-      <div style={{ marginBottom: 28 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <span className="dm-display" style={{ fontWeight: 700, fontSize: 16, letterSpacing: "-0.02em" }}>Your agents have suggestions</span>
-            <span className="dm-mono" style={{ fontSize: 11, color: "#fff", background: C.accent, borderRadius: 999, padding: "1px 8px" }}>{PENDING_COUNT}</span>
-          </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", fontSize: 13, color: "#57534A" }}>
-            Auto-accept from trusted agents
-            <span onClick={() => setAutoAccept(!autoAccept)} style={toggleTrack(autoAccept)}>
-              <span style={toggleKnob(autoAccept)} />
-            </span>
-          </label>
+      {/* Pending-review banner — links to the unified Versioning surface. */}
+      {pendingCount > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24, padding: "14px 16px", background: "#FDF4F0", border: "1px solid #F3D6CB", borderRadius: 14, flexWrap: "wrap" }}>
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: C.accent, animation: "cc-pulse 2.6s ease-in-out infinite", flexShrink: 0 }} />
+          <span style={{ fontSize: 14, color: C.ink, fontWeight: 500 }}>{pendingCount} change{pendingCount === 1 ? "" : "s"} waiting for your review across your tables.</span>
+          <Hov onClick={onReview} base={{ marginLeft: "auto", background: C.accent, color: "#fff8f4", border: "none", borderRadius: 10, padding: "8px 16px", fontFamily: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer" }} hover={{ background: C.accentPress }}>Review changes →</Hov>
         </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {suggestions.map((s) => (
-            <SuggestionCard key={s.id} s={s} expanded={expanded === s.id} onCompare={() => setExpanded(expanded === s.id ? null : s.id)} onAccept={() => dismiss(s.id)} onDismiss={() => dismiss(s.id)} />
-          ))}
-          {suggestions.length === 0 && (
-            <div style={{ background: "#fff", border: "1px dashed #E1D9C8", borderRadius: 16, padding: 26, textAlign: "center" }}>
-              <div style={{ fontSize: 14, color: "#57534A" }}>All caught up — no suggestions waiting.</div>
-              <div className="dm-mono" style={{ fontSize: 11.5, color: "#A39B8B", marginTop: 5 }}>Your agents will drop new proposals here as messages arrive.</div>
-            </div>
-          )}
-        </div>
-      </div>
+      )}
 
       {/* AGENT GRID */}
-      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12, flexWrap: "wrap" }}>
         <span className="dm-display" style={{ fontWeight: 700, fontSize: 16, letterSpacing: "-0.02em" }}>Your agents</span>
         <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>{agents.length}</span>
+        <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 9, cursor: "pointer", fontSize: 13, color: "#57534A" }}>
+          Auto-accept from trusted agents
+          <span onClick={() => setAutoAccept(!autoAccept)} style={toggleTrack(autoAccept)}>
+            <span style={toggleKnob(autoAccept)} />
+          </span>
+        </label>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(268px,1fr))", gap: 16 }}>
-        {agents.map((a) => <AgentCard key={a.id} a={a} onManage={onManage} />)}
+        {agents.map((a) => <AgentCard key={a.id} a={a} onManage={onManage} activity={activity[a.name] ?? []} expanded={expanded === a.id} onToggle={() => setExpanded(expanded === a.id ? null : a.id)} />)}
         <Hov onClick={openModal} base={{ background: "none", border: "1.5px dashed #D8CFBD", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer", minHeight: 180, color: "#8A8477", fontFamily: "inherit", transition: "border-color .15s ease, background .15s ease" }} hover={{ border: `1.5px dashed ${C.accent}`, background: "#FDF1EC", color: C.accent }}>
           <span style={{ width: 42, height: 42, borderRadius: 12, background: "#F1EDE4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, lineHeight: 1 }}>+</span>
           <span style={{ fontSize: 14, fontWeight: 600 }}>New agent</span>
@@ -779,70 +713,7 @@ function AgentsFull({ agents, suggestions, autoAccept, setAutoAccept, expanded, 
   );
 }
 
-function SuggestionCard({ s, expanded, onCompare, onAccept, onDismiss }: {
-  s: Suggestion;
-  expanded: boolean;
-  onCompare: () => void;
-  onAccept: () => void;
-  onDismiss: () => void;
-}) {
-  return (
-    <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: "18px 18px 16px", boxShadow: "0 18px 44px -34px rgba(33,30,24,.35)", animation: "cc-rise .4s ease both" }}>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-        <span className="dm-display" style={{ width: 38, height: 38, borderRadius: "50%", background: s.avatarBg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 16, flexShrink: 0 }}>{s.initial}</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 600, fontSize: 14.5 }}>{s.name}</span>
-            <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>{s.meta}</span>
-            <span className="dm-mono" style={{ fontSize: 10.5, color: "#57534A", background: "#F1EDE4", border: "1px solid #E7E0D2", borderRadius: 6, padding: "2px 7px" }}>{s.versionTag}</span>
-          </div>
-          <p style={{ margin: "7px 0 0", fontSize: 14, color: "#514C43", lineHeight: 1.5, maxWidth: "62ch" }}>{s.message}</p>
-        </div>
-      </div>
-
-      {/* proposed rows */}
-      <div style={{ margin: "14px 0 0 50px", border: "1px solid #ECE5D8", borderRadius: 11, overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "#FAF6EE", borderBottom: "1px solid #ECE5D8" }}>
-          <span className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em", color: "#A39B8B" }}>Proposed → {s.target}</span>
-          <span className="dm-mono" style={{ fontSize: 10.5, color: C.green }}>{s.changeSummary}</span>
-        </div>
-        {s.rows.map((r, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "1.4fr 0.8fr 0.9fr 1.1fr", gap: 8, alignItems: "center", padding: "9px 12px", borderTop: "1px solid #F3EEE3", background: r.bg, boxShadow: r.stripe }}>
-            <span style={{ fontSize: 12.5, color: C.ink }}>{r.a}</span>
-            <span className="dm-mono" style={{ fontSize: 12, color: "#57534A" }}>{r.b}</span>
-            <span className="dm-mono" style={{ fontSize: 12, color: r.cColor }}>{r.c}</span>
-            <span className="dm-mono" style={{ fontSize: 11, color: r.tagColor, display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: r.tagColor }} />{r.tag}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* version compare */}
-      {expanded && (
-        <div style={{ margin: "12px 0 0 50px", display: "grid", gridTemplateColumns: "1fr 24px 1fr", gap: 0, alignItems: "stretch" }}>
-          <div style={{ border: "1px solid #E7E0D2", borderRadius: 11, padding: "12px 14px", background: "#FBFAF7" }}>
-            <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em", color: "#A39B8B", marginBottom: 8 }}>Last accepted · {s.vOld}</div>
-            <div style={{ fontSize: 13, color: "#8A8477", lineHeight: 1.6 }}>{s.oldValue}</div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", color: "#C98467", fontSize: 14 }}>→</div>
-          <div style={{ border: "1px solid #F3D6CB", borderRadius: 11, padding: "12px 14px", background: "#FDF1EC" }}>
-            <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em", color: "#C98467", marginBottom: 8 }}>Proposed · {s.vNew}</div>
-            <div style={{ fontSize: 13, color: C.ink, fontWeight: 500, lineHeight: 1.6 }}>{s.newValue}</div>
-          </div>
-        </div>
-      )}
-
-      {/* actions */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0 0 50px", flexWrap: "wrap" }}>
-        <Hov onClick={onAccept} base={{ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 10, padding: "9px 16px", fontFamily: "inherit", fontSize: 13.5, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 16px rgba(228,89,59,.28)" }} hover={{ background: C.accentPress }}>Accept all</Hov>
-        <Hov onClick={onCompare} base={{ background: "#fff", color: C.ink, border: "1px solid #DCD3C2", borderRadius: 10, padding: "9px 15px", fontFamily: "inherit", fontSize: 13.5, fontWeight: 500, cursor: "pointer" }} hover={{ background: "#FBF8F1" }}>{expanded ? "Hide compare" : "Review & compare"}</Hov>
-        <Hov onClick={onDismiss} base={{ background: "none", color: "#8A8477", border: "none", borderRadius: 10, padding: "9px 12px", fontFamily: "inherit", fontSize: 13.5, fontWeight: 500, cursor: "pointer" }} hover={{ color: C.ink }}>Dismiss</Hov>
-        <span className="dm-mono" style={{ marginLeft: "auto", fontSize: 11, color: "#A39B8B" }}>{s.confidence}</span>
-      </div>
-    </div>
-  );
-}
-
-function AgentCard({ a, onManage }: { a: Agent; onManage: (id: string) => void }) {
+function AgentCard({ a, onManage, activity, expanded, onToggle }: { a: Agent; onManage: (id: string) => void; activity: AgentActivityEntry[]; expanded: boolean; onToggle: () => void }) {
   const accent = a.modeLabel === "Auto";
   const modePill: CSSProperties = {
     fontSize: 10.5,
@@ -879,6 +750,30 @@ function AgentCard({ a, onManage }: { a: Agent; onManage: (id: string) => void }
           ))}
         </div>
       </div>
+
+      {/* Recent activity — what this agent has parsed & proposed lately. */}
+      {activity.length > 0 && (
+        <div onClick={(e) => e.stopPropagation()} style={{ borderTop: "1px solid #F1EDE4", paddingTop: 10 }}>
+          <button type="button" onClick={onToggle} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit" }}>
+            <span className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: "#A39B8B" }}>Recent activity</span>
+            <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>{activity.length} · {expanded ? "hide" : "show"}</span>
+          </button>
+          {expanded && (
+            <div style={{ marginTop: 9, display: "flex", flexDirection: "column", gap: 9 }}>
+              {activity.map((e) => (
+                <div key={e.id} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", marginTop: 5, flexShrink: 0, background: e.kind === "pending" ? C.accent : C.green }} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: "#3A352C", lineHeight: 1.4 }}>{e.summary}</div>
+                    <div className="dm-mono" style={{ fontSize: 10, color: "#A39B8B", marginTop: 1 }}>{e.datasetName} · {e.kind === "pending" ? "pending review" : "applied"} · {relTime(e.when)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={{ borderTop: "1px solid #F1EDE4", paddingTop: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}><span style={{ color: "#C98467" }}>→</span><span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.feeds}</span></span>
         <span className="dm-mono" style={pendBadge}>{a.pending > 0 ? `${a.pending} pending` : "up to date"}</span>
@@ -1800,6 +1695,17 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
   const cols = table.columns;
   const proposalCount = table.proposals.length;
 
+  // Version selector: "latest" (live, editable) or a past snapshot (read-only).
+  const [snaps, setSnaps] = useState<SnapshotFull[] | null>(null);
+  const [versionId, setVersionId] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    getSnapshotsAction(table.id).then((r) => { if (alive && r.ok) setSnaps(r.snapshots); });
+    return () => { alive = false; };
+  }, [table.id]);
+  const viewingPast = versionId !== null;
+  const pastSnap = viewingPast ? snaps?.find((s) => s.id === versionId) ?? null : null;
+
   const addRow = () => run(() => addRowAction(table.id, Object.fromEntries(cols.map((c) => [c.key, null]))), onChanged);
   const submitCol = () => run(
     () => addColumnAction(table.id, { label: colLabel, type: colType, defaultValue: coerceByType(colType, colDefault) }),
@@ -1888,25 +1794,35 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
         </>
       )}
     >
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-        <Hov onClick={addRow} base={ghostBtn} hover={{ background: "#FBF8F1" }}>+ Add row</Hov>
-        <Hov onClick={() => setAddingCol((v) => !v)} base={ghostBtn} hover={{ background: "#FBF8F1" }}>+ Add column</Hov>
-        <Hov onClick={rename} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Rename</Hov>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+        {/* Version selector — defaults to the latest (live) rows. */}
+        <select value={versionId ?? "latest"} onChange={(e) => setVersionId(e.target.value === "latest" ? null : e.target.value)}
+          title="View a saved version" style={{ ...ghostBtn, cursor: "pointer", paddingRight: 8 }}>
+          <option value="latest">🕑 Latest (live)</option>
+          {(snaps ?? []).map((s) => <option key={s.id} value={s.id}>{s.summary} · {relTime(s.createdAt)}</option>)}
+        </select>
+        {!viewingPast && <>
+          <Hov onClick={addRow} base={ghostBtn} hover={{ background: "#FBF8F1" }}>+ Add row</Hov>
+          <Hov onClick={() => setAddingCol((v) => !v)} base={ghostBtn} hover={{ background: "#FBF8F1" }}>+ Add column</Hov>
+          <Hov onClick={rename} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Rename</Hov>
+        </>}
         <Hov onClick={() => setPanel((p) => p === "history" ? "none" : "history")} base={panel === "history" ? { ...ghostBtn, background: "#EFE9DC" } : ghostBtn} hover={{ background: "#FBF8F1" }}>History ({table.history.length})</Hov>
         <Hov onClick={() => setPanel((p) => p === "review" ? "none" : "review")} base={proposalCount ? { ...ghostBtn, background: "#FDF1EC", borderColor: "#F3D6CB", color: C.accent } : ghostBtn} hover={{ background: "#FBF8F1" }}>Review changes{proposalCount ? ` (${proposalCount})` : ""}</Hov>
-        <ImportSheetButton
-          datasetId={table.id}
-          label="⇅ Sync a sheet"
-          style={{ ...ghostBtn, marginLeft: "auto" }}
-          hoverStyle={{ background: "#FBF8F1" }}
-          onDone={() => { setPanel("review"); onChanged(); }}
-        />
-        <Hov onClick={() => run(() => simulateAgentUpdateAction(table.id), () => { setPanel("review"); onChanged(); })} base={{ ...ghostBtn, borderStyle: "dashed" }} hover={{ background: "#FBF8F1" }} title="Demo: pretend an agent sent new data">⚡ Simulate agent update</Hov>
+        {!viewingPast && <>
+          <ImportSheetButton
+            datasetId={table.id}
+            label="⇅ Sync a sheet"
+            style={{ ...ghostBtn, marginLeft: "auto" }}
+            hoverStyle={{ background: "#FBF8F1" }}
+            onDone={() => { setPanel("review"); onChanged(); }}
+          />
+          <Hov onClick={() => run(() => simulateAgentUpdateAction(table.id), () => { setPanel("review"); onChanged(); })} base={{ ...ghostBtn, borderStyle: "dashed" }} hover={{ background: "#FBF8F1" }} title="Demo: pretend an agent sent new data">⚡ Simulate agent update</Hov>
+        </>}
       </div>
 
-      {panel === "history" && <HistoryPanel datasetId={table.id} onRestore={(id) => run(() => restoreSnapshotAction(id), () => { setPanel("none"); onChanged(); })} pending={pending} />}
+      {!viewingPast && panel === "history" && <HistoryPanel datasetId={table.id} onRestore={(id) => run(() => restoreSnapshotAction(id), () => { setPanel("none"); onChanged(); })} pending={pending} />}
 
-      {panel === "review" && (
+      {!viewingPast && panel === "review" && (
         <div style={{ marginBottom: 14 }}>
           <div className="dm-mono" style={{ ...monoLabel, marginBottom: 8 }}>Changes waiting for you — reviewed in chunks, never one cell at a time</div>
           {proposalCount === 0 ? (
@@ -1933,7 +1849,19 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
         </div>
       )}
 
-      {cols.length === 0 ? (
+      {viewingPast ? (
+        pastSnap ? (
+          <Panel label="Version" summary={`saved ${new Date(pastSnap.createdAt).toLocaleString()}`}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+              <span className="dm-mono" style={{ fontSize: 11, color: "#8f5a3c", background: "#FBEFD6", border: "1px solid #E6CF92", borderRadius: 8, padding: "3px 9px" }}>Read-only · saved version from {new Date(pastSnap.createdAt).toLocaleString()}</span>
+              <Hov onClick={pending ? undefined : () => run(() => restoreSnapshotAction(pastSnap.id), () => { setVersionId(null); onChanged(); })} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Restore this version</Hov>
+            </div>
+            <SnapshotPreview snap={pastSnap} diff={null} />
+          </Panel>
+        ) : (
+          <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Loading version…</div>
+        )
+      ) : cols.length === 0 ? (
         <Panel label="Rows" summary="No columns yet">
           <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 14px" }}>Add a column above to start.</div>
         </Panel>
@@ -2081,5 +2009,378 @@ function SettingsModal({ settings, onClose, onSaved }: { settings: UserSettings;
         </div>
       )}
     </ModalShell>
+  );
+}
+
+/* ================================================================== */
+/* VERSIONING TAB — the unified "pull request" over pending changes.   */
+/* One review across every table, sliceable by agent / table / comm,   */
+/* with accept mechanics: merge all, whole group, multi-select, or one  */
+/* at a time. Every accept routes through acceptProposalsAction(ids).   */
+/* ================================================================== */
+type GroupBy = "agent" | "table" | "comm";
+
+type ReviewGroup = {
+  key: string;
+  title: string;
+  subtitle: string;
+  avatarText: string;
+  avatarBg: string;
+  items: ReviewItem[];
+  adds: number;
+  updates: number;
+  conflicts: number;
+};
+
+function tally(items: ReviewItem[]) {
+  let adds = 0, updates = 0, conflicts = 0;
+  for (const it of items) {
+    if (it.kind === "add") adds++; else updates++;
+    if (it.conflict) conflicts++;
+  }
+  return { adds, updates, conflicts };
+}
+
+function buildGroups(items: ReviewItem[], by: GroupBy): ReviewGroup[] {
+  const order: string[] = [];
+  const map = new Map<string, ReviewItem[]>();
+  const keyOf = (it: ReviewItem) =>
+    by === "agent" ? `a:${it.agent}` : by === "table" ? `t:${it.datasetId}` : `c:${it.batchId ?? it.id}`;
+  for (const it of items) {
+    const k = keyOf(it);
+    if (!map.has(k)) { map.set(k, []); order.push(k); }
+    map.get(k)!.push(it);
+  }
+  return order.map((k) => {
+    const its = map.get(k)!;
+    const first = its[0];
+    const t = tally(its);
+    let title: string, subtitle: string, avatarText: string, avatarBg: string;
+    if (by === "agent") {
+      title = first.agent;
+      subtitle = `${new Set(its.map((i) => i.datasetName)).size} ${new Set(its.map((i) => i.datasetName)).size === 1 ? "table" : "tables"}`;
+      avatarText = first.agent.charAt(0).toUpperCase();
+      avatarBg = pickColor(first.agent);
+    } else if (by === "table") {
+      title = first.datasetName;
+      subtitle = `${new Set(its.map((i) => i.agent)).size} ${new Set(its.map((i) => i.agent)).size === 1 ? "agent" : "agents"}`;
+      avatarText = first.datasetName.charAt(0).toUpperCase();
+      avatarBg = pickColor(first.datasetName);
+    } else {
+      title = first.sourceLabel ? `“${first.sourceLabel}”` : "Direct change";
+      subtitle = `${first.agent} · ${first.datasetName}`;
+      avatarText = "✉";
+      avatarBg = pickColor(first.batchId ?? first.agent);
+    }
+    return { key: k, title, subtitle, avatarText, avatarBg, items: its, ...t };
+  });
+}
+
+function CountPills({ adds, updates, conflicts }: { adds: number; updates: number; conflicts: number }) {
+  return (
+    <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
+      {adds > 0 && <DiffBadge color={C.green} bg="#EAF4EC" text={`+${adds} new`} />}
+      {updates > 0 && <DiffBadge color="#4E627E" bg="#EEF1F6" text={`${updates} update${updates === 1 ? "" : "s"}`} />}
+      {conflicts > 0 && <DiffBadge color="#fff" bg={C.accent} text={`${conflicts} conflict${conflicts === 1 ? "" : "s"}`} />}
+    </span>
+  );
+}
+
+function VersioningTab({ items, onChanged, onGoData }: { items: ReviewItem[]; onChanged: () => void; onGoData: () => void }) {
+  const [by, setBy] = useState<GroupBy>("agent");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const { pending, error, run } = useAction();
+
+  const groups = useMemo(() => buildGroups(items, by), [items, by]);
+  const allIds = useMemo(() => items.map((i) => i.id), [items]);
+  const totals = useMemo(() => tally(items), [items]);
+
+  const accept = (ids: string[]) => { if (ids.length) run(() => acceptProposalsAction(ids), () => { setSelected(new Set()); onChanged(); }); };
+  const reject = (ids: string[]) => { if (ids.length) run(() => rejectProposalsAction(ids), () => { setSelected(new Set()); onChanged(); }); };
+
+  const toggleOne = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const setMany = (ids: string[], on: boolean) => setSelected((s) => { const n = new Set(s); for (const id of ids) { if (on) n.add(id); else n.delete(id); } return n; });
+
+  if (items.length === 0) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "72px 20px" }}>
+        <div style={{ width: 64, height: 64, borderRadius: 18, background: "#EAF4EC", border: "1px solid #CBE4D2", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20 }}>
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 13 4 4L19 7" /></svg>
+        </div>
+        <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 26, letterSpacing: "-0.03em", margin: "0 0 8px" }}>Everything’s merged</h2>
+        <p style={{ fontSize: 15, color: "#57534A", maxWidth: "42ch", margin: "0 0 22px", lineHeight: 1.55 }}>No pending changes. When an agent parses a message or a synced sheet brings new data, the proposed changes land here as a reviewable pull request.</p>
+        <Hov onClick={onGoData} base={{ ...ghostBtn, padding: "9px 16px" }} hover={{ background: "#FBF8F1" }}>Go to your data →</Hov>
+      </div>
+    );
+  }
+
+  const selectedIds = [...selected];
+
+  return (
+    <div style={{ maxWidth: 940 }}>
+      {/* Header: the "PR" summary + merge/discard + grouping toggle. */}
+      <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: "16px 18px", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flexWrap: "wrap" }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div className="dm-display" style={{ fontWeight: 700, fontSize: 18, letterSpacing: "-0.02em", color: C.ink }}>
+              {items.length} change{items.length === 1 ? "" : "s"} waiting to merge
+            </div>
+            <div style={{ marginTop: 6 }}><CountPills adds={totals.adds} updates={totals.updates} conflicts={totals.conflicts} /></div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <Hov onClick={pending ? undefined : () => { if (confirm(`Merge all ${items.length} pending changes?`)) accept(allIds); }}
+              base={{ background: C.green, color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontFamily: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#357C4C" }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="2.4" /><circle cx="6" cy="18" r="2.4" /><circle cx="18" cy="9" r="2.4" /><path d="M6 8.4v7.2M8.3 6h5.2a3 3 0 0 1 3 3" /></svg>
+              Merge all
+            </Hov>
+            <Hov onClick={pending ? undefined : () => { if (confirm(`Discard all ${items.length} pending changes? This can't be undone.`)) reject(allIds); }}
+              base={{ ...ghostBtn, color: "#B44536", borderColor: "#EAD7CF" }} hover={{ background: "#FDF4F0" }}>Discard all</Hov>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14, flexWrap: "wrap" }}>
+          <span className="dm-mono" style={{ ...monoLabel }}>Group by</span>
+          <div style={{ maxWidth: 340, flex: "1 1 260px" }}>
+            <Segmented value={by} onChange={(v: GroupBy) => setBy(v)} options={[{ v: "agent", label: "Agent" }, { v: "table", label: "Table" }, { v: "comm", label: "Comm chunk" }]} />
+          </div>
+          {error && <span className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{error}</span>}
+          {pending && <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>Applying…</span>}
+        </div>
+      </div>
+
+      {/* Sticky multi-select action bar. */}
+      {selectedIds.length > 0 && (
+        <div style={{ position: "sticky", top: 0, zIndex: 5, display: "flex", alignItems: "center", gap: 10, background: C.ink, color: "#F1ECE1", borderRadius: 12, padding: "10px 14px", marginBottom: 14, boxShadow: "0 12px 30px -14px rgba(33,30,24,.6)", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{selectedIds.length} selected</span>
+          <div style={{ display: "flex", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+            <Hov onClick={pending ? undefined : () => accept(selectedIds)} base={{ background: C.green, color: "#fff", border: "none", borderRadius: 9, padding: "7px 14px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} hover={{ background: "#357C4C" }}>Accept selected</Hov>
+            <Hov onClick={pending ? undefined : () => reject(selectedIds)} base={{ background: "none", color: "#E9B8AC", border: "1px solid #5A4038", borderRadius: 9, padding: "7px 14px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} hover={{ background: "#3A352C" }}>Reject selected</Hov>
+            <Hov onClick={() => setSelected(new Set())} base={{ background: "none", color: "#A39B8B", border: "none", padding: "7px 8px", fontFamily: "inherit", fontSize: 12.5, cursor: "pointer" }} hover={{ color: "#F1ECE1" }}>Clear</Hov>
+          </div>
+        </div>
+      )}
+
+      {groups.map((g) => (
+        <ReviewGroupCard key={g.key} group={g} pending={pending} selected={selected}
+          onToggleItem={toggleOne} onSetMany={setMany}
+          onAccept={(ids) => accept(ids)} onReject={(ids) => reject(ids)} />
+      ))}
+    </div>
+  );
+}
+
+function ReviewGroupCard({ group, pending, selected, onToggleItem, onSetMany, onAccept, onReject }: {
+  group: ReviewGroup;
+  pending: boolean;
+  selected: Set<string>;
+  onToggleItem: (id: string) => void;
+  onSetMany: (ids: string[], on: boolean) => void;
+  onAccept: (ids: string[]) => void;
+  onReject: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const ids = group.items.map((i) => i.id);
+  const allSel = ids.every((id) => selected.has(id));
+  const someSel = !allSel && ids.some((id) => selected.has(id));
+  const hot = group.conflicts > 0;
+  return (
+    <div style={{ border: `1px solid ${hot ? "#F3D6CB" : "#E7E0D2"}`, borderRadius: 14, background: "#fff", marginBottom: 14, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 15px", background: hot ? "#FDF4F0" : "#FBF8F1", borderBottom: open ? `1px solid ${hot ? "#F3D6CB" : "#EFE9DC"}` : "none", flexWrap: "wrap" }}>
+        <button type="button" title={allSel ? "Deselect group" : "Select group"} onClick={() => onSetMany(ids, !allSel)}
+          style={{ width: 19, height: 19, borderRadius: 5, flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, ...(allSel ? { background: C.accent, color: "#fff", border: `1px solid ${C.accent}` } : someSel ? { background: "#FDF1EC", color: C.accent, border: `1.5px solid ${C.accent}` } : { background: "#fff", color: "transparent", border: "1.5px solid #D8CFBD" }) }}>
+          {allSel ? "✓" : someSel ? "–" : "✓"}
+        </button>
+        <span style={{ width: 28, height: 28, borderRadius: "50%", background: group.avatarBg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{group.avatarText}</span>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{group.title}</div>
+          <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 1 }}>{group.subtitle}</div>
+        </div>
+        <CountPills adds={group.adds} updates={group.updates} conflicts={group.conflicts} />
+        <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
+          <Hov onClick={pending ? undefined : () => onAccept(ids)} base={{ background: C.green, color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontFamily: "inherit", fontSize: 12, fontWeight: 600, cursor: "pointer" }} hover={{ background: "#357C4C" }}>Accept {group.items.length}</Hov>
+          <Hov onClick={pending ? undefined : () => onReject(ids)} base={{ ...ghostBtn, padding: "6px 12px", fontSize: 12 }} hover={{ background: "#FDF4F0" }}>Reject</Hov>
+          <Hov onClick={() => setOpen((v) => !v)} base={{ background: "none", border: "none", color: "#8A8477", cursor: "pointer", fontSize: 15, padding: "4px 6px" }} hover={{ color: C.ink }}>{open ? "▾" : "▸"}</Hov>
+        </div>
+      </div>
+      {open && (
+        <div style={{ padding: "12px 15px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {group.items.map((it) => (
+            <ReviewItemCard key={it.id} item={it} pending={pending} checked={selected.has(it.id)}
+              onToggle={() => onToggleItem(it.id)} onAccept={() => onAccept([it.id])} onReject={() => onReject([it.id])} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReviewItemCard({ item, pending, checked, onToggle, onAccept, onReject }: {
+  item: ReviewItem;
+  pending: boolean;
+  checked: boolean;
+  onToggle: () => void;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  const changedCells = item.cells.filter((c) => c.changed);
+  const conflict = item.conflict;
+  return (
+    <div style={{ border: `1px solid ${conflict ? "#F3D6CB" : checked ? "#E4593B" : "#E7E0D2"}`, borderRadius: 11, background: conflict ? "#FDF4F0" : checked ? "#FEFAF8" : "#fff", padding: "11px 13px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
+        <button type="button" onClick={onToggle} title={checked ? "Deselect" : "Select"}
+          style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, ...(checked ? { background: C.accent, color: "#fff", border: `1px solid ${C.accent}` } : { background: "#fff", color: "transparent", border: "1.5px solid #D8CFBD" }) }}>✓</button>
+        {item.kind === "add"
+          ? <span style={{ fontSize: 13, fontWeight: 600, color: C.ink, display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ color: C.green, fontSize: 15, lineHeight: 1 }}>＋</span>New row</span>
+          : <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Update to an existing row</span>}
+        <span className="dm-mono" style={{ fontSize: 10.5, color: "#57534A", background: "#F6F2E9", border: "1px solid #ECE5D8", borderRadius: 6, padding: "2px 8px" }}>{item.datasetName}</span>
+        <span className="dm-mono" style={{ fontSize: 10.5, color: "#8A8477" }}>{item.agent} · {relTime(item.createdAt)}</span>
+        {conflict && <span className="dm-mono" style={{ fontSize: 10, color: "#fff", background: C.accent, borderRadius: 999, padding: "1px 7px" }}>you edited this</span>}
+        <div style={{ display: "flex", gap: 7, marginLeft: "auto" }}>
+          <Hov onClick={pending ? undefined : onAccept} base={{ background: C.green, color: "#fff", border: "none", borderRadius: 8, padding: "6px 13px", fontFamily: "inherit", fontSize: 12, fontWeight: 600, cursor: "pointer" }} hover={{ background: "#357C4C" }}>{conflict ? `Use ${item.agent}’s` : "Accept"}</Hov>
+          <Hov onClick={pending ? undefined : onReject} base={{ ...ghostBtn, padding: "6px 12px", fontSize: 12 }} hover={{ background: "#FDF4F0" }}>{conflict ? "Keep mine" : "Reject"}</Hov>
+        </div>
+      </div>
+
+      {conflict && <div style={{ fontSize: 12, color: "#8f5a3c", margin: "8px 0 4px" }}>You changed this row by hand — {item.agent} proposes different values. Accepting replaces yours.</div>}
+
+      {item.kind === "add" ? (
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(90px,auto) 1fr", gap: "4px 14px", marginTop: 9, fontSize: 12.5 }}>
+          {item.columns.map((c) => (
+            <Fragment key={c.key}>
+              <span style={{ color: "#8A8477" }}>{c.label}</span>
+              <span style={{ color: C.green, fontWeight: 600 }}>{showVal(item.data[c.key])}</span>
+            </Fragment>
+          ))}
+        </div>
+      ) : changedCells.length === 0 ? (
+        <div className="dm-mono" style={{ fontSize: 11.5, color: "#A39B8B", marginTop: 8 }}>No field changes.</div>
+      ) : (
+        <div style={{ marginTop: 9, border: "1px solid #EFE9DC", borderRadius: 9, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(90px,auto) 1fr 1fr", background: "#FAF6EE", fontSize: 9.5, letterSpacing: "0.04em", textTransform: "uppercase", color: "#A39B8B", padding: "5px 10px", gap: 12 }} className="dm-mono">
+            <span>Field</span><span>{conflict ? "Yours" : "Was"}</span><span style={{ color: conflict ? C.accent : C.green }}>{conflict ? item.agent : "Now"}</span>
+          </div>
+          {changedCells.map((c) => (
+            <div key={c.key} style={{ display: "grid", gridTemplateColumns: "minmax(90px,auto) 1fr 1fr", gap: 12, padding: "6px 10px", borderTop: "1px solid #F1EDE4", fontSize: 12.5, alignItems: "center" }}>
+              <span style={{ color: "#8A8477" }}>{c.label}</span>
+              <span style={{ color: "#B44536", textDecoration: "line-through" }}>{showVal(c.before)}</span>
+              <span style={{ color: conflict ? C.accent : C.green, fontWeight: 600 }}>{showVal(c.after)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ================================================================== */
+/* DATA — relationship graph between tables (explicit FK-like links).   */
+/* ================================================================== */
+function RelationshipGraph({ tables, relations, datasets, onOpen, onChanged }: {
+  tables: TableInfo[];
+  relations: DatasetRelation[];
+  datasets: DatasetView[];
+  onOpen: (id: string) => void;
+  onChanged: () => void;
+}) {
+  const { pending, error, run } = useAction();
+  const [adding, setAdding] = useState(false);
+  const [fromDs, setFromDs] = useState("");
+  const [fromCol, setFromCol] = useState("");
+  const [toDs, setToDs] = useState("");
+  const [toCol, setToCol] = useState("");
+  const [label, setLabel] = useState("");
+
+  // Deterministic circular layout so the graph is stable across renders.
+  const pos = useMemo(() => {
+    const m = new Map<string, { x: number; y: number }>();
+    const n = tables.length;
+    tables.forEach((t, i) => {
+      if (n === 1) { m.set(t.id, { x: 50, y: 50 }); return; }
+      const a = (i / n) * Math.PI * 2 - Math.PI / 2;
+      m.set(t.id, { x: 50 + Math.cos(a) * 38, y: 50 + Math.sin(a) * 33 });
+    });
+    return m;
+  }, [tables]);
+
+  const colsOf = (id: string) => datasets.find((d) => d.id === id)?.columns ?? [];
+  const edges = relations.filter((r) => pos.has(r.fromDatasetId) && pos.has(r.toDatasetId));
+
+  const submit = () => run(
+    () => createRelationAction({ fromDatasetId: fromDs, fromColumn: fromCol, toDatasetId: toDs, toColumn: toCol, label: label || null }),
+    () => { setAdding(false); setFromDs(""); setFromCol(""); setToDs(""); setToCol(""); setLabel(""); onChanged(); },
+  );
+
+  return (
+    <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: "16px 18px", marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+        <div>
+          <span className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink }}>How your tables connect</span>
+          <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginLeft: 10 }}>{edges.length} {edges.length === 1 ? "relationship" : "relationships"}</span>
+        </div>
+        <Hov onClick={() => setAdding((v) => !v)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 6 }} hover={{ background: "#FBF8F1" }}>
+          <span style={{ fontSize: 14, lineHeight: 1 }}>+</span> Add relationship
+        </Hov>
+      </div>
+
+      {adding && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 14, padding: "12px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
+          <select value={fromDs} onChange={(e) => { setFromDs(e.target.value); setFromCol(""); }} style={{ ...fieldInput, width: 150, flex: "0 0 150px" }}>
+            <option value="">From table…</option>
+            {datasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+          <select value={fromCol} onChange={(e) => setFromCol(e.target.value)} disabled={!fromDs} style={{ ...fieldInput, width: 130, flex: "0 0 130px" }}>
+            <option value="">column…</option>
+            {colsOf(fromDs).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+          </select>
+          <span style={{ color: "#A39B8B", fontSize: 16 }}>→</span>
+          <select value={toDs} onChange={(e) => { setToDs(e.target.value); setToCol(""); }} style={{ ...fieldInput, width: 150, flex: "0 0 150px" }}>
+            <option value="">To table…</option>
+            {datasets.filter((d) => d.id !== fromDs).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+          <select value={toCol} onChange={(e) => setToCol(e.target.value)} disabled={!toDs} style={{ ...fieldInput, width: 130, flex: "0 0 130px" }}>
+            <option value="">column…</option>
+            {colsOf(toDs).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+          </select>
+          <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="label (optional)" style={{ ...fieldInput, flex: "1 1 120px", width: "auto" }} />
+          <Hov onClick={pending || !fromDs || !fromCol || !toDs || !toCol ? undefined : submit} base={{ ...primaryBtn(pending || !fromDs || !fromCol || !toDs || !toCol), padding: "8px 16px", fontSize: 13, boxShadow: "none" }} hover={{ background: C.accentPress }}>Link</Hov>
+          {error && <span className="dm-mono" style={{ fontSize: 11, color: C.accent, flexBasis: "100%" }}>{error}</span>}
+        </div>
+      )}
+
+      {/* Graph */}
+      <div style={{ position: "relative", height: 240, borderRadius: 12, background: "linear-gradient(#FCFAF4,#FBF8F1)", border: "1px solid #F1EDE4", overflow: "hidden" }}>
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+          {edges.map((e) => {
+            const a = pos.get(e.fromDatasetId)!;
+            const b = pos.get(e.toDatasetId)!;
+            return <line key={e.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#D8CFBD" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />;
+          })}
+        </svg>
+        {edges.map((e) => {
+          const a = pos.get(e.fromDatasetId)!;
+          const b = pos.get(e.toDatasetId)!;
+          const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+          const text = e.label || `${e.fromColumn} → ${e.toColumn}`;
+          return (
+            <span key={`l-${e.id}`} className="dm-mono" style={{ position: "absolute", left: `${mx}%`, top: `${my}%`, transform: "translate(-50%,-50%)", fontSize: 9.5, color: "#8A8477", background: "#FCFAF4", border: "1px solid #ECE5D8", borderRadius: 6, padding: "1px 6px", display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" }}>
+              {text}
+              <button type="button" title="Delete relationship" onClick={() => { if (confirm(`Delete relationship “${text}”?`)) run(() => deleteRelationAction(e.id), onChanged); }} style={{ border: "none", background: "none", color: "#C0B7A5", cursor: "pointer", fontSize: 11, lineHeight: 1, padding: 0 }}>×</button>
+            </span>
+          );
+        })}
+        {tables.map((t) => {
+          const p = pos.get(t.id)!;
+          return (
+            <button key={t.id} type="button" onClick={() => onOpen(t.id)} title={`Open ${t.name}`}
+              style={{ position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)", display: "inline-flex", alignItems: "center", gap: 7, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 999, padding: "7px 13px", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 6px 16px -10px rgba(33,30,24,.4)", whiteSpace: "nowrap" }}>
+              <span style={{ width: 18, height: 18, borderRadius: 5, background: t.agentBg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{t.name.charAt(0).toUpperCase()}</span>
+              <span className="dm-display" style={{ fontSize: 13, fontWeight: 700, letterSpacing: "-0.01em", color: C.ink }}>{t.name}</span>
+            </button>
+          );
+        })}
+        {edges.length === 0 && (
+          <span className="dm-mono" style={{ position: "absolute", left: "50%", bottom: 12, transform: "translateX(-50%)", fontSize: 10.5, color: "#B7AF9F" }}>No relationships yet — “Add relationship” to link a column to another table.</span>
+        )}
+      </div>
+    </div>
   );
 }

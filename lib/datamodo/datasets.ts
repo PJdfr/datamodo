@@ -342,6 +342,59 @@ export async function rejectBatch(db: SupabaseClient, batchId: string): Promise<
   if (error) throw error;
 }
 
+/** One dataset's slice of a bulk accept — so the caller can snapshot each table
+ *  it touched exactly once, attributed to the agent(s) involved. */
+export interface BulkAcceptResult {
+  datasetId: string;
+  summary: string;
+  actor: string;
+}
+
+/**
+ * Accept an arbitrary set of proposals (across any tables/agents/batches). This
+ * is the one primitive the Versioning surface uses for every "accept" flavour —
+ * single, multi-select, whole agent, whole table, or merge-all — by passing the
+ * right id set. Returns one result per affected dataset for checkpointing.
+ */
+export async function acceptProposals(
+  db: SupabaseClient,
+  ids: string[],
+): Promise<BulkAcceptResult[]> {
+  if (!ids.length) return [];
+  const { data, error } = await db
+    .from("dataset_rows")
+    .select(PROPOSAL_COLS)
+    .in("id", ids)
+    .eq("status", "proposed");
+  if (error) throw error;
+  const props = (data ?? []) as ProposalRow[];
+  if (!props.length) return [];
+
+  const perDataset = new Map<string, { adds: number; updates: number; actors: Set<string> }>();
+  for (const p of props) {
+    const kind = await applyProposalRow(db, p);
+    const agg = perDataset.get(p.dataset_id) ?? { adds: 0, updates: 0, actors: new Set<string>() };
+    if (kind === "update") agg.updates++; else agg.adds++;
+    agg.actors.add(p.proposed_by ?? "An agent");
+    perDataset.set(p.dataset_id, agg);
+  }
+
+  return [...perDataset.entries()].map(([datasetId, agg]) => {
+    const actor = agg.actors.size === 1 ? [...agg.actors][0] : "Agents";
+    const parts: string[] = [];
+    if (agg.adds) parts.push(`${agg.adds} row${agg.adds === 1 ? "" : "s"} added`);
+    if (agg.updates) parts.push(`${agg.updates} change${agg.updates === 1 ? "" : "s"} applied`);
+    return { datasetId, actor, summary: `Accepted ${actor}'s update — ${parts.join(", ")}` };
+  });
+}
+
+/** Reject (discard) an arbitrary set of proposals. */
+export async function rejectProposals(db: SupabaseClient, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const { error } = await db.from("dataset_rows").delete().in("id", ids).eq("status", "proposed");
+  if (error) throw error;
+}
+
 /**
  * Demo helper: fabricate an incoming agent update so the review/conflict flow
  * can be seen without a live extraction pipeline. Proposes one brand-new row

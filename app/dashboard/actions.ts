@@ -8,6 +8,7 @@ import { createAgent, deleteAgent, setAgentStatus, updateAgent } from "@/lib/dat
 import {
   acceptBatch,
   acceptProposal,
+  acceptProposals,
   addColumn,
   checkpoint,
   createDataset,
@@ -17,6 +18,7 @@ import {
   listSnapshotsFull,
   rejectBatch,
   rejectProposal,
+  rejectProposals,
   removeColumn,
   renameDataset,
   restoreSnapshot,
@@ -24,6 +26,7 @@ import {
   simulateAgentUpdate,
   updateRow,
 } from "@/lib/datamodo/datasets";
+import { createRelation, deleteRelation } from "@/lib/datamodo/relations";
 import { getSettings, updateComputeSettings, countAgents } from "@/lib/datamodo/settings";
 import { planLimits, type AiProvider, type ComputeMode } from "@/lib/datamodo/plans";
 import type { DatasetColumn, NewAgentInput, SnapshotFull } from "@/lib/datamodo/types";
@@ -337,6 +340,70 @@ export async function rejectBatchAction(batchId: string): Promise<ActionResult> 
     return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message ?? "Failed to dismiss the changes." };
+  }
+}
+
+/** Accept an arbitrary set of proposals — the primitive behind every "accept"
+ *  flavour on the Versioning surface (single, multi-select, group, merge-all).
+ *  Snapshots each affected table once, attributed to the agent(s) involved. */
+export async function acceptProposalsAction(ids: string[]): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    const results = await acceptProposals(db, ids);
+    for (const r of results) await checkpoint(db, r.datasetId, r.summary, async () => {}, r.actor);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to accept the changes." };
+  }
+}
+
+/** Reject (discard) an arbitrary set of proposals. */
+export async function rejectProposalsAction(ids: string[]): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    await rejectProposals(db, ids);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to dismiss the changes." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Table relationships (Data page graph)
+// ---------------------------------------------------------------------------
+
+export async function createRelationAction(input: {
+  fromDatasetId: string;
+  fromColumn: string;
+  toDatasetId: string;
+  toColumn: string;
+  label?: string | null;
+}): Promise<ActionResult> {
+  try {
+    const { db, user, org } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    if (!org) return { ok: false, error: "No organization found." };
+    await createRelation(db, org.id, { ...input, createdBy: user.id });
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to create relationship." };
+  }
+}
+
+export async function deleteRelationAction(id: string): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    await deleteRelation(db, id);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to delete relationship." };
   }
 }
 
