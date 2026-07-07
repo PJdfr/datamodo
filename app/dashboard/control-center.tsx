@@ -37,9 +37,12 @@ import {
   simulateAgentUpdateAction,
   acceptProposalAction,
   rejectProposalAction,
+  updateComputeSettingsAction,
   type ActionResult,
 } from "./actions";
 import type { AgentRecord, DatasetColumn, DatasetRowRecord, DatasetView, Proposal, SnapshotMeta } from "@/lib/datamodo/types";
+import type { UserSettings } from "@/lib/datamodo/settings";
+import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
 
 /* ------------------------------------------------------------------ */
 /* Hover helper — inline styles win over CSS :hover, so hover states   */
@@ -329,6 +332,7 @@ export type ControlCenterProps = {
   inbox: string;
   agents: AgentRecord[];
   datasets: DatasetView[];
+  settings: UserSettings;
 };
 
 // Palette used to give agents/tables a stable accent when the DB has none.
@@ -350,10 +354,10 @@ const relTime = (iso: string): string => {
   return `${Math.floor(h / 24)}d ago`;
 };
 
-export default function ControlCenter({ fullName, initial, inbox, agents, datasets }: ControlCenterProps) {
+export default function ControlCenter({ fullName, initial, inbox, agents, datasets, settings }: ControlCenterProps) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("agents");
-  const [runtime, setRuntime] = useState<"cloud" | "byok">("cloud");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [autoAccept, setAutoAccept] = useState(false);
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -428,7 +432,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const manageAgent = agents.find((a) => a.id === manageAgentId) ?? null;
   const openTable = datasets.find((d) => d.id === openTableId) ?? null;
 
-  const cloud = runtime === "cloud";
+  const cloud = settings.computeMode === "cloud";
 
   const openModal = () => {
     setStep(1);
@@ -478,9 +482,11 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
   };
 
-  const runtimeLabel = cloud ? "Datamodo cloud" : "Your own key";
-  const runtimeSub = cloud ? "We run every agent for you." : "Runs on your ChatGPT / Claude plan.";
-  const runtimeDot = cloud ? C.green : C.gold;
+  const providerLabel = settings.aiProvider === "openai" ? "OpenAI" : "Claude";
+  const runtimeLabel = cloud ? "Datamodo cloud" : `Your ${providerLabel} key`;
+  const runtimeSub = cloud ? "We run every agent for you." : (settings.byokKeySet ? `Runs on your ${providerLabel} API key.` : "Add your API key to start.");
+  const runtimeDot = cloud ? C.green : (settings.byokKeySet ? C.gold : C.accent);
+  const plan = planLimits(settings.plan);
 
   return (
     <div className="cc-shell">
@@ -554,8 +560,8 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: runtimeDot, flexShrink: 0 }} />
               <span style={{ fontSize: 13, color: "#F1ECE1", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{runtimeLabel}</span>
             </div>
-            <Hov onClick={() => setRuntime(cloud ? "byok" : "cloud")} tag="button" base={{ background: "none", border: "none", fontSize: 10.5, color: "#A39B8B", cursor: "pointer", flexShrink: 0 }} hover={{ color: "#F1ECE1" }}>
-              <span className="dm-mono">switch</span>
+            <Hov onClick={() => setSettingsOpen(true)} tag="button" base={{ background: "none", border: "none", fontSize: 10.5, color: "#A39B8B", cursor: "pointer", flexShrink: 0 }} hover={{ color: "#F1ECE1" }}>
+              <span className="dm-mono">manage</span>
             </Hov>
           </div>
           <div style={{ fontSize: 11, color: "#7C766B", marginTop: 5, lineHeight: 1.35 }}>{runtimeSub}</div>
@@ -566,7 +572,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           <span style={{ width: 30, height: 30, borderRadius: "50%", background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{initial}</span>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, color: "#F1ECE1", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</div>
-            <div className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B" }}>Pro · solo</div>
+            <button type="button" onClick={() => setSettingsOpen(true)} className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B", background: "none", border: "none", padding: 0, cursor: "pointer" }}>{plan.label} plan · manage</button>
           </div>
           <form action={signout} style={{ marginLeft: "auto" }}>
             <Hov tag="button" type="submit" title="Sign out" base={{ background: "none", border: "none", color: "#7C766B", fontSize: 11, cursor: "pointer" }} hover={{ color: "#F1ECE1" }}>
@@ -660,6 +666,13 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
         <CreateTableModal
           onClose={() => setCreateTableOpen(false)}
           onCreated={() => { setCreateTableOpen(false); router.refresh(); }}
+        />
+      )}
+      {settingsOpen && (
+        <SettingsModal
+          settings={settings}
+          onClose={() => setSettingsOpen(false)}
+          onSaved={() => { setSettingsOpen(false); router.refresh(); }}
         />
       )}
     </div>
@@ -1603,6 +1616,109 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
               )}
             </tbody>
           </table>
+        </div>
+      )}
+    </ModalShell>
+  );
+}
+
+/* ================================================================== */
+/* SETTINGS: compute provider + plan                                  */
+/* ================================================================== */
+function SettingsModal({ settings, onClose, onSaved }: { settings: UserSettings; onClose: () => void; onSaved: () => void }) {
+  const [mode, setMode] = useState<ComputeMode>(settings.computeMode);
+  const [provider, setProvider] = useState(settings.aiProvider);
+  const [key, setKey] = useState("");
+  const { pending, error, run } = useAction();
+  const [billing, startBilling] = useTransition();
+  const [billingMsg, setBillingMsg] = useState<string | null>(null);
+  const limits = planLimits(settings.plan);
+  const cloudLocked = !limits.cloudCompute;
+
+  const save = () => run(
+    () => updateComputeSettingsAction({ computeMode: mode, aiProvider: provider, byokKey: key ? key : undefined }),
+    onSaved,
+  );
+
+  const upgrade = (planKey: string) => {
+    setBillingMsg(null);
+    startBilling(async () => {
+      try {
+        const res = await fetch("/api/billing/checkout", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ plan: planKey }) });
+        if (res.ok) {
+          const body = await res.json();
+          if (body.url) { window.location.href = body.url; return; }
+        }
+        const body = await res.json().catch(() => ({}));
+        setBillingMsg(body.error ?? "Billing isn’t available yet — add your Stripe keys to enable upgrades.");
+      } catch {
+        setBillingMsg("Couldn’t reach billing.");
+      }
+    });
+  };
+
+  const upgradeTargets = PLAN_ORDER.filter((p) => PLANS[p].priceMonthly > PLANS[settings.plan].priceMonthly);
+
+  return (
+    <ModalShell title="Settings" subtitle="Plan & how your data is analysed" onClose={onClose} maxWidth={640}
+      footer={(
+        <>
+          <span />
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {error && <span className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{error}</span>}
+            <Hov onClick={pending ? undefined : save} base={primaryBtn(pending)} hover={{ background: C.accentPress }}>{pending ? "Saving…" : "Save settings"}</Hov>
+          </div>
+        </>
+      )}
+    >
+      {/* Plan */}
+      <div style={{ border: "1px solid #E7E0D2", borderRadius: 12, background: "#fff", padding: "14px 16px", marginBottom: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>{limits.label} plan</div>
+            <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginTop: 2 }}>
+              {limits.maxAgents === null ? "Unlimited agents" : `${limits.maxAgents} agents`} · {limits.autoMode ? "auto mode" : "on-ping only"} · {limits.cloudCompute ? "cloud or BYOK" : "BYOK only"}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {upgradeTargets.map((p) => (
+              <Hov key={p} onClick={billing ? undefined : () => upgrade(p)} base={{ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 9, padding: "8px 14px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} hover={{ background: C.accentPress }}>
+                {billing ? "…" : `Upgrade to ${PLANS[p].label} · $${PLANS[p].priceMonthly}/mo`}
+              </Hov>
+            ))}
+          </div>
+        </div>
+        {billingMsg && <div className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginTop: 10 }}>{billingMsg}</div>}
+      </div>
+
+      {/* Compute mode */}
+      <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 10 }}>How should your data be analysed?</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <button type="button" disabled={cloudLocked} onClick={() => !cloudLocked && setMode("cloud")} style={{ ...modeCard(mode === "cloud"), opacity: cloudLocked ? 0.55 : 1, cursor: cloudLocked ? "not-allowed" : "pointer" }}>
+          <div style={{ textAlign: "left" }}>
+            <div style={{ fontWeight: 600, fontSize: 14.5 }}>Datamodo cloud {cloudLocked && <span className="dm-mono" style={{ fontSize: 10, color: C.accent, marginLeft: 6 }}>Pro</span>}</div>
+            <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>We run the models for you. {cloudLocked ? "Upgrade to enable." : "Nothing to configure."}</div>
+          </div>
+          <span style={radioDot(mode === "cloud")} />
+        </button>
+        <button type="button" onClick={() => setMode("byok")} style={modeCard(mode === "byok")}>
+          <div style={{ textAlign: "left" }}>
+            <div style={{ fontWeight: 600, fontSize: 14.5 }}>Bring your own key</div>
+            <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Analyse with your own Claude or OpenAI API key — you pay the provider directly.</div>
+          </div>
+          <span style={radioDot(mode === "byok")} />
+        </button>
+      </div>
+
+      {mode === "byok" && (
+        <div style={{ marginTop: 14, padding: "14px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
+          <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 8 }}>Provider</div>
+          <Segmented value={provider} onChange={setProvider} options={[{ v: "anthropic", label: "Claude (Anthropic)" }, { v: "openai", label: "OpenAI" }]} />
+          <div className="dm-mono" style={{ ...fieldLabel, margin: "14px 0 8px" }}>API key</div>
+          <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={settings.byokKeySet ? "•••••••• (saved — paste to replace)" : provider === "openai" ? "sk-…" : "sk-ant-…"} style={fieldInput} />
+          <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 8, lineHeight: 1.5 }}>
+            This is an <b>API key</b> (billed per use), not your ChatGPT Plus / Claude Pro subscription — those don’t grant API access. Get one from {provider === "openai" ? "platform.openai.com" : "console.anthropic.com"}. Signing in to authorise your account is on the roadmap.
+          </div>
         </div>
       )}
     </ModalShell>

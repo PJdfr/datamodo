@@ -21,6 +21,8 @@ import {
   simulateAgentUpdate,
   updateRow,
 } from "@/lib/datamodo/datasets";
+import { getSettings, updateComputeSettings, countAgents } from "@/lib/datamodo/settings";
+import { planLimits, type AiProvider, type ComputeMode } from "@/lib/datamodo/plans";
 import type { DatasetColumn, NewAgentInput } from "@/lib/datamodo/types";
 
 // Server Actions are reachable via direct POST, so every one re-checks auth and
@@ -47,11 +49,40 @@ export async function createAgentAction(
     if (!org) return { ok: false, error: "No organization found." };
     if (!input.name?.trim()) return { ok: false, error: "Give the agent a name." };
 
+    // Plan entitlements.
+    const settings = await getSettings(db, user.id);
+    const limits = planLimits(settings.plan);
+    if (limits.maxAgents !== null) {
+      const count = await countAgents(db, user.id);
+      if (count >= limits.maxAgents) {
+        return { ok: false, error: `Your ${limits.label} plan allows ${limits.maxAgents} agents. Upgrade to add more.` };
+      }
+    }
+    if (input.mode === "auto" && !limits.autoMode) {
+      return { ok: false, error: `Auto mode is a Pro feature. On ${limits.label}, agents run on-ping.` };
+    }
+
     await createAgent(db, org.id, user.id, input);
     revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message ?? "Failed to create agent." };
+  }
+}
+
+export async function updateComputeSettingsAction(patch: {
+  computeMode?: ComputeMode;
+  aiProvider?: AiProvider;
+  byokKey?: string | null;
+}): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    await updateComputeSettings(db, user.id, patch);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to save settings." };
   }
 }
 

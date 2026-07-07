@@ -130,3 +130,11 @@ begin
     (v_ds_trips, v_org, '{"destination":"Berlin","dates":"Sep 12–15","booking":"LH #2210","cost":410}'::jsonb, v_uid);
 end
 $$;
+
+-- Demo account runs on the Pro plan so its seeded auto-mode agents stay valid.
+-- (A default 'free' settings row is created by the on_auth_user_created_settings
+-- trigger when the user above is inserted.)
+update public.user_settings s
+   set plan = 'pro', compute_mode = 'cloud'
+  from auth.users u
+ where u.id = s.user_id and u.email = 'user@example.com';

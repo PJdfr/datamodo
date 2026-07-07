@@ -3,6 +3,7 @@ import { createClient } from "@/utils/supabase/server";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { listAgents } from "@/lib/datamodo/agents";
 import { listDatasets } from "@/lib/datamodo/datasets";
+import { getSettings, type UserSettings } from "@/lib/datamodo/settings";
 import type { AgentRecord, DatasetView } from "@/lib/datamodo/types";
 import ControlCenter from "./control-center";
 
@@ -28,8 +29,10 @@ export default async function DashboardPage() {
   // Real structured layer: the user's active org, its agents, and its datasets.
   let agents: AgentRecord[] = [];
   let datasets: DatasetView[] = [];
+  let settings: UserSettings = { plan: "free", computeMode: "byok", aiProvider: "anthropic", byokKeySet: false, planStatus: null, currentPeriodEnd: null };
   if (user) {
     const org = await getActiveOrg(supabase, user.id);
+    settings = await getSettings(supabase, user.id);
     if (org) {
       [agents, datasets] = await Promise.all([
         listAgents(supabase, org.id),
@@ -45,6 +48,7 @@ export default async function DashboardPage() {
       inbox={inbox}
       agents={agents}
       datasets={datasets}
+      settings={settings}
     />
   );
 }
