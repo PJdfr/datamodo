@@ -16,6 +16,11 @@ declare
   v_ds_invoices uuid;
   v_ds_contacts uuid;
   v_ds_trips    uuid;
+  v_inv_row     uuid;
+  v_item1       uuid;
+  v_item2       uuid;
+  v_batch1      uuid;
+  v_batch2      uuid;
 begin
   -- 1. Ensure the demo auth user exists. The handle_new_user() trigger creates
   --    the matching profile, personal org, owner membership, and forwarding
@@ -128,5 +133,48 @@ begin
   insert into public.dataset_rows (dataset_id, org_id, data, created_by) values
     (v_ds_trips, v_org, '{"destination":"Lisbon","dates":"Aug 3–9","booking":"TAP #4471","cost":640}'::jsonb, v_uid),
     (v_ds_trips, v_org, '{"destination":"Berlin","dates":"Sep 12–15","booking":"LH #2210","cost":410}'::jsonb, v_uid);
+
+  -- Relationships -------------------------------------------------------
+  -- An invoice's client is a company that lives in Contacts.
+  insert into public.dataset_relations (org_id, from_dataset_id, from_column, to_dataset_id, to_column, label, created_by)
+  values (v_org, v_ds_invoices, 'client', v_ds_contacts, 'company', 'billed to', v_uid)
+  on conflict do nothing;
+
+  -- Pending review ("open pull request") --------------------------------
+  -- One accepted invoice is human-edited, so an incoming agent change to it
+  -- surfaces as a real conflict in the review flow.
+  update public.dataset_rows set human_edited = true
+   where dataset_id = v_ds_invoices and data->>'invoice' = '#A-198';
+  select id into v_inv_row from public.dataset_rows
+   where dataset_id = v_ds_invoices and data->>'invoice' = '#A-198' limit 1;
+
+  -- Source messages the agents parsed (the "comm chunk" grouping axis).
+  insert into public.items (org_id, owner_user_id, channel, sender, subject, received_at)
+  values (v_org, v_uid, 'email', 'billing@acme.com', 'Invoice #A-207 — Acme Inc', now())
+  returning id into v_item1;
+  insert into public.items (org_id, owner_user_id, channel, sender, subject, received_at)
+  values (v_org, v_uid, 'whatsapp', 'Acme dinner', 'Met 2 people at the Acme dinner', now())
+  returning id into v_item2;
+
+  -- Chunk 1 — Ledger parsed a billing email → one new invoice + one change to
+  -- the (human-edited, so conflicting) #A-198 row.
+  v_batch1 := gen_random_uuid();
+  insert into public.dataset_rows (dataset_id, org_id, data, status, origin, proposed_by, proposed_kind, target_row_id, batch_id, source_item_id) values
+    (v_ds_invoices, v_org, '{"client":"Acme Inc","invoice":"#A-207","amount":5400,"due":"2026-08-12","status":"Sent"}'::jsonb, 'proposed', 'agent', 'Ledger', 'add', null, v_batch1, v_item1),
+    (v_ds_invoices, v_org, '{"client":"Northwind","invoice":"#A-198","amount":3600,"due":"2026-07-20","status":"Paid"}'::jsonb, 'proposed', 'agent', 'Ledger', 'update', v_inv_row, v_batch1, v_item1);
+
+  -- Chunk 2 — Rolodex parsed a WhatsApp note → two new contacts.
+  v_batch2 := gen_random_uuid();
+  insert into public.dataset_rows (dataset_id, org_id, data, status, origin, proposed_by, proposed_kind, batch_id, source_item_id) values
+    (v_ds_contacts, v_org, '{"name":"Dana Cruz","email":"dana@acme.com","company":"Acme Inc","role":"CTO"}'::jsonb, 'proposed', 'agent', 'Rolodex', 'add', v_batch2, v_item2),
+    (v_ds_contacts, v_org, '{"name":"Sam Ito","email":"sam@acme.com","company":"Acme Inc","role":"Design"}'::jsonb, 'proposed', 'agent', 'Rolodex', 'add', v_batch2, v_item2);
 end
 $$;
+
+-- Demo account runs on the Pro plan so its seeded auto-mode agents stay valid.
+-- (A default 'free' settings row is created by the on_auth_user_created_settings
+-- trigger when the user above is inserted.)
+update public.user_settings s
+   set plan = 'pro', compute_mode = 'cloud'
+  from auth.users u
+ where u.id = s.user_id and u.email = 'user@example.com';

@@ -6,17 +6,31 @@ import { createClient } from "@/utils/supabase/server";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { createAgent, deleteAgent, setAgentStatus, updateAgent } from "@/lib/datamodo/agents";
 import {
+  acceptBatch,
+  acceptProposal,
+  acceptProposals,
   addColumn,
+  checkpoint,
   createDataset,
   deleteDataset,
   deleteRow,
   insertRow,
+  listSnapshotsFull,
+  rejectBatch,
+  rejectProposal,
+  rejectProposals,
   removeColumn,
   renameDataset,
+  restoreSnapshot,
   setColumns,
+  simulateAgentUpdate,
   updateRow,
 } from "@/lib/datamodo/datasets";
-import type { DatasetColumn, NewAgentInput } from "@/lib/datamodo/types";
+import { createRelation, deleteRelation } from "@/lib/datamodo/relations";
+import { regenerateInbox } from "@/lib/datamodo/inbox";
+import { getSettings, updateComputeSettings, countAgents } from "@/lib/datamodo/settings";
+import { planLimits, type AiProvider, type ComputeMode } from "@/lib/datamodo/plans";
+import type { DatasetColumn, NewAgentInput, SnapshotFull } from "@/lib/datamodo/types";
 
 // Server Actions are reachable via direct POST, so every one re-checks auth and
 // resolves the org server-side — never trusting an org id from the client.
@@ -42,11 +56,40 @@ export async function createAgentAction(
     if (!org) return { ok: false, error: "No organization found." };
     if (!input.name?.trim()) return { ok: false, error: "Give the agent a name." };
 
+    // Plan entitlements.
+    const settings = await getSettings(db, user.id);
+    const limits = planLimits(settings.plan);
+    if (limits.maxAgents !== null) {
+      const count = await countAgents(db, user.id);
+      if (count >= limits.maxAgents) {
+        return { ok: false, error: `Your ${limits.label} plan allows ${limits.maxAgents} agents. Upgrade to add more.` };
+      }
+    }
+    if (input.mode === "auto" && !limits.autoMode) {
+      return { ok: false, error: `Auto mode is a Pro feature. On ${limits.label}, agents run on-ping.` };
+    }
+
     await createAgent(db, org.id, user.id, input);
     revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message ?? "Failed to create agent." };
+  }
+}
+
+export async function updateComputeSettingsAction(patch: {
+  computeMode?: ComputeMode;
+  aiProvider?: AiProvider;
+  byokKey?: string | null;
+}): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    await updateComputeSettings(db, user.id, patch);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to save settings." };
   }
 }
 
@@ -143,7 +186,7 @@ export async function addColumnAction(
     const { db, user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     if (!column.label?.trim()) return { ok: false, error: "Give the column a name." };
-    await addColumn(db, datasetId, column);
+    await checkpoint(db, datasetId, `Added column “${column.label.trim()}”`, () => addColumn(db, datasetId, column));
     revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {
@@ -155,7 +198,7 @@ export async function removeColumnAction(datasetId: string, key: string): Promis
   try {
     const { db, user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
-    await removeColumn(db, datasetId, key);
+    await checkpoint(db, datasetId, "Removed a column", () => removeColumn(db, datasetId, key));
     revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {
@@ -171,7 +214,7 @@ export async function addRowAction(
     const { db, user, org } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     if (!org) return { ok: false, error: "No organization found." };
-    await insertRow(db, org.id, datasetId, data, { createdBy: user.id });
+    await checkpoint(db, datasetId, "Added a row", () => insertRow(db, org.id, datasetId, data, { createdBy: user.id }));
     revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {
@@ -180,13 +223,14 @@ export async function addRowAction(
 }
 
 export async function updateRowAction(
+  datasetId: string,
   rowId: string,
   data: Record<string, unknown>,
 ): Promise<ActionResult> {
   try {
     const { db, user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
-    await updateRow(db, rowId, data);
+    await checkpoint(db, datasetId, "Edited a row", () => updateRow(db, rowId, data));
     revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {
@@ -194,15 +238,191 @@ export async function updateRowAction(
   }
 }
 
-export async function deleteRowAction(rowId: string): Promise<ActionResult> {
+export async function deleteRowAction(datasetId: string, rowId: string): Promise<ActionResult> {
   try {
     const { db, user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
-    await deleteRow(db, rowId);
+    await checkpoint(db, datasetId, "Deleted a row", () => deleteRow(db, rowId));
     revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message ?? "Failed to delete row." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Versioning: restore + agent proposals
+// ---------------------------------------------------------------------------
+
+export type SnapshotsResult =
+  | { ok: true; snapshots: SnapshotFull[] }
+  | { ok: false; error: string };
+
+export async function getSnapshotsAction(datasetId: string): Promise<SnapshotsResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    const snapshots = await listSnapshotsFull(db, datasetId);
+    return { ok: true, snapshots };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to load history." };
+  }
+}
+
+export async function restoreSnapshotAction(snapshotId: string): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    await restoreSnapshot(db, snapshotId);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to restore version." };
+  }
+}
+
+export async function simulateAgentUpdateAction(datasetId: string): Promise<ActionResult> {
+  try {
+    const { db, user, org } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    if (!org) return { ok: false, error: "No organization found." };
+    await simulateAgentUpdate(db, org.id, datasetId);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to simulate an agent update." };
+  }
+}
+
+export async function acceptProposalAction(proposalId: string): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    const res = await acceptProposal(db, proposalId);
+    if (res) await checkpoint(db, res.datasetId, res.summary, async () => {}, res.actor);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to apply the change." };
+  }
+}
+
+export async function rejectProposalAction(proposalId: string): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    await rejectProposal(db, proposalId);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to dismiss the change." };
+  }
+}
+
+export async function acceptBatchAction(batchId: string): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    const res = await acceptBatch(db, batchId);
+    if (res) await checkpoint(db, res.datasetId, res.summary, async () => {}, res.actor);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to accept the changes." };
+  }
+}
+
+export async function rejectBatchAction(batchId: string): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    await rejectBatch(db, batchId);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to dismiss the changes." };
+  }
+}
+
+/** Accept an arbitrary set of proposals — the primitive behind every "accept"
+ *  flavour on the Versioning surface (single, multi-select, group, merge-all).
+ *  Snapshots each affected table once, attributed to the agent(s) involved. */
+export async function acceptProposalsAction(ids: string[]): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    const results = await acceptProposals(db, ids);
+    for (const r of results) await checkpoint(db, r.datasetId, r.summary, async () => {}, r.actor);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to accept the changes." };
+  }
+}
+
+/** Reject (discard) an arbitrary set of proposals. */
+export async function rejectProposalsAction(ids: string[]): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    await rejectProposals(db, ids);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to dismiss the changes." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Table relationships (Data page graph)
+// ---------------------------------------------------------------------------
+
+export async function createRelationAction(input: {
+  fromDatasetId: string;
+  fromColumn: string;
+  toDatasetId: string;
+  toColumn: string;
+  label?: string | null;
+}): Promise<ActionResult> {
+  try {
+    const { db, user, org } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    if (!org) return { ok: false, error: "No organization found." };
+    await createRelation(db, org.id, { ...input, createdBy: user.id });
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to create relationship." };
+  }
+}
+
+export async function deleteRelationAction(id: string): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    await deleteRelation(db, id);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to delete relationship." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Inbound email address (the agent's capture inbox)
+// ---------------------------------------------------------------------------
+
+/** Retire the current inbound address and mint a fresh one. */
+export async function regenerateInboxAction(): Promise<ActionResult & { address?: string }> {
+  try {
+    const { db, user, org } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    if (!org) return { ok: false, error: "No organization found." };
+    const address = await regenerateInbox(db, org.id, user.id);
+    revalidatePath("/dashboard");
+    return { ok: true, address };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to regenerate inbox." };
   }
 }
 

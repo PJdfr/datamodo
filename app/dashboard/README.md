@@ -20,10 +20,32 @@ backend today are:
 - **Table editing** — click a table to open a full editor: add/edit/delete rows,
   add/remove/retype columns (new columns backfill a default), rename, delete,
   and create a table from scratch.
+- **Version history + safe merges** — every change is snapshotted (`dataset_snapshots`)
+  with a plain-language summary + who made it. The **History panel** is a visual
+  timeline: each version shows who made it, the change counts vs the previous
+  version (**+added / changed / −removed**), and an inline **Preview** of exactly
+  what the table looked like then (added/changed rows tinted), with one-click
+  **Restore** (`getSnapshotsAction` → `listSnapshotsFull`, diffed client-side).
+  Hand edits mark a row protected (`dataset_rows.human_edited`), so agent data
+  arrives as **proposals** you review (`status='proposed'`). Proposals are
+  reviewed **in chunks, never cell-by-cell**: everything produced in one run
+  (one email parsed, one sheet sync) shares a `batch_id` and is accepted or
+  rejected together — "Ledger, from *this email*, 3 changes: **Accept all /
+  Reject all**", expandable to the individual diffs (agent = `proposed_by`,
+  table = `dataset_id`, message = `source_item_id`, time = `created_at` are the
+  other lenses over the same batches). Conflicts still show "Yours vs the
+  agent's" (old struck-through, new highlighted) and auto-expand. A "Simulate
+  agent update" button demos the flow until the extraction pipeline exists.
 - **Excel export** — export a single table (`GET /api/datasets/[id]/export`) or
   many at once (`GET /api/datasets/export?ids=…`, one sheet per table) as
   `.xlsx`. We only export Excel — never CSV. Google Sheets / API export remain
   stubs.
+- **Spreadsheet sync** — "Import sheet" (Data tab) seeds a new table from an
+  uploaded `.xlsx`; "Sync a sheet" (table editor) pulls a sheet into an existing
+  table, where incoming rows become **proposals** in the same review/conflict UI
+  as agents (`POST /api/datasets/import`, `lib/datamodo/sheets.ts`,
+  `spreadsheet.ts`, `sheet_links` table). v1 is upload-driven; a live Google
+  Sheets adapter is the next step (see root `README.md`).
 
 The remaining surfaces are still driven by local React state / hardcoded
 fixtures in [`control-center.tsx`](./control-center.tsx): the **suggestions /

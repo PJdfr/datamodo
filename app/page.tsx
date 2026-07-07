@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { Logo } from "@/components/logo";
+import { PLANS, PLAN_MARKETING, PLAN_ORDER } from "@/lib/datamodo/plans";
 
 export const metadata = {
   title: "datamodo — Forward the mess. Get back a spreadsheet.",
@@ -233,6 +234,9 @@ export default function Home() {
             </a>
             <a href="#brain" className="dm-link">
               Ask anything
+            </a>
+            <a href="#pricing" className="dm-link">
+              Pricing
             </a>
           </span>
           <Link href="/login" className="dm-link">
@@ -1736,6 +1740,50 @@ export default function Home() {
       </section>
 
       {/* FINAL CTA */}
+      {/* PRICING */}
+      <section id="pricing" style={{ maxWidth: 1160, margin: "0 auto", padding: "40px 28px 90px" }}>
+        <div style={{ textAlign: "center", marginBottom: 44 }}>
+          <p className="dm-mono" style={{ ...sectionEyebrow, marginBottom: 12 }}>Pricing</p>
+          <h2 className="dm-display" style={{ ...h2, marginBottom: 14 }}>Start free. Upgrade when it earns its keep.</h2>
+          <p style={{ fontSize: 17, color: "#57534A", maxWidth: "52ch", margin: "0 auto", lineHeight: 1.55 }}>
+            Free runs on your own AI key, so you only pay the model provider. Paid plans add auto-capture and let us run the models for you.
+          </p>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 20, alignItems: "stretch" }}>
+          {PLAN_ORDER.map((key) => {
+            const plan = PLANS[key];
+            const m = PLAN_MARKETING[key];
+            const highlight = m.highlight;
+            return (
+              <div key={key} style={{ display: "flex", flexDirection: "column", background: highlight ? "#211E18" : "#FFFDF8", color: highlight ? "#F1ECE1" : "inherit", border: highlight ? "1px solid #211E18" : "1px solid #E7E0D2", borderRadius: 20, padding: "26px 24px", boxShadow: highlight ? "0 26px 60px -34px rgba(33,30,24,.6)" : "0 18px 44px -34px rgba(33,30,24,.3)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span className="dm-display" style={{ fontWeight: 700, fontSize: 20 }}>{plan.label}</span>
+                  {highlight && <span className="dm-mono" style={{ fontSize: 10, background: "var(--accent)", color: "#fff", borderRadius: 999, padding: "2px 8px" }}>Most popular</span>}
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 8 }}>
+                  <span className="dm-display" style={{ fontWeight: 700, fontSize: 40, letterSpacing: "-0.03em" }}>${plan.priceMonthly}</span>
+                  <span className="dm-mono" style={{ fontSize: 12, color: highlight ? "#B7AF9F" : "#A39B8B" }}>/mo</span>
+                </div>
+                <p style={{ fontSize: 14, color: highlight ? "#C9C1B2" : "#57534A", minHeight: 42, marginBottom: 16, lineHeight: 1.45 }}>{m.tagline}</p>
+                <ul style={{ listStyle: "none", padding: 0, margin: "0 0 22px", display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                  {m.features.map((f) => (
+                    <li key={f} style={{ display: "flex", gap: 9, fontSize: 14, color: highlight ? "#E4DECF" : "#3A352C", lineHeight: 1.4 }}>
+                      <span style={{ color: "var(--accent)", flexShrink: 0, fontWeight: 700 }}>✓</span>{f}
+                    </li>
+                  ))}
+                </ul>
+                <Link href={`/register${key === "free" ? "" : `?plan=${key}`}`} className={highlight ? "dm-btn" : "dm-btn dm-btn-dark"} style={{ textAlign: "center", padding: "12px 18px", borderRadius: 12, fontSize: 14.5, fontWeight: 600, ...(highlight ? { background: "var(--accent)", color: "#fff8f4" } : {}) }}>
+                  {m.cta}
+                </Link>
+              </div>
+            );
+          })}
+        </div>
+        <p className="dm-mono" style={{ fontSize: 12, color: "#A39B8B", textAlign: "center", marginTop: 22 }}>
+          Individual accounts · cancel anytime · &ldquo;bring your own key&rdquo; means an API key (billed by the provider), not a ChatGPT/Claude subscription.
+        </p>
+      </section>
+
       <section id="cta" style={{ maxWidth: 1160, margin: "0 auto", padding: "0 28px 100px" }}>
         <div
           style={{

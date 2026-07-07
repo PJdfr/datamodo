@@ -850,15 +850,10 @@ code {
   background-clip: padding-box;
 }
 .cc-shell {
-  max-width: 1440px;
-  margin: 0 auto;
   background: #f6f2e9;
-  border: 1px solid #e1d9c8;
-  border-radius: 22px;
   overflow: hidden;
-  box-shadow: 0 30px 70px -40px rgba(33, 30, 24, 0.55);
   display: flex;
-  min-height: 760px;
+  min-height: 100dvh;
 }
 .cc-side {
   width: 252px;
@@ -977,7 +972,7 @@ code {
   color: #211e18;
   font-family: var(--font-geist-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  padding: 28px 24px;
+  padding: 0;
 }
 .dm-app ::selection {
   background: #f4c9bc;
