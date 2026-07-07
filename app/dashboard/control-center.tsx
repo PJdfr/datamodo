@@ -22,6 +22,14 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  flexRender,
+  type ColumnDef,
+  type SortingState,
+} from "@tanstack/react-table";
 import { signout } from "@/app/auth/actions";
 import {
   createAgentAction,
@@ -1803,6 +1811,64 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
   const rename = () => { const n = prompt("Rename table", table.name); if (n && n.trim() && n.trim() !== table.name) run(() => renameDatasetAction(table.id, n.trim()), onChanged); };
 
   const rowSep = "1px solid #F3EEE3";
+
+  // --- Grid state via TanStack Table (headless): it owns sorting/row model,
+  //     we keep our own markup, inline styling, editable cells, humanEdited
+  //     flag, and Server-Action save path. ---
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const gridColumns: ColumnDef<DatasetRowRecord>[] = [
+    {
+      id: "__flag",
+      enableSorting: false,
+      header: () => null,
+      cell: ({ row }) =>
+        row.original.humanEdited ? (
+          <span title="You edited this row — agents can’t overwrite it" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: C.ink }} />
+        ) : null,
+    },
+    ...cols.map<ColumnDef<DatasetRowRecord>>((c) => ({
+      id: c.key,
+      accessorFn: (r) => r.data?.[c.key],
+      enableSorting: true,
+      sortUndefined: "last",
+      header: ({ column }) => {
+        const dir = column.getIsSorted();
+        return (
+          <>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+              <button type="button" onClick={column.getToggleSortingHandler()} title="Sort by this column" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: "#3A352C", whiteSpace: "nowrap" }}>{c.label}</span>
+                <span className="dm-mono" style={{ fontSize: 9, color: dir ? C.accent : "#C9C1B0" }}>{dir === "asc" ? "▲" : dir === "desc" ? "▼" : "↕"}</span>
+              </button>
+              <button type="button" onClick={() => removeCol(c.key, c.label)} title="Remove column" style={{ border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+            </div>
+            <span className="dm-mono" style={{ fontSize: 9.5, color: "#A39B8B", textTransform: "uppercase", letterSpacing: "0.04em" }}>{c.type}</span>
+          </>
+        );
+      },
+      cell: ({ row }) => (
+        <TableCell row={row.original} col={c} onSave={(data) => run(() => updateRowAction(table.id, row.original.id, data), onChanged)} />
+      ),
+    })),
+    {
+      id: "__actions",
+      enableSorting: false,
+      header: () => null,
+      cell: ({ row }) => (
+        <button type="button" onClick={() => delRow(row.original.id)} title="Delete row" style={{ border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 14, padding: "6px 8px" }}>🗑</button>
+      ),
+    },
+  ];
+  const grid = useReactTable({
+    data: table.rows,
+    columns: gridColumns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getRowId: (r) => r.id,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
   return (
     <ModalShell maxWidth={920} onClose={onClose}
       badge={{ initial: table.name.slice(0, 1).toUpperCase() || "T", bg: pickColor(table.name) }}
@@ -1880,34 +1946,27 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
           <div style={{ overflowX: "auto" }}>
             <table style={{ borderCollapse: "collapse", width: "100%", minWidth: cols.length * 140 + 68 }}>
               <thead>
-                <tr style={{ background: "#FBFAF7" }}>
-                  <th style={{ width: 24, borderBottom: rowSep }} />
-                  {cols.map((c) => (
-                    <th key={c.key} style={{ textAlign: "left", padding: "9px 12px", borderBottom: rowSep, minWidth: 140 }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-                        <span style={{ fontSize: 12.5, fontWeight: 600, color: "#3A352C" }}>{c.label}</span>
-                        <button type="button" onClick={() => removeCol(c.key, c.label)} title="Remove column" style={{ border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
-                      </div>
-                      <span className="dm-mono" style={{ fontSize: 9.5, color: "#A39B8B", textTransform: "uppercase", letterSpacing: "0.04em" }}>{c.type}</span>
-                    </th>
-                  ))}
-                  <th style={{ width: 40, borderBottom: rowSep }} />
-                </tr>
+                {grid.getHeaderGroups().map((hg) => (
+                  <tr key={hg.id} style={{ background: "#FBFAF7" }}>
+                    {hg.headers.map((h) => {
+                      const meta = h.column.id === "__flag" ? { width: 24 } : h.column.id === "__actions" ? { width: 40 } : null;
+                      return (
+                        <th key={h.id} style={{ textAlign: "left", padding: meta ? 0 : "9px 12px", borderBottom: rowSep, width: meta?.width, minWidth: meta ? undefined : 140, verticalAlign: "top" }}>
+                          {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                ))}
               </thead>
               <tbody>
-                {table.rows.map((r, ri) => (
+                {grid.getRowModel().rows.map((r, ri) => (
                   <tr key={r.id} style={{ borderTop: rowSep, background: ri % 2 ? "#FCFBF8" : "#fff" }}>
-                    <td style={{ textAlign: "center" }}>
-                      {r.humanEdited && <span title="You edited this row — agents can’t overwrite it" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: C.ink }} />}
-                    </td>
-                    {cols.map((c) => (
-                      <td key={c.key}>
-                        <TableCell row={r} col={c} onSave={(data) => run(() => updateRowAction(table.id, r.id, data), onChanged)} />
+                    {r.getVisibleCells().map((cell) => (
+                      <td key={cell.id} style={cell.column.id.startsWith("__") ? { textAlign: "center" } : undefined}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
-                    <td style={{ textAlign: "center" }}>
-                      <button type="button" onClick={() => delRow(r.id)} title="Delete row" style={{ border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 14, padding: "6px 8px" }}>🗑</button>
-                    </td>
                   </tr>
                 ))}
                 {table.rows.length === 0 && (
