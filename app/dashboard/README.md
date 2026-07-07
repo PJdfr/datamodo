@@ -27,11 +27,15 @@ backend today are:
   what the table looked like then (added/changed rows tinted), with one-click
   **Restore** (`getSnapshotsAction` → `listSnapshotsFull`, diffed client-side).
   Hand edits mark a row protected (`dataset_rows.human_edited`), so agent data
-  arrives as **proposals** you review (`status='proposed'`) — new rows to add,
-  and changes that show "Yours vs the agent's" (old struck-through, new value
-  highlighted) when they touch a row you edited (Keep mine / Use theirs). A
-  "Simulate agent update" button demos the flow until the extraction pipeline
-  exists.
+  arrives as **proposals** you review (`status='proposed'`). Proposals are
+  reviewed **in chunks, never cell-by-cell**: everything produced in one run
+  (one email parsed, one sheet sync) shares a `batch_id` and is accepted or
+  rejected together — "Ledger, from *this email*, 3 changes: **Accept all /
+  Reject all**", expandable to the individual diffs (agent = `proposed_by`,
+  table = `dataset_id`, message = `source_item_id`, time = `created_at` are the
+  other lenses over the same batches). Conflicts still show "Yours vs the
+  agent's" (old struck-through, new highlighted) and auto-expand. A "Simulate
+  agent update" button demos the flow until the extraction pipeline exists.
 - **Excel export** — export a single table (`GET /api/datasets/[id]/export`) or
   many at once (`GET /api/datasets/export?ids=…`, one sheet per table) as
   `.xlsx`. We only export Excel — never CSV. Google Sheets / API export remain

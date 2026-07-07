@@ -78,6 +78,24 @@ export interface Proposal {
   currentData: Record<string, unknown> | null;
   /** True when it changes a row the human already edited (a real conflict). */
   conflict: boolean;
+  /** The batch this proposal belongs to — the chunk accepted/rejected together. */
+  batchId: string | null;
+  createdAt: string;
+  /** The message/email this was parsed from, if any (e.g. an email subject). */
+  sourceLabel: string | null;
+}
+
+/** A reviewable chunk: every proposal produced together in one run, grouped so
+ *  the user accepts/rejects the whole thing (not cell-by-cell). */
+export interface ChangeChunk {
+  batchId: string;
+  proposedBy: string;
+  createdAt: string;
+  sourceLabel: string | null;
+  proposals: Proposal[];
+  adds: number;
+  updates: number;
+  conflicts: number;
 }
 
 /** A dataset enriched with derived fields + its rows for the dashboard. */
