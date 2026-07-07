@@ -40,10 +40,12 @@ import {
   simulateAgentUpdateAction,
   acceptProposalAction,
   rejectProposalAction,
+  acceptBatchAction,
+  rejectBatchAction,
   updateComputeSettingsAction,
   type ActionResult,
 } from "./actions";
-import type { AgentRecord, DatasetColumn, DatasetRowRecord, DatasetView, Proposal, SnapshotFull } from "@/lib/datamodo/types";
+import type { AgentRecord, ChangeChunk, DatasetColumn, DatasetRowRecord, DatasetView, Proposal, SnapshotFull } from "@/lib/datamodo/types";
 import type { UserSettings } from "@/lib/datamodo/settings";
 import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
 
@@ -1647,6 +1649,75 @@ function SnapshotPreview({ snap, diff }: { snap: SnapshotFull; diff: SnapDiff | 
   );
 }
 
+// Group pending proposals into reviewable chunks — everything produced in one
+// run (one email parsed, one sheet sync) shares a batch and is accepted/rejected
+// together. Proposals without a batch (older ones) stand alone.
+function chunkProposals(proposals: Proposal[]): ChangeChunk[] {
+  const order: string[] = [];
+  const byKey = new Map<string, Proposal[]>();
+  for (const p of proposals) {
+    const key = p.batchId ?? `solo-${p.id}`;
+    if (!byKey.has(key)) { byKey.set(key, []); order.push(key); }
+    byKey.get(key)!.push(p);
+  }
+  return order.map((key) => {
+    const ps = byKey.get(key)!;
+    return {
+      batchId: ps[0].batchId ?? key,
+      proposedBy: ps[0].proposedBy,
+      createdAt: ps.reduce((min, p) => (p.createdAt < min ? p.createdAt : min), ps[0].createdAt),
+      sourceLabel: ps.find((p) => p.sourceLabel)?.sourceLabel ?? null,
+      proposals: ps,
+      adds: ps.filter((p) => p.kind === "add").length,
+      updates: ps.filter((p) => p.kind === "update").length,
+      conflicts: ps.filter((p) => p.conflict).length,
+    };
+  });
+}
+
+/** One reviewable chunk: a header describing the batch (who / from what / how
+ *  many changes) with Accept-all / Reject-all, and the individual changes below. */
+function ChangeChunkCard({ chunk, columns, onAcceptAll, onRejectAll, onAcceptOne, onRejectOne, pending }: {
+  chunk: ChangeChunk;
+  columns: DatasetColumn[];
+  onAcceptAll: () => void;
+  onRejectAll: () => void;
+  onAcceptOne: (id: string) => void;
+  onRejectOne: (id: string) => void;
+  pending: boolean;
+}) {
+  const [open, setOpen] = useState(chunk.conflicts > 0); // auto-expand conflicts
+  const parts: string[] = [];
+  if (chunk.adds) parts.push(`${chunk.adds} new ${chunk.adds === 1 ? "row" : "rows"}`);
+  if (chunk.updates) parts.push(`${chunk.updates} ${chunk.updates === 1 ? "update" : "updates"}`);
+  const from = chunk.sourceLabel ? `from “${chunk.sourceLabel}”` : "";
+  return (
+    <div style={{ border: `1px solid ${chunk.conflicts ? "#F3D6CB" : "#E7E0D2"}`, borderRadius: 13, background: chunk.conflicts ? "#FDF4F0" : "#FBF8F1", padding: "12px 14px", marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ width: 24, height: 24, borderRadius: "50%", background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{chunk.proposedBy.charAt(0).toUpperCase()}</span>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: 13.5, color: C.ink, fontWeight: 600 }}>{chunk.proposedBy} <span style={{ fontWeight: 400, color: "#6B655B" }}>{from}</span></div>
+          <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 1 }}>{parts.join(" · ") || "no changes"} · {relTime(chunk.createdAt)}{chunk.conflicts ? ` · ${chunk.conflicts} conflict${chunk.conflicts === 1 ? "" : "s"}` : ""}</div>
+        </div>
+        {chunk.conflicts > 0 && <span className="dm-mono" style={{ fontSize: 10, color: "#fff", background: C.accent, borderRadius: 999, padding: "2px 8px" }}>needs a decision</span>}
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 11, alignItems: "center", flexWrap: "wrap" }}>
+        <Hov onClick={pending ? undefined : onAcceptAll} base={{ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 9, padding: "7px 15px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} hover={{ background: C.accentPress }}>Accept all</Hov>
+        <Hov onClick={pending ? undefined : onRejectAll} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Reject all</Hov>
+        <Hov onClick={() => setOpen((v) => !v)} base={{ ...ghostBtn, marginLeft: "auto", border: "none", background: "none", color: "#8A8477" }} hover={{ color: C.ink }}>{open ? "Hide changes" : `Review ${chunk.proposals.length} ${chunk.proposals.length === 1 ? "change" : "changes"}`}</Hov>
+      </div>
+      {open && (
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          {chunk.proposals.map((p) => (
+            <ProposalCard key={p.id} p={p} columns={columns} pending={pending}
+              onAccept={() => onAcceptOne(p.id)} onReject={() => onRejectOne(p.id)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProposalCard({ p, columns, onAccept, onReject, pending }: { p: Proposal; columns: DatasetColumn[]; onAccept: () => void; onReject: () => void; pending: boolean }) {
   const label = showVal((p.currentData ?? p.data)[columns[0]?.key ?? ""]);
   const changed = p.kind === "update" && p.currentData
@@ -1741,13 +1812,15 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
 
       {panel === "review" && (
         <div style={{ marginBottom: 14 }}>
-          <div className="dm-mono" style={{ ...monoLabel, marginBottom: 8 }}>Changes waiting for you — agents never overwrite your edits</div>
+          <div className="dm-mono" style={{ ...monoLabel, marginBottom: 8 }}>Changes waiting for you — reviewed in chunks, never one cell at a time</div>
           {proposalCount === 0 ? (
-            <div className="dm-mono" style={{ fontSize: 12, color: "#A39B8B" }}>Nothing to review. When an agent has new data it lands here first.</div>
-          ) : table.proposals.map((p) => (
-            <ProposalCard key={p.id} p={p} columns={cols} pending={pending}
-              onAccept={() => run(() => acceptProposalAction(p.id), onChanged)}
-              onReject={() => run(() => rejectProposalAction(p.id), onChanged)}
+            <div className="dm-mono" style={{ fontSize: 12, color: "#A39B8B" }}>Nothing to review. When an agent or a synced sheet has new data it lands here first.</div>
+          ) : chunkProposals(table.proposals).map((chunk) => (
+            <ChangeChunkCard key={chunk.batchId} chunk={chunk} columns={cols} pending={pending}
+              onAcceptAll={() => run(() => acceptBatchAction(chunk.batchId), onChanged)}
+              onRejectAll={() => run(() => rejectBatchAction(chunk.batchId), onChanged)}
+              onAcceptOne={(id) => run(() => acceptProposalAction(id), onChanged)}
+              onRejectOne={(id) => run(() => rejectProposalAction(id), onChanged)}
             />
           ))}
         </div>

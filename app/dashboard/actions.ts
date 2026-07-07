@@ -6,6 +6,7 @@ import { createClient } from "@/utils/supabase/server";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { createAgent, deleteAgent, setAgentStatus, updateAgent } from "@/lib/datamodo/agents";
 import {
+  acceptBatch,
   acceptProposal,
   addColumn,
   checkpoint,
@@ -14,6 +15,7 @@ import {
   deleteRow,
   insertRow,
   listSnapshotsFull,
+  rejectBatch,
   rejectProposal,
   removeColumn,
   renameDataset,
@@ -310,6 +312,31 @@ export async function rejectProposalAction(proposalId: string): Promise<ActionRe
     return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message ?? "Failed to dismiss the change." };
+  }
+}
+
+export async function acceptBatchAction(batchId: string): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    const res = await acceptBatch(db, batchId);
+    if (res) await checkpoint(db, res.datasetId, res.summary, async () => {}, res.actor);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to accept the changes." };
+  }
+}
+
+export async function rejectBatchAction(batchId: string): Promise<ActionResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    await rejectBatch(db, batchId);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to dismiss the changes." };
   }
 }
 

@@ -21,6 +21,9 @@ type RawRow = {
   proposed_kind: string | null;
   target_row_id: string | null;
   proposed_by: string | null;
+  batch_id: string | null;
+  created_at: string;
+  source_item_id: string | null;
 };
 
 /** List datasets in an org, enriched with rows, version history, + proposals. */
@@ -42,11 +45,24 @@ export async function listDatasets(
   // Load every row for the org once (accepted rows + agent proposals).
   const { data: rowData, error: rowErr } = await db
     .from("dataset_rows")
-    .select("id, dataset_id, data, human_edited, status, proposed_kind, target_row_id, proposed_by")
+    .select("id, dataset_id, data, human_edited, status, proposed_kind, target_row_id, proposed_by, batch_id, created_at, source_item_id")
     .eq("org_id", orgId)
     .order("created_at", { ascending: true });
   if (rowErr) throw rowErr;
   const allRows = (rowData ?? []) as RawRow[];
+
+  // Label proposals with the message/email they were parsed from, when known.
+  const sourceIds = [...new Set(allRows.filter((r) => r.status === "proposed" && r.source_item_id).map((r) => r.source_item_id as string))];
+  const sourceLabels = new Map<string, string>();
+  if (sourceIds.length) {
+    const { data: items } = await db
+      .from("items")
+      .select("id, subject, sender")
+      .in("id", sourceIds);
+    for (const it of (items ?? []) as { id: string; subject: string | null; sender: string | null }[]) {
+      sourceLabels.set(it.id, it.subject?.trim() || it.sender?.trim() || "a message");
+    }
+  }
 
   const accepted = new Map<string, DatasetRowRecord[]>();
   const acceptedById = new Map<string, RawRow>();
@@ -90,6 +106,9 @@ export async function listDatasets(
         targetRowId: p.target_row_id,
         currentData: target?.data ?? null,
         conflict: !!target && target.human_edited,
+        batchId: p.batch_id,
+        createdAt: p.created_at,
+        sourceLabel: p.source_item_id ? sourceLabels.get(p.source_item_id) ?? null : null,
       };
     });
     return {
@@ -220,7 +239,21 @@ export async function restoreSnapshot(db: SupabaseClient, snapshotId: string): P
 // Agent proposals: agents suggest, humans decide
 // ---------------------------------------------------------------------------
 
-/** Queue agent-proposed rows/changes for the user to review. */
+type ProposalRow = {
+  id: string;
+  dataset_id: string;
+  data: Record<string, unknown>;
+  proposed_kind: string | null;
+  target_row_id: string | null;
+  proposed_by: string | null;
+};
+
+/**
+ * Queue agent-proposed rows/changes for the user to review. Everything proposed
+ * in one call shares a `batch_id` — the chunk the user later accepts/rejects as
+ * a unit. `sourceItemId` links the batch to the message/email it came from.
+ * Returns the batch id.
+ */
 export async function proposeAgentRows(
   db: SupabaseClient,
   orgId: string,
@@ -228,40 +261,84 @@ export async function proposeAgentRows(
   agentName: string,
   adds: Record<string, unknown>[],
   updates: { targetRowId: string; data: Record<string, unknown> }[],
-): Promise<void> {
+  opts: { sourceItemId?: string | null } = {},
+): Promise<string | null> {
+  if (!adds.length && !updates.length) return null;
+  const batchId = crypto.randomUUID();
+  const base = {
+    org_id: orgId,
+    dataset_id: datasetId,
+    status: "proposed" as const,
+    origin: "agent",
+    proposed_by: agentName,
+    batch_id: batchId,
+    source_item_id: opts.sourceItemId ?? null,
+  };
   const rows = [
-    ...adds.map((data) => ({ org_id: orgId, dataset_id: datasetId, data, status: "proposed" as const, origin: "agent", proposed_kind: "add", proposed_by: agentName })),
-    ...updates.map((u) => ({ org_id: orgId, dataset_id: datasetId, data: u.data, status: "proposed" as const, origin: "agent", proposed_kind: "update", target_row_id: u.targetRowId, proposed_by: agentName })),
+    ...adds.map((data) => ({ ...base, data, proposed_kind: "add" })),
+    ...updates.map((u) => ({ ...base, data: u.data, proposed_kind: "update", target_row_id: u.targetRowId })),
   ];
-  if (!rows.length) return;
   const { error } = await db.from("dataset_rows").insert(rows);
   if (error) throw error;
+  return batchId;
 }
 
-/** Apply a proposal: add the new row, or write the update onto its target row. */
-export async function acceptProposal(db: SupabaseClient, proposalId: string): Promise<{ datasetId: string; summary: string; actor: string } | null> {
-  const { data, error } = await db
-    .from("dataset_rows")
-    .select("id, dataset_id, data, proposed_kind, target_row_id, proposed_by")
-    .eq("id", proposalId)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) return null;
-  const p = data as { id: string; dataset_id: string; data: Record<string, unknown>; proposed_kind: string | null; target_row_id: string | null; proposed_by: string | null };
-  const actor = p.proposed_by ?? "An agent";
-
+/** Apply one proposal row: add the new row, or write the update onto its target. */
+async function applyProposalRow(db: SupabaseClient, p: ProposalRow): Promise<"add" | "update"> {
   if (p.proposed_kind === "update" && p.target_row_id) {
     await db.from("dataset_rows").update({ data: p.data, origin: "agent", human_edited: false }).eq("id", p.target_row_id);
     await db.from("dataset_rows").delete().eq("id", p.id);
-    return { datasetId: p.dataset_id, summary: `Applied ${actor}'s change`, actor };
+    return "update";
   }
-  // 'add': promote the proposal into an accepted row.
   await db.from("dataset_rows").update({ status: "accepted", proposed_kind: null, target_row_id: null }).eq("id", p.id);
-  return { datasetId: p.dataset_id, summary: `Added ${actor}'s row`, actor };
+  return "add";
+}
+
+const PROPOSAL_COLS = "id, dataset_id, data, proposed_kind, target_row_id, proposed_by";
+
+/** Apply a single proposal. */
+export async function acceptProposal(db: SupabaseClient, proposalId: string): Promise<{ datasetId: string; summary: string; actor: string } | null> {
+  const { data, error } = await db.from("dataset_rows").select(PROPOSAL_COLS).eq("id", proposalId).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const p = data as ProposalRow;
+  const actor = p.proposed_by ?? "An agent";
+  const kind = await applyProposalRow(db, p);
+  return { datasetId: p.dataset_id, summary: kind === "update" ? `Applied ${actor}'s change` : `Added ${actor}'s row`, actor };
 }
 
 export async function rejectProposal(db: SupabaseClient, proposalId: string): Promise<void> {
   const { error } = await db.from("dataset_rows").delete().eq("id", proposalId);
+  if (error) throw error;
+}
+
+/** Accept a whole chunk — every proposal in a batch — in one go. */
+export async function acceptBatch(db: SupabaseClient, batchId: string): Promise<{ datasetId: string; summary: string; actor: string } | null> {
+  const { data, error } = await db
+    .from("dataset_rows")
+    .select(PROPOSAL_COLS)
+    .eq("batch_id", batchId)
+    .eq("status", "proposed");
+  if (error) throw error;
+  const props = (data ?? []) as ProposalRow[];
+  if (!props.length) return null;
+
+  const actor = props[0].proposed_by ?? "An agent";
+  let adds = 0;
+  let updates = 0;
+  for (const p of props) {
+    const kind = await applyProposalRow(db, p);
+    if (kind === "update") updates++; else adds++;
+  }
+  const parts: string[] = [];
+  if (adds) parts.push(`${adds} row${adds === 1 ? "" : "s"} added`);
+  if (updates) parts.push(`${updates} change${updates === 1 ? "" : "s"} applied`);
+  return { datasetId: props[0].dataset_id, summary: `Accepted ${actor}'s update — ${parts.join(", ")}`, actor };
+}
+
+/** Reject (discard) a whole chunk. */
+export async function rejectBatch(db: SupabaseClient, batchId: string): Promise<void> {
+  const { error } = await db.from("dataset_rows").delete().eq("batch_id", batchId).eq("status", "proposed");
   if (error) throw error;
 }
 
