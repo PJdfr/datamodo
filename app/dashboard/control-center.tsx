@@ -14,6 +14,7 @@ import {
   createElement,
   Fragment,
   useMemo,
+  useRef,
   useState,
   useTransition,
   type CSSProperties,
@@ -599,7 +600,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
 
         <div className="cc-scroll" style={{ padding: "24px 26px", overflow: "auto", flex: 1 }}>
           {tab === "agents" && (populated ? <AgentsFull agents={uiAgents} suggestions={suggestions} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} dismiss={(id) => setDismissed((d) => [...d, id])} openModal={openModal} onManage={setManageAgentId} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
-          {tab === "data" && (uiTables.length || createTableOpen ? <DataFull tables={uiTables} onOpen={setOpenTableId} onCreate={() => setCreateTableOpen(true)} selected={selectedTables} toggleSelect={(id) => setSelectedTables((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])} /> : <DataEmpty openModal={() => setCreateTableOpen(true)} />)}
+          {tab === "data" && (uiTables.length || createTableOpen ? <DataFull tables={uiTables} onOpen={setOpenTableId} onCreate={() => setCreateTableOpen(true)} onImported={() => router.refresh()} selected={selectedTables} toggleSelect={(id) => setSelectedTables((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])} /> : <DataEmpty openModal={() => setCreateTableOpen(true)} />)}
           {tab === "search" && <SearchTab populated={populated} />}
         </div>
       </main>
@@ -899,10 +900,60 @@ function AgentsEmpty({ openModal, inbox }: { openModal: () => void; inbox: strin
 /* ================================================================== */
 /* DATA TAB                                                            */
 /* ================================================================== */
-function DataFull({ tables, onOpen, onCreate, selected, toggleSelect }: {
+type ImportDone = { mode: string; datasetId?: string; added?: number; changed?: number; rows?: number };
+
+/**
+ * Upload a spreadsheet to seed a new table, or to sync one (incoming rows land
+ * as reviewable proposals). v1 stand-in for the live Google Sheets pull.
+ */
+function ImportSheetButton({ datasetId, label, style, hoverStyle, onDone }: {
+  datasetId?: string;
+  label: ReactNode;
+  style: CSSProperties;
+  hoverStyle?: CSSProperties;
+  onDone: (r: ImportDone) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      if (datasetId) fd.append("datasetId", datasetId);
+      const res = await fetch("/api/datasets/import", { method: "POST", body: fd });
+      const data = (await res.json()) as ImportDone & { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) { setErr(data.error ?? "Import failed."); return; }
+      onDone(data);
+    } catch {
+      setErr("Import failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <input ref={inputRef} type="file" accept=".xlsx" onChange={onFile} style={{ display: "none" }} />
+      <Hov onClick={busy ? undefined : () => inputRef.current?.click()} base={style} hover={hoverStyle}>
+        {busy ? "Importing…" : label}
+      </Hov>
+      {err && <span className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{err}</span>}
+    </>
+  );
+}
+
+function DataFull({ tables, onOpen, onCreate, onImported, selected, toggleSelect }: {
   tables: TableInfo[];
   onOpen: (id: string) => void;
   onCreate: () => void;
+  onImported: () => void;
   selected: string[];
   toggleSelect: (id: string) => void;
 }) {
@@ -925,6 +976,12 @@ function DataFull({ tables, onOpen, onCreate, selected, toggleSelect }: {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1E8E4E" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 9v12" /></svg>
             Export all (Excel)
           </Hov>
+          <ImportSheetButton
+            label={<><span style={{ fontSize: 14, lineHeight: 1 }}>↥</span> Import sheet</>}
+            style={{ ...exportBtn, display: "inline-flex", alignItems: "center", gap: 6 }}
+            hoverStyle={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}
+            onDone={onImported}
+          />
           <Hov onClick={onCreate} base={{ ...exportBtn, background: C.ink, color: "#F1ECE1", border: `1px solid ${C.ink}` }} hover={{ background: "#322D25" }}>
             <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> New table
           </Hov>
@@ -1545,7 +1602,14 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
         <Hov onClick={rename} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Rename</Hov>
         <Hov onClick={() => setPanel((p) => p === "history" ? "none" : "history")} base={panel === "history" ? { ...ghostBtn, background: "#EFE9DC" } : ghostBtn} hover={{ background: "#FBF8F1" }}>History ({table.history.length})</Hov>
         <Hov onClick={() => setPanel((p) => p === "review" ? "none" : "review")} base={proposalCount ? { ...ghostBtn, background: "#FDF1EC", borderColor: "#F3D6CB", color: C.accent } : ghostBtn} hover={{ background: "#FBF8F1" }}>Review changes{proposalCount ? ` (${proposalCount})` : ""}</Hov>
-        <Hov onClick={() => run(() => simulateAgentUpdateAction(table.id), () => { setPanel("review"); onChanged(); })} base={{ ...ghostBtn, marginLeft: "auto", borderStyle: "dashed" }} hover={{ background: "#FBF8F1" }} title="Demo: pretend an agent sent new data">⚡ Simulate agent update</Hov>
+        <ImportSheetButton
+          datasetId={table.id}
+          label="⇅ Sync a sheet"
+          style={{ ...ghostBtn, marginLeft: "auto" }}
+          hoverStyle={{ background: "#FBF8F1" }}
+          onDone={() => { setPanel("review"); onChanged(); }}
+        />
+        <Hov onClick={() => run(() => simulateAgentUpdateAction(table.id), () => { setPanel("review"); onChanged(); })} base={{ ...ghostBtn, borderStyle: "dashed" }} hover={{ background: "#FBF8F1" }} title="Demo: pretend an agent sent new data">⚡ Simulate agent update</Hov>
       </div>
 
       {panel === "history" && <HistoryPanel history={table.history} onRestore={(id) => run(() => restoreSnapshotAction(id), () => { setPanel("none"); onChanged(); })} pending={pending} />}

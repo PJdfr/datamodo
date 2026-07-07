@@ -31,6 +31,12 @@ backend today are:
   many at once (`GET /api/datasets/export?ids=…`, one sheet per table) as
   `.xlsx`. We only export Excel — never CSV. Google Sheets / API export remain
   stubs.
+- **Spreadsheet sync** — "Import sheet" (Data tab) seeds a new table from an
+  uploaded `.xlsx`; "Sync a sheet" (table editor) pulls a sheet into an existing
+  table, where incoming rows become **proposals** in the same review/conflict UI
+  as agents (`POST /api/datasets/import`, `lib/datamodo/sheets.ts`,
+  `spreadsheet.ts`, `sheet_links` table). v1 is upload-driven; a live Google
+  Sheets adapter is the next step (see root `README.md`).
 
 The remaining surfaces are still driven by local React state / hardcoded
 fixtures in [`control-center.tsx`](./control-center.tsx): the **suggestions /

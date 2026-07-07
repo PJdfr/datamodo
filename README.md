@@ -46,6 +46,14 @@ channels and propose structured rows; you stay in control of every table.
   add, plus "Yours vs the agent's" conflict resolution when a change touches a
   row you edited (`dataset_snapshots`, `dataset_rows.human_edited`,
   `status='proposed'`). A **Simulate agent update** button demos the flow.
+- **Sync tables with your spreadsheets** — import an `.xlsx` to seed a new
+  table (columns + rows inferred from the sheet), or **sync** a sheet into an
+  existing table: incoming rows arrive as **reviewable proposals**, so a change
+  to a row you hand-edited becomes a "Yours vs the sheet's" conflict — never a
+  silent overwrite. Reuses the versioning/proposal model above. A `sheet_links`
+  row records the connection (`lib/datamodo/sheets.ts`,
+  `lib/datamodo/spreadsheet.ts`, `POST /api/datasets/import`). *v1 is driven by
+  file upload; the link is Google-Sheets-ready — see the roadmap.*
 - **Local demo data** — the seeded account **user@example.com** (password
   `password`) always has realistic agents/datasets/rows (`supabase/seed.sql`).
 
@@ -58,7 +66,6 @@ channels and propose structured rows; you stay in control of every table.
 - **Relationship graph / auto-linking** — exact-match entity resolution across
   tables (people, companies, invoices).
 - **Realtime** — live updates via Supabase Realtime.
-- **Spreadsheet import** — upload `.xlsx` / `.csv` into a new table.
 
 **Needs your keys / accounts / DNS:**
 
@@ -74,6 +81,21 @@ channels and propose structured rows; you stay in control of every table.
   needs an LLM key. (Keyword search is buildable without one.)
 - **BYOK + billing + usage metering** — Stripe keys + encrypted key storage.
 - **Google Sheets / API export** — currently stubs.
+
+**Sync / link roadmap (building on today's spreadsheet sync):**
+
+- **Live Google Sheets link** — replace the manual upload with a real Google
+  OAuth + Sheets API adapter that pulls a linked sheet on a schedule / webhook.
+  The reconcile + proposal path already exists (`syncSnapshotAsProposals`); a
+  live adapter just feeds it a fresh snapshot, so conflicts still land in the
+  same "ask me" review. Needs a Google client ID/secret + token storage.
+- **Two-way sync (push back)** — write accepted Datamodo edits back to the
+  sheet. Decisions still open: authority per table/column, and row identity
+  across syncs (v1 matches on the first column; a hidden Datamodo key column is
+  the robust next step). Scope is **Google Sheets only** for now — no raw
+  databases yet.
+- **Deletions & schema drift** — v1 never deletes or renames on either side;
+  propagating removals and column changes is future work.
 
 See [`app/dashboard/README.md`](app/dashboard/README.md) for the detailed
 front-end ↔ backend map and the risks/decisions behind each item.
@@ -114,7 +136,7 @@ Environment variables live in `.env.local` (see `.env.example`):
 | Path | What's there |
 | --- | --- |
 | `app/dashboard/` | The signed-in Control Center (agents, data tables, search) + its Server Actions |
-| `lib/datamodo/` | Typed data-access for agents, datasets, rows, versioning, and Excel |
+| `lib/datamodo/` | Typed data-access for agents, datasets, rows, versioning, Excel, and sheet sync (`sheets.ts`, `spreadsheet.ts`) |
 | `lib/ingest/` | The channel-agnostic capture core |
-| `app/api/` | `ingest` (capture) and `datasets/*/export` (Excel) route handlers |
+| `app/api/` | `ingest` (capture), `datasets/*/export` (Excel), and `datasets/import` (spreadsheet sync) route handlers |
 | `supabase/migrations/` | Schema + RLS; `supabase/seed.sql` seeds the demo account |
