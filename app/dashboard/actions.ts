@@ -13,6 +13,7 @@ import {
   deleteDataset,
   deleteRow,
   insertRow,
+  listSnapshotsFull,
   rejectProposal,
   removeColumn,
   renameDataset,
@@ -23,7 +24,7 @@ import {
 } from "@/lib/datamodo/datasets";
 import { getSettings, updateComputeSettings, countAgents } from "@/lib/datamodo/settings";
 import { planLimits, type AiProvider, type ComputeMode } from "@/lib/datamodo/plans";
-import type { DatasetColumn, NewAgentInput } from "@/lib/datamodo/types";
+import type { DatasetColumn, NewAgentInput, SnapshotFull } from "@/lib/datamodo/types";
 
 // Server Actions are reachable via direct POST, so every one re-checks auth and
 // resolves the org server-side — never trusting an org id from the client.
@@ -246,6 +247,21 @@ export async function deleteRowAction(datasetId: string, rowId: string): Promise
 // ---------------------------------------------------------------------------
 // Versioning: restore + agent proposals
 // ---------------------------------------------------------------------------
+
+export type SnapshotsResult =
+  | { ok: true; snapshots: SnapshotFull[] }
+  | { ok: false; error: string };
+
+export async function getSnapshotsAction(datasetId: string): Promise<SnapshotsResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    const snapshots = await listSnapshotsFull(db, datasetId);
+    return { ok: true, snapshots };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to load history." };
+  }
+}
 
 export async function restoreSnapshotAction(snapshotId: string): Promise<ActionResult> {
   try {
