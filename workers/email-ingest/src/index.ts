@@ -2,7 +2,7 @@ import PostalMime from "postal-mime";
 
 // Cloudflare Email Worker — the inbound-email adapter for Datamodo.
 //
-// Cloudflare Email Routing catches every message for the datamodo.email
+// Cloudflare Email Routing catches every message for the datamodo.dev
 // catch-all and invokes this Worker's `email()` handler. We parse the raw MIME,
 // gate on authentication, normalize into the app's provider-independent
 // IngestEnvelope, and POST it to /api/ingest with the shared secret. The app's
@@ -55,7 +55,7 @@ export default {
     const envelope = {
       channel: "email" as const,
       captureMode: "active" as const,
-      recipient: message.to, // the <token>@datamodo.email we route on
+      recipient: message.to, // the <token>@datamodo.dev we route on
       externalId: parsed.messageId ?? message.headers.get("message-id") ?? undefined,
       externalAccount: message.to,
       sender: parsed.from?.address ?? message.from,

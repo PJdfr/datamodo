@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Per-user inbound email addresses. Every user gets a unique
-// `<token>@datamodo.email` address; anything Cloudflare Email Routing catches
+// `<token>@datamodo.dev` address; anything Cloudflare Email Routing catches
 // for it is POSTed to /api/ingest, where resolveTarget() matches the recipient
 // against forwarding_addresses to attribute the message to this user. Minting an
 // address is a plain DB insert — the domain-wide catch-all means there is no
@@ -10,7 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** The inbound domain the Cloudflare catch-all is configured for. */
 export function inboundEmailDomain(): string {
-  return process.env.INBOUND_EMAIL_DOMAIN?.trim() || "datamodo.email";
+  return process.env.INBOUND_EMAIL_DOMAIN?.trim() || "datamodo.dev";
 }
 
 /** A short, url-safe, lowercase local part (~80 bits of entropy). */
