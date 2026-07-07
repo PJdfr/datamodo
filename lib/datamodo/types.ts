@@ -60,6 +60,13 @@ export interface SnapshotMeta {
   createdAt: string;
 }
 
+/** A version-history entry WITH its full point-in-time contents (for
+ *  preview + comparing versions). */
+export interface SnapshotFull extends SnapshotMeta {
+  columns: DatasetColumn[];
+  rows: { data: Record<string, unknown> }[];
+}
+
 /** A pending change proposed by an agent, awaiting the user's review. */
 export interface Proposal {
   id: string;

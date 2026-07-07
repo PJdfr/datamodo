@@ -13,6 +13,7 @@
 import {
   createElement,
   Fragment,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -35,13 +36,14 @@ import {
   updateRowAction,
   deleteRowAction,
   restoreSnapshotAction,
+  getSnapshotsAction,
   simulateAgentUpdateAction,
   acceptProposalAction,
   rejectProposalAction,
   updateComputeSettingsAction,
   type ActionResult,
 } from "./actions";
-import type { AgentRecord, DatasetColumn, DatasetRowRecord, DatasetView, Proposal, SnapshotMeta } from "@/lib/datamodo/types";
+import type { AgentRecord, DatasetColumn, DatasetRowRecord, DatasetView, Proposal, SnapshotFull } from "@/lib/datamodo/types";
 import type { UserSettings } from "@/lib/datamodo/settings";
 import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
 
@@ -1495,29 +1497,152 @@ function TableCell({ row, col, onSave }: { row: DatasetRowRecord; col: DatasetCo
 
 const showVal = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v));
 
-function HistoryPanel({ history, onRestore, pending }: { history: SnapshotMeta[]; onRestore: (id: string) => void; pending: boolean }) {
+// --- Version diffing: compare two snapshots by their first-column identity. ---
+function rowIdentity(data: Record<string, unknown>, keyCol: string | undefined): string | null {
+  const v = keyCol ? data?.[keyCol] : undefined;
+  return v === null || v === undefined || String(v).trim() === "" ? null : String(v).trim().toLowerCase();
+}
+type SnapDiff = { added: Set<number>; changed: Set<number>; removed: number };
+function diffSnapshots(
+  prev: { data: Record<string, unknown> }[],
+  cur: { data: Record<string, unknown> }[],
+  keyCol: string | undefined,
+): SnapDiff {
+  const prevByKey = new Map<string, string>();
+  const prevJson = new Set<string>();
+  for (const r of prev) {
+    const j = JSON.stringify(r.data);
+    prevJson.add(j);
+    const k = rowIdentity(r.data, keyCol);
+    if (k) prevByKey.set(k, j);
+  }
+  const curJson = new Set<string>();
+  const curKeys = new Set<string>();
+  const added = new Set<number>();
+  const changed = new Set<number>();
+  cur.forEach((r, idx) => {
+    const j = JSON.stringify(r.data);
+    curJson.add(j);
+    const k = rowIdentity(r.data, keyCol);
+    if (k) {
+      curKeys.add(k);
+      if (!prevByKey.has(k)) added.add(idx);
+      else if (prevByKey.get(k) !== j) changed.add(idx);
+    } else if (!prevJson.has(j)) {
+      added.add(idx);
+    }
+  });
+  let removed = 0;
+  for (const r of prev) {
+    const k = rowIdentity(r.data, keyCol);
+    if (k) { if (!curKeys.has(k)) removed++; }
+    else if (!curJson.has(JSON.stringify(r.data))) removed++;
+  }
+  return { added, changed, removed };
+}
+
+/** Rich version-history panel: a timeline with per-version change counts, an
+ *  inline preview of what the table looked like, and one-click restore. */
+function HistoryPanel({ datasetId, onRestore, pending }: { datasetId: string; onRestore: (id: string) => void; pending: boolean }) {
+  const [snaps, setSnaps] = useState<SnapshotFull[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    getSnapshotsAction(datasetId).then((r) => {
+      if (!live) return;
+      if (r.ok) setSnaps(r.snapshots); else setErr(r.error);
+    });
+    return () => { live = false; };
+  }, [datasetId]);
+
   return (
     <div style={{ marginBottom: 14, border: "1px solid #E7E0D2", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
-      <div className="dm-mono" style={{ ...monoLabel, padding: "10px 14px", borderBottom: "1px solid #F1EDE4", margin: 0 }}>Version history — rewind to any point</div>
-      {history.length === 0 ? (
-        <div className="dm-mono" style={{ fontSize: 12, color: "#A39B8B", padding: "14px" }}>No versions yet. Every change you or an agent makes is saved here.</div>
-      ) : (
-        <div style={{ maxHeight: 220, overflow: "auto" }}>
-          {history.map((h, i) => {
-            const you = h.actor === "You";
+      <div className="dm-mono" style={{ ...monoLabel, padding: "10px 14px", borderBottom: "1px solid #F1EDE4", margin: 0 }}>Version history — preview, compare & rewind</div>
+      {err && <div className="dm-mono" style={{ fontSize: 12, color: C.accent, padding: "14px" }}>{err}</div>}
+      {!snaps && !err && <div className="dm-mono" style={{ fontSize: 12, color: "#A39B8B", padding: "14px" }}>Loading history…</div>}
+      {snaps && snaps.length === 0 && <div className="dm-mono" style={{ fontSize: 12, color: "#A39B8B", padding: "14px" }}>No versions yet. Every change you or an agent makes is saved here.</div>}
+      {snaps && snaps.length > 0 && (
+        <div style={{ maxHeight: 340, overflow: "auto" }}>
+          {snaps.map((s, i) => {
+            const you = s.actor === "You";
+            const prev = snaps[i + 1];                       // the older version
+            const keyCol = s.columns[0]?.key;
+            const d = prev ? diffSnapshots(prev.rows, s.rows, keyCol) : null;
+            const isOpen = openId === s.id;
+            const dot = you ? C.ink : C.accent;
             return (
-              <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderTop: i === 0 ? "none" : "1px solid #F5F1E8" }}>
-                <span style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, background: you ? C.ink : C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{you ? "Y" : h.actor.charAt(0).toUpperCase()}</span>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13, color: "#3A352C" }}>{h.summary}</div>
-                  <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>{you ? "You" : h.actor} · {relTime(h.createdAt)}{i === 0 ? " · current" : ""}</div>
+              <div key={s.id} style={{ borderTop: i === 0 ? "none" : "1px solid #F5F1E8" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "11px 14px" }}>
+                  {/* timeline rail */}
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", flexShrink: 0 }}>
+                    <span style={{ width: 22, height: 22, borderRadius: "50%", background: dot, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{you ? "Y" : s.actor.charAt(0).toUpperCase()}</span>
+                    {i !== snaps.length - 1 && <span style={{ flex: 1, width: 2, background: "#EDE7DA", marginTop: 2 }} />}
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 13, color: "#3A352C", fontWeight: 500 }}>{s.summary}</span>
+                      {i === 0 && <span className="dm-mono" style={{ fontSize: 9.5, color: C.green, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Current</span>}
+                    </div>
+                    <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 2 }}>{you ? "You" : s.actor} · {relTime(s.createdAt)} · {s.rows.length} {s.rows.length === 1 ? "row" : "rows"}</div>
+                    {d && (d.added.size || d.changed.size || d.removed) ? (
+                      <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                        {d.added.size > 0 && <DiffBadge color={C.green} bg="#EAF4EC" text={`+${d.added.size} added`} />}
+                        {d.changed.size > 0 && <DiffBadge color={C.gold} bg="#F6F0E0" text={`${d.changed.size} changed`} />}
+                        {d.removed > 0 && <DiffBadge color={C.accent} bg="#FBE9E3" text={`−${d.removed} removed`} />}
+                      </div>
+                    ) : null}
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <Hov onClick={() => setOpenId(isOpen ? null : s.id)} base={{ ...ghostBtn, padding: "4px 10px", fontSize: 11.5 }} hover={{ background: "#FBF8F1" }}>{isOpen ? "Hide" : "Preview"}</Hov>
+                      {i !== 0 && <Hov onClick={pending ? undefined : () => { if (confirm("Rewind the table to this version? Your current rows are saved to history first.")) onRestore(s.id); }} base={{ ...ghostBtn, padding: "4px 10px", fontSize: 11.5 }} hover={{ background: "#FBF8F1" }}>Restore</Hov>}
+                    </div>
+                    {isOpen && <SnapshotPreview snap={s} diff={d} />}
+                  </div>
                 </div>
-                {i !== 0 && <Hov onClick={pending ? undefined : () => { if (confirm("Rewind the table to this version? Your current rows are saved to history first.")) onRestore(h.id); }} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Restore</Hov>}
               </div>
             );
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function DiffBadge({ color, bg, text }: { color: string; bg: string; text: string }) {
+  return <span className="dm-mono" style={{ fontSize: 10, fontWeight: 600, color, background: bg, borderRadius: 999, padding: "2px 8px" }}>{text}</span>;
+}
+
+/** Inline table showing exactly what a version contained; rows that were added
+ *  or changed since the previous version are tinted so the diff is visible. */
+function SnapshotPreview({ snap, diff }: { snap: SnapshotFull; diff: SnapDiff | null }) {
+  const cols = snap.columns;
+  if (cols.length === 0) return <div className="dm-mono" style={{ fontSize: 11.5, color: "#A39B8B", marginTop: 8 }}>No columns in this version.</div>;
+  const cellBorder = "1px solid #F1EDE4";
+  return (
+    <div style={{ marginTop: 10, border: "1px solid #EFE9DC", borderRadius: 9, overflow: "auto", maxHeight: 220 }}>
+      <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
+        <thead>
+          <tr style={{ background: "#FAF6EE" }}>
+            {cols.map((c) => <th key={c.key} style={{ textAlign: "left", padding: "6px 9px", borderRight: cellBorder, borderBottom: cellBorder, color: "#7A7367", fontWeight: 600, whiteSpace: "nowrap" }}>{c.label}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {snap.rows.length === 0 && <tr><td colSpan={cols.length} className="dm-mono" style={{ padding: "10px", color: "#A39B8B", textAlign: "center" }}>Empty in this version.</td></tr>}
+          {snap.rows.map((r, idx) => {
+            const added = diff?.added.has(idx);
+            const changed = diff?.changed.has(idx);
+            const bg = added ? "#EAF4EC" : changed ? "#F9F4E7" : idx % 2 ? "#FCFAF4" : "#fff";
+            return (
+              <tr key={idx} style={{ background: bg }}>
+                {cols.map((c) => (
+                  <td key={c.key} style={{ padding: "6px 9px", borderRight: cellBorder, borderTop: cellBorder, color: "#3A352C", whiteSpace: "nowrap" }}>{showVal(r.data?.[c.key])}</td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -1542,8 +1667,8 @@ function ProposalCard({ p, columns, onAccept, onReject, pending }: { p: Proposal
         {changed.map((c) => (
           <Fragment key={c.key}>
             <span style={{ color: "#8A8477" }}>{c.label}</span>
-            {p.kind === "update" && p.currentData && <span style={{ color: "#3A352C" }}>{showVal(p.currentData[c.key])}</span>}
-            <span style={{ color: p.conflict ? C.accent : "#3A352C", fontWeight: p.conflict ? 600 : 400 }}>{showVal(p.data[c.key])}</span>
+            {p.kind === "update" && p.currentData && <span style={{ color: "#B44536", textDecoration: "line-through" }}>{showVal(p.currentData[c.key])}</span>}
+            <span style={{ color: p.conflict ? C.accent : C.green, fontWeight: 600 }}>{showVal(p.data[c.key])}</span>
           </Fragment>
         ))}
       </div>
@@ -1612,7 +1737,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
         <Hov onClick={() => run(() => simulateAgentUpdateAction(table.id), () => { setPanel("review"); onChanged(); })} base={{ ...ghostBtn, borderStyle: "dashed" }} hover={{ background: "#FBF8F1" }} title="Demo: pretend an agent sent new data">⚡ Simulate agent update</Hov>
       </div>
 
-      {panel === "history" && <HistoryPanel history={table.history} onRestore={(id) => run(() => restoreSnapshotAction(id), () => { setPanel("none"); onChanged(); })} pending={pending} />}
+      {panel === "history" && <HistoryPanel datasetId={table.id} onRestore={(id) => run(() => restoreSnapshotAction(id), () => { setPanel("none"); onChanged(); })} pending={pending} />}
 
       {panel === "review" && (
         <div style={{ marginBottom: 14 }}>

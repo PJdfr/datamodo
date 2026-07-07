@@ -5,6 +5,7 @@ import type {
   DatasetRowRecord,
   DatasetView,
   Proposal,
+  SnapshotFull,
   SnapshotMeta,
 } from "./types";
 
@@ -156,6 +157,35 @@ export async function checkpoint(
   await ensureBaseline(db, datasetId);
   await apply();
   await snapshotDataset(db, datasetId, actor, summary);
+}
+
+/** Full version history for a table (newest first) with each version's rows +
+ *  columns, so the UI can preview a version and diff it against another. */
+export async function listSnapshotsFull(
+  db: SupabaseClient,
+  datasetId: string,
+): Promise<SnapshotFull[]> {
+  const { data, error } = await db
+    .from("dataset_snapshots")
+    .select("id, actor, summary, created_at, columns, rows")
+    .eq("dataset_id", datasetId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return ((data ?? []) as {
+    id: string;
+    actor: string;
+    summary: string;
+    created_at: string;
+    columns: DatasetColumn[];
+    rows: { data: Record<string, unknown> }[];
+  }[]).map((s) => ({
+    id: s.id,
+    actor: s.actor,
+    summary: s.summary,
+    createdAt: s.created_at,
+    columns: Array.isArray(s.columns) ? s.columns : [],
+    rows: Array.isArray(s.rows) ? s.rows : [],
+  }));
 }
 
 /** Rewind a table to a saved version (its rows + columns), keeping proposals. */
