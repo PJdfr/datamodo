@@ -29,6 +29,8 @@ import {
 } from "@/lib/datamodo/datasets";
 import { createRelation, deleteRelation } from "@/lib/datamodo/relations";
 import { regenerateInbox } from "@/lib/datamodo/inbox";
+import { createChannelLinkCode } from "@/lib/datamodo/channels";
+import type { IngestChannel } from "@/lib/ingest/types";
 import { getSettings, updateComputeSettings, countAgents } from "@/lib/datamodo/settings";
 import { planLimits, type AiProvider, type ComputeMode } from "@/lib/datamodo/plans";
 import type { DatasetColumn, DatasetRowRecord, NewAgentInput, SnapshotFull } from "@/lib/datamodo/types";
@@ -444,6 +446,27 @@ export async function regenerateInboxAction(): Promise<ActionResult & { address?
     return { ok: true, address };
   } catch (e) {
     return { ok: false, error: (e as Error).message ?? "Failed to regenerate inbox." };
+  }
+}
+
+// Messaging channels share one bot, so the user proves ownership of their sender
+// identity once by sending this short code to the bot (see lib/datamodo/channels.ts).
+const LINKABLE_CHANNELS: IngestChannel[] = ["whatsapp", "slack", "teams"];
+
+export async function createChannelLinkCodeAction(
+  channel: string,
+): Promise<ActionResult & { code?: string; expiresAt?: string }> {
+  try {
+    const { db, user, org } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    if (!org) return { ok: false, error: "No organization found." };
+    if (!LINKABLE_CHANNELS.includes(channel as IngestChannel)) {
+      return { ok: false, error: "That channel doesn't use a link code." };
+    }
+    const { code, expiresAt } = await createChannelLinkCode(db, org.id, user.id, channel as IngestChannel);
+    return { ok: true, code, expiresAt };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to create a link code." };
   }
 }
 

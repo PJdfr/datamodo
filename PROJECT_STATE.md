@@ -12,6 +12,15 @@
 > Last updated: 2026-07-08
 
 ## Recent changes
+- **2026-07-09** — **Connect-a-channel UI built** (surfaces the identify-once flow).
+  [`app/dashboard/connections.tsx`](app/dashboard/connections.tsx) `ConnectionsModal`
+  (opened from a new topbar "Connect" button): shows the email inbox address
+  (copyable, "live") + WhatsApp/Slack/Teams rows with a "Get link code" button
+  that mints + displays a single-use code with per-channel instructions. Backed by
+  `createChannelLinkCodeAction` ([actions.ts](app/dashboard/actions.ts)) →
+  `createChannelLinkCode` (runs on the user's RLS client). Typechecks + compiles;
+  bot handle/number placeholders until providers are configured; not yet rendered
+  in-browser (needs login).
 - **2026-07-09** — **Dashboard UI consistency pass** (fixed drift vs shipped backend):
   channel catalog now offers **Teams** (real adapter) and drops **Telegram** (no
   adapter) — `ui.tsx` LOGO/CH_NAMES + new `public/logos/microsoft-teams.svg`;

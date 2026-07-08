@@ -65,6 +65,7 @@ import {
 } from "./ui";
 import { VersioningTab } from "./versioning";
 import { ReviewStudio } from "./review-studio";
+import { ConnectionsModal } from "./connections";
 
 /* ================================================================== */
 /* Component                                                           */
@@ -165,6 +166,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const [manageAgentId, setManageAgentId] = useState<string | null>(null);
   const [openTableId, setOpenTableId] = useState<string | null>(null);
   const [createTableOpen, setCreateTableOpen] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
   const manageAgent = agents.find((a) => a.id === manageAgentId) ?? null;
   const openTable = datasets.find((d) => d.id === openTableId) ?? null;
@@ -342,7 +344,11 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
             <div className="dm-display" style={{ fontWeight: 700, fontSize: 21, letterSpacing: "-0.025em", lineHeight: 1.1 }}>{titles[tab].t}</div>
             <div style={{ fontSize: 13, color: "#8A8477", marginTop: 2 }}>{titles[tab].sub}</div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginLeft: "auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: "auto" }}>
+            <Hov onClick={() => setConnectionsOpen(true)} base={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 500, color: "#3A352C", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px", cursor: "pointer", fontFamily: "inherit" }} hover={{ background: "#FBF8F1" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8" /></svg>
+              Connect
+            </Hov>
             <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#6B665B", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px" }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.green }} />{inbox}
             </div>
@@ -434,6 +440,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           onSaved={() => { setSettingsOpen(false); router.refresh(); }}
         />
       )}
+      {connectionsOpen && <ConnectionsModal inbox={inbox} onClose={() => setConnectionsOpen(false)} />}
     </div>
   );
 }
