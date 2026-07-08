@@ -166,7 +166,7 @@ export async function resolveEntity(
   // with a confidence. (Only runs when blocking surfaced candidates.)
   const verdict = candidates.length
     ? await adjudicateMatch(e, candidates)
-    : { matchId: null as string | null, confidence: 0 };
+    : { matchId: null as string | null, confidence: 0, reason: "" };
 
   // High confidence → resolve to the canonical entity now, logged for audit.
   if (verdict.matchId && verdict.confidence >= AUTO_MERGE) {
@@ -176,7 +176,7 @@ export async function resolveEntity(
       targetId: verdict.matchId,
       confidence: verdict.confidence,
       status: "accepted",
-      detail: { auto: true, parsedLabel: e.label },
+      detail: { auto: true, parsedLabel: e.label, reason: verdict.reason },
     });
     return { id: verdict.matchId, created: false };
   }
@@ -205,7 +205,7 @@ export async function resolveEntity(
       targetId: verdict.matchId,
       confidence: verdict.confidence,
       status: "pending",
-      detail: { parsedLabel: e.label },
+      detail: { parsedLabel: e.label, reason: verdict.reason },
     });
   }
   return { id: created.id, created: true };
@@ -225,7 +225,7 @@ export interface MatchCandidate {
 export async function adjudicateMatch(
   e: ExtractedEntity,
   candidates: MatchCandidate[],
-): Promise<{ matchId: string | null; confidence: number }> {
+): Promise<{ matchId: string | null; confidence: number; reason: string }> {
   const llm = getLlmProvider();
   const list = candidates.map((c) => `- id=${c.id} label="${c.canonical_label}"`).join("\n");
   const system =
@@ -233,13 +233,13 @@ export async function adjudicateMatch(
     "as one of several existing candidates. Account for abbreviations, legal suffixes " +
     "(Inc/LLC/Group/Ltd), and common name variations, but do NOT merge genuinely " +
     "different organizations that merely share a word. Respond with ONLY JSON: " +
-    '{"matchId": <candidate id string or null>, "confidence": <0..1>}.';
+    '{"matchId": <candidate id string or null>, "confidence": <0..1>, "reason": "<one short sentence>"}.';
   const user =
     `New entity: kind="${e.kind}", label="${e.label}"` +
     (e.naturalKeys && Object.keys(e.naturalKeys).length ? `, keys=${JSON.stringify(e.naturalKeys)}` : "") +
-    `\nExisting candidates:\n${list}\n\nWhich candidate id (if any) is the same real-world ${e.kind}?`;
+    `\nExisting candidates:\n${list}\n\nWhich candidate id (if any) is the same real-world ${e.kind}, and why?`;
   try {
-    const r = await llm.chatJSON<{ matchId: string | null; confidence: number }>({
+    const r = await llm.chatJSON<{ matchId: string | null; confidence: number; reason?: string }>({
       model: llm.models.extract,
       system,
       user,
@@ -247,9 +247,13 @@ export async function adjudicateMatch(
       temperature: 0,
     });
     const matchId = r.matchId && candidates.some((c) => c.id === r.matchId) ? r.matchId : null;
-    return { matchId, confidence: typeof r.confidence === "number" ? r.confidence : 0 };
+    return {
+      matchId,
+      confidence: typeof r.confidence === "number" ? r.confidence : 0,
+      reason: (r.reason ?? "").toString().slice(0, 240),
+    };
   } catch {
-    return { matchId: null, confidence: 0 };
+    return { matchId: null, confidence: 0, reason: "" };
   }
 }
 
@@ -314,6 +318,26 @@ async function createConflictReview(
     old_fact_id: args.oldId,
     new_fact_id: args.newId,
     detail: { predicate: args.predicate },
+  });
+}
+
+/** Surface a low-confidence extraction for the user to confirm ("did we
+ *  understand this message?"). High-confidence extractions file silently. */
+export async function createExtractionReview(
+  admin: SupabaseClient,
+  orgId: string,
+  ownerUserId: string | null,
+  args: { itemId: string; snippet: string; confidence: number; factCount: number },
+): Promise<void> {
+  await admin.from("knowledge_reviews").insert({
+    org_id: orgId,
+    owner_user_id: ownerUserId,
+    kind: "extraction",
+    status: "pending",
+    confidence: args.confidence,
+    impact: args.factCount,
+    item_id: args.itemId,
+    detail: { snippet: args.snippet.slice(0, 400) },
   });
 }
 

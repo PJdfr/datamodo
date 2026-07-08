@@ -12,6 +12,17 @@
 > Last updated: 2026-07-08
 
 ## Recent changes
+- **2026-07-09** — **Review tab now conforms to real data + wired live.** Shared
+  view-model types ([lib/datamodo/review-types.ts](lib/datamodo/review-types.ts))
+  used by both `listPendingReviews` and the tab. `listPendingReviews` rewritten to
+  build typed per-kind payloads (merge: parsed/canonical entities+attrs+reason;
+  conflict: subject/field/was/now/note; extraction: from/snippet/entities/facts)
+  from real entities/facts/items. Added `extraction` review kind (low-confidence
+  extractions surfaced; gated <0.75 in `runExtractionForItem`), `knowledge_reviews.item_id`
+  (migration `20260709090000`), adjudicator now persists a `reason`. accept/reject
+  handle all 3 kinds (extraction reject retracts uncorroborated facts). Tab fetches
+  `/api/knowledge/reviews`, falls back to a labelled simulated preview when empty.
+  Verified via a harness: real `listPendingReviews` returns the exact shape the UI renders.
 - **2026-07-09** — **Review tab UI** ([app/dashboard/review-studio.tsx](app/dashboard/review-studio.tsx)),
   wired into the dashboard as a 4th tab in [control-center.tsx](app/dashboard/control-center.tsx).
   Uses the shared `ui.tsx` design system. Deliberately varied layout per decision

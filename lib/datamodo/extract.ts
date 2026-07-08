@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getLlmProvider } from "@/lib/llm";
 import { readBlob } from "@/lib/ingest/store";
-import { ingestExtraction, type Extraction, type ExtractedFact } from "@/lib/datamodo/knowledge";
+import { ingestExtraction, createExtractionReview, type Extraction, type ExtractedFact } from "@/lib/datamodo/knowledge";
 import { getOnboardingContext } from "@/lib/datamodo/settings";
 
 // LLM extraction: one message → structured entities + facts (the ⑤ step).
@@ -262,6 +262,17 @@ export async function runExtractionForItem(
       businessContext,
     });
     const knowledge = await ingestExtraction(admin, row.org_id, row.owner_user_id, row.id, result.extraction);
+    // Low-confidence extractions get surfaced for the user to confirm; confident
+    // ones file silently (keeps the review queue meaningful, not a firehose).
+    const EXTRACTION_REVIEW_BELOW = 0.75;
+    if (result.overallConfidence < EXTRACTION_REVIEW_BELOW && result.extraction.facts.length > 0) {
+      await createExtractionReview(admin, row.org_id, row.owner_user_id, {
+        itemId: row.id,
+        snippet: text,
+        confidence: result.overallConfidence,
+        factCount: result.extraction.facts.length,
+      });
+    }
     await admin.from("items").update({ status: "analyzed" }).eq("id", row.id);
     return { ...result, knowledge };
   } catch (e) {
