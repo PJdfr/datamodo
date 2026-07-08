@@ -56,6 +56,11 @@ export interface IngestEnvelope {
 
   /** Provider-specific extras, stored verbatim as jsonb (never load-bearing). */
   meta?: Record<string, unknown>;
+
+  /** Durable pointer back to the provider's original (ids + deep link). Kept
+   *  even after the heavy content is dereferenced, so the source can be
+   *  re-fetched or deep-linked. See lib/ingest/retention.ts + source.ts. */
+  sourceRef?: Record<string, unknown>;
 }
 
 export interface IngestResult {

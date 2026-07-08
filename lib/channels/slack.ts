@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { slackHandle } from "./handles";
-import type { InboundMessage, ReplyFn } from "./inbound";
+import type { InboundAttachment, InboundMessage, ReplyFn } from "./inbound";
 
 // Slack adapter (Events API). One Slack app is the shared bot; a user DMs or
 // forwards a message to it. Inbound arrives as a signed JSON POST; the first
@@ -32,6 +32,7 @@ interface SlackEvent {
     ts?: string;
     channel?: string;
     client_msg_id?: string;
+    files?: { id: string; name?: string; mimetype?: string; url_private_download?: string; url_private?: string }[];
   };
 }
 
@@ -39,8 +40,18 @@ export type ParseResult =
   | { kind: "challenge"; challenge: string }
   | { kind: "events"; messages: InboundMessage[] };
 
+/** Download a Slack-hosted file — its URL is private and needs the bot token. */
+async function downloadFile(url: string, mimetype?: string, name?: string): Promise<InboundAttachment | null> {
+  const token = process.env.SLACK_BOT_TOKEN;
+  if (!token) return null;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return null;
+  const buf = Buffer.from(await res.arrayBuffer());
+  return { dataBase64: buf.toString("base64"), contentType: mimetype, filename: name };
+}
+
 /** Normalize a verified Events API body: the URL challenge, or message events. */
-export function parseWebhook(body: unknown): ParseResult {
+export async function parseWebhook(body: unknown): Promise<ParseResult> {
   const b = body as SlackEvent;
   if (b.type === "url_verification" && b.challenge) {
     return { kind: "challenge", challenge: b.challenge };
@@ -49,7 +60,15 @@ export function parseWebhook(body: unknown): ParseResult {
   const e = b.event;
   const messages: InboundMessage[] = [];
   // Only real human messages — skip bot echoes, edits, joins, and our own posts.
-  if (e && e.type === "message" && !e.subtype && !e.bot_id && e.user && e.text) {
+  // (A file-only share has no text but still carries files, so allow either.)
+  if (e && e.type === "message" && !e.subtype && !e.bot_id && e.user && (e.text || e.files?.length)) {
+    const attachments: InboundAttachment[] = [];
+    for (const f of e.files ?? []) {
+      const url = f.url_private_download ?? f.url_private;
+      if (!url) continue;
+      const att = await downloadFile(url, f.mimetype, f.name);
+      if (att) attachments.push(att);
+    }
     messages.push({
       handle: slackHandle(b.team_id ?? "", e.user),
       displayName: e.user,
@@ -57,7 +76,11 @@ export function parseWebhook(body: unknown): ParseResult {
       botAccount: b.authorizations?.[0]?.user_id,
       text: e.text,
       sentAt: e.ts ? new Date(Number(e.ts) * 1000).toISOString() : undefined,
+      attachments: attachments.length ? attachments : undefined,
       meta: { channel: e.channel, ts: e.ts },
+      // Slack IS re-fetchable (conversations.history + files.info), so after
+      // review this item can be dereferenced to just this ref.
+      sourceRef: { provider: "slack", teamId: b.team_id, channel: e.channel, ts: e.ts },
     });
   }
   return { kind: "events", messages };

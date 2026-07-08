@@ -31,6 +31,8 @@ import { createRelation, deleteRelation } from "@/lib/datamodo/relations";
 import { regenerateInbox } from "@/lib/datamodo/inbox";
 import { allChannelInfo, channelInfo, isChannelId, type ChannelId } from "@/lib/channels/config";
 import { mintLinkCode, linkedHandle } from "@/lib/channels/link";
+import { dereferenceItems } from "@/lib/ingest/retention";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSettings, updateComputeSettings, countAgents } from "@/lib/datamodo/settings";
 import { planLimits, type AiProvider, type ComputeMode } from "@/lib/datamodo/plans";
 import type { DatasetColumn, DatasetRowRecord, NewAgentInput, SnapshotFull } from "@/lib/datamodo/types";
@@ -317,12 +319,29 @@ export async function simulateAgentUpdateAction(datasetId: string): Promise<Acti
   }
 }
 
+/** The distinct source-message ids behind a set of proposals — captured BEFORE
+ *  resolving them, so we can run the retention sweep (drop merged messages down
+ *  to a reference where re-fetchable) once they're accepted/rejected. */
+async function sourceItemsFor(
+  db: SupabaseClient,
+  filter: { ids?: string[]; batchId?: string },
+): Promise<string[]> {
+  let q = db.from("dataset_rows").select("source_item_id");
+  if (filter.batchId) q = q.eq("batch_id", filter.batchId);
+  if (filter.ids) q = q.in("id", filter.ids);
+  const { data, error } = await q;
+  if (error) return [];
+  return [...new Set((data ?? []).map((r) => r.source_item_id).filter(Boolean))] as string[];
+}
+
 export async function acceptProposalAction(proposalId: string): Promise<ActionResult> {
   try {
     const { db, user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
+    const sources = await sourceItemsFor(db, { ids: [proposalId] });
     const res = await acceptProposal(db, proposalId);
     if (res) await checkpoint(db, res.datasetId, res.summary, async () => {}, res.actor);
+    await dereferenceItems(sources);
     revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {
@@ -334,7 +353,9 @@ export async function rejectProposalAction(proposalId: string): Promise<ActionRe
   try {
     const { db, user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
+    const sources = await sourceItemsFor(db, { ids: [proposalId] });
     await rejectProposal(db, proposalId);
+    await dereferenceItems(sources);
     revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {
@@ -346,8 +367,10 @@ export async function acceptBatchAction(batchId: string): Promise<ActionResult> 
   try {
     const { db, user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
+    const sources = await sourceItemsFor(db, { batchId });
     const res = await acceptBatch(db, batchId);
     if (res) await checkpoint(db, res.datasetId, res.summary, async () => {}, res.actor);
+    await dereferenceItems(sources);
     revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {
@@ -359,7 +382,9 @@ export async function rejectBatchAction(batchId: string): Promise<ActionResult> 
   try {
     const { db, user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
+    const sources = await sourceItemsFor(db, { batchId });
     await rejectBatch(db, batchId);
+    await dereferenceItems(sources);
     revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {
@@ -374,8 +399,10 @@ export async function acceptProposalsAction(ids: string[]): Promise<ActionResult
   try {
     const { db, user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
+    const sources = await sourceItemsFor(db, { ids });
     const results = await acceptProposals(db, ids);
     for (const r of results) await checkpoint(db, r.datasetId, r.summary, async () => {}, r.actor);
+    await dereferenceItems(sources);
     revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {
@@ -388,7 +415,9 @@ export async function rejectProposalsAction(ids: string[]): Promise<ActionResult
   try {
     const { db, user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
+    const sources = await sourceItemsFor(db, { ids });
     await rejectProposals(db, ids);
+    await dereferenceItems(sources);
     revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {

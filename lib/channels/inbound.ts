@@ -32,6 +32,8 @@ export interface InboundMessage {
   sentAt?: string;
   attachments?: InboundAttachment[];
   meta?: Record<string, unknown>;
+  /** Provider locators + deep link, persisted as the item's source_ref. */
+  sourceRef?: Record<string, unknown>;
 }
 
 export type ReplyFn = (msg: InboundMessage, text: string) => Promise<void>;
@@ -94,6 +96,7 @@ export async function handleInbound(
       sentAt: msg.sentAt,
       attachments: msg.attachments,
       meta: { handle: msg.handle, ...(msg.meta ?? {}) },
+      sourceRef: msg.sourceRef,
     });
   }
 }

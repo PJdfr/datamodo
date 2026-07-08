@@ -83,8 +83,9 @@ export async function parseWebhook(body: unknown): Promise<InboundMessage[]> {
           }
         }
         const caption = m.text?.body ?? m.image?.caption ?? m.document?.caption ?? m.video?.caption;
+        const handle = whatsappHandle(m.from);
         out.push({
-          handle: whatsappHandle(m.from),
+          handle,
           displayName: nameOf.get(m.from) ?? undefined,
           externalId: m.id,
           botAccount,
@@ -92,6 +93,10 @@ export async function parseWebhook(body: unknown): Promise<InboundMessage[]> {
           sentAt: m.timestamp ? new Date(Number(m.timestamp) * 1000).toISOString() : undefined,
           attachments: attachments.length ? attachments : undefined,
           meta: { type: m.type },
+          // WhatsApp can't be re-fetched, so this ref is a deep link only —
+          // wa.me opens the chat with the sender. The stored content is the
+          // source of truth (see lib/ingest/retention.ts).
+          sourceRef: { provider: "whatsapp", messageId: m.id, from: handle, deepLink: `https://wa.me/${m.from.replace(/[^\d]/g, "")}` },
         });
       }
     }

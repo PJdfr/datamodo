@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
   try {
-    const messages = parseActivity(body);
+    const messages = await parseActivity(body);
     await handleInbound("teams", messages, reply);
   } catch (e) {
     console.error("[webhooks/teams] failed", e);

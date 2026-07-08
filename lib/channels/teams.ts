@@ -1,6 +1,6 @@
 import { teamsHandle } from "./handles";
 import { verifyJwt } from "./jwt";
-import type { InboundMessage, ReplyFn } from "./inbound";
+import type { InboundAttachment, InboundMessage, ReplyFn } from "./inbound";
 
 // Microsoft Teams adapter (Azure Bot Service / Bot Framework). One bot app is the
 // shared bot; a user chats it. Inbound arrives as a Bot Framework "Activity" POST
@@ -24,6 +24,13 @@ export async function verifyRequest(authHeader: string | null): Promise<boolean>
   return payload !== null;
 }
 
+interface TeamsAttachment {
+  contentType?: string;
+  contentUrl?: string;
+  name?: string;
+  content?: { downloadUrl?: string; fileType?: string };
+}
+
 interface Activity {
   type?: string;
   id?: string;
@@ -34,12 +41,47 @@ interface Activity {
   from?: { id: string; name?: string; aadObjectId?: string };
   conversation?: { id: string };
   recipient?: { id: string; name?: string };
+  attachments?: TeamsAttachment[];
+}
+
+const FILE_DOWNLOAD_INFO = "application/vnd.microsoft.teams.file.download.info";
+
+/** Pull a Teams attachment's bytes. Shared files carry a pre-authenticated
+ *  downloadUrl; inline media needs a Connector bearer token on its contentUrl. */
+async function downloadAttachment(att: TeamsAttachment): Promise<InboundAttachment | null> {
+  try {
+    if (att.contentType === FILE_DOWNLOAD_INFO && att.content?.downloadUrl) {
+      const res = await fetch(att.content.downloadUrl);
+      if (!res.ok) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      return { dataBase64: buf.toString("base64"), filename: att.name, contentType: att.content.fileType };
+    }
+    if (att.contentUrl && att.contentType && !att.contentType.startsWith("text/")) {
+      const token = await connectorToken();
+      const res = await fetch(att.contentUrl, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
+      if (!res.ok) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      return { dataBase64: buf.toString("base64"), filename: att.name, contentType: att.contentType };
+    }
+  } catch (e) {
+    console.error("[teams] attachment download failed", e);
+  }
+  return null;
 }
 
 /** Normalize a verified Activity into an InboundMessage (message activities only). */
-export function parseActivity(body: unknown): InboundMessage[] {
+export async function parseActivity(body: unknown): Promise<InboundMessage[]> {
   const a = body as Activity;
-  if (a.type !== "message" || !a.from?.id || !a.text) return [];
+  if (a.type !== "message" || !a.from?.id) return [];
+  const rawAtts = (a.attachments ?? []).filter((x) => x.contentType !== "text/html");
+  if (!a.text && rawAtts.length === 0) return [];
+
+  const attachments: InboundAttachment[] = [];
+  for (const att of rawAtts) {
+    const got = await downloadAttachment(att);
+    if (got) attachments.push(got);
+  }
+
   return [{
     handle: teamsHandle(a.from.aadObjectId, a.from.id),
     displayName: a.from.name,
@@ -47,8 +89,12 @@ export function parseActivity(body: unknown): InboundMessage[] {
     botAccount: a.recipient?.id,
     text: a.text,
     sentAt: a.timestamp,
+    attachments: attachments.length ? attachments : undefined,
     // serviceUrl + conversation id are what the reply needs; keep them on meta.
     meta: { serviceUrl: a.serviceUrl, conversationId: a.conversation?.id, channelId: a.channelId },
+    // Teams-via-bot can't read history, so this ref is a locator only; the
+    // stored content is the source of truth (see lib/ingest/retention.ts).
+    sourceRef: { provider: "teams", serviceUrl: a.serviceUrl, conversationId: a.conversation?.id, activityId: a.id },
   }];
 }
 

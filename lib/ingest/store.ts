@@ -222,6 +222,7 @@ export async function ingest(env: IngestEnvelope): Promise<IngestResult> {
       body_hash: bodyHash,
       raw_hash: rawHash,
       meta,
+      source_ref: env.sourceRef ?? {},
       sent_at: env.sentAt ?? null,
       status: "received",
     })

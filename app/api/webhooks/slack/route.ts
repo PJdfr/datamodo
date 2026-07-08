@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
-  const parsed = parseWebhook(body);
+  const parsed = await parseWebhook(body);
   if (parsed.kind === "challenge") {
     return NextResponse.json({ challenge: parsed.challenge });
   }

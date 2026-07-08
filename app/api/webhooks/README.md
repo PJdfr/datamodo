@@ -82,6 +82,37 @@ your app id. Replies use a client-credentials Connector token.
    style logs aren't needed; failures are logged server-side and the webhook
    still returns 200 (platforms retry aggressively on non-2xx).
 
+## Retention & source of truth
+
+Every captured message stores a lightweight **`source_ref`** (provider ids + a
+deep link) alongside its content, so the UI can always "open the original" and,
+where possible, re-fetch it. What happens to the heavy content (body + attachment
+blobs) after review depends on whether the original is **re-fetchable from the
+provider** — a per-channel capability in `lib/ingest/retention.ts`, not a guess
+by channel name:
+
+```
+capture → store full content + source_ref            [content_state = hydrated]
+  while a proposal from it is pending → keep full     (reviewer sees the chunk)
+  last proposal accepted OR rejected →
+     re-fetchable?  yes → drop blobs, keep source_ref [content_state = dereferenced]
+                    no  → retain (WhatsApp, Cloudflare email, Teams-bot)
+"show source" later → hydrated: read blobs · dereferenced: re-fetch by source_ref
+```
+
+`isRefetchable()` is `true` only for **Slack** today (`conversations.history` +
+`files.info`). WhatsApp has no read API and its media expires; Cloudflare-routed
+email is push-once; a Teams bot can't read history — so those are **always
+retained**, because dereferencing would be irreversible data loss. Email flips to
+re-fetchable the day a Gmail/Graph OAuth mailbox is connected — wire that one flag
+and it joins Slack's behavior, no other change.
+
+Attachments are **downloaded and stored on capture** on all four channels
+(WhatsApp media via Graph, Slack files via the bot token, Teams via the file
+downloadUrl / Connector token). That's the only copy guaranteed to survive for
+non-re-fetchable channels. `getItemSource()` (`lib/ingest/source.ts`) reads the
+stored bytes while hydrated and re-fetches from the provider once dereferenced.
+
 ## Hardening notes
 - **Latency / retries:** parse + ingest run inline (WhatsApp also downloads media
   inline). Under load, push the normalized `InboundMessage[]` onto a queue and
