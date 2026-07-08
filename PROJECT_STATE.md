@@ -12,6 +12,19 @@
 > Last updated: 2026-07-08
 
 ## Recent changes
+- **2026-07-09** — **Facts → tables projection (pipeline step ⑦) built.**
+  [`lib/datamodo/project.ts`](lib/datamodo/project.ts) `projectEntitiesToDataset`:
+  projects every entity of a `kind` into rows of a dataset, matching each column
+  by key against the slug of a fact predicate (entity-valued facts → the target's
+  label; numbers stay typed). Emits results as PROPOSALS through the existing
+  Versioning review flow. Idempotent + safe: rows link to their entity
+  (`dataset_rows.subject_entity_id`, migration `20260709100000`), re-projection
+  updates instead of duplicating, human-edited rows are never clobbered, and
+  entities with a pending proposal are skipped. Trigger: `POST /api/knowledge/project`
+  `{kind, datasetId, labelColumn?}` (auth'd, org-scoped). Verified: fresh→adds,
+  re-project→unchanged, edited fact→update, pending→skip. **TODO:** a UI to define
+  the kind→dataset mapping + a "build table from knowledge" button; currently
+  convention-based (predicate slug == column key) and API-triggered.
 - **2026-07-09** — **Review tab now conforms to real data + wired live.** Shared
   view-model types ([lib/datamodo/review-types.ts](lib/datamodo/review-types.ts))
   used by both `listPendingReviews` and the tab. `listPendingReviews` rewritten to
