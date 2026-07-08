@@ -63,14 +63,14 @@ import {
   pickColor, relTime, showVal, coerceByType, slugify, COLUMN_TYPES, Segmented, ModalShell,
   Panel, DiffBadge, useAction, type Agent, type TableInfo,
 } from "./ui";
-import { VersioningTab } from "./versioning";
 import { ReviewStudio } from "./review-studio";
 import { ConnectionsModal } from "./connections";
+import type { TableChangeReview } from "@/lib/datamodo/review-types";
 
 /* ================================================================== */
 /* Component                                                           */
 /* ================================================================== */
-type Tab = "agents" | "data" | "versioning" | "review" | "search";
+type Tab = "agents" | "data" | "review" | "search";
 export type ControlCenterProps = {
   fullName: string;
   initial: string;
@@ -217,11 +217,29 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const pendingTables = new Set(pendingChanges.map((p) => p.datasetId)).size;
   const pendingAgents = new Set(pendingChanges.map((p) => p.agent)).size;
 
+  // Table row proposals, mapped into the unified Review queue as "table_change".
+  const tableChanges = useMemo<TableChangeReview[]>(() => pendingChanges.map((it) => ({
+    id: it.id,
+    kind: "table_change",
+    createdAt: it.createdAt,
+    confidence: null,
+    impact: it.conflict ? 3 : it.kind === "add" ? 2 : 1,
+    changeKind: it.kind,
+    conflict: it.conflict,
+    table: it.datasetName,
+    agent: it.agent,
+    sourceLabel: it.sourceLabel,
+    cells: it.kind === "add"
+      ? it.columns.map((c) => ({ label: c.label, after: showVal(it.data[c.key]) }))
+      : it.cells.filter((c) => c.changed).map((c) => ({ label: c.label, before: showVal(c.before), after: showVal(c.after) })),
+  })), [pendingChanges]);
+  // Everything awaiting the user across the unified Review surface.
+  const reviewTotal = pendingReviewCount + pendingChanges.length;
+
   const titles: Record<Tab, { t: string; sub: string }> = {
     agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
     data: { t: "Data", sub: uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · ${relations.length} ${relations.length === 1 ? "relationship" : "relationships"}` : "No tables yet" },
-    versioning: { t: "Versioning", sub: pendingCount ? `${pendingCount} pending ${pendingCount === 1 ? "change" : "changes"} · ${pendingTables} ${pendingTables === 1 ? "table" : "tables"} · ${pendingAgents} ${pendingAgents === 1 ? "agent" : "agents"}` : "Everything's merged — no pending changes" },
-    review: { t: "Review", sub: pendingReviewCount ? `${pendingReviewCount} to confirm — merges, conflicts & new facts` : "Confirm what we inferred — merges, changed values & new facts" },
+    review: { t: "Review", sub: reviewTotal ? `${reviewTotal} to confirm — table changes, merges, conflicts & new facts` : "Confirm what we inferred — table changes, merges & new facts" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
   };
 
@@ -266,8 +284,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           {([
             { key: "agents", label: "Agents", count: uiAgents.length ? String(uiAgents.length) : null, icon: <><rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8V4" /><circle cx="12" cy="3" r="1.4" fill="currentColor" stroke="none" /><path d="M9 14h.01M15 14h.01" /></> },
             { key: "data", label: "Data", count: uiTables.length ? String(uiTables.length) : null, icon: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></> },
-            { key: "versioning", label: "Versioning", count: pendingCount ? String(pendingCount) : null, icon: <><circle cx="6" cy="6" r="2.4" /><circle cx="6" cy="18" r="2.4" /><circle cx="18" cy="9" r="2.4" /><path d="M6 8.4v7.2M8.3 6h5.2a3 3 0 0 1 3 3v0" /></> },
-            { key: "review", label: "Review", count: pendingReviewCount ? String(pendingReviewCount) : null, icon: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></> },
+            { key: "review", label: "Review", count: reviewTotal ? String(reviewTotal) : null, icon: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></> },
             { key: "search", label: "Search", count: null, icon: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></> },
           ] as const).map((item) => {
             const active = tab === item.key;
@@ -289,11 +306,11 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
         </nav>
         </div>
 
-        {pendingCount > 0 && (
+        {reviewTotal > 0 && (
         <div className="cc-review" style={{ marginTop: 26 }}>
           <p className="dm-mono" style={{ ...monoLabel, letterSpacing: "0.09em", padding: "0 8px 8px", margin: 0, color: "#7C766B" }}>Needs review</p>
           <Hov
-            onClick={() => setTab("versioning")}
+            onClick={() => setTab("review")}
             base={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "none", border: "none", padding: "9px 10px", borderRadius: 9, color: "#B7AF9F", fontFamily: "inherit", fontSize: 14, cursor: "pointer", textAlign: "left" }}
             hover={{ background: "#2B2720", color: "#F1ECE1" }}
           >
@@ -301,7 +318,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.accent, animation: "cc-pulse 2.6s ease-in-out infinite" }} />
               Pending changes
             </span>
-            <span className="dm-mono" style={{ fontSize: 11, color: "#fff", background: C.accent, borderRadius: 999, padding: "1px 8px" }}>{pendingCount}</span>
+            <span className="dm-mono" style={{ fontSize: 11, color: "#fff", background: C.accent, borderRadius: 999, padding: "1px 8px" }}>{reviewTotal}</span>
           </Hov>
         </div>
         )}
@@ -356,15 +373,14 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
         </div>
 
         <div className="cc-scroll" style={{ padding: "24px 26px", overflow: "auto", flex: 1 }}>
-          {tab === "agents" && (populated ? <AgentsFull agents={uiAgents} activity={agentActivity} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} openModal={openModal} onManage={setManageAgentId} onReview={() => setTab("versioning")} pendingCount={pendingCount} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
+          {tab === "agents" && (populated ? <AgentsFull agents={uiAgents} activity={agentActivity} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} openModal={openModal} onManage={setManageAgentId} onReview={() => setTab("review")} pendingCount={pendingCount} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
           {tab === "data" && (uiTables.length || createTableOpen ? (
             <>
               {uiTables.length > 0 && <RelationshipGraph tables={uiTables} relations={relations} datasets={datasets} onOpen={setOpenTableId} onChanged={() => router.refresh()} />}
               <DataFull tables={uiTables} onOpen={setOpenTableId} onCreate={() => setCreateTableOpen(true)} onImported={() => router.refresh()} selected={selectedTables} toggleSelect={(id) => setSelectedTables((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])} />
             </>
           ) : <DataEmpty openModal={() => setCreateTableOpen(true)} />)}
-          {tab === "versioning" && <VersioningTab items={pendingChanges} onChanged={() => router.refresh()} onGoData={() => setTab("data")} />}
-          {tab === "review" && <ReviewStudio />}
+          {tab === "review" && <ReviewStudio tableChanges={tableChanges} onChanged={() => router.refresh()} />}
           {tab === "search" && <SearchTab populated={populated} />}
         </div>
       </main>
@@ -462,7 +478,7 @@ function AgentsFull({ agents, activity, autoAccept, setAutoAccept, expanded, set
 }) {
   return (
     <div>
-      {/* Pending-review banner — links to the unified Versioning surface. */}
+      {/* Pending-review banner — links to the unified Review surface. */}
       {pendingCount > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24, padding: "14px 16px", background: "#FDF4F0", border: "1px solid #F3D6CB", borderRadius: 14, flexWrap: "wrap" }}>
           <span style={{ width: 9, height: 9, borderRadius: "50%", background: C.accent, animation: "cc-pulse 2.6s ease-in-out infinite", flexShrink: 0 }} />

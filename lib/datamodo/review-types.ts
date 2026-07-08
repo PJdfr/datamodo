@@ -4,7 +4,7 @@
 // stays clean. Each kind carries exactly the structured fields its card needs;
 // the API returns this shape and the tab's simulated data conforms to it too.
 
-export type ReviewKind = "entity_merge" | "fact_conflict" | "extraction";
+export type ReviewKind = "entity_merge" | "fact_conflict" | "extraction" | "table_change";
 
 export interface EntityAttr {
   k: string;
@@ -63,4 +63,21 @@ export interface ExtractionReview extends ReviewBase {
   facts: ReviewFact[];
 }
 
-export type ReviewItem = MergeReview | ConflictReview | ExtractionReview;
+/** A proposed change to a user TABLE (a dataset_rows add/update), folded into the
+ *  unified review queue. Bridges the older Versioning surface into Review. */
+export interface TableCell {
+  label: string;
+  before?: string;
+  after: string;
+}
+export interface TableChangeReview extends ReviewBase {
+  kind: "table_change";
+  changeKind: "add" | "update";
+  conflict: boolean;
+  table: string;
+  agent: string;
+  sourceLabel: string | null;
+  cells: TableCell[];
+}
+
+export type ReviewItem = MergeReview | ConflictReview | ExtractionReview | TableChangeReview;
