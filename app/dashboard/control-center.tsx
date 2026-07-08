@@ -1426,9 +1426,9 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
   const [colLabel, setColLabel] = useState("");
   const [colType, setColType] = useState("text");
   const [colDefault, setColDefault] = useState("");
-  const [panel, setPanel] = useState<"none" | "history" | "review">(table.proposals.length ? "review" : "none");
+  // Tables are edited + synced here; review happens at the FACT level (Review tab).
+  const [panel, setPanel] = useState<"none" | "history">("none");
   const cols = table.columns;
-  const proposalCount = table.proposals.length;
 
   // Version selector: "latest" (live, editable) or a past snapshot (read-only).
   const [snaps, setSnaps] = useState<SnapshotFull[] | null>(null);
@@ -1555,36 +1555,18 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
           <Hov onClick={rename} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Rename</Hov>
         </>}
         <Hov onClick={() => setPanel((p) => p === "history" ? "none" : "history")} base={panel === "history" ? { ...ghostBtn, background: "#EFE9DC" } : ghostBtn} hover={{ background: "#FBF8F1" }}>History ({table.history.length})</Hov>
-        <Hov onClick={() => setPanel((p) => p === "review" ? "none" : "review")} base={proposalCount ? { ...ghostBtn, background: "#FDF1EC", borderColor: "#F3D6CB", color: C.accent } : ghostBtn} hover={{ background: "#FBF8F1" }}>Review changes{proposalCount ? ` (${proposalCount})` : ""}</Hov>
-        {!viewingPast && <>
+        {!viewingPast && (
           <ImportSheetButton
             datasetId={table.id}
             label="⇅ Sync a sheet"
             style={{ ...ghostBtn, marginLeft: "auto" }}
             hoverStyle={{ background: "#FBF8F1" }}
-            onDone={() => { setPanel("review"); onChanged(); }}
+            onDone={() => { setPanel("none"); onChanged(); }}
           />
-          <Hov onClick={() => run(() => simulateAgentUpdateAction(table.id), () => { setPanel("review"); onChanged(); })} base={{ ...ghostBtn, borderStyle: "dashed" }} hover={{ background: "#FBF8F1" }} title="Demo: pretend an agent sent new data">⚡ Simulate agent update</Hov>
-        </>}
+        )}
       </div>
 
       {!viewingPast && panel === "history" && <HistoryPanel datasetId={table.id} onRestore={(id) => run(() => restoreSnapshotAction(id), () => { setPanel("none"); refresh(); })} pending={pending} />}
-
-      {!viewingPast && panel === "review" && (
-        <div style={{ marginBottom: 14 }}>
-          <div className="dm-mono" style={{ ...monoLabel, marginBottom: 8 }}>Changes waiting for you — reviewed in chunks, never one cell at a time</div>
-          {proposalCount === 0 ? (
-            <div className="dm-mono" style={{ fontSize: 12, color: "#A39B8B" }}>Nothing to review. When an agent or a synced sheet has new data it lands here first.</div>
-          ) : chunkProposals(table.proposals).map((chunk) => (
-            <ChangeChunkCard key={chunk.batchId} chunk={chunk} columns={cols} pending={pending}
-              onAcceptAll={() => run(() => acceptBatchAction(chunk.batchId), onChanged)}
-              onRejectAll={() => run(() => rejectBatchAction(chunk.batchId), onChanged)}
-              onAcceptOne={(id) => run(() => acceptProposalAction(id), onChanged)}
-              onRejectOne={(id) => run(() => rejectProposalAction(id), onChanged)}
-            />
-          ))}
-        </div>
-      )}
 
       {addingCol && (
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 14, padding: "12px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
