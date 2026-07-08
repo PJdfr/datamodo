@@ -55,19 +55,22 @@ export const C = {
   blue: "#5A6B86",
 };
 
+// Only channels the backend can actually ingest are offered. gmail/outlook route
+// through the email connector (forward to your inbox address); whatsapp/slack/teams
+// have inbound webhook adapters. (Telegram is intentionally absent — no adapter.)
 export const LOGO: Record<string, string> = {
   gmail: "/logos/google-gmail.svg",
   outlook: "/logos/microsoft-outlook.svg",
   whatsapp: "/logos/whatsapp-icon.svg",
   slack: "/logos/slack-icon.svg",
-  telegram: "/logos/telegram.svg",
+  teams: "/logos/microsoft-teams.svg",
 };
 export const CH_NAMES: Record<string, string> = {
   gmail: "Gmail",
   outlook: "Outlook",
   whatsapp: "WhatsApp",
   slack: "Slack",
-  telegram: "Telegram",
+  teams: "Teams",
 };
 
 /* ------------------------------------------------------------------ */

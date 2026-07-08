@@ -2,7 +2,7 @@
 
 export type Plan = "free" | "pro" | "max";
 export type ComputeMode = "cloud" | "byok";
-export type AiProvider = "anthropic" | "openai";
+export type AiProvider = "anthropic" | "openai" | "openrouter";
 
 export interface PlanLimits {
   key: Plan;

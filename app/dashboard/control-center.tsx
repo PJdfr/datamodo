@@ -64,7 +64,7 @@ import {
   Panel, DiffBadge, useAction, type Agent, type TableInfo,
 } from "./ui";
 import { VersioningTab } from "./versioning";
-import { ReviewStudio, SIMULATED_REVIEW_COUNT } from "./review-studio";
+import { ReviewStudio } from "./review-studio";
 
 /* ================================================================== */
 /* Component                                                           */
@@ -78,12 +78,13 @@ export type ControlCenterProps = {
   datasets: DatasetView[];
   relations: DatasetRelation[];
   pendingChanges: ReviewItem[];
+  pendingReviewCount: number;
   agentActivity: Record<string, AgentActivityEntry[]>;
   settings: UserSettings;
   notice?: string | null;
 };
 
-export default function ControlCenter({ fullName, initial, inbox, agents, datasets, relations, pendingChanges, agentActivity, settings, notice }: ControlCenterProps) {
+export default function ControlCenter({ fullName, initial, inbox, agents, datasets, relations, pendingChanges, pendingReviewCount, agentActivity, settings, notice }: ControlCenterProps) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("agents");
   const [noticeOpen, setNoticeOpen] = useState(true);
@@ -218,11 +219,11 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
     agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
     data: { t: "Data", sub: uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · ${relations.length} ${relations.length === 1 ? "relationship" : "relationships"}` : "No tables yet" },
     versioning: { t: "Versioning", sub: pendingCount ? `${pendingCount} pending ${pendingCount === 1 ? "change" : "changes"} · ${pendingTables} ${pendingTables === 1 ? "table" : "tables"} · ${pendingAgents} ${pendingAgents === 1 ? "agent" : "agents"}` : "Everything's merged — no pending changes" },
-    review: { t: "Review", sub: "Confirm what we inferred — duplicates, changed values & new facts (preview)" },
+    review: { t: "Review", sub: pendingReviewCount ? `${pendingReviewCount} to confirm — merges, conflicts & new facts` : "Confirm what we inferred — merges, changed values & new facts" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
   };
 
-  const providerLabel = settings.aiProvider === "openai" ? "OpenAI" : "Claude";
+  const providerLabel = settings.aiProvider === "openai" ? "OpenAI" : settings.aiProvider === "openrouter" ? "OpenRouter" : "Claude";
   const runtimeLabel = cloud ? "Datamodo cloud" : `Your ${providerLabel} key`;
   const runtimeSub = cloud ? "We run every agent for you." : (settings.byokKeySet ? `Runs on your ${providerLabel} API key.` : "Add your API key to start.");
   const runtimeDot = cloud ? C.green : (settings.byokKeySet ? C.gold : C.accent);
@@ -264,7 +265,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
             { key: "agents", label: "Agents", count: uiAgents.length ? String(uiAgents.length) : null, icon: <><rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8V4" /><circle cx="12" cy="3" r="1.4" fill="currentColor" stroke="none" /><path d="M9 14h.01M15 14h.01" /></> },
             { key: "data", label: "Data", count: uiTables.length ? String(uiTables.length) : null, icon: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></> },
             { key: "versioning", label: "Versioning", count: pendingCount ? String(pendingCount) : null, icon: <><circle cx="6" cy="6" r="2.4" /><circle cx="6" cy="18" r="2.4" /><circle cx="18" cy="9" r="2.4" /><path d="M6 8.4v7.2M8.3 6h5.2a3 3 0 0 1 3 3v0" /></> },
-            { key: "review", label: "Review", count: SIMULATED_REVIEW_COUNT ? String(SIMULATED_REVIEW_COUNT) : null, icon: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></> },
+            { key: "review", label: "Review", count: pendingReviewCount ? String(pendingReviewCount) : null, icon: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></> },
             { key: "search", label: "Search", count: null, icon: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></> },
           ] as const).map((item) => {
             const active = tab === item.key;
@@ -557,7 +558,7 @@ function AgentCard({ a, onManage, activity, expanded, onToggle }: { a: Agent; on
 
 function AgentsEmpty({ openModal, inbox }: { openModal: () => void; inbox: string }) {
   const steps = [
-    { n: "01", t: "Pick a channel", d: "Gmail, Outlook, WhatsApp, Slack or Telegram." },
+    { n: "01", t: "Pick a channel", d: "Gmail, Outlook, WhatsApp, Slack or Teams." },
     { n: "02", t: "Tell it what to watch", d: "Auto, or ping it when you want something saved." },
     { n: "03", t: "It fills your tables", d: "Structured rows you can query, export or sync." },
   ];
@@ -1725,11 +1726,11 @@ function SettingsModal({ settings, onClose, onSaved }: { settings: UserSettings;
       {mode === "byok" && (
         <div style={{ marginTop: 14, padding: "14px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
           <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 8 }}>Provider</div>
-          <Segmented value={provider} onChange={setProvider} options={[{ v: "anthropic", label: "Claude (Anthropic)" }, { v: "openai", label: "OpenAI" }]} />
+          <Segmented value={provider} onChange={setProvider} options={[{ v: "anthropic", label: "Claude" }, { v: "openai", label: "OpenAI" }, { v: "openrouter", label: "OpenRouter" }]} />
           <div className="dm-mono" style={{ ...fieldLabel, margin: "14px 0 8px" }}>API key</div>
-          <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={settings.byokKeySet ? "•••••••• (saved — paste to replace)" : provider === "openai" ? "sk-…" : "sk-ant-…"} style={fieldInput} />
+          <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={settings.byokKeySet ? "•••••••• (saved — paste to replace)" : provider === "openai" ? "sk-…" : provider === "openrouter" ? "sk-or-…" : "sk-ant-…"} style={fieldInput} />
           <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 8, lineHeight: 1.5 }}>
-            This is an <b>API key</b> (billed per use), not your ChatGPT Plus / Claude Pro subscription — those don’t grant API access. Get one from {provider === "openai" ? "platform.openai.com" : "console.anthropic.com"}. Signing in to authorise your account is on the roadmap.
+            This is an <b>API key</b> (billed per use), not your ChatGPT Plus / Claude Pro subscription — those don’t grant API access. Get one from {provider === "openai" ? "platform.openai.com" : provider === "openrouter" ? "openrouter.ai/keys" : "console.anthropic.com"}. OpenRouter gives you one key across many models. Signing in to authorise your account is on the roadmap.
           </div>
         </div>
       )}

@@ -33,6 +33,7 @@ export default async function DashboardPage() {
   let datasets: DatasetView[] = [];
   let relations: DatasetRelation[] = [];
   let pendingChanges: ReviewItem[] = [];
+  let pendingReviewCount = 0;
   let agentActivity: Record<string, AgentActivityEntry[]> = {};
   let settings: UserSettings = { plan: "free", computeMode: "byok", aiProvider: "anthropic", byokKeySet: false, planStatus: null, currentPeriodEnd: null };
   let notice: string | null = null;
@@ -66,6 +67,17 @@ export default async function DashboardPage() {
         if (rel.status === "fulfilled") relations = rel.value; else notice = SCHEMA_NOTICE;
         if (pend.status === "fulfilled") pendingChanges = pend.value; else notice = SCHEMA_NOTICE;
         if (act.status === "fulfilled") agentActivity = act.value; else notice = SCHEMA_NOTICE;
+        // Pending knowledge reviews (merges/conflicts/extractions) for the Review tab badge.
+        try {
+          const { count } = await supabase
+            .from("knowledge_reviews")
+            .select("id", { count: "exact", head: true })
+            .eq("org_id", org.id)
+            .eq("status", "pending");
+          pendingReviewCount = count ?? 0;
+        } catch {
+          /* table may be behind on migrations — leave 0 */
+        }
       }
     } catch {
       notice = SCHEMA_NOTICE;
@@ -81,6 +93,7 @@ export default async function DashboardPage() {
       datasets={datasets}
       relations={relations}
       pendingChanges={pendingChanges}
+      pendingReviewCount={pendingReviewCount}
       agentActivity={agentActivity}
       settings={settings}
       notice={notice}

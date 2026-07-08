@@ -12,6 +12,16 @@
 > Last updated: 2026-07-08
 
 ## Recent changes
+- **2026-07-09** — **Dashboard UI consistency pass** (fixed drift vs shipped backend):
+  channel catalog now offers **Teams** (real adapter) and drops **Telegram** (no
+  adapter) — `ui.tsx` LOGO/CH_NAMES + new `public/logos/microsoft-teams.svg`;
+  settings BYOK provider adds **OpenRouter** (the backend default) — `AiProvider`
+  type + `SettingsModal` + `providerLabel`; the **Review** nav badge shows the REAL
+  pending count (`pendingReviewCount` from page.tsx) instead of the hardcoded
+  simulated 6; removed the orphan `/dashboard/reviews` route (superseded by the
+  Review tab). **Still NOT surfaced in UI** (backend exists, no UI yet): connect-
+  channel link-code flow; knowledge/entities view; "build table from knowledge"
+  (projection trigger); analytics/charts; onboarding business-context capture.
 - **2026-07-09** — **Analytics over facts (the research's "numbers" layer) built.**
   [`lib/datamodo/analytics.ts`](lib/datamodo/analytics.ts): `aggregate` (sum/avg/
   min/max/count of a numeric measure predicate, optionally grouped by another
