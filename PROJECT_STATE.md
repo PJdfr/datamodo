@@ -292,6 +292,19 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
    live sandbox test); **Teams/Slack next** (same shared-bot + identify-once
    pattern via `ingest_sources` + `channel_link_codes`).
 
+## Local development (important gotcha)
+`.env.local` points `NEXT_PUBLIC_SUPABASE_URL` at the **remote** project, so plain
+`npm run dev` makes the app's **auth + all user-facing reads** hit remote — even
+if you're running `npx supabase` locally (only the admin/write client would use
+local). Symptom: you seed the local DB but the dashboard shows nothing. Fix: a
+gitignored **`.env.development.local`** (higher precedence in dev) that sets the
+LOCAL stack for the whole app:
+`NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321`,
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<local publishable>`, plus `SUPABASE_URL`/
+`SUPABASE_SECRET_KEY` local and the dev secrets (INGEST_WEBHOOK_SECRET,
+SLACK_SIGNING_SECRET, MICROSOFT_APP_ID, TEAMS_DEV_SKIP_AUTH). Get keys via
+`npx supabase status`. Delete the file to run against remote.
+
 ## Conventions
 - Individual-only product. Never add teams/sharing without an explicit decision.
 - Keep `user@example.com` demo data seeded (`supabase/seed.sql`).
