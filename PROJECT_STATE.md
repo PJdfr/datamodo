@@ -12,6 +12,17 @@
 > Last updated: 2026-07-08
 
 ## Recent changes
+- **2026-07-09** — **Analytics over facts (the research's "numbers" layer) built.**
+  [`lib/datamodo/analytics.ts`](lib/datamodo/analytics.ts): `aggregate` (sum/avg/
+  min/max/count of a numeric measure predicate, optionally grouped by another
+  predicate incl. relationships → grouped by target label), `monthlySeries` (measure
+  bucketed by a date predicate), `factMetrics` (entity counts by kind + fact totals).
+  Trigger: `POST /api/knowledge/analytics` `{op:aggregate|series|metrics, measure,
+  groupBy?, date?, kind?, agg?}` (auth'd, org-scoped). Implemented as relational
+  aggregation (fetch current facts → group/aggregate) — honors the research point
+  (numbers in a relational engine, NOT the graph); **DuckDB is the documented
+  drop-in scale path** behind the same functions when volume needs columnar speed.
+  Verified: total/by-vendor/avg/monthly all correct on seeded invoices.
 - **2026-07-09** — **Facts → tables projection (pipeline step ⑦) built.**
   [`lib/datamodo/project.ts`](lib/datamodo/project.ts) `projectEntitiesToDataset`:
   projects every entity of a `kind` into rows of a dataset, matching each column
