@@ -12,6 +12,17 @@
 > Last updated: 2026-07-08
 
 ## Recent changes
+- **2026-07-09** — **Knowledge view + build-from-knowledge (Data tab caught up to
+  the fact-level model).** New **Knowledge** tab ([knowledge-view.tsx](app/dashboard/knowledge-view.tsx))
+  shows the canonical entities grouped by kind with their facts, relationships (→),
+  natural keys, and per-fact provenance counts — lazy-loaded from
+  `GET /api/knowledge/entities` (`listKnowledge` in [knowledge.ts](lib/datamodo/knowledge.ts),
+  view types in [types.ts](lib/datamodo/types.ts)). Data tab now frames tables as
+  "derived from your knowledge" + a **"Build from knowledge"** modal
+  ([build-from-knowledge.tsx](app/dashboard/build-from-knowledge.tsx)): pick an
+  entity kind + target table → runs the projection (auto-materializes rows). Nav is
+  now Agents · Knowledge · Data · Review · Search. Verified: listKnowledge view
+  model correct (entities/facts/refs/provenance). Not yet rendered in-browser.
 - **2026-07-09** — **Review is FACT-level; retired table-level review.** The
   Review tab shows only knowledge decisions — entity merges, fact conflicts,
   low-confidence extractions ([review-studio.tsx](app/dashboard/review-studio.tsx)).

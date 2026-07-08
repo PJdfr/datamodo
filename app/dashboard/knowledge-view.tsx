@@ -1,0 +1,139 @@
+"use client";
+
+/**
+ * KNOWLEDGE view — the canonical layer the whole product is built on: the
+ * entities we've resolved (people, companies, invoices…) and the facts we know
+ * about each, with provenance. Tables (the Data tab) are DERIVED projections of
+ * this; this is the source of truth. Lazy-loaded from /api/knowledge/entities.
+ */
+
+import { useEffect, useMemo, useState } from "react";
+import { C, monoLabel } from "./ui";
+import type { KnowledgeEntityView } from "@/lib/datamodo/types";
+
+const KIND_TONE: Record<string, string> = {
+  person: C.blue,
+  people: C.blue,
+  company: C.accent,
+  org: C.accent,
+  organization: C.accent,
+  invoice: C.gold,
+  project: C.green,
+};
+const toneOf = (kind: string) => KIND_TONE[kind.toLowerCase()] ?? C.ink;
+const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const plural = (kind: string) => (/[sx]$/.test(kind) ? kind : kind + "s");
+
+function EntityCard({ e }: { e: KnowledgeEntityView }) {
+  const tone = toneOf(e.kind);
+  const keys = Object.entries(e.naturalKeys ?? {});
+  return (
+    <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 13, padding: "13px 15px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: keys.length || e.facts.length ? 10 : 0 }}>
+        <span style={{ width: 30, height: 30, borderRadius: 9, background: tone, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{e.label.charAt(0).toUpperCase()}</span>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em", color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.label}</div>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "#A39B8B" }}>{e.kind} · {e.edges} link{e.edges === 1 ? "" : "s"}</div>
+        </div>
+      </div>
+      {keys.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: e.facts.length ? 10 : 0 }}>
+          {keys.map(([k, v]) => (
+            <span key={k} className="dm-mono" style={{ fontSize: 10.5, color: "#57534A", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 6, padding: "2px 7px" }}>{k.replace(/_/g, " ")}: {v}</span>
+          ))}
+        </div>
+      )}
+      {e.facts.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(84px,auto) 1fr", gap: "5px 12px", fontSize: 12.5 }}>
+          {e.facts.map((f, i) => (
+            <div key={i} style={{ display: "contents" }}>
+              <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", whiteSpace: "nowrap" }}>{f.predicate.replace(/_/g, " ")}</span>
+              <span style={{ color: f.ref ? C.accent : "#3A352C", fontWeight: f.ref ? 600 : 400, display: "flex", gap: 6, alignItems: "baseline" }}>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{f.ref ? `→ ${f.value}` : f.value}</span>
+                {f.sources > 1 && <span className="dm-mono" style={{ fontSize: 9, color: "#B7AF9F", flexShrink: 0 }}>×{f.sources}</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function KnowledgeView() {
+  const [entities, setEntities] = useState<KnowledgeEntityView[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/knowledge/entities");
+        const json = await res.json();
+        if (alive) setEntities(json.entities ?? []);
+      } catch {
+        /* leave empty */
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const shown = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    if (!t) return entities;
+    return entities.filter((e) => `${e.label} ${e.kind} ${e.facts.map((f) => f.value).join(" ")}`.toLowerCase().includes(t));
+  }, [entities, q]);
+
+  const groups = useMemo(() => {
+    const m = new Map<string, KnowledgeEntityView[]>();
+    for (const e of shown) { if (!m.has(e.kind)) m.set(e.kind, []); m.get(e.kind)!.push(e); }
+    return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [shown]);
+
+  const totalFacts = useMemo(() => entities.reduce((n, e) => n + e.facts.length, 0), [entities]);
+
+  if (loading) return <div className="dm-mono" style={{ color: "#A39B8B", fontSize: 13, padding: "40px 4px" }}>Loading your knowledge…</div>;
+
+  if (entities.length === 0) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "72px 20px" }}>
+        <div style={{ width: 64, height: 64, borderRadius: 18, background: "#FBF8F1", border: "1px solid #ECE5D8", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20, fontSize: 26 }}>◍</div>
+        <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 24, letterSpacing: "-0.03em", margin: "0 0 8px" }}>No knowledge yet</h2>
+        <p style={{ fontSize: 14.5, color: "#57534A", maxWidth: "44ch", margin: 0, lineHeight: 1.55 }}>As your agents read messages, the people, companies, and things they mention become entities here — the facts your tables are built from.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 980 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
+        <div>
+          <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink }}>{entities.length} thing{entities.length === 1 ? "" : "s"} we know about</div>
+          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>{groups.length} kind{groups.length === 1 ? "" : "s"} · {totalFacts} fact{totalFacts === 1 ? "" : "s"} · your tables are built from these</div>
+        </div>
+        <div style={{ position: "relative", marginLeft: "auto", minWidth: 220 }}>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search entities & facts…" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
+        </div>
+      </div>
+
+      {shown.length === 0 && <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Nothing matches “{q.trim()}”.</div>}
+
+      {groups.map(([kind, list]) => (
+        <div key={kind} style={{ marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 9, margin: "0 2px 11px" }}>
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: toneOf(kind) }} />
+            <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink, margin: 0 }}>{titleCase(plural(kind))}</h2>
+            <span className="dm-mono" style={{ ...monoLabel }}>{list.length}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+            {list.map((e) => <EntityCard key={e.id} e={e} />)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}

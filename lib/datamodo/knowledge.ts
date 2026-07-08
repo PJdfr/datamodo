@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getLlmProvider } from "@/lib/llm";
+import type { KnowledgeEntityView } from "./types";
 
 // Knowledge layer: turn an extraction (entities + facts pulled from one message)
 // into canonical, deduplicated, versioned knowledge — scoped per user (org_id).
@@ -522,4 +523,67 @@ export async function ingestExtraction(
   }
 
   return res;
+}
+
+// --- Read side: the knowledge layer projected for display ---------------------
+
+interface KFact {
+  id: string;
+  subject_entity_id: string;
+  object_entity_id: string | null;
+  predicate: string;
+  value_text: string | null;
+  value_num: number | null;
+  value_date: string | null;
+  unit: string | null;
+}
+
+/** All of the user's entities + what we currently know about each, with a
+ *  provenance count per fact. This is the canonical knowledge view the UI shows;
+ *  tables are derived from it. */
+export async function listKnowledge(db: SupabaseClient, orgId: string): Promise<KnowledgeEntityView[]> {
+  const [{ data: ents }, { data: facts }] = await Promise.all([
+    db.from("entities").select("id, kind, canonical_label, natural_keys").eq("org_id", orgId).is("merged_into", null),
+    db.from("facts").select("id, subject_entity_id, object_entity_id, predicate, value_text, value_num, value_date, unit").eq("org_id", orgId).is("valid_to", null).limit(5000),
+  ]);
+  const entities = (ents as { id: string; kind: string; canonical_label: string; natural_keys: Record<string, string> }[] | null) ?? [];
+  const factList = (facts as KFact[] | null) ?? [];
+  const label = new Map(entities.map((e) => [e.id, e.canonical_label]));
+
+  // Provenance: how many sources back each fact.
+  const srcCount = new Map<string, number>();
+  const factIds = factList.map((f) => f.id);
+  if (factIds.length) {
+    const { data: fs } = await db.from("fact_sources").select("fact_id").in("fact_id", factIds);
+    for (const s of (fs as { fact_id: string }[] | null ?? [])) srcCount.set(s.fact_id, (srcCount.get(s.fact_id) ?? 0) + 1);
+  }
+
+  const edges = new Map<string, number>();
+  const bySubject = new Map<string, KFact[]>();
+  for (const f of factList) {
+    edges.set(f.subject_entity_id, (edges.get(f.subject_entity_id) ?? 0) + 1);
+    if (f.object_entity_id) edges.set(f.object_entity_id, (edges.get(f.object_entity_id) ?? 0) + 1);
+    if (!bySubject.has(f.subject_entity_id)) bySubject.set(f.subject_entity_id, []);
+    bySubject.get(f.subject_entity_id)!.push(f);
+  }
+
+  const fmt = (f: KFact): { value: string; ref: boolean } =>
+    f.object_entity_id ? { value: label.get(f.object_entity_id) ?? "?", ref: true }
+      : f.value_num != null ? { value: `${f.value_num}${f.unit ? " " + f.unit : ""}`, ref: false }
+      : f.value_date ? { value: f.value_date, ref: false }
+      : { value: f.value_text ?? "—", ref: false };
+
+  return entities
+    .map((e) => ({
+      id: e.id,
+      kind: e.kind,
+      label: e.canonical_label,
+      naturalKeys: e.natural_keys ?? {},
+      edges: edges.get(e.id) ?? 0,
+      facts: (bySubject.get(e.id) ?? []).map((f) => {
+        const v = fmt(f);
+        return { predicate: f.predicate, value: v.value, ref: v.ref, sources: srcCount.get(f.id) ?? 1 };
+      }),
+    }))
+    .sort((a, b) => b.edges - a.edges);
 }
