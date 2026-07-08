@@ -1,0 +1,206 @@
+# Project State — datamodo
+
+> **Living handoff doc.** Read this first when starting a session. It is the
+> single place that summarizes what datamodo is, where it stands, and what's
+> next — so a fresh agent (or human) can get oriented without prior context.
+>
+> **Every agent MUST update this file at the end of a task** that changes the
+> product's state: move items between sections, add a dated line to
+> "Recent changes", and adjust "Next steps". Keep it tight — this is a map,
+> not a changelog. Details live in code, migrations, and `app/dashboard/README.md`.
+>
+> Last updated: 2026-07-08
+
+## Recent changes
+- **2026-07-08** — **Provider abstraction + confidence-scored entity resolution +
+  review queue + onboarding steering.**
+  - **LLM provider abstraction** ([lib/llm/](lib/llm/)): `LlmProvider` interface +
+    `getLlmProvider(name?, apiKey?)` factory routing on `LLM_PROVIDER` env
+    (openrouter | openai | anthropic). `OpenAICompatibleProvider` (OpenRouter +
+    OpenAI) + `AnthropicProvider` (Messages API). `apiKey` arg supports per-user
+    BYOK. extract.ts + knowledge.ts now depend only on the interface.
+  - **Semantic entity resolution** ([lib/datamodo/knowledge.ts](lib/datamodo/knowledge.ts)):
+    real `adjudicateMatch` (LLM, fail-safe). Policy: trigram≥0.92 auto; else LLM
+    confidence ≥0.85 → auto-resolve to canonical (logged accepted review); ≥0.55 →
+    new entity + **pending merge proposal**; below → new. Blocking recall broadened
+    (substring) so "Acme" finds "Acme Group". Verified: "Acme"→"Acme Group" @0.9
+    auto-resolved (no dup); fact conflicts logged too.
+  - **Review queue** ([lib/datamodo/reviews.ts](lib/datamodo/reviews.ts) + migration
+    `20260708150000`): `knowledge_reviews` (entity_merge | fact_conflict), **ranked
+    by impact** (edges/rows affected). `listPendingReviews` (impact desc),
+    `acceptReview` (performs `mergeEntities`), `rejectReview` (reverts fact
+    supersession). Exposed via `GET /api/knowledge/reviews`,
+    `POST /api/knowledge/reviews/[id]` {accept|reject}, and a minimal page
+    [app/dashboard/reviews/page.tsx](app/dashboard/reviews/page.tsx). Verified:
+    ranking (impact 4 before 1) + accept→merge (`merged_into` set).
+  - **Onboarding steering**: `user_settings.business_context`/`onboarding` +
+    `saveOnboarding`/`getOnboardingContext` ([settings.ts](lib/datamodo/settings.ts)),
+    injected into the extraction prompt (`runExtractionForItem` loads it per owner),
+    saved via `POST /api/onboarding`. **UI note:** reviews page + onboarding form are
+    minimal/unstyled and NOT yet verified in-browser (need a logged-in session).
+    **Still TODO:** embeddings (Tier 1b) for acronym/paraphrase recall; controlled
+    predicate vocabulary; wire onboarding capture into the signup flow.
+- **2026-07-08** — **LLM extractor built + working end-to-end** (step ⑤+⑥ live).
+  [`lib/llm/openrouter.ts`](lib/llm/openrouter.ts) (OpenRouter client, fetch-based,
+  429/5xx retry+backoff, response_format opt-in via `structured` flag) +
+  [`lib/datamodo/extract.ts`](lib/datamodo/extract.ts) (`extractFromMessage`:
+  flat LLM schema → mapped to `Extraction`, few-shot prompt, confidence-gated
+  escalation; `runExtractionForItem`: item→analyzing→analyzed, reads body blob,
+  calls `ingestExtraction`). Verified live on a real email: extracted 3 entities
+  (invoice/org/person w/ natural keys) + 5 facts w/ entity refs, folded into the
+  knowledge layer; re-run resolved all entities (0 created) + deduped facts.
+  **Provider:** OpenRouter, key in `.env.local`. **Account is free-tier/no-credits**,
+  so paid models 402; using free `cohere/north-mini-code:free` (reasoning model —
+  needs maxTokens ≥4096; response_format OFF for free models — they return empty
+  with it; needed a few-shot example to extract at all). Most other free models
+  are 429-rate-limited. **Recommend ~$10 OpenRouter credit** → unlocks
+  `deepseek/deepseek-v4-flash` (~$0.09/M, reliable, structured outputs) — set
+  `OPENROUTER_EXTRACT_MODEL`/`OPENROUTER_ESCALATE_MODEL`.
+  **Known limitation:** LLM predicate-name variability (`amount` vs `invoice_amount`)
+  produces different `claim_key`s → fact dedup misses near-duplicates. Fix: a
+  controlled predicate vocabulary / canonical-predicate mapping (TODO). Entity
+  resolution is robust across runs.
+- **2026-07-08** — **Knowledge layer skeleton built + tested** (the canonical
+  facts store). Migration `20260708140000_knowledge_layer.sql`: `entities`
+  (canonical, mergeable, per-org, pg_trgm + pgvector/HNSW indexes),
+  `facts` (append-only, bitemporal `valid_from/valid_to`, `claim_key`,
+  supersession), `fact_sources` (provenance/support), + `knowledge_match_entities`
+  trigram blocking fn. Resolution/dedup logic in [`lib/datamodo/knowledge.ts`](lib/datamodo/knowledge.ts):
+  tiered entity resolution (Tier 0 deterministic key + Tier 1 trigram blocking
+  implemented; Tier 2/3 Splink/LLM adjudication stubbed behind `adjudicateMatch`),
+  `claim_key` fact dedup + contradiction→supersession, `mergeEntities` for async
+  compaction, `ingestExtraction` orchestrator (the entry point the extractor will
+  call). Verified: re-observe→dedup, contradiction→supersede (history kept),
+  case-variant→same canonical entity, all per-org. **Embeddings (Tier 1b) + the
+  LLM extractor that produces `Extraction` are still TODO** (Phase A other half).
+- **2026-07-08** — **Slack + Teams inbound connectors** built + tested locally,
+  reusing the shared identify-once infra. [`app/api/webhooks/slack/route.ts`](app/api/webhooks/slack/route.ts)
+  (URL-verification challenge + `v0=` HMAC-SHA256 signing-secret verify + 5-min
+  replay guard; identify by Slack user id) and [`app/api/webhooks/teams/route.ts`](app/api/webhooks/teams/route.ts)
+  (Bot Framework JWT verify via `jose` against Microsoft JWKS, issuer/audience
+  checks; identify by AAD object id). Both route by SENDER handle and skip
+  capturing the activation message. Env: `SLACK_SIGNING_SECRET` (+`SLACK_BOT_TOKEN`
+  for files); `MICROSOFT_APP_ID`. Teams has a `NODE_ENV!=='production'`-only
+  `TEAMS_DEV_SKIP_AUTH=1` bypass for local testing. Still TODO for all channels:
+  Connect-UI to mint codes; real provider E2E (Slack app / Azure Bot); Slack &
+  Teams attachment binary download (metadata captured for Teams).
+- **2026-07-08** — **KG architecture decided via research** (see "Knowledge layer"
+  below): NOT a standalone graph DB. Canonical = append-only versioned **facts**
+  in Supabase Postgres; graph is a *derived index* (recursive CTEs / pgRouting);
+  numbers go to **DuckDB** (attaches to Postgres, no copy); **pgvector** for
+  semantic search. Founder's "graphs are bad at numbers" instinct confirmed by
+  benchmarks. Full report in session history.
+- **2026-07-08** — **WhatsApp inbound connector (Twilio BSP)** built + tested on
+  the local stack. Model: one shared WhatsApp number, users identified by sender
+  `wa_id`, bound once via a link code. New: [`app/api/webhooks/whatsapp/route.ts`](app/api/webhooks/whatsapp/route.ts)
+  (X-Twilio-Signature HMAC-SHA1 verify → normalize → in-process `ingest()`),
+  [`lib/datamodo/channels.ts`](lib/datamodo/channels.ts) (mint/redeem link codes,
+  bind `ingest_sources`), migration `20260708130000_channel_link_codes.sql`.
+  Verified: bad-sig→403, code→binds active source, message→captured item,
+  unknown sender→refused. Routes by SENDER handle (shared bot), not recipient.
+  **Env needed:** `TWILIO_AUTH_TOKEN`, `TWILIO_ACCOUNT_SID`, `TWILIO_WHATSAPP_WEBHOOK_URL`.
+  Still TODO: a "Connect WhatsApp" UI that calls `createChannelLinkCode` + shows
+  the code/`wa.me` link; real Twilio sandbox test; Teams/Slack adapters (same pattern).
+- **2026-07-08** — Connector capture smoke-tested end-to-end on the local stack
+  (synthetic email envelope → `/api/ingest` → `items`/`blobs`/`attachments` +
+  Storage). Verified item `stored`, attachment persisted, blob dedup/ref-counts,
+  idempotency (same `externalId` → deduped), and 401 on bad secret. Reusable
+  script: [`scripts/ingest-smoke.sh`](scripts/ingest-smoke.sh).
+- **2026-07-08** — **Fixed latent bug**: `service_role` had no DML grants on app
+  tables (migrations only granted `authenticated`; platform default privileges
+  didn't cover service_role), so the whole ingest path 500'd with `42501`.
+  Added migration `20260708120000_grant_service_role_dml.sql`.
+
+## What datamodo is
+
+An **individual-only** product (no teams/orgs/sharing — see `CLAUDE.md`) that
+turns unstructured communications (email today; WhatsApp/Teams/Slack planned)
+into structured, reviewable data for the user. A user forwards/connects a
+channel; we capture the raw message, extract meaning from it, and surface it as
+data the user can review, correct, and use.
+
+## Architecture at a glance
+
+```
+channel adapter (e.g. workers/email-ingest, a Cloudflare Email Worker)
+   │  normalizes any channel → IngestEnvelope
+   ▼
+POST /api/ingest            app/api/ingest/route.ts   (x-ingest-secret gated)
+   ▼
+ingest()                    lib/ingest/store.ts
+   ├─ resolveTarget: recipient → forwarding_addresses / ingest_sources → org+user
+   ├─ storeBlob: sha256 + gzip + dedupe → Storage 'ingest' bucket + blobs table
+   └─ insert items(status received→stored) + attachments
+   ▼
+   ┌──────────  ⛔ NOT BUILT: extraction / knowledge pipeline  ──────────┐
+   │  small model triages → big model extracts → knowledge layer → tables │
+   └───────────────────────────────────────────────────────────────────────┘
+   ▼
+dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
+   review / versioning / snapshots    lib/datamodo/review.ts
+```
+
+### Key modules
+- **Capture:** `lib/ingest/store.ts`, `lib/ingest/types.ts`, `app/api/ingest/route.ts`
+- **Email adapter:** `workers/email-ingest/` (Cloudflare Email Worker)
+- **Inbox provisioning:** `lib/datamodo/inbox.ts` (`<token>@<INBOUND_EMAIL_DOMAIN>`)
+- **Structured layer:** `lib/datamodo/datasets.ts` (rows, proposals, accept/reject),
+  `lib/datamodo/review.ts`, `lib/datamodo/types.ts`
+- **Source registries:** `ingest_sources` (channel-agnostic) + `forwarding_addresses` (email)
+- **Settings / BYOK:** `lib/datamodo/settings.ts` (`getByokKey` exists, unused),
+  `lib/datamodo/plans.ts`
+- **Data model:** `agents`, `datasets` (`.columns` jsonb schema),
+  `dataset_rows` (`.data` jsonb blob, `source_item_id` provenance),
+  `dataset_snapshots`; raw side: `items`, `blobs`, `attachments`.
+  See `supabase/migrations/`.
+
+## Current state (2026-07-08)
+
+- ✅ **Capture pipeline** works end-to-end in code: email worker → `/api/ingest`
+  → deduped blob storage + `items` rows at status `stored`.
+- ✅ **Structured/table layer** complete: manual entry, .xlsx import, and a full
+  proposal → review → accept → snapshot/versioning flow.
+- ⚠️ **Rows are created only** by manual entry, xlsx import, and
+  `simulateAgentUpdate()` (a stand-in — no live extraction).
+- ⛔ **No LLM code anywhere** (no `@anthropic-ai/sdk`, no extraction worker).
+  `items` status enum reserves `analyzing`/`analyzed` for this future step.
+- ⛔ **Only email** is a real adapter. Slack/WhatsApp/Teams are enum values +
+  logo assets only. No connector OAuth (only Supabase auth OAuth exists).
+- ⛔ **No edge functions, cron, or queues.** `supabase/functions/` does not exist.
+
+## Next steps
+
+1. ~~Connector smoke test~~ ✅ **done 2026-07-08** (see Recent changes). Capture
+   path verified end-to-end; service_role grant bug fixed. Real inbound email
+   (Cloudflare worker + live MX) still untested — only the synthetic POST path is.
+2. **Extraction pipeline** (design under discussion — see below). Target shape:
+   Supabase Edge Function, channel-agnostic (keys off `IngestEnvelope`), two-model
+   (cheap triage → capable extraction), output feeds `proposeAgentRows(...)` at
+   `lib/datamodo/datasets.ts` and sets `items.status stored→analyzing→analyzed`.
+3. **Knowledge layer (DECIDED — Phase A first; refined by 2026-07-08 research):**
+   three-layer model — raw `items` → **canonical FACTS** (append-only, versioned;
+   `facts(subject_entity, predicate, value, unit, ts, source_item_id, confidence,
+   valid_from, valid_to, extracted_at)`) → **projections**: (a) editable user
+   **tables**, (b) a **derived graph index** for relationship/provenance reasoning
+   via recursive CTEs / pgRouting (NOT a separate graph DB — Apache AGE isn't
+   installable on hosted Supabase; Kùzu is archived), (c) **pgvector** embeddings
+   for semantic Q&A. **Numbers/aggregation go to DuckDB** (attaches to Postgres
+   directly, columnar, no copy) — this is the answer to "graphs are bad at numbers."
+   Bitemporal versioning modeled on Graphiti (valid-time + ingest-time; contradictions
+   invalidate, never delete). Entity resolution: Splink (MIT, runs on DuckDB).
+   Extraction produces a per-message summary + per-fact confidence for the review card.
+   - **Phase A (now):** extraction Edge Function whose OUTPUT schema is already
+     entities/facts/summary/confidence, but projected straight into `dataset_rows`
+     via `proposeAgentRows`. Proves the loop, ships value.
+   - **Phase B (later):** persist `entities`/`facts`/`entity_mentions` as canonical
+     store, move versioning there, make `dataset_rows` a projection. Additive — no rewrite.
+4. Delete `simulateAgentUpdate()` once real extraction flows.
+5. Additional channel adapters — **WhatsApp done** (Twilio, needs Connect-UI +
+   live sandbox test); **Teams/Slack next** (same shared-bot + identify-once
+   pattern via `ingest_sources` + `channel_link_codes`).
+
+## Conventions
+- Individual-only product. Never add teams/sharing without an explicit decision.
+- Keep `user@example.com` demo data seeded (`supabase/seed.sql`).
+- This is a modified Next.js — read `node_modules/next/dist/docs/` before writing.
+- **Update this file at the end of every state-changing task.**
