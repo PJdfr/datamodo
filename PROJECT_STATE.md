@@ -12,6 +12,14 @@
 > Last updated: 2026-07-08
 
 ## Recent changes
+- **2026-07-09** — **Clean Data table view + demo knowledge seeded.** Table detail
+  no longer has the table-level "Review changes"/"Simulate agent update" panel
+  (review is fact-level) — tables are just viewed/edited/synced (version History
+  kept). `seed.sql` now seeds the demo user's knowledge layer (3 companies / 3
+  people / 2 invoices + 13 facts w/ relationships + provenance) and drops the old
+  table-row proposal demo. **Ran `supabase db reset`** — local demo restored
+  (Invoices 4 / Contacts 3 / Trips 2 rows, 0 proposed) + knowledge populated.
+  NOTE: reset gave the demo user a fresh id → re-login needed locally.
 - **2026-07-09** — **Knowledge view + build-from-knowledge (Data tab caught up to
   the fact-level model).** New **Knowledge** tab ([knowledge-view.tsx](app/dashboard/knowledge-view.tsx))
   shows the canonical entities grouped by kind with their facts, relationships (→),
