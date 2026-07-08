@@ -65,7 +65,6 @@ import {
 } from "./ui";
 import { ReviewStudio } from "./review-studio";
 import { ConnectionsModal } from "./connections";
-import type { TableChangeReview } from "@/lib/datamodo/review-types";
 
 /* ================================================================== */
 /* Component                                                           */
@@ -217,24 +216,9 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const pendingTables = new Set(pendingChanges.map((p) => p.datasetId)).size;
   const pendingAgents = new Set(pendingChanges.map((p) => p.agent)).size;
 
-  // Table row proposals, mapped into the unified Review queue as "table_change".
-  const tableChanges = useMemo<TableChangeReview[]>(() => pendingChanges.map((it) => ({
-    id: it.id,
-    kind: "table_change",
-    createdAt: it.createdAt,
-    confidence: null,
-    impact: it.conflict ? 3 : it.kind === "add" ? 2 : 1,
-    changeKind: it.kind,
-    conflict: it.conflict,
-    table: it.datasetName,
-    agent: it.agent,
-    sourceLabel: it.sourceLabel,
-    cells: it.kind === "add"
-      ? it.columns.map((c) => ({ label: c.label, after: showVal(it.data[c.key]) }))
-      : it.cells.filter((c) => c.changed).map((c) => ({ label: c.label, before: showVal(c.before), after: showVal(c.after) })),
-  })), [pendingChanges]);
-  // Everything awaiting the user across the unified Review surface.
-  const reviewTotal = pendingReviewCount + pendingChanges.length;
+  // Review is FACT-level (merges / conflicts / extractions). Tables are a
+  // projection of accepted facts, not a separate review surface.
+  const reviewTotal = pendingReviewCount;
 
   const titles: Record<Tab, { t: string; sub: string }> = {
     agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
@@ -380,7 +364,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
               <DataFull tables={uiTables} onOpen={setOpenTableId} onCreate={() => setCreateTableOpen(true)} onImported={() => router.refresh()} selected={selectedTables} toggleSelect={(id) => setSelectedTables((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])} />
             </>
           ) : <DataEmpty openModal={() => setCreateTableOpen(true)} />)}
-          {tab === "review" && <ReviewStudio tableChanges={tableChanges} onChanged={() => router.refresh()} />}
+          {tab === "review" && <ReviewStudio />}
           {tab === "search" && <SearchTab populated={populated} />}
         </div>
       </main>

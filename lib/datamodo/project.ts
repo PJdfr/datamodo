@@ -3,11 +3,11 @@ import type { DatasetColumn } from "./types";
 
 // FACTS → TABLES projection (pipeline step ⑦). A user table is a projection of
 // the canonical facts: each entity of a chosen kind becomes one row, each column
-// filled from a fact whose predicate matches the column key. Output is emitted as
-// PROPOSALS (via dataset_rows), so it flows through the existing Versioning review
-// UI. Idempotent: rows are linked to their entity (dataset_rows.subject_entity_id),
-// so re-projecting updates rows instead of duplicating them, and human-edited rows
-// are left untouched.
+// filled from a fact whose predicate matches the column key. Review happens at the
+// FACT level, so this materializes rows DIRECTLY (accepted), not as a second
+// table-level review. Idempotent: rows are linked to their entity
+// (dataset_rows.subject_entity_id), so re-projecting updates rows instead of
+// duplicating them, and human-edited rows are left untouched.
 
 const slug = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 
@@ -104,7 +104,7 @@ export async function projectEntitiesToDataset(
   let unchanged = 0;
 
   for (const e of entities) {
-    if (pendingEntities.has(e.id)) { unchanged++; continue; } // already queued for review
+    if (pendingEntities.has(e.id)) { unchanged++; continue; } // leave any legacy pending row alone
     const data: Record<string, unknown> = {};
     if (labelKey) data[labelKey] = e.canonical_label;
     for (const f of bySubject.get(e.id) ?? []) {
@@ -118,22 +118,24 @@ export async function projectEntitiesToDataset(
     else updates.push({ rowId: ex.id, data, entityId: e.id });
   }
 
-  const batchId = crypto.randomUUID();
-  const base = {
-    org_id: orgId,
-    dataset_id: opts.datasetId,
-    status: "proposed" as const,
-    origin: "agent",
-    proposed_by: opts.agentName ?? "Knowledge",
-    batch_id: batchId,
-  };
-  const rows = [
-    ...adds.map((a) => ({ ...base, data: a.data, proposed_kind: "add", subject_entity_id: a.entityId })),
-    ...updates.map((u) => ({ ...base, data: u.data, proposed_kind: "update", target_row_id: u.rowId, subject_entity_id: u.entityId })),
-  ];
-  if (rows.length) {
-    const { error } = await admin.from("dataset_rows").insert(rows);
+  // Tables are a PROJECTION of accepted facts — the user reviews at the fact
+  // level, so we materialize rows directly (no separate table-level review).
+  if (adds.length) {
+    const { error } = await admin.from("dataset_rows").insert(
+      adds.map((a) => ({
+        org_id: orgId,
+        dataset_id: opts.datasetId,
+        status: "accepted",
+        origin: "agent",
+        subject_entity_id: a.entityId,
+        data: a.data,
+      })),
+    );
     if (error) throw error;
   }
-  return { entities: entities.length, added: adds.length, updated: updates.length, unchanged, batchId: rows.length ? batchId : null };
+  for (const u of updates) {
+    const { error } = await admin.from("dataset_rows").update({ data: u.data, origin: "agent" }).eq("id", u.rowId);
+    if (error) throw error;
+  }
+  return { entities: entities.length, added: adds.length, updated: updates.length, unchanged, batchId: null };
 }

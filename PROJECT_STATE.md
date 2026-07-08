@@ -12,16 +12,16 @@
 > Last updated: 2026-07-08
 
 ## Recent changes
-- **2026-07-09** — **Unified review surface** (retired the separate Versioning tab).
-  Table-row proposals now fold into the one **Review** tab as a `table_change` kind
-  ([review-types.ts](lib/datamodo/review-types.ts)) alongside merges/conflicts/
-  extractions, in a single impact-ranked queue. [review-studio.tsx](app/dashboard/review-studio.tsx)
-  merges knowledge reviews (fetched) + table changes (mapped from `pendingChanges`
-  in control-center) and dispatches accept/reject by kind (knowledge → /api/knowledge/
-  reviews; table → acceptProposals/rejectProposals actions + refresh). Sidebar
-  "Needs review", the agents banner, and the nav badge now all point to Review and
-  count the combined total. `versioning.tsx` is now unused (kept, not imported).
-  **Still simulated-preview only when BOTH knowledge reviews and table changes are empty.**
+- **2026-07-09** — **Review is FACT-level; retired table-level review.** The
+  Review tab shows only knowledge decisions — entity merges, fact conflicts,
+  low-confidence extractions ([review-studio.tsx](app/dashboard/review-studio.tsx)).
+  The old table-row Versioning tab is retired (`versioning.tsx` unused). **Tables
+  are a projection**, not a review surface: `projectEntitiesToDataset`
+  ([project.ts](lib/datamodo/project.ts)) now **auto-materializes** accepted rows
+  directly (adds → `accepted`, updates in place; idempotent, human-edits protected)
+  instead of proposing them. Sidebar "Needs review" + nav badge count fact-level
+  reviews (`pendingReviewCount`). (Corrects an earlier misstep that folded table
+  proposals back into Review — reverted.)
 - **2026-07-09** — **Connect-a-channel UI built** (surfaces the identify-once flow).
   [`app/dashboard/connections.tsx`](app/dashboard/connections.tsx) `ConnectionsModal`
   (opened from a new topbar "Connect" button): shows the email inbox address

@@ -16,8 +16,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { C, Hov, monoLabel, ghostBtn, relTime } from "./ui";
-import { acceptProposalsAction, rejectProposalsAction } from "./actions";
-import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, TableChangeReview, ReviewEntitySide } from "@/lib/datamodo/review-types";
+import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, ReviewEntitySide } from "@/lib/datamodo/review-types";
 
 /* --------------------------- simulated fallback --------------------------- */
 
@@ -240,51 +239,9 @@ function ExtractionCard({ e, onResolve }: { e: ExtractionReview; onResolve: Reso
   );
 }
 
-function TableChangeCard({ t, onResolve }: { t: TableChangeReview; onResolve: Resolve }) {
-  const tone = t.conflict ? C.accent : C.green;
-  return (
-    <div style={{ border: `1px solid ${t.conflict ? "#F3D6CB" : "#E7E0D2"}`, borderRadius: 13, background: t.conflict ? "#FDF4F0" : "#fff", overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 15px", background: t.conflict ? "#FDF4F0" : "#FBF8F1", borderBottom: "1px solid #EFE9DC", flexWrap: "wrap" }}>
-        <TypeChip label={t.changeKind === "add" ? "New row" : "Row update"} tone={t.conflict ? C.accent : C.blue} />
-        <span style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{t.table}</span>
-        {t.conflict && <TypeChip label="you edited this" tone={C.accent} />}
-        <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginLeft: "auto" }}>{t.agent}{t.sourceLabel ? ` · “${t.sourceLabel}”` : ""} · {relTime(t.createdAt)}</span>
-      </div>
-      <div style={{ padding: "12px 15px" }}>
-        {t.changeKind === "add" ? (
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(90px,auto) 1fr", gap: "4px 14px", fontSize: 12.5 }}>
-            {t.cells.map((c, i) => (
-              <Fragment key={i}>
-                <span style={{ color: "#8A8477" }}>{c.label}</span>
-                <span style={{ color: C.green, fontWeight: 600 }}>{c.after}</span>
-              </Fragment>
-            ))}
-          </div>
-        ) : t.cells.length === 0 ? (
-          <div className="dm-mono" style={{ fontSize: 11.5, color: "#A39B8B" }}>No field changes.</div>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(90px,auto) 1fr 1fr", gap: "6px 12px", fontSize: 12.5, alignItems: "center" }}>
-            {t.cells.map((c, i) => (
-              <Fragment key={i}>
-                <span style={{ color: "#8A8477" }}>{c.label}</span>
-                <span style={{ color: "#B44536", textDecoration: "line-through" }}>{c.before}</span>
-                <span style={{ color: tone, fontWeight: 600 }}>{c.after}</span>
-              </Fragment>
-            ))}
-          </div>
-        )}
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-          <Actions id={t.id} onResolve={onResolve} acceptLabel={t.conflict ? "Use this" : "Accept"} rejectLabel={t.conflict ? "Keep mine" : "Reject"} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function renderCard(it: ReviewItem, onResolve: Resolve) {
   if (it.kind === "entity_merge") return <MergeCard m={it} onResolve={onResolve} />;
   if (it.kind === "fact_conflict") return <ConflictCard c={it} onResolve={onResolve} />;
-  if (it.kind === "table_change") return <TableChangeCard t={it} onResolve={onResolve} />;
   return <ExtractionCard e={it} onResolve={onResolve} />;
 }
 
@@ -300,9 +257,8 @@ function SectionHead({ title, hint, count }: { title: string; hint: string; coun
 
 /* --------------------------------- page ----------------------------------- */
 
-export function ReviewStudio({ tableChanges = [], onChanged }: { tableChanges?: TableChangeReview[]; onChanged?: () => void }) {
-  const [knowledge, setKnowledge] = useState<ReviewItem[]>([]);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+export function ReviewStudio() {
+  const [items, setItems] = useState<ReviewItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState(false); // showing simulated fallback
 
@@ -314,47 +270,36 @@ export function ReviewStudio({ tableChanges = [], onChanged }: { tableChanges?: 
         const json = await res.json();
         const real: ReviewItem[] = json.reviews ?? [];
         if (!alive) return;
-        if (real.length > 0 || tableChanges.length > 0) { setKnowledge(real); setPreview(false); }
-        else { setKnowledge(SIMULATED); setPreview(true); }
+        if (real.length > 0) { setItems(real); setPreview(false); }
+        else { setItems(SIMULATED); setPreview(true); }
       } catch {
-        if (alive) { setKnowledge(tableChanges.length > 0 ? [] : SIMULATED); setPreview(tableChanges.length === 0); }
+        if (alive) { setItems(SIMULATED); setPreview(true); }
       } finally {
         if (alive) setLoading(false);
       }
     })();
     return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // One unified queue: knowledge decisions + table row changes (unless in the
-  // simulated preview, where there are no real table changes to mix in).
-  const all = useMemo(() => [...knowledge, ...(preview ? [] : tableChanges)], [knowledge, tableChanges, preview]);
-  const kindById = useMemo(() => new Map(all.map((i) => [i.id, i.kind])), [all]);
-
   const resolve: Resolve = (id, action) => {
-    setDismissed((s) => new Set(s).add(id));
-    const kind = kindById.get(id);
-    if (kind === "table_change") {
-      void (action === "accept" ? acceptProposalsAction([id]) : rejectProposalsAction([id])).then(() => onChanged?.());
-    } else if (!preview) {
+    setItems((s) => s.filter((i) => i.id !== id));
+    if (!preview) {
       void fetch(`/api/knowledge/reviews/${id}`, {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }),
       });
     }
   };
 
-  const live = useMemo(() => all.filter((i) => !dismissed.has(i.id)).sort((a, b) => b.impact - a.impact), [all, dismissed]);
+  const live = useMemo(() => [...items].sort((a, b) => b.impact - a.impact), [items]);
   const spotlight = live[0];
   const rest = live.slice(1);
   const merges = rest.filter((i): i is MergeReview => i.kind === "entity_merge");
   const conflicts = rest.filter((i): i is ConflictReview => i.kind === "fact_conflict");
   const extractions = rest.filter((i): i is ExtractionReview => i.kind === "extraction");
-  const tables = rest.filter((i): i is TableChangeReview => i.kind === "table_change");
   const counts = {
     merge: live.filter((i) => i.kind === "entity_merge").length,
     conflict: live.filter((i) => i.kind === "fact_conflict").length,
     extraction: live.filter((i) => i.kind === "extraction").length,
-    table: live.filter((i) => i.kind === "table_change").length,
   };
 
   if (loading) return <div className="dm-mono" style={{ color: "#A39B8B", fontSize: 13, padding: "40px 4px" }}>Loading review queue…</div>;
@@ -364,7 +309,7 @@ export function ReviewStudio({ tableChanges = [], onChanged }: { tableChanges?: 
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "80px 20px" }}>
         <div style={{ width: 66, height: 66, borderRadius: 20, background: "#EAF4EC", border: "1px solid #CBE4D2", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20, fontSize: 28 }}>✓</div>
         <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 26, letterSpacing: "-0.03em", margin: "0 0 8px" }}>All caught up</h2>
-        <p style={{ fontSize: 15, color: "#57534A", maxWidth: "44ch", margin: 0, lineHeight: 1.55 }}>Every proposed merge, conflict, table change, and new fact has been reviewed. New ones appear the moment an agent parses a message.</p>
+        <p style={{ fontSize: 15, color: "#57534A", maxWidth: "44ch", margin: 0, lineHeight: 1.55 }}>Every merge, conflict, and new fact we inferred has been reviewed. Tables update automatically from the facts you accept.</p>
       </div>
     );
   }
@@ -383,12 +328,11 @@ export function ReviewStudio({ tableChanges = [], onChanged }: { tableChanges?: 
       <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", background: "#fff", border: "1px solid #E7E0D2", borderRadius: 14, padding: "14px 18px" }}>
         <div style={{ minWidth: 0 }}>
           <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink }}>{live.length} thing{live.length === 1 ? "" : "s"} to look at</div>
-          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Ranked by impact — the ones touching the most of your data come first.</div>
+          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>You review the facts — your tables fill in from what you accept. Ranked by impact.</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 16, flexWrap: "wrap" }}>
           {pill(counts.merge, "duplicate", C.accent)}
           {pill(counts.conflict, "changed value", C.gold)}
-          {pill(counts.table, "table change", C.ink)}
           {pill(counts.extraction, "new message", C.blue)}
         </div>
       </div>
@@ -405,8 +349,7 @@ export function ReviewStudio({ tableChanges = [], onChanged }: { tableChanges?: 
 
       {merges.length > 0 && (<><SectionHead title="Possible duplicates" hint="Confirm whether we spotted the same thing twice." count={merges.length} /><div style={{ display: "flex", flexDirection: "column", gap: 14 }}>{merges.map((m) => <div key={m.id}>{renderCard(m, resolve)}</div>)}</div></>)}
       {conflicts.length > 0 && (<><SectionHead title="Values that changed" hint="A newer message disagrees with what we had." count={conflicts.length} /><div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{conflicts.map((c) => <div key={c.id}>{renderCard(c, resolve)}</div>)}</div></>)}
-      {tables.length > 0 && (<><SectionHead title="Table changes" hint="Rows your agents want to add or update in your tables." count={tables.length} /><div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{tables.map((t) => <div key={t.id}>{renderCard(t, resolve)}</div>)}</div></>)}
-      {extractions.length > 0 && (<><SectionHead title="New from your messages" hint="What we understood — accept to file it into your data." count={extractions.length} /><div style={{ display: "flex", flexDirection: "column", gap: 14 }}>{extractions.map((e) => <div key={e.id}>{renderCard(e, resolve)}</div>)}</div></>)}
+      {extractions.length > 0 && (<><SectionHead title="New from your messages" hint="What we understood — accept to file it into your knowledge." count={extractions.length} /><div style={{ display: "flex", flexDirection: "column", gap: 14 }}>{extractions.map((e) => <div key={e.id}>{renderCard(e, resolve)}</div>)}</div></>)}
     </div>
   );
 }
