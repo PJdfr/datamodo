@@ -156,6 +156,14 @@ begin
   values (v_org, v_uid, 'whatsapp', 'Acme dinner', 'Met 2 people at the Acme dinner', now())
   returning id into v_item2;
 
+  -- A linked WhatsApp identity for the demo user, so the "Connect a channel"
+  -- surface shows WhatsApp already connected. Messaging channels route by SENDER:
+  -- this (channel, handle) row is what resolveTarget() matches inbound forwards
+  -- against (created for real users by the link-code flow, lib/channels/link.ts).
+  insert into public.ingest_sources (org_id, owner_user_id, channel, mode, handle, display_name, provider, status)
+  values (v_org, v_uid, 'whatsapp', 'active', '+15551234567', 'Demo phone', 'whatsapp', 'active')
+  on conflict (channel, handle) do nothing;
+
   -- Chunk 1 — Ledger parsed a billing email → one new invoice + one change to
   -- the (human-edited, so conflicting) #A-198 row.
   v_batch1 := gen_random_uuid();

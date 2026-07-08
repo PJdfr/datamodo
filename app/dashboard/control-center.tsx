@@ -64,6 +64,7 @@ import {
   Panel, DiffBadge, useAction, type Agent, type TableInfo,
 } from "./ui";
 import { VersioningTab } from "./versioning";
+import ChannelsModal from "./channels-modal";
 
 /* ================================================================== */
 /* Component                                                           */
@@ -87,6 +88,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const [tab, setTab] = useState<Tab>("agents");
   const [noticeOpen, setNoticeOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [channelsOpen, setChannelsOpen] = useState(false);
   const [autoAccept, setAutoAccept] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -338,10 +340,15 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
             <div className="dm-display" style={{ fontWeight: 700, fontSize: 21, letterSpacing: "-0.025em", lineHeight: 1.1 }}>{titles[tab].t}</div>
             <div style={{ fontSize: 13, color: "#8A8477", marginTop: 2 }}>{titles[tab].sub}</div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginLeft: "auto" }}>
-            <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#6B665B", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px" }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.green }} />{inbox}
-            </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: "auto" }}>
+            <Hov onClick={() => setChannelsOpen(true)} tag="button" title="Your capture inbox — click to connect WhatsApp, Slack or Teams" base={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "inherit", fontSize: 12, color: "#6B665B", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px", cursor: "pointer" }} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
+              <span className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.green }} />{inbox}
+              </span>
+            </Hov>
+            <Hov onClick={() => setChannelsOpen(true)} tag="button" base={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "inherit", fontSize: 12.5, fontWeight: 500, color: "#3A352C", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px", cursor: "pointer" }} hover={{ background: "#FBF8F1", border: "1px solid #D8CFBD" }}>
+              <span style={{ fontSize: 14, lineHeight: 1 }}>+</span> Connect channel
+            </Hov>
           </div>
         </div>
 
@@ -428,6 +435,9 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           onClose={() => setSettingsOpen(false)}
           onSaved={() => { setSettingsOpen(false); router.refresh(); }}
         />
+      )}
+      {channelsOpen && (
+        <ChannelsModal inbox={inbox} onClose={() => setChannelsOpen(false)} />
       )}
     </div>
   );

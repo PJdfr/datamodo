@@ -29,6 +29,8 @@ import {
 } from "@/lib/datamodo/datasets";
 import { createRelation, deleteRelation } from "@/lib/datamodo/relations";
 import { regenerateInbox } from "@/lib/datamodo/inbox";
+import { allChannelInfo, channelInfo, isChannelId, type ChannelId } from "@/lib/channels/config";
+import { mintLinkCode, linkedHandle } from "@/lib/channels/link";
 import { getSettings, updateComputeSettings, countAgents } from "@/lib/datamodo/settings";
 import { planLimits, type AiProvider, type ComputeMode } from "@/lib/datamodo/plans";
 import type { DatasetColumn, DatasetRowRecord, NewAgentInput, SnapshotFull } from "@/lib/datamodo/types";
@@ -444,6 +446,66 @@ export async function regenerateInboxAction(): Promise<ActionResult & { address?
     return { ok: true, address };
   } catch (e) {
     return { ok: false, error: (e as Error).message ?? "Failed to regenerate inbox." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Messaging channels (WhatsApp / Slack / Teams) — the forward-to-a-contact bots.
+// Unlike email (routed by a unique recipient address), these route by SENDER:
+// the user links their platform identity once, then anything they forward to the
+// shared bot is attributed to them. See lib/channels/*.
+// ---------------------------------------------------------------------------
+
+export type ChannelStatus = {
+  id: ChannelId;
+  label: string;
+  botHandle: string | null;
+  configured: boolean;
+  canReply: boolean;
+  linkedHandle: string | null;
+};
+
+export type ChannelsResult =
+  | { ok: true; channels: ChannelStatus[] }
+  | { ok: false; error: string };
+
+/** Status of each messaging channel for the signed-in user: whether the server
+ *  has it configured, the bot handle to forward to, and any linked identity. */
+export async function listChannelsAction(): Promise<ChannelsResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    const channels = await Promise.all(
+      allChannelInfo().map(async (info) => ({
+        ...info,
+        linkedHandle: await linkedHandle(db, user.id, info.id).catch(() => null),
+      })),
+    );
+    return { ok: true, channels };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to load channels." };
+  }
+}
+
+export type LinkCodeResult =
+  | { ok: true; code: string; botHandle: string | null; channel: ChannelId }
+  | { ok: false; error: string };
+
+/** Mint a one-time link code the user sends to the bot to connect a channel. */
+export async function startChannelLinkAction(channel: string): Promise<LinkCodeResult> {
+  try {
+    const { db, user, org } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    if (!org) return { ok: false, error: "No organization found." };
+    if (!isChannelId(channel)) return { ok: false, error: "Unknown channel." };
+    const info = channelInfo(channel);
+    if (!info.configured) {
+      return { ok: false, error: `${info.label} isn’t set up on the server yet.` };
+    }
+    const code = await mintLinkCode(db, org.id, user.id, channel);
+    return { ok: true, code, botHandle: info.botHandle, channel };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to start linking." };
   }
 }
 
