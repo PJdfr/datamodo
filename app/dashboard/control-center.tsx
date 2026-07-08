@@ -11,7 +11,6 @@
  */
 
 import {
-  createElement,
   Fragment,
   useEffect,
   useMemo,
@@ -45,221 +44,27 @@ import {
   deleteRowAction,
   restoreSnapshotAction,
   getSnapshotsAction,
+  getDatasetRowsAction,
   simulateAgentUpdateAction,
   acceptProposalAction,
   rejectProposalAction,
   acceptBatchAction,
   rejectBatchAction,
-  acceptProposalsAction,
-  rejectProposalsAction,
   createRelationAction,
   deleteRelationAction,
   updateComputeSettingsAction,
-  type ActionResult,
 } from "./actions";
 import type { AgentActivityEntry, AgentRecord, ChangeChunk, DatasetColumn, DatasetRelation, DatasetRowRecord, DatasetView, Proposal, ReviewItem, SnapshotFull } from "@/lib/datamodo/types";
 import type { UserSettings } from "@/lib/datamodo/settings";
 import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
+import {
+  Hov, C, LOGO, CH_NAMES, navStyle, modeCard, radioDot, bar, toggleTrack, toggleKnob,
+  channelTile, targetChip, monoLabel, fieldInput, fieldLabel, primaryBtn, ghostBtn,
+  pickColor, relTime, showVal, coerceByType, slugify, COLUMN_TYPES, Segmented, ModalShell,
+  Panel, DiffBadge, useAction, type Agent, type TableInfo,
+} from "./ui";
+import { VersioningTab } from "./versioning";
 
-/* ------------------------------------------------------------------ */
-/* Hover helper — inline styles win over CSS :hover, so hover states   */
-/* that sit on top of data-driven inline styles are swapped in JS.     */
-/* ------------------------------------------------------------------ */
-type HovProps = {
-  tag?: "button" | "div" | "a" | "label" | "span";
-  base: CSSProperties;
-  hover?: CSSProperties;
-  children?: ReactNode;
-  className?: string;
-  type?: "button" | "submit";
-  title?: string;
-  href?: string;
-  download?: boolean | string;
-  onClick?: () => void;
-};
-function Hov({ tag = "button", base, hover, children, ...rest }: HovProps) {
-  const [h, setH] = useState(false);
-  const props: Record<string, unknown> = {
-    ...rest,
-    style: h && hover ? { ...base, ...hover } : base,
-    onMouseEnter: () => setH(true),
-    onMouseLeave: () => setH(false),
-  };
-  if (tag === "button") props.type = rest.type ?? "button";
-  return createElement(tag, props, children);
-}
-
-/* ------------------------------------------------------------------ */
-/* Palette                                                             */
-/* ------------------------------------------------------------------ */
-const C = {
-  ink: "#211E18",
-  accent: "#E4593B",
-  accentPress: "#CF4A2F",
-  green: "#3F8F5B",
-  gold: "#B08A2E",
-  blue: "#5A6B86",
-};
-
-const LOGO: Record<string, string> = {
-  gmail: "/logos/google-gmail.svg",
-  outlook: "/logos/microsoft-outlook.svg",
-  whatsapp: "/logos/whatsapp-icon.svg",
-  slack: "/logos/slack-icon.svg",
-  telegram: "/logos/telegram.svg",
-};
-const CH_NAMES: Record<string, string> = {
-  gmail: "Gmail",
-  outlook: "Outlook",
-  whatsapp: "WhatsApp",
-  slack: "Slack",
-  telegram: "Telegram",
-};
-
-type Agent = {
-  id: string;
-  name: string;
-  initial: string;
-  avatarBg: string;
-  statusLabel: string;
-  statusColor: string;
-  statusDot: string;
-  channels: string[];
-  modeLabel: string;
-  purpose: string;
-  feeds: string;
-  pending: number;
-};
-
-type TableInfo = {
-  id: string;
-  name: string;
-  rows: string;
-  fields: string[];
-  agent: string;
-  agentInitial: string;
-  agentBg: string;
-  updated: string;
-};
-
-/* ------------------------------------------------------------------ */
-/* Style helpers (mirror the design's DCLogic helpers)                 */
-/* ------------------------------------------------------------------ */
-const navBase: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  width: "100%",
-  background: "none",
-  border: "none",
-  padding: "9px 10px",
-  borderRadius: 9,
-  fontFamily: "inherit",
-  fontSize: 14,
-  cursor: "pointer",
-  textAlign: "left",
-  transition: "background .15s ease, color .15s ease",
-};
-const navStyle = (active: boolean): CSSProperties =>
-  active
-    ? { ...navBase, background: "#2B2720", color: "#F1ECE1", fontWeight: 500 }
-    : { ...navBase, color: "#B7AF9F" };
-
-const modeCard = (active: boolean): CSSProperties => ({
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 12,
-  width: "100%",
-  textAlign: "left",
-  background: "#fff",
-  borderRadius: 13,
-  padding: "15px 16px",
-  cursor: "pointer",
-  fontFamily: "inherit",
-  // Buttons don't inherit `color`; without this the title text falls back to
-  // the UA default (white in dark color-scheme) and vanishes on the card.
-  color: C.ink,
-  transition: "border-color .15s ease, box-shadow .15s ease",
-  border: active ? "1.5px solid #E4593B" : "1.5px solid #E7E0D2",
-  boxShadow: active ? "0 0 0 3px rgba(228,89,59,.1)" : "none",
-});
-const radioDot = (active: boolean): CSSProperties => ({
-  width: 20,
-  height: 20,
-  borderRadius: "50%",
-  flexShrink: 0,
-  border: `2px solid ${active ? C.accent : "#D8CFBD"}`,
-  background: active
-    ? "radial-gradient(circle, #E4593B 0 5px, #fff 6px 20px)"
-    : "#fff",
-});
-const bar = (active: boolean): CSSProperties => ({
-  flex: 1,
-  height: 4,
-  borderRadius: 999,
-  background: active ? C.accent : "#E1D9C8",
-});
-const toggleTrack = (on: boolean): CSSProperties => ({
-  width: 38,
-  height: 22,
-  borderRadius: 999,
-  background: on ? C.accent : "#D8CFBD",
-  position: "relative",
-  display: "inline-block",
-  transition: "background .15s ease",
-  flexShrink: 0,
-});
-const toggleKnob = (on: boolean): CSSProperties => ({
-  position: "absolute",
-  top: 2,
-  left: on ? 18 : 2,
-  width: 18,
-  height: 18,
-  borderRadius: "50%",
-  background: "#fff",
-  transition: "left .15s ease",
-  boxShadow: "0 1px 3px rgba(0,0,0,.2)",
-});
-const channelTile = (active: boolean): CSSProperties => ({
-  position: "relative",
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  background: "#fff",
-  borderRadius: 12,
-  padding: "12px 14px",
-  cursor: "pointer",
-  fontFamily: "inherit",
-  color: C.ink,
-  transition: "border-color .15s ease, box-shadow .15s ease",
-  border: active ? "1.5px solid #E4593B" : "1.5px solid #E7E0D2",
-  boxShadow: active ? "0 0 0 3px rgba(228,89,59,.1)" : "none",
-});
-const targetChip = (sel: boolean, freestyle: boolean): CSSProperties => {
-  const b: CSSProperties = {
-    fontSize: 11,
-    padding: "6px 11px",
-    borderRadius: 9,
-    cursor: "pointer",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    background: "#fff",
-  };
-  if (freestyle) return { ...b, border: "1px solid #ECE5D8", color: "#B7AF9F" };
-  return sel
-    ? { ...b, border: "1.5px solid #E4593B", color: C.accent, background: "#FDF1EC" }
-    : { ...b, border: "1px solid #E1D9C8", color: "#57534A" };
-};
-
-/* small shared style atoms */
-const monoLabel: CSSProperties = {
-  fontSize: 10,
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  color: "#A39B8B",
-};
 /* ================================================================== */
 /* Component                                                           */
 /* ================================================================== */
@@ -275,25 +80,6 @@ export type ControlCenterProps = {
   agentActivity: Record<string, AgentActivityEntry[]>;
   settings: UserSettings;
   notice?: string | null;
-};
-
-// Palette used to give agents/tables a stable accent when the DB has none.
-const AVATAR_PALETTE = [C.accent, C.ink, C.green, C.gold, C.blue];
-const pickColor = (seed: string) =>
-  AVATAR_PALETTE[
-    [...seed].reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_PALETTE.length
-  ];
-
-const relTime = (iso: string): string => {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "—";
-  const s = Math.max(0, (Date.now() - then) / 1000);
-  if (s < 60) return "just now";
-  const m = s / 60;
-  if (m < 60) return `${Math.floor(m)}m ago`;
-  const h = m / 60;
-  if (h < 24) return `${Math.floor(h)}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
 };
 
 export default function ControlCenter({ fullName, initial, inbox, agents, datasets, relations, pendingChanges, agentActivity, settings, notice }: ControlCenterProps) {
@@ -645,23 +431,6 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
       )}
     </div>
   );
-}
-
-/* ================================================================== */
-/* Shared: run a Server Action with pending + error state.             */
-/* ================================================================== */
-function useAction() {
-  const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const run = (fn: () => Promise<ActionResult>, after?: () => void) => {
-    setError(null);
-    start(async () => {
-      const res = await fn();
-      if (!res.ok) { setError(res.error); return; }
-      after?.();
-    });
-  };
-  return { pending, error, setError, run };
 }
 
 /* ================================================================== */
@@ -1235,66 +1004,6 @@ function ModalStep4({ channels, mode, purpose, freestyle, targetTables, runtimeD
 /* ================================================================== */
 /* MANAGE / EDIT MODALS                                               */
 /* ================================================================== */
-const fieldInput: CSSProperties = { width: "100%", border: "1px solid #DDD5C5", borderRadius: 10, padding: "10px 12px", fontFamily: "inherit", fontSize: 14, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" };
-const fieldLabel: CSSProperties = { ...monoLabel, marginBottom: 7 };
-const primaryBtn = (disabled: boolean): CSSProperties => ({ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 11, padding: "10px 20px", fontFamily: "inherit", fontSize: 14, fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.7 : 1, boxShadow: "0 6px 16px rgba(228,89,59,.28)" });
-const ghostBtn: CSSProperties = { background: "#fff", border: "1px solid #DCD3C2", borderRadius: 9, padding: "7px 12px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 500, color: "#3A352C", cursor: "pointer" };
-
-function coerceByType(type: string, raw: string): string | number | null {
-  if (raw === "") return null;
-  if (type === "number") { const n = Number(raw); return Number.isNaN(n) ? raw : n; }
-  return raw;
-}
-const slugify = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-const COLUMN_TYPES = [{ v: "text", label: "Text" }, { v: "number", label: "Number" }, { v: "date", label: "Date" }, { v: "status", label: "Status" }];
-
-function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { v: T; label: string }[] }) {
-  return (
-    <div style={{ display: "inline-flex", background: "#EFE9DC", border: "1px solid #E1D9C8", borderRadius: 9, padding: 3 }}>
-      {options.map((o) => (
-        <button key={o.v} type="button" onClick={() => onChange(o.v)} style={{ border: "none", borderRadius: 7, padding: "6px 12px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 500, cursor: "pointer", ...(value === o.v ? { background: "#fff", color: C.ink, boxShadow: "0 1px 2px rgba(33,30,24,.14)" } : { background: "transparent", color: "#8A8477" }) }}>{o.label}</button>
-      ))}
-    </div>
-  );
-}
-
-function ModalShell({ title, subtitle, onClose, children, footer, maxWidth = 600, badge }: { title: ReactNode; subtitle?: string; onClose: () => void; children: ReactNode; footer?: ReactNode; maxWidth?: number; badge?: { initial: string; bg: string } }) {
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 60, alignItems: "center", justifyContent: "center", padding: 24, display: "flex" }}>
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(33,30,24,.5)", backdropFilter: "blur(2px)" }} />
-      <div style={{ position: "relative", width: "100%", maxWidth, background: "#F6F2E9", border: "1px solid #E1D9C8", borderRadius: 20, overflow: "hidden", boxShadow: "0 40px 90px -40px rgba(33,30,24,.7)", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "18px 22px", borderBottom: "1px solid #E7E0D2" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-            {badge && (
-              <span className="dm-display" style={{ width: 40, height: 40, borderRadius: 12, background: badge.bg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 17, flexShrink: 0 }}>{badge.initial}</span>
-            )}
-            <div style={{ minWidth: 0 }}>
-              <div className="dm-display" style={{ fontWeight: 700, fontSize: 18, letterSpacing: "-0.025em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
-              {subtitle && <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginTop: 2 }}>{subtitle}</div>}
-            </div>
-          </div>
-          <Hov onClick={onClose} base={{ width: 32, height: 32, borderRadius: 9, border: "1px solid #E1D9C8", background: "#fff", color: "#8A8477", cursor: "pointer", fontSize: 15, lineHeight: 1, flexShrink: 0 }} hover={{ background: "#FBF8F1", color: C.ink }}>✕</Hov>
-        </div>
-        <div className="cc-scroll" style={{ padding: "20px 22px", overflow: "auto", flex: 1 }}>{children}</div>
-        {footer && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 22px", borderTop: "1px solid #E7E0D2", background: "#F0EBDE" }}>{footer}</div>}
-      </div>
-    </div>
-  );
-}
-
-/* Framed panel with a soft header-bar — the "clean" signature borrowed from the
-   suggestion / proposal cards: mono-uppercase label left, a summary slot right. */
-function Panel({ label, summary, summaryColor = "#A39B8B", children, style }: { label: ReactNode; summary?: ReactNode; summaryColor?: string; children: ReactNode; style?: CSSProperties }) {
-  return (
-    <div style={{ border: "1px solid #ECE5D8", borderRadius: 12, overflow: "hidden", background: "#fff", ...style }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 14px", background: "#FAF6EE", borderBottom: "1px solid #ECE5D8" }}>
-        <span className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em", color: "#A39B8B" }}>{label}</span>
-        {summary != null && <span className="dm-mono" style={{ fontSize: 10.5, color: summaryColor }}>{summary}</span>}
-      </div>
-      {children}
-    </div>
-  );
-}
 
 function AgentEditModal({ agent, onClose, onSaved }: { agent: AgentRecord; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(agent.name);
@@ -1429,7 +1138,6 @@ function TableCell({ row, col, onSave }: { row: DatasetRowRecord; col: DatasetCo
   );
 }
 
-const showVal = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v));
 
 // --- Version diffing: compare two snapshots by their first-column identity. ---
 function rowIdentity(data: Record<string, unknown>, keyCol: string | undefined): string | null {
@@ -1543,9 +1251,6 @@ function HistoryPanel({ datasetId, onRestore, pending }: { datasetId: string; on
   );
 }
 
-function DiffBadge({ color, bg, text }: { color: string; bg: string; text: string }) {
-  return <span className="dm-mono" style={{ fontSize: 10, fontWeight: 600, color, background: bg, borderRadius: 999, padding: "2px 8px" }}>{text}</span>;
-}
 
 /** Inline table showing exactly what a version contained; rows that were added
  *  or changed since the previous version are tinted so the diff is visible. */
@@ -1706,14 +1411,27 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
   const viewingPast = versionId !== null;
   const pastSnap = viewingPast ? snaps?.find((s) => s.id === versionId) ?? null : null;
 
-  const addRow = () => run(() => addRowAction(table.id, Object.fromEntries(cols.map((c) => [c.key, null]))), onChanged);
+  // Rows load lazily (the dashboard no longer ships them). `rows === null` = still
+  // loading. `refresh` reloads the rows locally AND asks the page to revalidate.
+  const [rows, setRows] = useState<DatasetRowRecord[] | null>(null);
+  const [total, setTotal] = useState(table.rowCount);
+  const reloadRows = () => getDatasetRowsAction(table.id).then((r) => { if (r.ok) { setRows(r.rows); setTotal(r.total); } });
+  useEffect(() => {
+    let alive = true;
+    setRows(null);
+    getDatasetRowsAction(table.id).then((r) => { if (alive && r.ok) { setRows(r.rows); setTotal(r.total); } });
+    return () => { alive = false; };
+  }, [table.id]);
+  const refresh = () => { void reloadRows(); onChanged(); };
+
+  const addRow = () => run(() => addRowAction(table.id, Object.fromEntries(cols.map((c) => [c.key, null]))), refresh);
   const submitCol = () => run(
     () => addColumnAction(table.id, { label: colLabel, type: colType, defaultValue: coerceByType(colType, colDefault) }),
-    () => { setAddingCol(false); setColLabel(""); setColDefault(""); setColType("text"); onChanged(); },
+    () => { setAddingCol(false); setColLabel(""); setColDefault(""); setColType("text"); refresh(); },
   );
-  const removeCol = (key: string, label: string) => { if (confirm(`Remove column “${label}”? Its values are deleted from every row.`)) run(() => removeColumnAction(table.id, key), onChanged); };
-  const delRow = (id: string) => run(() => deleteRowAction(table.id, id), onChanged);
-  const delTable = () => { if (confirm(`Delete table “${table.name}” and all ${table.rowCount} rows?`)) run(() => deleteDatasetAction(table.id), () => { onClose(); onChanged(); }); };
+  const removeCol = (key: string, label: string) => { if (confirm(`Remove column “${label}”? Its values are deleted from every row.`)) run(() => removeColumnAction(table.id, key), refresh); };
+  const delRow = (id: string) => run(() => deleteRowAction(table.id, id), refresh);
+  const delTable = () => { if (confirm(`Delete table “${table.name}” and all ${total} rows?`)) run(() => deleteDatasetAction(table.id), () => { onClose(); onChanged(); }); };
   const rename = () => { const n = prompt("Rename table", table.name); if (n && n.trim() && n.trim() !== table.name) run(() => renameDatasetAction(table.id, n.trim()), onChanged); };
 
   const rowSep = "1px solid #F3EEE3";
@@ -1753,7 +1471,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
         );
       },
       cell: ({ row }) => (
-        <TableCell row={row.original} col={c} onSave={(data) => run(() => updateRowAction(table.id, row.original.id, data), onChanged)} />
+        <TableCell row={row.original} col={c} onSave={(data) => run(() => updateRowAction(table.id, row.original.id, data), refresh)} />
       ),
     })),
     {
@@ -1766,7 +1484,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
     },
   ];
   const grid = useReactTable({
-    data: table.rows,
+    data: rows ?? [],
     columns: gridColumns,
     state: { sorting },
     onSortingChange: setSorting,
@@ -1779,7 +1497,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
     <ModalShell maxWidth={920} onClose={onClose}
       badge={{ initial: table.name.slice(0, 1).toUpperCase() || "T", bg: pickColor(table.name) }}
       title={table.name}
-      subtitle={`${table.rowCount} ${table.rowCount === 1 ? "row" : "rows"} · ${cols.length} ${cols.length === 1 ? "column" : "columns"}${table.agentName ? ` · fed by ${table.agentName}` : ""}`}
+      subtitle={`${total} ${total === 1 ? "row" : "rows"} · ${cols.length} ${cols.length === 1 ? "column" : "columns"}${table.agentName ? ` · fed by ${table.agentName}` : ""}`}
       footer={(
         <>
           <Hov onClick={delTable} base={{ background: "none", border: "none", color: "#B44536", fontFamily: "inherit", fontSize: 13.5, fontWeight: 500, cursor: "pointer", padding: "8px 4px" }} hover={{ color: "#8f2f23" }}>Delete table</Hov>
@@ -1820,7 +1538,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
         </>}
       </div>
 
-      {!viewingPast && panel === "history" && <HistoryPanel datasetId={table.id} onRestore={(id) => run(() => restoreSnapshotAction(id), () => { setPanel("none"); onChanged(); })} pending={pending} />}
+      {!viewingPast && panel === "history" && <HistoryPanel datasetId={table.id} onRestore={(id) => run(() => restoreSnapshotAction(id), () => { setPanel("none"); refresh(); })} pending={pending} />}
 
       {!viewingPast && panel === "review" && (
         <div style={{ marginBottom: 14 }}>
@@ -1854,7 +1572,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
           <Panel label="Version" summary={`saved ${new Date(pastSnap.createdAt).toLocaleString()}`}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
               <span className="dm-mono" style={{ fontSize: 11, color: "#8f5a3c", background: "#FBEFD6", border: "1px solid #E6CF92", borderRadius: 8, padding: "3px 9px" }}>Read-only · saved version from {new Date(pastSnap.createdAt).toLocaleString()}</span>
-              <Hov onClick={pending ? undefined : () => run(() => restoreSnapshotAction(pastSnap.id), () => { setVersionId(null); onChanged(); })} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Restore this version</Hov>
+              <Hov onClick={pending ? undefined : () => run(() => restoreSnapshotAction(pastSnap.id), () => { setVersionId(null); refresh(); })} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Restore this version</Hov>
             </div>
             <SnapshotPreview snap={pastSnap} diff={null} />
           </Panel>
@@ -1897,7 +1615,10 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
                     ))}
                   </tr>
                 ))}
-                {table.rows.length === 0 && (
+                {rows === null && (
+                  <tr><td colSpan={cols.length + 2} className="dm-mono" style={{ padding: "18px 12px", fontSize: 12.5, color: "#A39B8B", textAlign: "center" }}>Loading rows…</td></tr>
+                )}
+                {rows !== null && rows.length === 0 && (
                   <tr><td colSpan={cols.length + 2} className="dm-mono" style={{ padding: "18px 12px", fontSize: 12.5, color: "#A39B8B", textAlign: "center" }}>No rows yet — “Add row” to create one.</td></tr>
                 )}
               </tbody>
@@ -2009,265 +1730,6 @@ function SettingsModal({ settings, onClose, onSaved }: { settings: UserSettings;
         </div>
       )}
     </ModalShell>
-  );
-}
-
-/* ================================================================== */
-/* VERSIONING TAB — the unified "pull request" over pending changes.   */
-/* One review across every table, sliceable by agent / table / comm,   */
-/* with accept mechanics: merge all, whole group, multi-select, or one  */
-/* at a time. Every accept routes through acceptProposalsAction(ids).   */
-/* ================================================================== */
-type GroupBy = "agent" | "table" | "comm";
-
-type ReviewGroup = {
-  key: string;
-  title: string;
-  subtitle: string;
-  avatarText: string;
-  avatarBg: string;
-  items: ReviewItem[];
-  adds: number;
-  updates: number;
-  conflicts: number;
-};
-
-function tally(items: ReviewItem[]) {
-  let adds = 0, updates = 0, conflicts = 0;
-  for (const it of items) {
-    if (it.kind === "add") adds++; else updates++;
-    if (it.conflict) conflicts++;
-  }
-  return { adds, updates, conflicts };
-}
-
-function buildGroups(items: ReviewItem[], by: GroupBy): ReviewGroup[] {
-  const order: string[] = [];
-  const map = new Map<string, ReviewItem[]>();
-  const keyOf = (it: ReviewItem) =>
-    by === "agent" ? `a:${it.agent}` : by === "table" ? `t:${it.datasetId}` : `c:${it.batchId ?? it.id}`;
-  for (const it of items) {
-    const k = keyOf(it);
-    if (!map.has(k)) { map.set(k, []); order.push(k); }
-    map.get(k)!.push(it);
-  }
-  return order.map((k) => {
-    const its = map.get(k)!;
-    const first = its[0];
-    const t = tally(its);
-    let title: string, subtitle: string, avatarText: string, avatarBg: string;
-    if (by === "agent") {
-      title = first.agent;
-      subtitle = `${new Set(its.map((i) => i.datasetName)).size} ${new Set(its.map((i) => i.datasetName)).size === 1 ? "table" : "tables"}`;
-      avatarText = first.agent.charAt(0).toUpperCase();
-      avatarBg = pickColor(first.agent);
-    } else if (by === "table") {
-      title = first.datasetName;
-      subtitle = `${new Set(its.map((i) => i.agent)).size} ${new Set(its.map((i) => i.agent)).size === 1 ? "agent" : "agents"}`;
-      avatarText = first.datasetName.charAt(0).toUpperCase();
-      avatarBg = pickColor(first.datasetName);
-    } else {
-      title = first.sourceLabel ? `“${first.sourceLabel}”` : "Direct change";
-      subtitle = `${first.agent} · ${first.datasetName}`;
-      avatarText = "✉";
-      avatarBg = pickColor(first.batchId ?? first.agent);
-    }
-    return { key: k, title, subtitle, avatarText, avatarBg, items: its, ...t };
-  });
-}
-
-function CountPills({ adds, updates, conflicts }: { adds: number; updates: number; conflicts: number }) {
-  return (
-    <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
-      {adds > 0 && <DiffBadge color={C.green} bg="#EAF4EC" text={`+${adds} new`} />}
-      {updates > 0 && <DiffBadge color="#4E627E" bg="#EEF1F6" text={`${updates} update${updates === 1 ? "" : "s"}`} />}
-      {conflicts > 0 && <DiffBadge color="#fff" bg={C.accent} text={`${conflicts} conflict${conflicts === 1 ? "" : "s"}`} />}
-    </span>
-  );
-}
-
-function VersioningTab({ items, onChanged, onGoData }: { items: ReviewItem[]; onChanged: () => void; onGoData: () => void }) {
-  const [by, setBy] = useState<GroupBy>("agent");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const { pending, error, run } = useAction();
-
-  const groups = useMemo(() => buildGroups(items, by), [items, by]);
-  const allIds = useMemo(() => items.map((i) => i.id), [items]);
-  const totals = useMemo(() => tally(items), [items]);
-
-  const accept = (ids: string[]) => { if (ids.length) run(() => acceptProposalsAction(ids), () => { setSelected(new Set()); onChanged(); }); };
-  const reject = (ids: string[]) => { if (ids.length) run(() => rejectProposalsAction(ids), () => { setSelected(new Set()); onChanged(); }); };
-
-  const toggleOne = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const setMany = (ids: string[], on: boolean) => setSelected((s) => { const n = new Set(s); for (const id of ids) { if (on) n.add(id); else n.delete(id); } return n; });
-
-  if (items.length === 0) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "72px 20px" }}>
-        <div style={{ width: 64, height: 64, borderRadius: 18, background: "#EAF4EC", border: "1px solid #CBE4D2", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20 }}>
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 13 4 4L19 7" /></svg>
-        </div>
-        <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 26, letterSpacing: "-0.03em", margin: "0 0 8px" }}>Everything’s merged</h2>
-        <p style={{ fontSize: 15, color: "#57534A", maxWidth: "42ch", margin: "0 0 22px", lineHeight: 1.55 }}>No pending changes. When an agent parses a message or a synced sheet brings new data, the proposed changes land here as a reviewable pull request.</p>
-        <Hov onClick={onGoData} base={{ ...ghostBtn, padding: "9px 16px" }} hover={{ background: "#FBF8F1" }}>Go to your data →</Hov>
-      </div>
-    );
-  }
-
-  const selectedIds = [...selected];
-
-  return (
-    <div style={{ maxWidth: 940 }}>
-      {/* Header: the "PR" summary + merge/discard + grouping toggle. */}
-      <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: "16px 18px", marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flexWrap: "wrap" }}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="dm-display" style={{ fontWeight: 700, fontSize: 18, letterSpacing: "-0.02em", color: C.ink }}>
-              {items.length} change{items.length === 1 ? "" : "s"} waiting to merge
-            </div>
-            <div style={{ marginTop: 6 }}><CountPills adds={totals.adds} updates={totals.updates} conflicts={totals.conflicts} /></div>
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <Hov onClick={pending ? undefined : () => { if (confirm(`Merge all ${items.length} pending changes?`)) accept(allIds); }}
-              base={{ background: C.green, color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontFamily: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#357C4C" }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="2.4" /><circle cx="6" cy="18" r="2.4" /><circle cx="18" cy="9" r="2.4" /><path d="M6 8.4v7.2M8.3 6h5.2a3 3 0 0 1 3 3" /></svg>
-              Merge all
-            </Hov>
-            <Hov onClick={pending ? undefined : () => { if (confirm(`Discard all ${items.length} pending changes? This can't be undone.`)) reject(allIds); }}
-              base={{ ...ghostBtn, color: "#B44536", borderColor: "#EAD7CF" }} hover={{ background: "#FDF4F0" }}>Discard all</Hov>
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14, flexWrap: "wrap" }}>
-          <span className="dm-mono" style={{ ...monoLabel }}>Group by</span>
-          <div style={{ maxWidth: 340, flex: "1 1 260px" }}>
-            <Segmented value={by} onChange={(v: GroupBy) => setBy(v)} options={[{ v: "agent", label: "Agent" }, { v: "table", label: "Table" }, { v: "comm", label: "Comm chunk" }]} />
-          </div>
-          {error && <span className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{error}</span>}
-          {pending && <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>Applying…</span>}
-        </div>
-      </div>
-
-      {/* Sticky multi-select action bar. */}
-      {selectedIds.length > 0 && (
-        <div style={{ position: "sticky", top: 0, zIndex: 5, display: "flex", alignItems: "center", gap: 10, background: C.ink, color: "#F1ECE1", borderRadius: 12, padding: "10px 14px", marginBottom: 14, boxShadow: "0 12px 30px -14px rgba(33,30,24,.6)", flexWrap: "wrap" }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>{selectedIds.length} selected</span>
-          <div style={{ display: "flex", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
-            <Hov onClick={pending ? undefined : () => accept(selectedIds)} base={{ background: C.green, color: "#fff", border: "none", borderRadius: 9, padding: "7px 14px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} hover={{ background: "#357C4C" }}>Accept selected</Hov>
-            <Hov onClick={pending ? undefined : () => reject(selectedIds)} base={{ background: "none", color: "#E9B8AC", border: "1px solid #5A4038", borderRadius: 9, padding: "7px 14px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} hover={{ background: "#3A352C" }}>Reject selected</Hov>
-            <Hov onClick={() => setSelected(new Set())} base={{ background: "none", color: "#A39B8B", border: "none", padding: "7px 8px", fontFamily: "inherit", fontSize: 12.5, cursor: "pointer" }} hover={{ color: "#F1ECE1" }}>Clear</Hov>
-          </div>
-        </div>
-      )}
-
-      {groups.map((g) => (
-        <ReviewGroupCard key={g.key} group={g} pending={pending} selected={selected}
-          onToggleItem={toggleOne} onSetMany={setMany}
-          onAccept={(ids) => accept(ids)} onReject={(ids) => reject(ids)} />
-      ))}
-    </div>
-  );
-}
-
-function ReviewGroupCard({ group, pending, selected, onToggleItem, onSetMany, onAccept, onReject }: {
-  group: ReviewGroup;
-  pending: boolean;
-  selected: Set<string>;
-  onToggleItem: (id: string) => void;
-  onSetMany: (ids: string[], on: boolean) => void;
-  onAccept: (ids: string[]) => void;
-  onReject: (ids: string[]) => void;
-}) {
-  const [open, setOpen] = useState(true);
-  const ids = group.items.map((i) => i.id);
-  const allSel = ids.every((id) => selected.has(id));
-  const someSel = !allSel && ids.some((id) => selected.has(id));
-  const hot = group.conflicts > 0;
-  return (
-    <div style={{ border: `1px solid ${hot ? "#F3D6CB" : "#E7E0D2"}`, borderRadius: 14, background: "#fff", marginBottom: 14, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 15px", background: hot ? "#FDF4F0" : "#FBF8F1", borderBottom: open ? `1px solid ${hot ? "#F3D6CB" : "#EFE9DC"}` : "none", flexWrap: "wrap" }}>
-        <button type="button" title={allSel ? "Deselect group" : "Select group"} onClick={() => onSetMany(ids, !allSel)}
-          style={{ width: 19, height: 19, borderRadius: 5, flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, ...(allSel ? { background: C.accent, color: "#fff", border: `1px solid ${C.accent}` } : someSel ? { background: "#FDF1EC", color: C.accent, border: `1.5px solid ${C.accent}` } : { background: "#fff", color: "transparent", border: "1.5px solid #D8CFBD" }) }}>
-          {allSel ? "✓" : someSel ? "–" : "✓"}
-        </button>
-        <span style={{ width: 28, height: 28, borderRadius: "50%", background: group.avatarBg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{group.avatarText}</span>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{group.title}</div>
-          <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 1 }}>{group.subtitle}</div>
-        </div>
-        <CountPills adds={group.adds} updates={group.updates} conflicts={group.conflicts} />
-        <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
-          <Hov onClick={pending ? undefined : () => onAccept(ids)} base={{ background: C.green, color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontFamily: "inherit", fontSize: 12, fontWeight: 600, cursor: "pointer" }} hover={{ background: "#357C4C" }}>Accept {group.items.length}</Hov>
-          <Hov onClick={pending ? undefined : () => onReject(ids)} base={{ ...ghostBtn, padding: "6px 12px", fontSize: 12 }} hover={{ background: "#FDF4F0" }}>Reject</Hov>
-          <Hov onClick={() => setOpen((v) => !v)} base={{ background: "none", border: "none", color: "#8A8477", cursor: "pointer", fontSize: 15, padding: "4px 6px" }} hover={{ color: C.ink }}>{open ? "▾" : "▸"}</Hov>
-        </div>
-      </div>
-      {open && (
-        <div style={{ padding: "12px 15px", display: "flex", flexDirection: "column", gap: 10 }}>
-          {group.items.map((it) => (
-            <ReviewItemCard key={it.id} item={it} pending={pending} checked={selected.has(it.id)}
-              onToggle={() => onToggleItem(it.id)} onAccept={() => onAccept([it.id])} onReject={() => onReject([it.id])} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ReviewItemCard({ item, pending, checked, onToggle, onAccept, onReject }: {
-  item: ReviewItem;
-  pending: boolean;
-  checked: boolean;
-  onToggle: () => void;
-  onAccept: () => void;
-  onReject: () => void;
-}) {
-  const changedCells = item.cells.filter((c) => c.changed);
-  const conflict = item.conflict;
-  return (
-    <div style={{ border: `1px solid ${conflict ? "#F3D6CB" : checked ? "#E4593B" : "#E7E0D2"}`, borderRadius: 11, background: conflict ? "#FDF4F0" : checked ? "#FEFAF8" : "#fff", padding: "11px 13px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
-        <button type="button" onClick={onToggle} title={checked ? "Deselect" : "Select"}
-          style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, ...(checked ? { background: C.accent, color: "#fff", border: `1px solid ${C.accent}` } : { background: "#fff", color: "transparent", border: "1.5px solid #D8CFBD" }) }}>✓</button>
-        {item.kind === "add"
-          ? <span style={{ fontSize: 13, fontWeight: 600, color: C.ink, display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ color: C.green, fontSize: 15, lineHeight: 1 }}>＋</span>New row</span>
-          : <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Update to an existing row</span>}
-        <span className="dm-mono" style={{ fontSize: 10.5, color: "#57534A", background: "#F6F2E9", border: "1px solid #ECE5D8", borderRadius: 6, padding: "2px 8px" }}>{item.datasetName}</span>
-        <span className="dm-mono" style={{ fontSize: 10.5, color: "#8A8477" }}>{item.agent} · {relTime(item.createdAt)}</span>
-        {conflict && <span className="dm-mono" style={{ fontSize: 10, color: "#fff", background: C.accent, borderRadius: 999, padding: "1px 7px" }}>you edited this</span>}
-        <div style={{ display: "flex", gap: 7, marginLeft: "auto" }}>
-          <Hov onClick={pending ? undefined : onAccept} base={{ background: C.green, color: "#fff", border: "none", borderRadius: 8, padding: "6px 13px", fontFamily: "inherit", fontSize: 12, fontWeight: 600, cursor: "pointer" }} hover={{ background: "#357C4C" }}>{conflict ? `Use ${item.agent}’s` : "Accept"}</Hov>
-          <Hov onClick={pending ? undefined : onReject} base={{ ...ghostBtn, padding: "6px 12px", fontSize: 12 }} hover={{ background: "#FDF4F0" }}>{conflict ? "Keep mine" : "Reject"}</Hov>
-        </div>
-      </div>
-
-      {conflict && <div style={{ fontSize: 12, color: "#8f5a3c", margin: "8px 0 4px" }}>You changed this row by hand — {item.agent} proposes different values. Accepting replaces yours.</div>}
-
-      {item.kind === "add" ? (
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(90px,auto) 1fr", gap: "4px 14px", marginTop: 9, fontSize: 12.5 }}>
-          {item.columns.map((c) => (
-            <Fragment key={c.key}>
-              <span style={{ color: "#8A8477" }}>{c.label}</span>
-              <span style={{ color: C.green, fontWeight: 600 }}>{showVal(item.data[c.key])}</span>
-            </Fragment>
-          ))}
-        </div>
-      ) : changedCells.length === 0 ? (
-        <div className="dm-mono" style={{ fontSize: 11.5, color: "#A39B8B", marginTop: 8 }}>No field changes.</div>
-      ) : (
-        <div style={{ marginTop: 9, border: "1px solid #EFE9DC", borderRadius: 9, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(90px,auto) 1fr 1fr", background: "#FAF6EE", fontSize: 9.5, letterSpacing: "0.04em", textTransform: "uppercase", color: "#A39B8B", padding: "5px 10px", gap: 12 }} className="dm-mono">
-            <span>Field</span><span>{conflict ? "Yours" : "Was"}</span><span style={{ color: conflict ? C.accent : C.green }}>{conflict ? item.agent : "Now"}</span>
-          </div>
-          {changedCells.map((c) => (
-            <div key={c.key} style={{ display: "grid", gridTemplateColumns: "minmax(90px,auto) 1fr 1fr", gap: 12, padding: "6px 10px", borderTop: "1px solid #F1EDE4", fontSize: 12.5, alignItems: "center" }}>
-              <span style={{ color: "#8A8477" }}>{c.label}</span>
-              <span style={{ color: "#B44536", textDecoration: "line-through" }}>{showVal(c.before)}</span>
-              <span style={{ color: conflict ? C.accent : C.green, fontWeight: 600 }}>{showVal(c.after)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 

@@ -15,6 +15,7 @@ import {
   deleteDataset,
   deleteRow,
   insertRow,
+  listDatasetRows,
   listSnapshotsFull,
   rejectBatch,
   rejectProposal,
@@ -30,7 +31,7 @@ import { createRelation, deleteRelation } from "@/lib/datamodo/relations";
 import { regenerateInbox } from "@/lib/datamodo/inbox";
 import { getSettings, updateComputeSettings, countAgents } from "@/lib/datamodo/settings";
 import { planLimits, type AiProvider, type ComputeMode } from "@/lib/datamodo/plans";
-import type { DatasetColumn, NewAgentInput, SnapshotFull } from "@/lib/datamodo/types";
+import type { DatasetColumn, DatasetRowRecord, NewAgentInput, SnapshotFull } from "@/lib/datamodo/types";
 
 // Server Actions are reachable via direct POST, so every one re-checks auth and
 // resolves the org server-side — never trusting an org id from the client.
@@ -257,6 +258,26 @@ export async function deleteRowAction(datasetId: string, rowId: string): Promise
 export type SnapshotsResult =
   | { ok: true; snapshots: SnapshotFull[] }
   | { ok: false; error: string };
+
+export type RowsResult =
+  | { ok: true; rows: DatasetRowRecord[]; total: number }
+  | { ok: false; error: string };
+
+/** Lazy-load a page of a table's live rows (the table editor fetches on open, so
+ *  the dashboard never ships every row up front). */
+export async function getDatasetRowsAction(
+  datasetId: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<RowsResult> {
+  try {
+    const { db, user } = await ctx();
+    if (!user) return { ok: false, error: "Not signed in." };
+    const { rows, total } = await listDatasetRows(db, datasetId, opts ?? {});
+    return { ok: true, rows, total };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message ?? "Failed to load rows." };
+  }
+}
 
 export async function getSnapshotsAction(datasetId: string): Promise<SnapshotsResult> {
   try {
