@@ -3,7 +3,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { acceptProposalsAction, rejectProposalsAction } from "./actions";
 import type { ReviewItem } from "@/lib/datamodo/types";
-import { C, Hov, Segmented, DiffBadge, useAction, ghostBtn, monoLabel, pickColor, relTime, showVal } from "./ui";
+import { C, Hov, Segmented, DiffBadge, useAction, ghostBtn, fieldInput, monoLabel, pickColor, relTime, showVal } from "./ui";
 
 /* ================================================================== */
 /* VERSIONING TAB — the unified "pull request" over pending changes.   */
@@ -81,12 +81,21 @@ function CountPills({ adds, updates, conflicts }: { adds: number; updates: numbe
 
 export function VersioningTab({ items, onChanged, onGoData }: { items: ReviewItem[]; onChanged: () => void; onGoData: () => void }) {
   const [by, setBy] = useState<GroupBy>("agent");
+  const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const { pending, error, run } = useAction();
 
-  const groups = useMemo(() => buildGroups(items, by), [items, by]);
-  const allIds = useMemo(() => items.map((i) => i.id), [items]);
-  const totals = useMemo(() => tally(items), [items]);
+  // Free-text filter across agent / table / source — a flexible way to narrow a
+  // big review to "just Ledger's Acme invoices" without hunting through groups.
+  const shown = useMemo(() => {
+    const t = query.trim().toLowerCase();
+    if (!t) return items;
+    return items.filter((i) => `${i.agent} ${i.datasetName} ${i.sourceLabel ?? ""}`.toLowerCase().includes(t));
+  }, [items, query]);
+
+  const groups = useMemo(() => buildGroups(shown, by), [shown, by]);
+  const allIds = useMemo(() => shown.map((i) => i.id), [shown]);
+  const totals = useMemo(() => tally(shown), [shown]);
 
   const accept = (ids: string[]) => { if (ids.length) run(() => acceptProposalsAction(ids), () => { setSelected(new Set()); onChanged(); }); };
   const reject = (ids: string[]) => { if (ids.length) run(() => rejectProposalsAction(ids), () => { setSelected(new Set()); onChanged(); }); };
@@ -116,29 +125,41 @@ export function VersioningTab({ items, onChanged, onGoData }: { items: ReviewIte
         <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flexWrap: "wrap" }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div className="dm-display" style={{ fontWeight: 700, fontSize: 18, letterSpacing: "-0.02em", color: C.ink }}>
-              {items.length} change{items.length === 1 ? "" : "s"} waiting to merge
+              {shown.length} change{shown.length === 1 ? "" : "s"} {query.trim() ? "matched" : "waiting to merge"}
             </div>
             <div style={{ marginTop: 6 }}><CountPills adds={totals.adds} updates={totals.updates} conflicts={totals.conflicts} /></div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <Hov onClick={pending ? undefined : () => { if (confirm(`Merge all ${items.length} pending changes?`)) accept(allIds); }}
+            <Hov onClick={pending ? undefined : () => { if (allIds.length && confirm(`Merge all ${allIds.length} ${query.trim() ? "matched" : "pending"} change${allIds.length === 1 ? "" : "s"}?`)) accept(allIds); }}
               base={{ background: C.green, color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontFamily: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#357C4C" }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="2.4" /><circle cx="6" cy="18" r="2.4" /><circle cx="18" cy="9" r="2.4" /><path d="M6 8.4v7.2M8.3 6h5.2a3 3 0 0 1 3 3" /></svg>
               Merge all
             </Hov>
-            <Hov onClick={pending ? undefined : () => { if (confirm(`Discard all ${items.length} pending changes? This can't be undone.`)) reject(allIds); }}
+            <Hov onClick={pending ? undefined : () => { if (allIds.length && confirm(`Discard all ${allIds.length} ${query.trim() ? "matched" : "pending"} change${allIds.length === 1 ? "" : "s"}? This can't be undone.`)) reject(allIds); }}
               base={{ ...ghostBtn, color: "#B44536", borderColor: "#EAD7CF" }} hover={{ background: "#FDF4F0" }}>Discard all</Hov>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14, flexWrap: "wrap" }}>
           <span className="dm-mono" style={{ ...monoLabel }}>Group by</span>
-          <div style={{ maxWidth: 340, flex: "1 1 260px" }}>
+          <div style={{ flex: "0 0 auto" }}>
             <Segmented value={by} onChange={(v: GroupBy) => setBy(v)} options={[{ v: "agent", label: "Agent" }, { v: "table", label: "Table" }, { v: "comm", label: "Comm chunk" }]} />
+          </div>
+          <div style={{ position: "relative", flex: "1 1 200px", maxWidth: 300 }}>
+            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter by agent, table, message…"
+              style={{ ...fieldInput, padding: "7px 10px 7px 26px", fontSize: 12.5, borderRadius: 9 }} />
+            {query && <button type="button" onClick={() => setQuery("")} title="Clear" style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 13 }}>✕</button>}
           </div>
           {error && <span className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{error}</span>}
           {pending && <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>Applying…</span>}
         </div>
       </div>
+
+      {shown.length === 0 && (
+        <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", textAlign: "center", padding: "30px 0" }}>
+          No pending changes match “{query.trim()}”.
+        </div>
+      )}
 
       {/* Sticky multi-select action bar. */}
       {selectedIds.length > 0 && (
