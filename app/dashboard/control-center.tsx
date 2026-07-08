@@ -64,11 +64,12 @@ import {
   Panel, DiffBadge, useAction, type Agent, type TableInfo,
 } from "./ui";
 import { VersioningTab } from "./versioning";
+import { ReviewStudio, SIMULATED_REVIEW_COUNT } from "./review-studio";
 
 /* ================================================================== */
 /* Component                                                           */
 /* ================================================================== */
-type Tab = "agents" | "data" | "versioning" | "search";
+type Tab = "agents" | "data" | "versioning" | "review" | "search";
 export type ControlCenterProps = {
   fullName: string;
   initial: string;
@@ -217,6 +218,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
     agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
     data: { t: "Data", sub: uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · ${relations.length} ${relations.length === 1 ? "relationship" : "relationships"}` : "No tables yet" },
     versioning: { t: "Versioning", sub: pendingCount ? `${pendingCount} pending ${pendingCount === 1 ? "change" : "changes"} · ${pendingTables} ${pendingTables === 1 ? "table" : "tables"} · ${pendingAgents} ${pendingAgents === 1 ? "agent" : "agents"}` : "Everything's merged — no pending changes" },
+    review: { t: "Review", sub: "Confirm what we inferred — duplicates, changed values & new facts (preview)" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
   };
 
@@ -262,6 +264,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
             { key: "agents", label: "Agents", count: uiAgents.length ? String(uiAgents.length) : null, icon: <><rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8V4" /><circle cx="12" cy="3" r="1.4" fill="currentColor" stroke="none" /><path d="M9 14h.01M15 14h.01" /></> },
             { key: "data", label: "Data", count: uiTables.length ? String(uiTables.length) : null, icon: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></> },
             { key: "versioning", label: "Versioning", count: pendingCount ? String(pendingCount) : null, icon: <><circle cx="6" cy="6" r="2.4" /><circle cx="6" cy="18" r="2.4" /><circle cx="18" cy="9" r="2.4" /><path d="M6 8.4v7.2M8.3 6h5.2a3 3 0 0 1 3 3v0" /></> },
+            { key: "review", label: "Review", count: SIMULATED_REVIEW_COUNT ? String(SIMULATED_REVIEW_COUNT) : null, icon: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></> },
             { key: "search", label: "Search", count: null, icon: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></> },
           ] as const).map((item) => {
             const active = tab === item.key;
@@ -354,6 +357,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
             </>
           ) : <DataEmpty openModal={() => setCreateTableOpen(true)} />)}
           {tab === "versioning" && <VersioningTab items={pendingChanges} onChanged={() => router.refresh()} onGoData={() => setTab("data")} />}
+          {tab === "review" && <ReviewStudio />}
           {tab === "search" && <SearchTab populated={populated} />}
         </div>
       </main>

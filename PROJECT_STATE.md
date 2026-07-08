@@ -12,6 +12,16 @@
 > Last updated: 2026-07-08
 
 ## Recent changes
+- **2026-07-09** — **Review tab UI** ([app/dashboard/review-studio.tsx](app/dashboard/review-studio.tsx)),
+  wired into the dashboard as a 4th tab in [control-center.tsx](app/dashboard/control-center.tsx).
+  Uses the shared `ui.tsx` design system. Deliberately varied layout per decision
+  type (merge = side-by-side comparison w/ confidence ring + impact meter; conflict
+  = before→after diff; extraction = message↔understood-facts editorial), with a
+  triage header + impact spotlight for flow. **Data is SIMULATED** — next step is to
+  wire it to `GET /api/knowledge/reviews` + the accept/reject endpoints (shapes
+  already match `lib/datamodo/reviews.ts`). Typechecks + route compiles; NOT yet
+  verified in-browser (needs login). The older bare [app/dashboard/reviews/page.tsx](app/dashboard/reviews/page.tsx)
+  is the real API-backed (unstyled) version — to be superseded once the tab is wired live.
 - **2026-07-08** — **Provider abstraction + confidence-scored entity resolution +
   review queue + onboarding steering.**
   - **LLM provider abstraction** ([lib/llm/](lib/llm/)): `LlmProvider` interface +
