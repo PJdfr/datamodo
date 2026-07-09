@@ -8,12 +8,44 @@
 
 import {
   createElement,
+  useEffect,
+  useRef,
   useState,
   useTransition,
   type CSSProperties,
   type ReactNode,
 } from "react";
 import type { ActionResult } from "./actions";
+
+/* ------------------------------------------------------------------ */
+/* CountUp — animate a number from 0 to its value on mount. A small     */
+/* delight for headline stats; respects prefers-reduced-motion.        */
+/* ------------------------------------------------------------------ */
+export function CountUp({ value, format, duration = 900 }: { value: number; format?: (n: number) => string; duration?: number }) {
+  const fmt = format ?? ((n: number) => Math.round(n).toLocaleString("en-US"));
+  const [display, setDisplay] = useState(value);
+  const ref = useRef(value);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const target = value;
+    const from = 0;
+    if (reduce || target === from) { setDisplay(target); return; }
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      ref.current = from + (target - from) * eased;
+      setDisplay(ref.current);
+      if (t < 1) raf = requestAnimationFrame(tick);
+      else setDisplay(target);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value, duration]);
+  return <>{fmt(display)}</>;
+}
 
 /* ------------------------------------------------------------------ */
 /* Hover helper — inline styles win over CSS :hover, so hover states   */
@@ -222,7 +254,7 @@ export const monoLabel: CSSProperties = {
 
 export const fieldInput: CSSProperties = { width: "100%", border: "1px solid #DDD5C5", borderRadius: 10, padding: "10px 12px", fontFamily: "inherit", fontSize: 14, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" };
 export const fieldLabel: CSSProperties = { ...monoLabel, marginBottom: 7 };
-export const primaryBtn = (disabled: boolean): CSSProperties => ({ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 11, padding: "10px 20px", fontFamily: "inherit", fontSize: 14, fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.7 : 1, boxShadow: "0 6px 16px rgba(228,89,59,.28)" });
+export const primaryBtn = (disabled: boolean): CSSProperties => ({ background: C.accent, backgroundImage: "linear-gradient(rgba(255,255,255,0.16), rgba(255,255,255,0) 45%)", color: "#fff8f4", border: "none", borderRadius: 11, padding: "10px 20px", fontFamily: "inherit", fontSize: 14, fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.7 : 1, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.22), 0 8px 20px -8px rgba(228,89,59,.5)", transition: "box-shadow .2s ease, transform .12s ease" });
 export const ghostBtn: CSSProperties = { background: "#fff", border: "1px solid #DCD3C2", borderRadius: 9, padding: "7px 12px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 500, color: "#3A352C", cursor: "pointer" };
 
 /* ------------------------------------------------------------------ */
@@ -272,8 +304,8 @@ export function Segmented<T extends string>({ value, onChange, options }: { valu
 export function ModalShell({ title, subtitle, onClose, children, footer, maxWidth = 600, badge }: { title: ReactNode; subtitle?: string; onClose: () => void; children: ReactNode; footer?: ReactNode; maxWidth?: number; badge?: { initial: string; bg: string } }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 60, alignItems: "center", justifyContent: "center", padding: 24, display: "flex" }}>
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(33,30,24,.5)", backdropFilter: "blur(2px)" }} />
-      <div style={{ position: "relative", width: "100%", maxWidth, background: "#F6F2E9", border: "1px solid #E1D9C8", borderRadius: 20, overflow: "hidden", boxShadow: "0 40px 90px -40px rgba(33,30,24,.7)", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+      <div onClick={onClose} className="dm-fade-in" style={{ position: "absolute", inset: 0, background: "rgba(33,30,24,.5)", backdropFilter: "blur(2px)" }} />
+      <div className="dm-modal-in" style={{ position: "relative", width: "100%", maxWidth, background: "#F6F2E9", border: "1px solid #E1D9C8", borderRadius: 20, overflow: "hidden", boxShadow: "0 40px 90px -40px rgba(33,30,24,.7)", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "18px 22px", borderBottom: "1px solid #E7E0D2" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
             {badge && (

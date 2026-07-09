@@ -12,6 +12,18 @@
 > Last updated: 2026-07-09
 
 ## Recent changes
+- **2026-07-09** — **Visual polish pass — texture, depth & motion (keeps the warm,
+  non-techy vibe).** The signed-in app read as flat solid-color rounded rectangles;
+  added a reusable motion/texture layer in [globals.css](app/globals.css) and applied
+  it: **paper grain + warm radial glow** on `.dm-app`; **`.dm-card`** hover-lift with a
+  soft layered shadow; **`.dm-rise`/`.dm-stagger`** staggered entrances; **`.dm-bar-fill`**
+  bars that grow on paint; **`.dm-modal-in`/`.dm-fade-in`** so every `ModalShell` pops in;
+  richer `primaryBtn` (top-highlight gradient + warm glow); **`.dm-bob`** gentle float on
+  empty-state icons. New **`CountUp`** ([ui.tsx](app/dashboard/ui.tsx)) animates headline
+  numbers (Insights tiles, Knowledge/Search counts). All motion is class-opt-in and
+  **disabled under `prefers-reduced-motion`**. Verified: `next build` + typecheck clean;
+  rendered against the real `globals.css` with a hovered card (grain/glow/lift/sheen/bars
+  confirmed).
 - **2026-07-09** — **Spreadsheet → knowledge graph (import + merge).** A user can hand
   us a table and we **infer a graph from it and merge it into the existing knowledge
   layer** — the flagship idea from the backlog. Pure, unit-tested `inferGraphFromTable`

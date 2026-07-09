@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { C } from "./ui";
+import { C, CountUp } from "./ui";
 
 interface AggRow { group: string; value: number; count: number }
 interface AggResult { op: string; total: number; rows: AggRow[] }
@@ -53,9 +53,9 @@ async function analytics<T>(body: Record<string, unknown>): Promise<T | null> {
   }
 }
 
-function StatTile({ label, value, tone }: { label: string; value: string; tone?: string }) {
+function StatTile({ label, value, tone }: { label: string; value: ReactNode; tone?: string }) {
   return (
-    <div style={{ flex: "1 1 160px", background: "#fff", border: "1px solid #E7E0D2", borderRadius: 14, padding: "16px 18px" }}>
+    <div className="dm-card" style={{ flex: "1 1 160px", background: "#fff", border: "1px solid #E7E0D2", borderRadius: 14, padding: "16px 18px" }}>
       <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 8 }}>{label}</div>
       <div className="dm-display" style={{ fontWeight: 800, fontSize: 30, letterSpacing: "-0.03em", lineHeight: 1, color: tone ?? C.ink }}>{value}</div>
     </div>
@@ -74,7 +74,7 @@ function BarList({ rows, tone, fmt }: { rows: AggRow[]; tone: string; fmt: (n: n
             <span className="dm-mono" style={{ fontSize: 12.5, color: C.ink, fontWeight: 600, flexShrink: 0 }}>{fmt(r.value)}<span style={{ color: "#B7AF9F", fontWeight: 400 }}> · {r.count}</span></span>
           </div>
           <div style={{ height: 10, background: "#F1EDE4", borderRadius: 5, overflow: "hidden" }}>
-            <div style={{ width: `${Math.max((r.value / max) * 100, 2)}%`, height: "100%", background: tone, borderRadius: 5 }} />
+            <div className="dm-bar-fill" style={{ width: `${Math.max((r.value / max) * 100, 2)}%`, height: "100%", background: tone, borderRadius: 5 }} />
           </div>
         </div>
       ))}
@@ -149,16 +149,16 @@ export function InsightsView() {
   }
 
   return (
-    <div style={{ maxWidth: 980, display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="dm-stagger" style={{ maxWidth: 980, display: "flex", flexDirection: "column", gap: 16 }}>
       <div>
         <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink }}>The numbers behind your knowledge</div>
         <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Computed live from your facts — not a separate spreadsheet to keep in sync.</div>
       </div>
 
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        {measure && result && <StatTile label={`${aggLabel} · ${measureLabel}`} value={fmt(result.total)} tone={C.gold} />}
-        <StatTile label="Things known" value={num(metrics.totalEntities)} />
-        <StatTile label="Facts on file" value={num(metrics.totalFacts)} />
+      <div className="dm-stagger" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        {measure && result && <StatTile label={`${aggLabel} · ${measureLabel}`} value={<CountUp value={result.total} format={fmt} />} tone={C.gold} />}
+        <StatTile label="Things known" value={<CountUp value={metrics.totalEntities} format={num} />} />
+        <StatTile label="Facts on file" value={<CountUp value={metrics.totalFacts} format={num} />} />
       </div>
 
       {nums.length > 0 ? (
@@ -195,9 +195,9 @@ export function InsightsView() {
       )}
 
       <Section title="What you know" hint={`${kinds.length} kind${kinds.length === 1 ? "" : "s"}`}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+        <div className="dm-stagger" style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
           {kinds.map((k) => (
-            <div key={k.kind} style={{ display: "flex", alignItems: "center", gap: 9, background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11, padding: "9px 13px" }}>
+            <div key={k.kind} className="dm-card" style={{ display: "flex", alignItems: "center", gap: 9, background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11, padding: "9px 13px" }}>
               <span style={{ width: 9, height: 9, borderRadius: 3, background: toneOf(k.kind), flexShrink: 0 }} />
               <span style={{ fontSize: 13, color: C.ink }}>{titleCase(plural(k.kind))}</span>
               <span className="dm-mono" style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>{num(k.count)}</span>
