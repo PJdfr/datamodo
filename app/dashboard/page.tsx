@@ -6,7 +6,7 @@ import { listDatasets } from "@/lib/datamodo/datasets";
 import { listRelations } from "@/lib/datamodo/relations";
 import { listPendingChanges } from "@/lib/datamodo/review";
 import { listAgentActivity } from "@/lib/datamodo/activity";
-import { getSettings, type UserSettings } from "@/lib/datamodo/settings";
+import { getSettings, getOnboardingContext, type UserSettings, type OnboardingContext } from "@/lib/datamodo/settings";
 import { inboundEmailDomain, provisionInbox } from "@/lib/datamodo/inbox";
 import type { AgentActivityEntry, AgentRecord, DatasetRelation, DatasetView, ReviewItem } from "@/lib/datamodo/types";
 import ControlCenter from "./control-center";
@@ -36,6 +36,7 @@ export default async function DashboardPage() {
   let pendingReviewCount = 0;
   let agentActivity: Record<string, AgentActivityEntry[]> = {};
   let settings: UserSettings = { plan: "free", computeMode: "byok", aiProvider: "anthropic", byokKeySet: false, planStatus: null, currentPeriodEnd: null };
+  let onboarding: OnboardingContext = { businessContext: null, answers: {} };
   let notice: string | null = null;
   const SCHEMA_NOTICE =
     "Some data couldn’t load — your database may be missing a migration. Run `supabase db push` (hosted) or `supabase db reset` (local) to apply the latest migrations.";
@@ -47,6 +48,11 @@ export default async function DashboardPage() {
         settings = await getSettings(supabase, user.id);
       } catch {
         notice = SCHEMA_NOTICE;
+      }
+      try {
+        onboarding = await getOnboardingContext(supabase, user.id);
+      } catch {
+        /* table may be behind on migrations — leave defaults */
       }
       if (org) {
         // Ensure the user has a capture inbox (best-effort — never blocks render).
@@ -96,6 +102,7 @@ export default async function DashboardPage() {
       pendingReviewCount={pendingReviewCount}
       agentActivity={agentActivity}
       settings={settings}
+      onboarding={onboarding}
       notice={notice}
     />
   );

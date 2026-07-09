@@ -12,6 +12,18 @@
 > Last updated: 2026-07-09
 
 ## Recent changes
+- **2026-07-09** — **Onboarding / business-context capture (steers extraction).** The
+  `saveOnboarding`/`getOnboardingContext` backend + `POST /api/onboarding` existed
+  and the extraction prompt already reads it, but there was no UI (an explicit TODO).
+  New **OnboardingModal** ([onboarding-modal.tsx](app/dashboard/onboarding-modal.tsx)):
+  a "what does your business do?" free-text + a multi-select of what to pull out
+  (invoices, contacts, meetings, …) → `POST /api/onboarding` `{businessContext,
+  answers:{track}}`. Surfaced two ways in [control-center.tsx](app/dashboard/control-center.tsx):
+  a persistent topbar **Context** button (shows ✓ once set) and a dismissible
+  **first-run banner** shown until a context is saved. [page.tsx](app/dashboard/page.tsx)
+  now loads `getOnboardingContext` and passes it in. Verified: full `next build` +
+  typecheck clean; modal + banner screenshotted (Chromium) and eyeballed. Live save
+  path unrun here (DB blocked) but the route + `saveOnboarding` were already in place.
 - **2026-07-09** — **Insights view — the analytics backend finally has a UI.** The
   `aggregate`/`monthlySeries`/`factMetrics` layer (`POST /api/knowledge/analytics`)
   was built + verified but unsurfaced. New **Insights** sub-view under Data (third
