@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { prisma } from "@/lib/prisma";
 import { getLlmProvider } from "@/lib/llm";
 import type { KnowledgeEntityView, FactSourceView } from "./types";
 
@@ -123,7 +123,6 @@ interface EntityRow {
  * genuinely new. Tiered: exact key → trigram blocking → (stub) adjudication.
  */
 export async function resolveEntity(
-  admin: SupabaseClient,
   orgId: string,
   ownerUserId: string | null,
   e: ExtractedEntity,
@@ -131,35 +130,25 @@ export async function resolveEntity(
   const key = normalizeKey(e);
 
   // Tier 0 — deterministic exact match. Free, kills most redundancy.
-  const { data: exact, error: exactErr } = await admin
-    .from("entities")
-    .select("id")
-    .eq("org_id", orgId)
-    .eq("kind", e.kind)
-    .eq("normalized_key", key)
-    .is("merged_into", null)
-    .maybeSingle();
-  if (exactErr) throw exactErr;
+  const exact = await prisma.entities.findFirst({
+    where: { org_id: orgId, kind: e.kind, normalized_key: key, merged_into: null },
+    select: { id: true },
+  });
   if (exact) {
-    await bumpSupport(admin, exact.id);
+    await bumpSupport(exact.id);
     return { id: exact.id, created: false };
   }
 
   // Tier 1 — blocking: only compare against the top trigram candidates for THIS
   // org, never the whole table. (Tier 1b: pgvector ANN when embeddings exist.)
-  const { data: cands, error: candErr } = await admin.rpc("knowledge_match_entities", {
-    p_org: orgId,
-    p_kind: e.kind,
-    p_label: e.label,
-    p_limit: 10,
-  });
-  if (candErr) throw candErr;
-  const candidates = (cands as MatchCandidate[] | null) ?? [];
+  const candidates = await prisma.$queryRaw<MatchCandidate[]>`
+    SELECT * FROM knowledge_match_entities(${orgId}::uuid, ${e.kind}, ${e.label}, 10)
+  `;
   const top = candidates[0];
 
   // Strong surface-text match → resolve without an LLM call.
   if (top && top.sim >= TRGM_HIGH) {
-    await bumpSupport(admin, top.id);
+    await bumpSupport(top.id);
     return { id: top.id, created: false };
   }
 
@@ -171,8 +160,8 @@ export async function resolveEntity(
 
   // High confidence → resolve to the canonical entity now, logged for audit.
   if (verdict.matchId && verdict.confidence >= AUTO_MERGE) {
-    await bumpSupport(admin, verdict.matchId);
-    await createMergeReview(admin, orgId, ownerUserId, {
+    await bumpSupport(verdict.matchId);
+    await createMergeReview(orgId, ownerUserId, {
       sourceId: null,
       targetId: verdict.matchId,
       confidence: verdict.confidence,
@@ -183,9 +172,8 @@ export async function resolveEntity(
   }
 
   // Otherwise create a new entity...
-  const { data: created, error: insErr } = await admin
-    .from("entities")
-    .insert({
+  const created = await prisma.entities.create({
+    data: {
       org_id: orgId,
       owner_user_id: ownerUserId,
       kind: e.kind,
@@ -193,15 +181,14 @@ export async function resolveEntity(
       normalized_key: key,
       natural_keys: e.naturalKeys ?? {},
       support: 1,
-    })
-    .select("id")
-    .single();
-  if (insErr) throw insErr;
+    },
+    select: { id: true },
+  });
 
   // ...and, if there's a plausible-but-uncertain match, PROPOSE a merge for the
   // user to validate (never a silent merge — a wrong merge corrupts data).
   if (verdict.matchId && verdict.confidence >= PROPOSE) {
-    await createMergeReview(admin, orgId, ownerUserId, {
+    await createMergeReview(orgId, ownerUserId, {
       sourceId: created.id,
       targetId: verdict.matchId,
       confidence: verdict.confidence,
@@ -268,86 +255,86 @@ interface MergeReviewArgs {
 
 /** Log/propose an entity merge, ranked by how many edges the target already has. */
 async function createMergeReview(
-  admin: SupabaseClient,
   orgId: string,
   ownerUserId: string | null,
   args: MergeReviewArgs,
 ): Promise<void> {
-  const impact = await countEntityEdges(admin, orgId, args.targetId);
-  await admin.from("knowledge_reviews").insert({
-    org_id: orgId,
-    owner_user_id: ownerUserId,
-    kind: "entity_merge",
-    status: args.status,
-    confidence: args.confidence,
-    impact,
-    source_entity_id: args.sourceId,
-    target_entity_id: args.targetId,
-    detail: args.detail,
-    resolved_at: args.status === "pending" ? null : new Date().toISOString(),
+  const impact = await countEntityEdges(orgId, args.targetId);
+  await prisma.knowledge_reviews.create({
+    data: {
+      org_id: orgId,
+      owner_user_id: ownerUserId,
+      kind: "entity_merge",
+      status: args.status,
+      confidence: args.confidence,
+      impact,
+      source_entity_id: args.sourceId,
+      target_entity_id: args.targetId,
+      detail: args.detail as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      resolved_at: args.status === "pending" ? null : new Date(),
+    },
   });
 }
 
 /** How many facts reference this entity (as subject or object) — its edge count. */
-async function countEntityEdges(admin: SupabaseClient, orgId: string, entityId: string): Promise<number> {
-  const subj = await admin
-    .from("facts").select("id", { count: "exact", head: true })
-    .eq("org_id", orgId).eq("subject_entity_id", entityId);
-  const obj = await admin
-    .from("facts").select("id", { count: "exact", head: true })
-    .eq("org_id", orgId).eq("object_entity_id", entityId);
-  return (subj.count ?? 0) + (obj.count ?? 0);
+async function countEntityEdges(orgId: string, entityId: string): Promise<number> {
+  const [subjCount, objCount] = await Promise.all([
+    prisma.facts.count({ where: { org_id: orgId, subject_entity_id: entityId } }),
+    prisma.facts.count({ where: { org_id: orgId, object_entity_id: entityId } }),
+  ]);
+  return subjCount + objCount;
 }
 
 /** Record a superseded fact as a conflict the user can review, ranked by how
  *  corroborated the old value was (more sources = more impactful a change). */
 async function createConflictReview(
-  admin: SupabaseClient,
   orgId: string,
   ownerUserId: string | null,
   args: { oldId: string; newId: string; subjectId: string; predicate: string },
 ): Promise<void> {
-  const { count } = await admin
-    .from("fact_sources").select("id", { count: "exact", head: true }).eq("fact_id", args.oldId);
-  await admin.from("knowledge_reviews").insert({
-    org_id: orgId,
-    owner_user_id: ownerUserId,
-    kind: "fact_conflict",
-    status: "pending",
-    confidence: null,
-    impact: (count ?? 0) + 1,
-    old_fact_id: args.oldId,
-    new_fact_id: args.newId,
-    detail: { predicate: args.predicate },
+  const count = await prisma.fact_sources.count({ where: { fact_id: args.oldId } });
+  await prisma.knowledge_reviews.create({
+    data: {
+      org_id: orgId,
+      owner_user_id: ownerUserId,
+      kind: "fact_conflict",
+      status: "pending",
+      confidence: null,
+      impact: count + 1,
+      old_fact_id: args.oldId,
+      new_fact_id: args.newId,
+      detail: { predicate: args.predicate },
+    },
   });
 }
 
 /** Surface a low-confidence extraction for the user to confirm ("did we
  *  understand this message?"). High-confidence extractions file silently. */
 export async function createExtractionReview(
-  admin: SupabaseClient,
   orgId: string,
   ownerUserId: string | null,
   args: { itemId: string; snippet: string; confidence: number; factCount: number },
 ): Promise<void> {
-  await admin.from("knowledge_reviews").insert({
-    org_id: orgId,
-    owner_user_id: ownerUserId,
-    kind: "extraction",
-    status: "pending",
-    confidence: args.confidence,
-    impact: args.factCount,
-    item_id: args.itemId,
-    detail: { snippet: args.snippet.slice(0, 400) },
+  await prisma.knowledge_reviews.create({
+    data: {
+      org_id: orgId,
+      owner_user_id: ownerUserId,
+      kind: "extraction",
+      status: "pending",
+      confidence: args.confidence,
+      impact: args.factCount,
+      item_id: args.itemId,
+      detail: { snippet: args.snippet.slice(0, 400) },
+    },
   });
 }
 
-async function bumpSupport(admin: SupabaseClient, id: string): Promise<void> {
+async function bumpSupport(id: string): Promise<void> {
   // NOTE: read-modify-write; move to an atomic RPC (support = support + 1)
   // before this runs concurrently per entity.
-  const { data } = await admin.from("entities").select("support").eq("id", id).single();
-  const next = ((data as { support: number } | null)?.support ?? 0) + 1;
-  await admin.from("entities").update({ support: next, updated_at: new Date().toISOString() }).eq("id", id);
+  const data = await prisma.entities.findUnique({ where: { id }, select: { support: true } });
+  const next = (data?.support ?? 0) + 1;
+  await prisma.entities.update({ where: { id }, data: { support: next, updated_at: new Date() } });
 }
 
 /**
@@ -355,14 +342,19 @@ async function bumpSupport(admin: SupabaseClient, id: string): Promise<void> {
  * it. Intended for the async compaction pass, not the hot path.
  */
 export async function mergeEntities(
-  admin: SupabaseClient,
   orgId: string,
   loserId: string,
   winnerId: string,
 ): Promise<void> {
-  await admin.from("facts").update({ subject_entity_id: winnerId }).eq("org_id", orgId).eq("subject_entity_id", loserId);
-  await admin.from("facts").update({ object_entity_id: winnerId }).eq("org_id", orgId).eq("object_entity_id", loserId);
-  await admin.from("entities").update({ merged_into: winnerId }).eq("id", loserId).eq("org_id", orgId);
+  await prisma.facts.updateMany({
+    where: { org_id: orgId, subject_entity_id: loserId },
+    data: { subject_entity_id: winnerId },
+  });
+  await prisma.facts.updateMany({
+    where: { org_id: orgId, object_entity_id: loserId },
+    data: { object_entity_id: winnerId },
+  });
+  await prisma.entities.update({ where: { id: loserId, org_id: orgId }, data: { merged_into: winnerId } });
 }
 
 // --- Fact upsert (dedup + contradiction handling) ----------------------------
@@ -392,7 +384,6 @@ type FactOutcome = "new" | "deduped" | "superseded";
  * supersede (append-only). New slot → insert.
  */
 async function upsertFact(
-  admin: SupabaseClient,
   orgId: string,
   ownerUserId: string | null,
   subjectId: string,
@@ -403,30 +394,45 @@ async function upsertFact(
   const slot = valueSlot(fact.value, resolve);
   const key = claimKey(fact, subjectId, slot);
   const cols = valueColumns(fact.value, resolve);
-  const now = new Date().toISOString();
+  const now = new Date();
 
-  const { data: current, error: curErr } = await admin
-    .from("facts")
-    .select("id, value_text, value_num, value_date, object_entity_id")
-    .eq("org_id", orgId)
-    .eq("claim_key", key)
-    .is("valid_to", null)
-    .maybeSingle();
-  if (curErr) throw curErr;
+  const current = await prisma.facts.findFirst({
+    where: { org_id: orgId, claim_key: key, valid_to: null },
+    select: { id: true, value_text: true, value_num: true, value_date: true, object_entity_id: true },
+  });
 
   const addSource = async (factId: string) => {
-    await admin
-      .from("fact_sources")
-      .upsert(
-        { org_id: orgId, fact_id: factId, source_item_id: sourceItemId, snippet: fact.snippet ?? null, extracted_at: now },
-        { onConflict: "fact_id,source_item_id" },
-      );
+    // NULLs are distinct in the (fact_id, source_item_id) unique index, so a
+    // null source can't participate in an ON CONFLICT upsert — always insert it
+    // (matches the original onConflict semantics). Only dedupe when we have an id.
+    if (sourceItemId === null) {
+      await prisma.fact_sources.create({
+        data: {
+          org_id: orgId,
+          fact_id: factId,
+          source_item_id: null,
+          snippet: fact.snippet ?? null,
+          extracted_at: now,
+        },
+      });
+      return;
+    }
+    await prisma.fact_sources.upsert({
+      where: { fact_id_source_item_id: { fact_id: factId, source_item_id: sourceItemId } },
+      create: {
+        org_id: orgId,
+        fact_id: factId,
+        source_item_id: sourceItemId,
+        snippet: fact.snippet ?? null,
+        extracted_at: now,
+      },
+      update: { snippet: fact.snippet ?? null, extracted_at: now },
+    });
   };
 
   const insertFact = async (): Promise<string> => {
-    const { data, error } = await admin
-      .from("facts")
-      .insert({
+    const data = await prisma.facts.create({
+      data: {
         org_id: orgId,
         owner_user_id: ownerUserId,
         subject_entity_id: subjectId,
@@ -437,10 +443,9 @@ async function upsertFact(
         valid_from: now,
         source_item_id: sourceItemId,
         ...cols,
-      })
-      .select("id")
-      .single();
-    if (error) throw error;
+      },
+      select: { id: true },
+    });
     return data.id;
   };
 
@@ -465,12 +470,12 @@ async function upsertFact(
   // delete. (Multi-valued facts never reach here — their value is in the key.)
   // Retire the old fact FIRST so it leaves the `valid_to IS NULL` partial unique
   // index before the new current fact claims the same claim_key.
-  await admin.from("facts").update({ valid_to: now }).eq("id", current.id);
+  await prisma.facts.update({ where: { id: current.id }, data: { valid_to: now } });
   const newId = await insertFact();
-  await admin.from("facts").update({ superseded_by: newId }).eq("id", current.id);
+  await prisma.facts.update({ where: { id: current.id }, data: { superseded_by: newId } });
   await addSource(newId);
   // Surface the conflict for the user to validate (auto-applied but reviewable).
-  await createConflictReview(admin, orgId, ownerUserId, {
+  await createConflictReview(orgId, ownerUserId, {
     oldId: current.id,
     newId,
     subjectId,
@@ -486,7 +491,6 @@ async function upsertFact(
  * then upsert every fact. This is the entry point the extraction pipeline calls.
  */
 export async function ingestExtraction(
-  admin: SupabaseClient,
   orgId: string,
   ownerUserId: string | null,
   sourceItemId: string | null,
@@ -503,7 +507,7 @@ export async function ingestExtraction(
   // Resolve entities first so facts can reference canonical ids.
   const idMap = new Map<string, string>();
   for (const e of extraction.entities) {
-    const { id, created } = await resolveEntity(admin, orgId, ownerUserId, e);
+    const { id, created } = await resolveEntity(orgId, ownerUserId, e);
     idMap.set(e.localId, id);
     res.entitiesResolved++;
     if (created) res.entitiesCreated++;
@@ -516,7 +520,7 @@ export async function ingestExtraction(
 
   for (const f of extraction.facts) {
     const subjectId = resolve(f.subjectLocalId);
-    const outcome = await upsertFact(admin, orgId, ownerUserId, subjectId, f, sourceItemId, resolve);
+    const outcome = await upsertFact(orgId, ownerUserId, subjectId, f, sourceItemId, resolve);
     if (outcome === "new") res.factsNew++;
     else if (outcome === "deduped") res.factsDeduped++;
     else res.factsSuperseded++;
@@ -541,13 +545,29 @@ interface KFact {
 /** All of the user's entities + what we currently know about each, with a
  *  provenance count per fact. This is the canonical knowledge view the UI shows;
  *  tables are derived from it. */
-export async function listKnowledge(db: SupabaseClient, orgId: string): Promise<KnowledgeEntityView[]> {
-  const [{ data: ents }, { data: facts }] = await Promise.all([
-    db.from("entities").select("id, kind, canonical_label, natural_keys").eq("org_id", orgId).is("merged_into", null),
-    db.from("facts").select("id, subject_entity_id, object_entity_id, predicate, value_text, value_num, value_date, unit").eq("org_id", orgId).is("valid_to", null).limit(5000),
+export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[]> {
+  const [ents, facts] = await Promise.all([
+    prisma.entities.findMany({
+      where: { org_id: orgId, merged_into: null },
+      select: { id: true, kind: true, canonical_label: true, natural_keys: true },
+    }),
+    prisma.facts.findMany({
+      where: { org_id: orgId, valid_to: null },
+      select: {
+        id: true,
+        subject_entity_id: true,
+        object_entity_id: true,
+        predicate: true,
+        value_text: true,
+        value_num: true,
+        value_date: true,
+        unit: true,
+      },
+      take: 5000,
+    }),
   ]);
   const entities = (ents as { id: string; kind: string; canonical_label: string; natural_keys: Record<string, string> }[] | null) ?? [];
-  const factList = (facts as KFact[] | null) ?? [];
+  const factList = (facts as unknown as KFact[] | null) ?? [];
   const label = new Map(entities.map((e) => [e.id, e.canonical_label]));
 
   // Provenance: the actual messages behind each fact (the "where did this come
@@ -556,17 +576,20 @@ export async function listKnowledge(db: SupabaseClient, orgId: string): Promise<
   const provByFact = new Map<string, FactSourceView[]>();
   const factIds = factList.map((f) => f.id);
   if (factIds.length) {
-    const { data: fs } = await db
-      .from("fact_sources")
-      .select("fact_id, snippet, source_item_id")
-      .in("fact_id", factIds);
+    const fs = await prisma.fact_sources.findMany({
+      where: { fact_id: { in: factIds } },
+      select: { fact_id: true, snippet: true, source_item_id: true },
+    });
     const fsList = (fs as { fact_id: string; snippet: string | null; source_item_id: string | null }[] | null) ?? [];
     const itemIds = [...new Set(fsList.map((s) => s.source_item_id).filter(Boolean) as string[])];
     type ItemMeta = { id: string; channel: string; sender: string | null; subject: string | null; body_preview: string | null; received_at: string | null };
     const itemById = new Map<string, ItemMeta>();
     if (itemIds.length) {
-      const { data: its } = await db.from("items").select("id, channel, sender, subject, body_preview, received_at").in("id", itemIds);
-      for (const it of ((its as ItemMeta[] | null) ?? [])) itemById.set(it.id, it);
+      const its = await prisma.items.findMany({
+        where: { id: { in: itemIds } },
+        select: { id: true, channel: true, sender: true, subject: true, body_preview: true, received_at: true },
+      });
+      for (const it of ((its as unknown as ItemMeta[] | null) ?? [])) itemById.set(it.id, it);
     }
     for (const s of fsList) {
       const it = s.source_item_id ? itemById.get(s.source_item_id) : undefined;

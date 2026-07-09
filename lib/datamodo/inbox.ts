@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { prisma } from "@/lib/prisma";
 
 // Per-user inbound email addresses. Every user gets a unique
 // `<token>@datamodo.dev` address; anything Cloudflare Email Routing catches
@@ -20,19 +20,13 @@ function mintLocalPart(): string {
 }
 
 /** The user's existing inbound address, if one has been provisioned. */
-export async function getInbox(
-  db: SupabaseClient,
-  ownerUserId: string,
-): Promise<string | null> {
-  const { data, error } = await db
-    .from("forwarding_addresses")
-    .select("address")
-    .eq("owner_user_id", ownerUserId)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as { address: string } | null)?.address ?? null;
+export async function getInbox(ownerUserId: string): Promise<string | null> {
+  const row = await prisma.forwarding_addresses.findFirst({
+    where: { owner_user_id: ownerUserId },
+    orderBy: { created_at: "asc" },
+    select: { address: true },
+  });
+  return row?.address ?? null;
 }
 
 /**
@@ -40,39 +34,34 @@ export async function getInbox(
  * Retries on the (astronomically unlikely) unique-address collision.
  */
 export async function provisionInbox(
-  db: SupabaseClient,
   orgId: string,
   ownerUserId: string,
   label = "Personal inbox",
 ): Promise<string> {
-  const existing = await getInbox(db, ownerUserId);
+  const existing = await getInbox(ownerUserId);
   if (existing) return existing;
 
   const domain = inboundEmailDomain();
   for (let attempt = 0; attempt < 5; attempt++) {
     const address = `${mintLocalPart()}@${domain}`;
-    const { error } = await db
-      .from("forwarding_addresses")
-      .insert({ org_id: orgId, owner_user_id: ownerUserId, address, label });
-    if (!error) return address;
-    // 23505 = unique_violation: another address grabbed this token; try again.
-    if ((error as { code?: string }).code !== "23505") throw error;
+    try {
+      await prisma.forwarding_addresses.create({
+        data: { org_id: orgId, owner_user_id: ownerUserId, address, label },
+      });
+      return address;
+    } catch (error) {
+      // P2002 = unique_violation: another address grabbed this token; try again.
+      if ((error as { code?: string }).code !== "P2002") throw error;
+    }
   }
   throw new Error("Could not allocate an inbox address — try again.");
 }
 
 /** Retire the user's current inbound address(es) and mint a fresh one (e.g. if
  *  an address starts receiving spam). */
-export async function regenerateInbox(
-  db: SupabaseClient,
-  orgId: string,
-  ownerUserId: string,
-): Promise<string> {
-  const { error } = await db
-    .from("forwarding_addresses")
-    .delete()
-    .eq("org_id", orgId)
-    .eq("owner_user_id", ownerUserId);
-  if (error) throw error;
-  return provisionInbox(db, orgId, ownerUserId);
+export async function regenerateInbox(orgId: string, ownerUserId: string): Promise<string> {
+  await prisma.forwarding_addresses.deleteMany({
+    where: { org_id: orgId, owner_user_id: ownerUserId },
+  });
+  return provisionInbox(orgId, ownerUserId);
 }

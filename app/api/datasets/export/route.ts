@@ -1,5 +1,4 @@
-import { cookies } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
+import { getSessionUser } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { listDatasets } from "@/lib/datamodo/datasets";
 import { datasetsToWorkbook, xlsxFilename } from "@/lib/datamodo/xlsx";
@@ -13,17 +12,13 @@ const XLSX_TYPE =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 export async function GET(req: Request) {
-  const db = createClient(await cookies());
-
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
 
-  const org = await getActiveOrg(db, user.id);
+  const org = await getActiveOrg(user.id);
   if (!org) return new Response("Not found", { status: 404 });
 
-  const all = await listDatasets(db, org.id);
+  const all = await listDatasets(org.id);
   const idsParam = new URL(req.url).searchParams.get("ids");
   const chosen = idsParam
     ? all.filter((d) => idsParam.split(",").filter(Boolean).includes(d.id))

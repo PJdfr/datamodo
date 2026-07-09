@@ -1,0 +1,31 @@
+name: Extraction cron
+
+# Drives the extraction queue on Neon (no pgmq/pg_cron). Every run pings the
+# Vercel consumer, which claims a batch of stored items (SKIP LOCKED) and runs
+# extraction. GitHub Actions' minimum schedule granularity is ~5 minutes and
+# runs may be delayed under load — fine for an individual product; raise
+# throughput with a larger EXTRACT_BATCH or an internal drain loop later.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+# Don't let a slow/late run pile up on the next one.
+concurrency:
+  group: extract-cron
+  cancel-in-progress: false
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping extraction consumer
+        run: |
+          if [ -z "${APP_URL}" ] || [ -z "${CRON_SECRET}" ]; then
+            echo "APP_URL / CRON_SECRET secrets not set — skipping."; exit 0
+          fi
+          curl -fsS --max-time 90 -X POST "${APP_URL%/}/api/jobs/extract-tick" \
+            -H "Authorization: Bearer ${CRON_SECRET}"
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

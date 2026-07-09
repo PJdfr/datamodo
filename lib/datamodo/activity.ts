@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { prisma } from "@/lib/prisma";
 import type { AgentActivityEntry } from "./types";
 import { listPendingChanges } from "./review";
 
@@ -9,7 +9,6 @@ import { listPendingChanges } from "./review";
 const MAX_PER_AGENT = 8;
 
 export async function listAgentActivity(
-  db: SupabaseClient,
   orgId: string,
 ): Promise<Record<string, AgentActivityEntry[]>> {
   const byAgent: Record<string, AgentActivityEntry[]> = {};
@@ -18,22 +17,20 @@ export async function listAgentActivity(
   };
 
   // Applied changes: snapshots attributed to an agent (actor <> 'You').
-  const { data: snaps, error: snapErr } = await db
-    .from("dataset_snapshots")
-    .select("id, actor, summary, created_at, datasets ( name )")
-    .eq("org_id", orgId)
-    .neq("actor", "You")
-    .order("created_at", { ascending: false })
-    .limit(60);
-  if (snapErr) throw snapErr;
-  for (const s of (snaps ?? []) as unknown as {
-    id: string;
-    actor: string;
-    summary: string;
-    created_at: string;
-    datasets: { name: string } | { name: string }[] | null;
-  }[]) {
-    const dsName = Array.isArray(s.datasets) ? s.datasets[0]?.name : s.datasets?.name;
+  const snaps = await prisma.dataset_snapshots.findMany({
+    where: { org_id: orgId, actor: { not: "You" } },
+    select: {
+      id: true,
+      actor: true,
+      summary: true,
+      created_at: true,
+      datasets: { select: { name: true } },
+    },
+    orderBy: { created_at: "desc" },
+    take: 60,
+  });
+  for (const s of snaps) {
+    const dsName = s.datasets?.name;
     push(s.actor, {
       id: s.id,
       kind: "applied",
@@ -43,12 +40,12 @@ export async function listAgentActivity(
       adds: 0,
       updates: 0,
       conflicts: 0,
-      when: s.created_at,
+      when: s.created_at.toISOString(),
     });
   }
 
   // Pending changes: group this agent's proposals by comm chunk (batch).
-  const pending = await listPendingChanges(db, orgId);
+  const pending = await listPendingChanges(orgId);
   const groups = new Map<
     string,
     { agent: string; datasetName: string; sourceLabel: string | null; adds: number; updates: number; conflicts: number; when: string }

@@ -1,6 +1,5 @@
-import { cookies } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
-import { getActiveOrg } from "@/lib/datamodo/orgs";
+import { getSessionUser, getOrCreateOrg } from "@/lib/auth/session";
+import { prisma } from "@/lib/prisma";
 import { listAgents } from "@/lib/datamodo/agents";
 import { listDatasets } from "@/lib/datamodo/datasets";
 import { listRelations } from "@/lib/datamodo/relations";
@@ -12,15 +11,12 @@ import type { AgentActivityEntry, AgentRecord, DatasetRelation, DatasetView, Rev
 import ControlCenter from "./control-center";
 
 export default async function DashboardPage() {
-  const supabase = createClient(await cookies());
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
 
   let inbox = `you@${inboundEmailDomain()}`;
 
   const fullName =
-    (user?.user_metadata?.full_name as string | undefined)?.trim() ||
+    (user?.name as string | undefined)?.trim() ||
     user?.email?.split("@")[0] ||
     "You";
   const initial = fullName.charAt(0).toUpperCase();
@@ -43,30 +39,30 @@ export default async function DashboardPage() {
 
   if (user) {
     try {
-      const org = await getActiveOrg(supabase, user.id);
+      const org = await getOrCreateOrg(user);
       try {
-        settings = await getSettings(supabase, user.id);
+        settings = await getSettings(user.id);
       } catch {
         notice = SCHEMA_NOTICE;
       }
       try {
-        onboarding = await getOnboardingContext(supabase, user.id);
+        onboarding = await getOnboardingContext(user.id);
       } catch {
         /* table may be behind on migrations — leave defaults */
       }
       if (org) {
         // Ensure the user has a capture inbox (best-effort — never blocks render).
         try {
-          inbox = await provisionInbox(supabase, org.id, user.id);
+          inbox = await provisionInbox(org.id, user.id);
         } catch {
           /* keep the placeholder */
         }
         const [ag, ds, rel, pend, act] = await Promise.allSettled([
-          listAgents(supabase, org.id),
-          listDatasets(supabase, org.id),
-          listRelations(supabase, org.id),
-          listPendingChanges(supabase, org.id),
-          listAgentActivity(supabase, org.id),
+          listAgents(org.id),
+          listDatasets(org.id),
+          listRelations(org.id),
+          listPendingChanges(org.id),
+          listAgentActivity(org.id),
         ]);
         if (ag.status === "fulfilled") agents = ag.value; else notice = SCHEMA_NOTICE;
         if (ds.status === "fulfilled") datasets = ds.value; else notice = SCHEMA_NOTICE;
@@ -75,12 +71,9 @@ export default async function DashboardPage() {
         if (act.status === "fulfilled") agentActivity = act.value; else notice = SCHEMA_NOTICE;
         // Pending knowledge reviews (merges/conflicts/extractions) for the Review tab badge.
         try {
-          const { count } = await supabase
-            .from("knowledge_reviews")
-            .select("id", { count: "exact", head: true })
-            .eq("org_id", org.id)
-            .eq("status", "pending");
-          pendingReviewCount = count ?? 0;
+          pendingReviewCount = await prisma.knowledge_reviews.count({
+            where: { org_id: org.id, status: "pending" },
+          });
         } catch {
           /* table may be behind on migrations — leave 0 */
         }

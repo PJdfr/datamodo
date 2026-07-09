@@ -1,5 +1,4 @@
-import { cookies } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
+import { getSessionUser } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { listDatasets } from "@/lib/datamodo/datasets";
 import { datasetsToWorkbook, xlsxFilename } from "@/lib/datamodo/xlsx";
@@ -15,17 +14,14 @@ export async function GET(
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params;
-  const db = createClient(await cookies());
 
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
 
-  const org = await getActiveOrg(db, user.id);
+  const org = await getActiveOrg(user.id);
   if (!org) return new Response("Not found", { status: 404 });
 
-  const dataset = (await listDatasets(db, org.id)).find((d) => d.id === id);
+  const dataset = (await listDatasets(org.id)).find((d) => d.id === id);
   if (!dataset) return new Response("Not found", { status: 404 });
 
   const buf = await datasetsToWorkbook([

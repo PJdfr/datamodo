@@ -2,23 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { cookies, headers } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
-
-// Base URL for auth redirect links (email confirmation). Derived from the
-// incoming request so it self-configures on localhost, Vercel preview
-// deployments, and production without a per-environment env var. Supabase's
-// redirect allow-list is the security backstop against Host-header spoofing.
-// Falls back to NEXT_PUBLIC_SITE_URL, then localhost, if no host is present.
-async function siteOrigin(): Promise<string> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  if (!host) return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
-  const proto =
-    h.get("x-forwarded-proto") ??
-    (/^(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(host) ? "http" : "https");
-  return `${proto}://${host}`;
-}
+import { auth } from "@/lib/auth/server";
 
 function safeNext(value: FormDataEntryValue | null): string {
   const next = typeof value === "string" ? value : "";
@@ -27,14 +11,13 @@ function safeNext(value: FormDataEntryValue | null): string {
 }
 
 export async function login(formData: FormData) {
-  const supabase = createClient(await cookies());
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
   const next = safeNext(formData.get("redirectTo"));
 
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { error } = await auth.signIn.email({ email, password });
   if (error) {
-    redirect(`/login?error=${encodeURIComponent(error.message)}`);
+    redirect(`/login?error=${encodeURIComponent(error.message ?? "Sign in failed")}`);
   }
 
   revalidatePath("/", "layout");
@@ -42,36 +25,28 @@ export async function login(formData: FormData) {
 }
 
 export async function signup(formData: FormData) {
-  const supabase = createClient(await cookies());
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
   const fullName = String(formData.get("fullName") ?? "").trim();
 
-  const { data, error } = await supabase.auth.signUp({
+  const { error } = await auth.signUp.email({
     email,
     password,
-    options: {
-      emailRedirectTo: `${await siteOrigin()}/auth/confirm`,
-      data: fullName ? { full_name: fullName } : undefined,
-    },
+    name: fullName || email.split("@")[0] || "New user",
   });
-
   if (error) {
-    redirect(`/register?error=${encodeURIComponent(error.message)}`);
+    redirect(`/register?error=${encodeURIComponent(error.message ?? "Sign up failed")}`);
   }
 
-  // When email confirmation is enabled, there is no active session yet.
-  if (!data.session) {
-    redirect("/register?message=check-email");
-  }
-
+  // Email verification is off, so sign-up establishes a session immediately.
+  // The personal org is provisioned lazily on first dashboard load
+  // (see requireUserOrg), which also covers OAuth sign-ups.
   revalidatePath("/", "layout");
   redirect("/dashboard");
 }
 
 export async function signout() {
-  const supabase = createClient(await cookies());
-  await supabase.auth.signOut();
+  await auth.signOut();
   revalidatePath("/", "layout");
   redirect("/login");
 }

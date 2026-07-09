@@ -1,5 +1,6 @@
-import { cookies } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
+import { getSessionUser } from "@/lib/auth/session";
+import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { createDataset, getDataset, snapshotDataset } from "@/lib/datamodo/datasets";
 import { parseWorkbook } from "@/lib/datamodo/spreadsheet";
@@ -28,13 +29,10 @@ function json(body: unknown, status = 200) {
 }
 
 export async function POST(req: Request) {
-  const db = createClient(await cookies());
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return json({ error: "Unauthorized" }, 401);
 
-  const org = await getActiveOrg(db, user.id);
+  const org = await getActiveOrg(user.id);
   if (!org) return json({ error: "No organization found" }, 404);
 
   let form: FormData;
@@ -59,15 +57,15 @@ export async function POST(req: Request) {
 
   // --- Sync into an existing table: incoming rows become reviewable proposals.
   if (typeof datasetId === "string" && datasetId) {
-    const ds = await getDataset(db, datasetId);
+    const ds = await getDataset(datasetId);
     if (!ds) return json({ error: "Table not found" }, 404);
 
-    const link = await getSheetLink(db, datasetId);
+    const link = await getSheetLink(datasetId);
     let keyColumn = link?.key_column;
     if (!keyColumn) {
       // First time syncing this table: match on its first column, and remember it.
       keyColumn = ds.columns[0]?.key ?? snapshot.columns[0].key;
-      await createSheetLink(db, {
+      await createSheetLink({
         datasetId,
         orgId: org.id,
         keyColumn,
@@ -77,7 +75,6 @@ export async function POST(req: Request) {
     }
 
     const { added, changed } = await syncSnapshotAsProposals(
-      db,
       org.id,
       datasetId,
       snapshot.rows,
@@ -91,27 +88,27 @@ export async function POST(req: Request) {
   const fallback = file.name.replace(/\.[^.]+$/, "").trim() || "Imported table";
   const name = (typeof nameField === "string" && nameField.trim()) || fallback;
 
-  const dataset = await createDataset(db, org.id, user.id, {
+  const dataset = await createDataset(org.id, user.id, {
     name,
     description: `Imported from ${file.name}`,
     columns: snapshot.columns,
   });
 
   if (snapshot.rows.length) {
-    const rows = snapshot.rows.map((data) => ({
-      org_id: org.id,
-      dataset_id: dataset.id,
-      data,
-      status: "accepted" as const,
-      origin: "manual",
-      created_by: user.id,
-    }));
-    const { error } = await db.from("dataset_rows").insert(rows);
-    if (error) return json({ error: error.message }, 500);
+    await prisma.dataset_rows.createMany({
+      data: snapshot.rows.map((data) => ({
+        org_id: org.id,
+        dataset_id: dataset.id,
+        data: data as Prisma.InputJsonValue,
+        status: "accepted",
+        origin: "manual",
+        created_by: user.id,
+      })),
+    });
   }
 
-  await snapshotDataset(db, dataset.id, "You", `Imported ${snapshot.rows.length} rows from ${file.name}`);
-  await createSheetLink(db, {
+  await snapshotDataset(dataset.id, "You", `Imported ${snapshot.rows.length} rows from ${file.name}`);
+  await createSheetLink({
     datasetId: dataset.id,
     orgId: org.id,
     keyColumn: snapshot.columns[0].key,

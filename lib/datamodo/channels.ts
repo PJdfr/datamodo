@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { prisma } from "@/lib/prisma";
 import type { IngestChannel } from "@/lib/ingest/types";
 
 // Identify-once linking for shared-bot channels (WhatsApp, Teams, Slack…).
@@ -32,7 +32,6 @@ export interface ChannelLinkCode {
  * (astronomically unlikely) code collision.
  */
 export async function createChannelLinkCode(
-  db: SupabaseClient,
   orgId: string,
   ownerUserId: string,
   channel: IngestChannel,
@@ -41,15 +40,20 @@ export async function createChannelLinkCode(
   const expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = mintCode();
-    const { error } = await db.from("channel_link_codes").insert({
-      code,
-      org_id: orgId,
-      owner_user_id: ownerUserId,
-      channel,
-      expires_at: expiresAt,
-    });
-    if (!error) return { code, channel, expiresAt };
-    if ((error as { code?: string }).code !== "23505") throw error; // unique_violation → retry
+    try {
+      await prisma.channel_link_codes.create({
+        data: {
+          code,
+          org_id: orgId,
+          owner_user_id: ownerUserId,
+          channel,
+          expires_at: expiresAt,
+        },
+      });
+      return { code, channel, expiresAt };
+    } catch (error) {
+      if ((error as { code?: string }).code !== "P2002") throw error; // unique_violation → retry
+    }
   }
   throw new Error("Could not allocate a link code — try again.");
 }
@@ -67,7 +71,6 @@ export interface BoundSource {
  * owner. Returns the bound source, or null if no valid code was present.
  */
 export async function redeemChannelLinkCode(
-  admin: SupabaseClient,
   channel: IngestChannel,
   handle: string,
   text: string | null | undefined,
@@ -79,64 +82,59 @@ export async function redeemChannelLinkCode(
   if (candidates.length === 0) return null;
 
   // Find a live (unconsumed, unexpired) code for THIS channel among the tokens.
-  const { data: rows, error } = await admin
-    .from("channel_link_codes")
-    .select("id, org_id, owner_user_id")
-    .in("code", candidates)
-    .eq("channel", channel)
-    .is("consumed_at", null)
-    .gt("expires_at", new Date().toISOString())
-    .limit(1);
-  if (error) throw error;
-  const match = rows?.[0] as { id: string; org_id: string; owner_user_id: string } | undefined;
+  const rows = await prisma.channel_link_codes.findMany({
+    where: {
+      code: { in: candidates },
+      channel,
+      consumed_at: null,
+      expires_at: { gt: new Date() },
+    },
+    select: { id: true, org_id: true, owner_user_id: true },
+    take: 1,
+  });
+  const match = rows[0];
   if (!match) return null;
 
   // Consume the code (guard against a concurrent double-redeem).
-  const { data: consumed, error: consumeErr } = await admin
-    .from("channel_link_codes")
-    .update({ consumed_at: new Date().toISOString(), consumed_handle: handle })
-    .eq("id", match.id)
-    .is("consumed_at", null)
-    .select("id")
-    .maybeSingle();
-  if (consumeErr) throw consumeErr;
-  if (!consumed) return null; // lost the race; someone else consumed it
+  const consumedResult = await prisma.channel_link_codes.updateMany({
+    where: { id: match.id, consumed_at: null },
+    data: { consumed_at: new Date(), consumed_handle: handle },
+  });
+  if (consumedResult.count === 0) return null; // lost the race; someone else consumed it
 
   // Bind (channel, handle) → this user. Last valid claim wins.
-  const { data: source, error: upErr } = await admin
-    .from("ingest_sources")
-    .upsert(
-      {
-        org_id: match.org_id,
-        owner_user_id: match.owner_user_id,
-        channel,
-        handle,
-        display_name: opts.displayName ?? null,
-        provider: opts.provider ?? null,
-        status: "active",
-      },
-      { onConflict: "channel,handle" },
-    )
-    .select("id")
-    .single();
-  if (upErr) throw upErr;
+  const source = await prisma.ingest_sources.upsert({
+    where: { channel_handle: { channel, handle } },
+    create: {
+      org_id: match.org_id,
+      owner_user_id: match.owner_user_id,
+      channel,
+      handle,
+      display_name: opts.displayName ?? null,
+      provider: opts.provider ?? null,
+      status: "active",
+    },
+    update: {
+      org_id: match.org_id,
+      owner_user_id: match.owner_user_id,
+      display_name: opts.displayName ?? null,
+      provider: opts.provider ?? null,
+      status: "active",
+    },
+    select: { id: true },
+  });
 
   return { sourceId: source.id, ownerUserId: match.owner_user_id, orgId: match.org_id };
 }
 
 /** Whether a sender handle is already bound to a user on this channel. */
 export async function isHandleBound(
-  admin: SupabaseClient,
   channel: IngestChannel,
   handle: string,
 ): Promise<boolean> {
-  const { data, error } = await admin
-    .from("ingest_sources")
-    .select("id")
-    .eq("channel", channel)
-    .eq("handle", handle)
-    .eq("status", "active")
-    .maybeSingle();
-  if (error) throw error;
+  const data = await prisma.ingest_sources.findFirst({
+    where: { channel, handle, status: "active" },
+    select: { id: true },
+  });
   return !!data;
 }

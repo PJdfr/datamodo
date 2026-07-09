@@ -1,6 +1,5 @@
 import Stripe from "stripe";
-import { cookies } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
+import { getSessionUser } from "@/lib/auth/session";
 
 // Starts a Stripe Checkout for a plan upgrade. Inert (503) until the Stripe
 // env vars are set, so the app builds and runs without billing configured.
@@ -23,10 +22,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "That plan isn’t available for checkout." }, { status: 400 });
   }
 
-  const db = createClient(await cookies());
-  const {
-    data: { user },
-  } = await db.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return Response.json({ error: "Sign in to upgrade." }, { status: 401 });
 
   const stripe = new Stripe(secret);
