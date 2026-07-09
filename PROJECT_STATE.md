@@ -12,6 +12,20 @@
 > Last updated: 2026-07-09
 
 ## Recent changes
+- **2026-07-09** — **Auto-link suggestions across tables.** Relationships were
+  manual-only; now we spot table pairs that share values in a column and propose the
+  link the user hasn't drawn. Pure detector `suggestRelations` + fetch helper
+  `getRelationSuggestions` ([relations.ts](lib/datamodo/relations.ts)): distinct
+  values per linkable column (skips number/date/status), overlap → containment score,
+  direction points the subset (foreign-key) side at the side that contains it, excludes
+  already-linked pairs. `GET /api/relations/suggestions`
+  ([route.ts](app/api/relations/suggestions/route.ts), user RLS client). UI: a
+  "Suggested links" strip in `RelationshipGraph` ([control-center.tsx](app/dashboard/control-center.tsx))
+  with one-click Link (→ `createRelationAction`) / Dismiss. **Seed:** added a
+  `traveler` column to Trips matching Contacts names, so the demo surfaces
+  `Trips.traveler → Contacts.name` (needs `supabase db reset`). Verified: 10/10 unit
+  tests on `suggestRelations` (mock fixtures incl. the demo scenario) + full `next
+  build` + typecheck clean + strip screenshotted.
 - **2026-07-09** — **Onboarding / business-context capture (steers extraction).** The
   `saveOnboarding`/`getOnboardingContext` backend + `POST /api/onboarding` existed
   and the extraction prompt already reads it, but there was no UI (an explicit TODO).
@@ -332,6 +346,16 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
 
 ## Next steps
 
+0. **Import a spreadsheet → infer a graph → merge into the knowledge graph** *(idea,
+   not built).* Let a user hand us a table/spreadsheet; infer entities + relationships
+   from it (columns → predicates, rows → entities, shared values → edges) and **merge
+   the result into the existing knowledge graph** (reuse the entity-resolution /
+   dedup / bitemporal machinery in `knowledge.ts`, not a fresh store). **Strongly
+   encourage this during onboarding**: merging a table into a *large* existing graph
+   is far costlier (more entities to resolve/compare against) than seeding it while the
+   graph is still fresh/empty — so make it a first-run step, not an afterthought.
+   Builds on today's `.xlsx` import (`spreadsheet.ts`/`sheets.ts`) + the auto-link
+   overlap detector (`suggestRelations`) as the edge-inference seed.
 1. ~~Connector smoke test~~ ✅ **done 2026-07-08** (see Recent changes). Capture
    path verified end-to-end; service_role grant bug fixed. Real inbound email
    (Cloudflare worker + live MX) still untested — only the synthetic POST path is.

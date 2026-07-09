@@ -57,6 +57,7 @@ import {
 import type { AgentActivityEntry, AgentRecord, ChangeChunk, DatasetColumn, DatasetRelation, DatasetRowRecord, DatasetView, Proposal, ReviewItem, SnapshotFull } from "@/lib/datamodo/types";
 import type { UserSettings, OnboardingContext } from "@/lib/datamodo/settings";
 import type { SearchResult, SearchHit } from "@/lib/datamodo/search";
+import type { RelationSuggestion } from "@/lib/datamodo/relations";
 import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
 import {
   Hov, C, LOGO, CH_NAMES, navStyle, modeCard, radioDot, bar, toggleTrack, toggleKnob,
@@ -1835,6 +1836,16 @@ function RelationshipGraph({ tables, relations, datasets, onOpen, onChanged }: {
   const [toCol, setToCol] = useState("");
   const [label, setLabel] = useState("");
 
+  // Auto-link suggestions: table pairs that share values but aren't linked yet.
+  const [suggestions, setSuggestions] = useState<RelationSuggestion[]>([]);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const sugKey = (s: RelationSuggestion) => `${s.fromDatasetId}:${s.fromColumn}|${s.toDatasetId}:${s.toColumn}`;
+  const loadSuggestions = () => {
+    void fetch("/api/relations/suggestions").then((r) => r.json()).then((j) => setSuggestions(j.suggestions ?? [])).catch(() => {});
+  };
+  useEffect(loadSuggestions, [relations.length]);
+  const shownSuggestions = suggestions.filter((s) => !dismissed.has(sugKey(s)));
+
   // Deterministic circular layout so the graph is stable across renders.
   const pos = useMemo(() => {
     const m = new Map<string, { x: number; y: number }>();
@@ -1889,6 +1900,32 @@ function RelationshipGraph({ tables, relations, datasets, onOpen, onChanged }: {
           <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="label (optional)" style={{ ...fieldInput, flex: "1 1 120px", width: "auto" }} />
           <Hov onClick={pending || !fromDs || !fromCol || !toDs || !toCol ? undefined : submit} base={{ ...primaryBtn(pending || !fromDs || !fromCol || !toDs || !toCol), padding: "8px 16px", fontSize: 13, boxShadow: "none" }} hover={{ background: C.accentPress }}>Link</Hov>
           {error && <span className="dm-mono" style={{ fontSize: 11, color: C.accent, flexBasis: "100%" }}>{error}</span>}
+        </div>
+      )}
+
+      {/* Auto-link suggestions */}
+      {shownSuggestions.length > 0 && (
+        <div style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", display: "flex", alignItems: "center", gap: 7 }}>
+            <span style={{ color: C.accent }}>✦</span> Suggested links · these tables share values
+          </div>
+          {shownSuggestions.map((s) => (
+            <div key={sugKey(s)} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#FDF9F2", border: "1px solid #EFE1D2", borderRadius: 11, padding: "9px 12px" }}>
+              <span style={{ fontSize: 13, color: C.ink }}>
+                <b style={{ fontWeight: 600 }}>{s.fromDatasetName}</b> <span className="dm-mono" style={{ fontSize: 11.5, color: "#8A8477" }}>{s.fromColumnLabel}</span>
+                <span style={{ color: "#C9BCA6", margin: "0 7px" }}>→</span>
+                <b style={{ fontWeight: 600 }}>{s.toDatasetName}</b> <span className="dm-mono" style={{ fontSize: 11.5, color: "#8A8477" }}>{s.toColumnLabel}</span>
+              </span>
+              <span style={{ fontSize: 11.5, color: "#8A8477" }}>shares {s.sample.slice(0, 2).join(", ")}{s.overlap > 2 ? ` +${s.overlap - 2}` : ""}</span>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 7 }}>
+                <Hov onClick={pending ? undefined : () => run(
+                  () => createRelationAction({ fromDatasetId: s.fromDatasetId, fromColumn: s.fromColumn, toDatasetId: s.toDatasetId, toColumn: s.toColumn, label: null }),
+                  () => { setDismissed((d) => new Set(d).add(sugKey(s))); onChanged(); loadSuggestions(); },
+                )} base={{ ...primaryBtn(pending), padding: "6px 14px", fontSize: 12.5, boxShadow: "none" }} hover={{ background: C.accentPress }}>Link</Hov>
+                <Hov onClick={() => setDismissed((d) => new Set(d).add(sugKey(s)))} base={{ ...ghostBtn, padding: "6px 11px", fontSize: 12.5 }} hover={{ background: "#FBF8F1" }}>Dismiss</Hov>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
