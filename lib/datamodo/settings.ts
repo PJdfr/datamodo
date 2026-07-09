@@ -88,6 +88,41 @@ export async function updateComputeSettings(
   if (error) throw error;
 }
 
+// --- Onboarding context (steers extraction) --------------------------------
+
+export interface OnboardingContext {
+  /** Free-text "what do you do" — the strongest steer for the extractor. */
+  businessContext: string | null;
+  /** Structured QCM answers (industry, entity types, etc.). */
+  answers: Record<string, unknown>;
+}
+
+/** Load the user's onboarding context (used to build the extraction prompt). */
+export async function getOnboardingContext(db: SupabaseClient, userId: string): Promise<OnboardingContext> {
+  const { data, error } = await db
+    .from("user_settings")
+    .select("business_context, onboarding")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  const d = data as { business_context: string | null; onboarding: Record<string, unknown> | null } | null;
+  return { businessContext: d?.business_context ?? null, answers: d?.onboarding ?? {} };
+}
+
+/** Save onboarding answers (asked once at signup). */
+export async function saveOnboarding(
+  db: SupabaseClient,
+  userId: string,
+  ctx: { businessContext?: string | null; answers?: Record<string, unknown> },
+): Promise<void> {
+  const update: Record<string, unknown> = {};
+  if (ctx.businessContext !== undefined) update.business_context = ctx.businessContext?.trim() || null;
+  if (ctx.answers !== undefined) update.onboarding = ctx.answers;
+  if (Object.keys(update).length === 0) return;
+  const { error } = await db.from("user_settings").upsert({ user_id: userId, ...update }, { onConflict: "user_id" });
+  if (error) throw error;
+}
+
 /** Count the user's agents (for the max-agents entitlement). */
 export async function countAgents(db: SupabaseClient, ownerUserId: string): Promise<number> {
   const { count, error } = await db

@@ -31,6 +31,33 @@ export interface DatasetColumn {
   type: string; // 'text' | 'number' | 'date' | 'status' | ...
 }
 
+/** The knowledge layer, projected for display: a canonical entity + what we know
+ *  about it. Tables are derived from this; this is the source of truth. */
+/** One message a fact was pulled from — the provenance behind a claim. */
+export interface FactSourceView {
+  channel: string; // email | whatsapp | slack | teams | ...
+  sender: string | null;
+  subject: string | null;
+  preview: string | null; // the message's short plain preview
+  snippet: string | null; // the exact text the fact was extracted from
+  receivedAt: string | null;
+}
+export interface KnowledgeFactView {
+  predicate: string;
+  value: string; // formatted (or the target entity's label when ref)
+  ref: boolean; // value is a relationship to another entity
+  sources: number; // how many messages corroborate it (provenance)
+  provenance: FactSourceView[]; // the actual messages behind it (may be empty)
+}
+export interface KnowledgeEntityView {
+  id: string;
+  kind: string;
+  label: string;
+  naturalKeys: Record<string, string>;
+  facts: KnowledgeFactView[];
+  edges: number; // facts referencing this entity (as subject or object)
+}
+
 /** A row of the `datasets` table. */
 export interface DatasetRecord {
   id: string;

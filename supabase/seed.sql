@@ -19,8 +19,22 @@ declare
   v_inv_row     uuid;
   v_item1       uuid;
   v_item2       uuid;
+  v_item3       uuid;
   v_batch1      uuid;
   v_batch2      uuid;
+  -- knowledge-layer demo entities
+  v_k_acme      uuid;
+  v_k_bright    uuid;
+  v_k_north     uuid;
+  v_k_james     uuid;
+  v_k_elena     uuid;
+  v_k_maria     uuid;
+  v_k_inv1      uuid;
+  v_k_inv2      uuid;
+  v_k_famt      uuid;
+  v_f_issued    uuid;
+  v_f_jworks    uuid;
+  v_f_mworks    uuid;
 begin
   -- 1. Ensure the demo auth user exists. The handle_new_user() trigger creates
   --    the matching profile, personal org, owner membership, and forwarding
@@ -112,6 +126,7 @@ begin
   insert into public.datasets (org_id, agent_id, name, description, columns, created_by)
   values (v_org, v_nomad, 'Trips', 'Travel timeline from Nomad.',
     '[{"key":"destination","label":"Destination","type":"text"},
+      {"key":"traveler","label":"Traveler","type":"text"},
       {"key":"dates","label":"Dates","type":"text"},
       {"key":"booking","label":"Booking","type":"text"},
       {"key":"cost","label":"Cost","type":"number"}]'::jsonb,
@@ -130,9 +145,11 @@ begin
     (v_ds_contacts, v_org, '{"name":"Priya Nair","email":"priya@globex.com","company":"Globex","role":"Finance"}'::jsonb, v_uid),
     (v_ds_contacts, v_org, '{"name":"Marcus Webb","email":"marcus@initech.com","company":"Initech","role":"Founder"}'::jsonb, v_uid);
 
+  -- Traveler names match Contacts.name, so the auto-linker suggests
+  -- Trips.traveler → Contacts.name (a link the demo hasn't drawn yet).
   insert into public.dataset_rows (dataset_id, org_id, data, created_by) values
-    (v_ds_trips, v_org, '{"destination":"Lisbon","dates":"Aug 3–9","booking":"TAP #4471","cost":640}'::jsonb, v_uid),
-    (v_ds_trips, v_org, '{"destination":"Berlin","dates":"Sep 12–15","booking":"LH #2210","cost":410}'::jsonb, v_uid);
+    (v_ds_trips, v_org, '{"destination":"Lisbon","traveler":"Jordan Lee","dates":"Aug 3–9","booking":"TAP #4471","cost":640}'::jsonb, v_uid),
+    (v_ds_trips, v_org, '{"destination":"Berlin","traveler":"Priya Nair","dates":"Sep 12–15","booking":"LH #2210","cost":410}'::jsonb, v_uid);
 
   -- Relationships -------------------------------------------------------
   -- An invoice's client is a company that lives in Contacts.
@@ -148,26 +165,66 @@ begin
   select id into v_inv_row from public.dataset_rows
    where dataset_id = v_ds_invoices and data->>'invoice' = '#A-198' limit 1;
 
-  -- Source messages the agents parsed (the "comm chunk" grouping axis).
-  insert into public.items (org_id, owner_user_id, channel, sender, subject, received_at)
-  values (v_org, v_uid, 'email', 'billing@acme.com', 'Invoice #A-207 — Acme Inc', now())
+  -- Source messages the agents parsed (the "comm chunk" grouping axis). These
+  -- back the facts below via fact_sources, so the Knowledge tab's "where did
+  -- this come from?" drill-down shows the real message behind each claim.
+  insert into public.items (org_id, owner_user_id, channel, sender, subject, body_preview, received_at)
+  values (v_org, v_uid, 'email', 'billing@brightwave.io', 'Invoice INV-4417 — Brightwave',
+          'Hi, please find attached invoice INV-4417 for a total of $18,500. Issued by Brightwave, payable by Aug 31.', now())
   returning id into v_item1;
-  insert into public.items (org_id, owner_user_id, channel, sender, subject, received_at)
-  values (v_org, v_uid, 'whatsapp', 'Acme dinner', 'Met 2 people at the Acme dinner', now())
+  insert into public.items (org_id, owner_user_id, channel, sender, subject, body_preview, received_at)
+  values (v_org, v_uid, 'whatsapp', '+1 (415) 555-0142', 'Dinner with the Northwind team',
+          'Great dinner — James Porter from Brightwave and Maria Gomez who runs ops at Northwind. Will intro you both.', now())
   returning id into v_item2;
+  insert into public.items (org_id, owner_user_id, channel, sender, subject, body_preview, received_at)
+  values (v_org, v_uid, 'email', 'accounts@brightwave.io', 'Re: payment — INV-4417',
+          'Confirming the invoice for 18,500 USD is approved on our side; remittance to follow.', now())
+  returning id into v_item3;
 
-  -- Chunk 1 — Ledger parsed a billing email → one new invoice + one change to
-  -- the (human-edited, so conflicting) #A-198 row.
-  v_batch1 := gen_random_uuid();
-  insert into public.dataset_rows (dataset_id, org_id, data, status, origin, proposed_by, proposed_kind, target_row_id, batch_id, source_item_id) values
-    (v_ds_invoices, v_org, '{"client":"Acme Inc","invoice":"#A-207","amount":5400,"due":"2026-08-12","status":"Sent"}'::jsonb, 'proposed', 'agent', 'Ledger', 'add', null, v_batch1, v_item1),
-    (v_ds_invoices, v_org, '{"client":"Northwind","invoice":"#A-198","amount":3600,"due":"2026-07-20","status":"Paid"}'::jsonb, 'proposed', 'agent', 'Ledger', 'update', v_inv_row, v_batch1, v_item1);
+  -- Knowledge layer — the canonical entities + facts the Knowledge tab shows and
+  -- that tables are projected from. (Review now happens at the fact level, so we
+  -- no longer seed table-row "proposals".)
+  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys) values
+    (v_org, v_uid, 'company', 'Acme Group', 'acme group', '{"domain":"acme.com"}'::jsonb) returning id into v_k_acme;
+  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys) values
+    (v_org, v_uid, 'company', 'Brightwave', 'brightwave', '{"domain":"brightwave.io"}'::jsonb) returning id into v_k_bright;
+  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys) values
+    (v_org, v_uid, 'company', 'Northwind Traders', 'northwind traders', '{}'::jsonb) returning id into v_k_north;
+  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys) values
+    (v_org, v_uid, 'person', 'James Porter', 'james porter', '{"email":"james.porter@brightwave.io"}'::jsonb) returning id into v_k_james;
+  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys) values
+    (v_org, v_uid, 'person', 'Elena Ruiz', 'elena ruiz', '{"email":"elena.ruiz@brightwave.io"}'::jsonb) returning id into v_k_elena;
+  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys) values
+    (v_org, v_uid, 'person', 'Maria Gomez', 'maria gomez', '{"email":"maria@northwind.example","phone":"+1-415-555-0142"}'::jsonb) returning id into v_k_maria;
+  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys) values
+    (v_org, v_uid, 'invoice', 'INV-4417', 'inv-4417', '{"invoice_no":"INV-4417"}'::jsonb) returning id into v_k_inv1;
+  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys) values
+    (v_org, v_uid, 'invoice', 'INV-2087', 'inv-2087', '{"invoice_no":"INV-2087"}'::jsonb) returning id into v_k_inv2;
 
-  -- Chunk 2 — Rolodex parsed a WhatsApp note → two new contacts.
-  v_batch2 := gen_random_uuid();
-  insert into public.dataset_rows (dataset_id, org_id, data, status, origin, proposed_by, proposed_kind, batch_id, source_item_id) values
-    (v_ds_contacts, v_org, '{"name":"Dana Cruz","email":"dana@acme.com","company":"Acme Inc","role":"CTO"}'::jsonb, 'proposed', 'agent', 'Rolodex', 'add', v_batch2, v_item2),
-    (v_ds_contacts, v_org, '{"name":"Sam Ito","email":"sam@acme.com","company":"Acme Inc","role":"Design"}'::jsonb, 'proposed', 'agent', 'Rolodex', 'add', v_batch2, v_item2);
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_num, unit) values
+    (v_org, v_uid, v_k_inv1, 'amount', v_k_inv1::text || '::amount', 'one', 0.95, 18500, 'USD') returning id into v_k_famt;
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_date) values (v_org, v_uid, v_k_inv1, 'due_date', v_k_inv1::text || '::due_date', 'one', 0.95, '2026-08-31');
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_inv1, 'issued_by', v_k_inv1::text || '::issued_by', 'one', 0.95, v_k_bright) returning id into v_f_issued;
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_inv1, 'account_manager', v_k_inv1::text || '::account_manager', 'one', 0.9, v_k_elena);
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_num, unit) values (v_org, v_uid, v_k_inv2, 'amount', v_k_inv2::text || '::amount', 'one', 0.95, 4250, 'USD');
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_date) values (v_org, v_uid, v_k_inv2, 'due_date', v_k_inv2::text || '::due_date', 'one', 0.95, '2026-08-15');
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_inv2, 'issued_by', v_k_inv2::text || '::issued_by', 'one', 0.95, v_k_north);
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_text) values (v_org, v_uid, v_k_james, 'role', v_k_james::text || '::role', 'one', 0.9, 'Enterprise Account Executive');
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_james, 'works_for', v_k_james::text || '::works_for', 'one', 0.92, v_k_bright) returning id into v_f_jworks;
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_text) values (v_org, v_uid, v_k_elena, 'role', v_k_elena::text || '::role', 'one', 0.9, 'Account Manager');
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_elena, 'works_for', v_k_elena::text || '::works_for', 'one', 0.9, v_k_bright);
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_maria, 'works_for', v_k_maria::text || '::works_for', 'one', 0.85, v_k_north) returning id into v_f_mworks;
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_text) values (v_org, v_uid, v_k_acme, 'industry', v_k_acme::text || '::industry', 'one', 0.8, 'Software');
+
+  -- Provenance: each fact points back at the real message(s) it came from, so
+  -- the Knowledge tab's "where did this come from?" drill-down has evidence to
+  -- show. The invoice total is corroborated by two separate emails.
+  insert into public.fact_sources (org_id, fact_id, source_item_id, snippet) values
+    (v_org, v_k_famt,    v_item1, 'a total of $18,500'),
+    (v_org, v_k_famt,    v_item3, 'the invoice for 18,500 USD is approved'),
+    (v_org, v_f_issued,  v_item1, 'Issued by Brightwave, payable by Aug 31'),
+    (v_org, v_f_jworks,  v_item2, 'James Porter from Brightwave'),
+    (v_org, v_f_mworks,  v_item2, 'Maria Gomez who runs ops at Northwind');
 end
 $$;
 
