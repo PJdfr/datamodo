@@ -23,9 +23,14 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 export async function requireUserOrg(): Promise<{ user: SessionUser; org: ActiveOrg } | null> {
   const user = await getSessionUser();
   if (!user) return null;
-  let org = await getActiveOrg(user.id);
-  if (!org) org = await provisionPersonalOrg(user);
-  return { user, org };
+  return { user, org: await getOrCreateOrg(user) };
+}
+
+/** The user's personal org, provisioning it on first access. Use this at
+ *  authenticated entry points (dashboard page/layout) so a freshly signed-up
+ *  user — including OAuth — gets their org/profile/settings/inbox created. */
+export async function getOrCreateOrg(user: SessionUser): Promise<ActiveOrg> {
+  return (await getActiveOrg(user.id)) ?? provisionPersonalOrg(user);
 }
 
 /**

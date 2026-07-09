@@ -1,6 +1,5 @@
-import { getSessionUser } from "@/lib/auth/session";
+import { getSessionUser, getOrCreateOrg } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
-import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { listAgents } from "@/lib/datamodo/agents";
 import { listDatasets } from "@/lib/datamodo/datasets";
 import { listRelations } from "@/lib/datamodo/relations";
@@ -40,7 +39,7 @@ export default async function DashboardPage() {
 
   if (user) {
     try {
-      const org = await getActiveOrg(user.id);
+      const org = await getOrCreateOrg(user);
       try {
         settings = await getSettings(user.id);
       } catch {
