@@ -126,6 +126,7 @@ begin
   insert into public.datasets (org_id, agent_id, name, description, columns, created_by)
   values (v_org, v_nomad, 'Trips', 'Travel timeline from Nomad.',
     '[{"key":"destination","label":"Destination","type":"text"},
+      {"key":"traveler","label":"Traveler","type":"text"},
       {"key":"dates","label":"Dates","type":"text"},
       {"key":"booking","label":"Booking","type":"text"},
       {"key":"cost","label":"Cost","type":"number"}]'::jsonb,
@@ -144,9 +145,11 @@ begin
     (v_ds_contacts, v_org, '{"name":"Priya Nair","email":"priya@globex.com","company":"Globex","role":"Finance"}'::jsonb, v_uid),
     (v_ds_contacts, v_org, '{"name":"Marcus Webb","email":"marcus@initech.com","company":"Initech","role":"Founder"}'::jsonb, v_uid);
 
+  -- Traveler names match Contacts.name, so the auto-linker suggests
+  -- Trips.traveler → Contacts.name (a link the demo hasn't drawn yet).
   insert into public.dataset_rows (dataset_id, org_id, data, created_by) values
-    (v_ds_trips, v_org, '{"destination":"Lisbon","dates":"Aug 3–9","booking":"TAP #4471","cost":640}'::jsonb, v_uid),
-    (v_ds_trips, v_org, '{"destination":"Berlin","dates":"Sep 12–15","booking":"LH #2210","cost":410}'::jsonb, v_uid);
+    (v_ds_trips, v_org, '{"destination":"Lisbon","traveler":"Jordan Lee","dates":"Aug 3–9","booking":"TAP #4471","cost":640}'::jsonb, v_uid),
+    (v_ds_trips, v_org, '{"destination":"Berlin","traveler":"Priya Nair","dates":"Sep 12–15","booking":"LH #2210","cost":410}'::jsonb, v_uid);
 
   -- Relationships -------------------------------------------------------
   -- An invoice's client is a company that lives in Contacts.
