@@ -1,25 +1,19 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { prisma } from "@/lib/prisma";
 import type { AgentRecord, NewAgentInput } from "./types";
 
 // Data access for agents. Every call goes through the caller's authenticated
 // Supabase client, so RLS (owner-only) gates every row — these helpers never
 // bypass it. Agents are private to their owner; there is no sharing.
 
-export async function listAgents(
-  db: SupabaseClient,
-  orgId: string,
-): Promise<AgentRecord[]> {
-  const { data, error } = await db
-    .from("agents")
-    .select("*")
-    .eq("org_id", orgId)
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as AgentRecord[];
+export async function listAgents(orgId: string): Promise<AgentRecord[]> {
+  const rows = await prisma.agents.findMany({
+    where: { org_id: orgId },
+    orderBy: { created_at: "asc" },
+  });
+  return rows as unknown as AgentRecord[];
 }
 
 export async function createAgent(
-  db: SupabaseClient,
   orgId: string,
   ownerUserId: string,
   input: NewAgentInput,
@@ -27,9 +21,8 @@ export async function createAgent(
   const name = input.name?.trim();
   if (!name) throw new Error("Agent name is required");
 
-  const { data: agent, error } = await db
-    .from("agents")
-    .insert({
+  const created = (await prisma.agents.create({
+    data: {
       org_id: orgId,
       owner_user_id: ownerUserId,
       name,
@@ -39,27 +32,24 @@ export async function createAgent(
       mode: input.mode ?? "auto",
       freestyle: input.freestyle ?? false,
       avatar_bg: input.avatarBg ?? null,
-    })
-    .select("*")
-    .single();
-  if (error) throw error;
-  const created = agent as AgentRecord;
+    },
+  })) as unknown as AgentRecord;
 
   // Best-effort: bind existing datasets (by name) to the new agent.
   if (!input.freestyle && input.targetDatasetNames?.length) {
-    const { error: linkErr } = await db
-      .from("datasets")
-      .update({ agent_id: created.id })
-      .eq("org_id", orgId)
-      .in("name", input.targetDatasetNames);
-    if (linkErr) throw linkErr;
+    await prisma.datasets.updateMany({
+      where: {
+        org_id: orgId,
+        name: { in: input.targetDatasetNames },
+      },
+      data: { agent_id: created.id },
+    });
   }
 
   return created;
 }
 
 export async function updateAgent(
-  db: SupabaseClient,
   agentId: string,
   patch: {
     name?: string;
@@ -83,26 +73,16 @@ export async function updateAgent(
   if (patch.freestyle !== undefined) update.freestyle = patch.freestyle;
   if (Object.keys(update).length === 0) return;
 
-  const { error } = await db.from("agents").update(update).eq("id", agentId);
-  if (error) throw error;
+  await prisma.agents.update({ where: { id: agentId }, data: update });
 }
 
 export async function setAgentStatus(
-  db: SupabaseClient,
   agentId: string,
   status: "active" | "paused",
 ): Promise<void> {
-  const { error } = await db
-    .from("agents")
-    .update({ status })
-    .eq("id", agentId);
-  if (error) throw error;
+  await prisma.agents.update({ where: { id: agentId }, data: { status } });
 }
 
-export async function deleteAgent(
-  db: SupabaseClient,
-  agentId: string,
-): Promise<void> {
-  const { error } = await db.from("agents").delete().eq("id", agentId);
-  if (error) throw error;
+export async function deleteAgent(agentId: string): Promise<void> {
+  await prisma.agents.delete({ where: { id: agentId } });
 }

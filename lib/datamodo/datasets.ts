@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { prisma } from "@/lib/prisma";
 import type {
   DatasetColumn,
   DatasetRecord,
@@ -22,37 +22,40 @@ type RawRow = {
   target_row_id: string | null;
   proposed_by: string | null;
   batch_id: string | null;
-  created_at: string;
+  created_at: Date;
   source_item_id: string | null;
 };
 
 /** List datasets in an org, enriched with rows, version history, + proposals. */
-export async function listDatasets(
-  db: SupabaseClient,
-  orgId: string,
-): Promise<DatasetView[]> {
-  const { data, error } = await db
-    .from("datasets")
-    .select("*, agents ( name )")
-    .eq("org_id", orgId)
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-
-  type Joined = DatasetRecord & { agents: { name: string } | null };
-  const datasets = (data ?? []) as unknown as Joined[];
+export async function listDatasets(orgId: string): Promise<DatasetView[]> {
+  const datasets = await prisma.datasets.findMany({
+    where: { org_id: orgId },
+    orderBy: { created_at: "asc" },
+    include: { agents: { select: { name: true } } },
+  });
   if (datasets.length === 0) return [];
 
   // Load ONLY pending proposals here (usually a small set) — never every
   // accepted row. The dashboard cards need counts, not the rows themselves;
   // full rows load lazily when a table is opened (see listDatasetRows).
-  const { data: propData, error: propErr } = await db
-    .from("dataset_rows")
-    .select("id, dataset_id, data, human_edited, status, proposed_kind, target_row_id, proposed_by, batch_id, created_at, source_item_id")
-    .eq("org_id", orgId)
-    .eq("status", "proposed")
-    .order("created_at", { ascending: true });
-  if (propErr) throw propErr;
-  const proposed = (propData ?? []) as RawRow[];
+  const propData = await prisma.dataset_rows.findMany({
+    where: { org_id: orgId, status: "proposed" },
+    orderBy: { created_at: "asc" },
+    select: {
+      id: true,
+      dataset_id: true,
+      data: true,
+      human_edited: true,
+      status: true,
+      proposed_kind: true,
+      target_row_id: true,
+      proposed_by: true,
+      batch_id: true,
+      created_at: true,
+      source_item_id: true,
+    },
+  });
+  const proposed = propData as unknown as RawRow[];
 
   const proposedByDataset = new Map<string, RawRow[]>();
   for (const r of proposed) {
@@ -66,11 +69,11 @@ export async function listDatasets(
   const targetIds = [...new Set(proposed.map((r) => r.target_row_id).filter(Boolean) as string[])];
   const targetById = new Map<string, { data: Record<string, unknown>; human_edited: boolean }>();
   if (targetIds.length) {
-    const { data: targets } = await db
-      .from("dataset_rows")
-      .select("id, data, human_edited")
-      .in("id", targetIds);
-    for (const t of (targets ?? []) as { id: string; data: Record<string, unknown>; human_edited: boolean }[]) {
+    const targets = await prisma.dataset_rows.findMany({
+      where: { id: { in: targetIds } },
+      select: { id: true, data: true, human_edited: true },
+    });
+    for (const t of targets as { id: string; data: Record<string, unknown>; human_edited: boolean }[]) {
       targetById.set(t.id, { data: t.data ?? {}, human_edited: t.human_edited });
     }
   }
@@ -79,33 +82,34 @@ export async function listDatasets(
   const sourceIds = [...new Set(proposed.filter((r) => r.source_item_id).map((r) => r.source_item_id as string))];
   const sourceLabels = new Map<string, string>();
   if (sourceIds.length) {
-    const { data: items } = await db
-      .from("items")
-      .select("id, subject, sender")
-      .in("id", sourceIds);
-    for (const it of (items ?? []) as { id: string; subject: string | null; sender: string | null }[]) {
+    const items = await prisma.items.findMany({
+      where: { id: { in: sourceIds } },
+      select: { id: true, subject: true, sender: true },
+    });
+    for (const it of items as { id: string; subject: string | null; sender: string | null }[]) {
       sourceLabels.set(it.id, it.subject?.trim() || it.sender?.trim() || "a message");
     }
   }
 
   // Accepted-row counts, grouped in one query (no row payloads).
   const countByDataset = new Map<string, number>();
-  const { data: counts } = await db.rpc("dataset_accepted_counts", { p_org_id: orgId });
-  for (const c of (counts ?? []) as { dataset_id: string; n: number }[]) {
+  const counts = await prisma.$queryRaw<{ dataset_id: string; n: bigint | number }[]>`
+    SELECT * FROM dataset_accepted_counts(${orgId}::uuid)
+  `;
+  for (const c of counts ?? []) {
     countByDataset.set(c.dataset_id, Number(c.n));
   }
 
   // Version-history metadata (no heavy payloads).
-  const { data: snapData, error: snapErr } = await db
-    .from("dataset_snapshots")
-    .select("id, dataset_id, actor, summary, created_at")
-    .eq("org_id", orgId)
-    .order("created_at", { ascending: false });
-  if (snapErr) throw snapErr;
+  const snapData = await prisma.dataset_snapshots.findMany({
+    where: { org_id: orgId },
+    orderBy: { created_at: "desc" },
+    select: { id: true, dataset_id: true, actor: true, summary: true, created_at: true },
+  });
   const historyByDataset = new Map<string, SnapshotMeta[]>();
-  for (const s of (snapData ?? []) as { id: string; dataset_id: string; actor: string; summary: string; created_at: string }[]) {
+  for (const s of snapData as { id: string; dataset_id: string; actor: string; summary: string; created_at: Date }[]) {
     const arr = historyByDataset.get(s.dataset_id) ?? [];
-    arr.push({ id: s.id, actor: s.actor, summary: s.summary, createdAt: s.created_at });
+    arr.push({ id: s.id, actor: s.actor, summary: s.summary, createdAt: s.created_at.toISOString() });
     historyByDataset.set(s.dataset_id, arr);
   }
 
@@ -121,7 +125,7 @@ export async function listDatasets(
         currentData: target?.data ?? null,
         conflict: !!target && target.human_edited,
         batchId: p.batch_id,
-        createdAt: p.created_at,
+        createdAt: p.created_at.toISOString(),
         sourceLabel: p.source_item_id ? sourceLabels.get(p.source_item_id) ?? null : null,
       };
     });
@@ -131,10 +135,10 @@ export async function listDatasets(
       agent_id: d.agent_id,
       name: d.name,
       description: d.description,
-      columns: Array.isArray(d.columns) ? (d.columns as DatasetColumn[]) : [],
+      columns: Array.isArray(d.columns) ? (d.columns as unknown as DatasetColumn[]) : [],
       created_by: d.created_by,
-      created_at: d.created_at,
-      updated_at: d.updated_at,
+      created_at: d.created_at.toISOString(),
+      updated_at: d.updated_at.toISOString(),
       agentName: d.agents?.name ?? null,
       rowCount: countByDataset.get(d.id) ?? 0,
       // Rows load lazily when a table is opened — the cards only need the count.
@@ -148,21 +152,23 @@ export async function listDatasets(
 /** Load a page of a table's accepted (live) rows, newest access shape for the
  *  table editor. Returns the rows plus the exact total so the UI can paginate. */
 export async function listDatasetRows(
-  db: SupabaseClient,
   datasetId: string,
   opts: { limit?: number; offset?: number } = {},
 ): Promise<{ rows: DatasetRowRecord[]; total: number }> {
   const limit = opts.limit ?? 500;
   const offset = opts.offset ?? 0;
-  const { data, error, count } = await db
-    .from("dataset_rows")
-    .select("id, data, human_edited", { count: "exact" })
-    .eq("dataset_id", datasetId)
-    .eq("status", "accepted")
-    .order("created_at", { ascending: true })
-    .range(offset, offset + limit - 1);
-  if (error) throw error;
-  const rows = ((data ?? []) as { id: string; data: Record<string, unknown>; human_edited: boolean }[]).map(
+  const where = { dataset_id: datasetId, status: "accepted" as const };
+  const [data, count] = await Promise.all([
+    prisma.dataset_rows.findMany({
+      where,
+      select: { id: true, data: true, human_edited: true },
+      orderBy: { created_at: "asc" },
+      skip: offset,
+      take: limit,
+    }),
+    prisma.dataset_rows.count({ where }),
+  ]);
+  const rows = (data as { id: string; data: Record<string, unknown>; human_edited: boolean }[]).map(
     (r) => ({ id: r.id, data: r.data ?? {}, humanEdited: r.human_edited }),
   );
   return { rows, total: count ?? rows.length };
@@ -173,104 +179,88 @@ export async function listDatasetRows(
 // ---------------------------------------------------------------------------
 
 /** Save a full point-in-time copy of a table with a plain-language summary. */
-export async function snapshotDataset(
-  db: SupabaseClient,
-  datasetId: string,
-  actor: string,
-  summary: string,
-): Promise<void> {
-  const ds = await getDataset(db, datasetId);
+export async function snapshotDataset(datasetId: string, actor: string, summary: string): Promise<void> {
+  const ds = await getDataset(datasetId);
   if (!ds) return;
-  const rows = await listAcceptedRows(db, datasetId);
-  const { error } = await db.from("dataset_snapshots").insert({
-    dataset_id: datasetId,
-    org_id: ds.org_id,
-    actor,
-    summary,
-    columns: ds.columns,
-    rows,
+  const rows = await listAcceptedRows(datasetId);
+  await prisma.dataset_snapshots.create({
+    data: {
+      dataset_id: datasetId,
+      org_id: ds.org_id,
+      actor,
+      summary,
+      columns: ds.columns as object,
+      rows: rows as object,
+    },
   });
-  if (error) throw error;
 }
 
 /** Create an "Original version" checkpoint the first time a table is changed. */
-export async function ensureBaseline(db: SupabaseClient, datasetId: string): Promise<void> {
-  const { count, error } = await db
-    .from("dataset_snapshots")
-    .select("id", { count: "exact", head: true })
-    .eq("dataset_id", datasetId);
-  if (error) throw error;
-  if ((count ?? 0) === 0) await snapshotDataset(db, datasetId, "You", "Original version");
+export async function ensureBaseline(datasetId: string): Promise<void> {
+  const count = await prisma.dataset_snapshots.count({ where: { dataset_id: datasetId } });
+  if ((count ?? 0) === 0) await snapshotDataset(datasetId, "You", "Original version");
 }
 
 /** Run a mutation between a baseline check and a post-change checkpoint. */
 export async function checkpoint(
-  db: SupabaseClient,
   datasetId: string,
   summary: string,
   apply: () => Promise<void>,
   actor = "You",
 ): Promise<void> {
-  await ensureBaseline(db, datasetId);
+  await ensureBaseline(datasetId);
   await apply();
-  await snapshotDataset(db, datasetId, actor, summary);
+  await snapshotDataset(datasetId, actor, summary);
 }
 
 /** Full version history for a table (newest first) with each version's rows +
  *  columns, so the UI can preview a version and diff it against another. */
-export async function listSnapshotsFull(
-  db: SupabaseClient,
-  datasetId: string,
-): Promise<SnapshotFull[]> {
-  const { data, error } = await db
-    .from("dataset_snapshots")
-    .select("id, actor, summary, created_at, columns, rows")
-    .eq("dataset_id", datasetId)
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return ((data ?? []) as {
+export async function listSnapshotsFull(datasetId: string): Promise<SnapshotFull[]> {
+  const data = await prisma.dataset_snapshots.findMany({
+    where: { dataset_id: datasetId },
+    orderBy: { created_at: "desc" },
+    select: { id: true, actor: true, summary: true, created_at: true, columns: true, rows: true },
+  });
+  return (data as unknown as {
     id: string;
     actor: string;
     summary: string;
-    created_at: string;
+    created_at: Date;
     columns: DatasetColumn[];
     rows: { data: Record<string, unknown> }[];
   }[]).map((s) => ({
     id: s.id,
     actor: s.actor,
     summary: s.summary,
-    createdAt: s.created_at,
+    createdAt: s.created_at.toISOString(),
     columns: Array.isArray(s.columns) ? s.columns : [],
     rows: Array.isArray(s.rows) ? s.rows : [],
   }));
 }
 
 /** Rewind a table to a saved version (its rows + columns), keeping proposals. */
-export async function restoreSnapshot(db: SupabaseClient, snapshotId: string): Promise<void> {
-  const { data, error } = await db
-    .from("dataset_snapshots")
-    .select("dataset_id, org_id, columns, rows, created_at")
-    .eq("id", snapshotId)
-    .maybeSingle();
-  if (error) throw error;
+export async function restoreSnapshot(snapshotId: string): Promise<void> {
+  const data = await prisma.dataset_snapshots.findUnique({
+    where: { id: snapshotId },
+    select: { dataset_id: true, org_id: true, columns: true, rows: true, created_at: true },
+  });
   if (!data) throw new Error("Version not found");
-  const snap = data as { dataset_id: string; org_id: string; columns: DatasetColumn[]; rows: { data: Record<string, unknown> }[]; created_at: string };
+  const snap = data as unknown as { dataset_id: string; org_id: string; columns: DatasetColumn[]; rows: { data: Record<string, unknown> }[]; created_at: Date };
 
-  await db.from("datasets").update({ columns: snap.columns }).eq("id", snap.dataset_id);
-  await db.from("dataset_rows").delete().eq("dataset_id", snap.dataset_id).eq("status", "accepted");
+  await prisma.datasets.update({ where: { id: snap.dataset_id }, data: { columns: snap.columns as object } });
+  await prisma.dataset_rows.deleteMany({ where: { dataset_id: snap.dataset_id, status: "accepted" } });
   if (snap.rows.length) {
     const insert = snap.rows.map((r) => ({
       dataset_id: snap.dataset_id,
       org_id: snap.org_id,
-      data: r.data ?? {},
+      data: (r.data ?? {}) as object,
       status: "accepted" as const,
       origin: "manual",
     }));
-    const { error: insErr } = await db.from("dataset_rows").insert(insert);
-    if (insErr) throw insErr;
+    await prisma.dataset_rows.createMany({ data: insert });
   }
-  const when = new Date(snap.created_at).toLocaleString();
-  await snapshotDataset(db, snap.dataset_id, "You", `Restored to the version from ${when}`);
+  const when = snap.created_at.toLocaleString();
+  await snapshotDataset(snap.dataset_id, "You", `Restored to the version from ${when}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -293,7 +283,6 @@ type ProposalRow = {
  * Returns the batch id.
  */
 export async function proposeAgentRows(
-  db: SupabaseClient,
   orgId: string,
   datasetId: string,
   agentName: string,
@@ -313,59 +302,67 @@ export async function proposeAgentRows(
     source_item_id: opts.sourceItemId ?? null,
   };
   const rows = [
-    ...adds.map((data) => ({ ...base, data, proposed_kind: "add" })),
-    ...updates.map((u) => ({ ...base, data: u.data, proposed_kind: "update", target_row_id: u.targetRowId })),
+    ...adds.map((data) => ({ ...base, data: data as object, proposed_kind: "add" })),
+    ...updates.map((u) => ({ ...base, data: u.data as object, proposed_kind: "update", target_row_id: u.targetRowId })),
   ];
-  const { error } = await db.from("dataset_rows").insert(rows);
-  if (error) throw error;
+  await prisma.dataset_rows.createMany({ data: rows });
   return batchId;
 }
 
 /** Apply one proposal row: add the new row, or write the update onto its target. */
-async function applyProposalRow(db: SupabaseClient, p: ProposalRow): Promise<"add" | "update"> {
+async function applyProposalRow(p: ProposalRow): Promise<"add" | "update"> {
   if (p.proposed_kind === "update" && p.target_row_id) {
-    await db.from("dataset_rows").update({ data: p.data, origin: "agent", human_edited: false }).eq("id", p.target_row_id);
-    await db.from("dataset_rows").delete().eq("id", p.id);
+    await prisma.dataset_rows.update({
+      where: { id: p.target_row_id },
+      data: { data: p.data as object, origin: "agent", human_edited: false },
+    });
+    await prisma.dataset_rows.delete({ where: { id: p.id } });
     return "update";
   }
-  await db.from("dataset_rows").update({ status: "accepted", proposed_kind: null, target_row_id: null }).eq("id", p.id);
+  await prisma.dataset_rows.update({
+    where: { id: p.id },
+    data: { status: "accepted", proposed_kind: null, target_row_id: null },
+  });
   return "add";
 }
 
-const PROPOSAL_COLS = "id, dataset_id, data, proposed_kind, target_row_id, proposed_by";
+const PROPOSAL_SELECT = {
+  id: true,
+  dataset_id: true,
+  data: true,
+  proposed_kind: true,
+  target_row_id: true,
+  proposed_by: true,
+} as const;
 
 /** Apply a single proposal. */
-export async function acceptProposal(db: SupabaseClient, proposalId: string): Promise<{ datasetId: string; summary: string; actor: string } | null> {
-  const { data, error } = await db.from("dataset_rows").select(PROPOSAL_COLS).eq("id", proposalId).maybeSingle();
-  if (error) throw error;
+export async function acceptProposal(proposalId: string): Promise<{ datasetId: string; summary: string; actor: string } | null> {
+  const data = await prisma.dataset_rows.findUnique({ where: { id: proposalId }, select: PROPOSAL_SELECT });
   if (!data) return null;
   const p = data as ProposalRow;
   const actor = p.proposed_by ?? "An agent";
-  const kind = await applyProposalRow(db, p);
+  const kind = await applyProposalRow(p);
   return { datasetId: p.dataset_id, summary: kind === "update" ? `Applied ${actor}'s change` : `Added ${actor}'s row`, actor };
 }
 
-export async function rejectProposal(db: SupabaseClient, proposalId: string): Promise<void> {
-  const { error } = await db.from("dataset_rows").delete().eq("id", proposalId);
-  if (error) throw error;
+export async function rejectProposal(proposalId: string): Promise<void> {
+  await prisma.dataset_rows.delete({ where: { id: proposalId } });
 }
 
 /** Accept a whole chunk — every proposal in a batch — in one go. */
-export async function acceptBatch(db: SupabaseClient, batchId: string): Promise<{ datasetId: string; summary: string; actor: string } | null> {
-  const { data, error } = await db
-    .from("dataset_rows")
-    .select(PROPOSAL_COLS)
-    .eq("batch_id", batchId)
-    .eq("status", "proposed");
-  if (error) throw error;
-  const props = (data ?? []) as ProposalRow[];
+export async function acceptBatch(batchId: string): Promise<{ datasetId: string; summary: string; actor: string } | null> {
+  const data = await prisma.dataset_rows.findMany({
+    where: { batch_id: batchId, status: "proposed" },
+    select: PROPOSAL_SELECT,
+  });
+  const props = data as ProposalRow[];
   if (!props.length) return null;
 
   const actor = props[0].proposed_by ?? "An agent";
   let adds = 0;
   let updates = 0;
   for (const p of props) {
-    const kind = await applyProposalRow(db, p);
+    const kind = await applyProposalRow(p);
     if (kind === "update") updates++; else adds++;
   }
   const parts: string[] = [];
@@ -375,9 +372,8 @@ export async function acceptBatch(db: SupabaseClient, batchId: string): Promise<
 }
 
 /** Reject (discard) a whole chunk. */
-export async function rejectBatch(db: SupabaseClient, batchId: string): Promise<void> {
-  const { error } = await db.from("dataset_rows").delete().eq("batch_id", batchId).eq("status", "proposed");
-  if (error) throw error;
+export async function rejectBatch(batchId: string): Promise<void> {
+  await prisma.dataset_rows.deleteMany({ where: { batch_id: batchId, status: "proposed" } });
 }
 
 /** One dataset's slice of a bulk accept — so the caller can snapshot each table
@@ -394,23 +390,18 @@ export interface BulkAcceptResult {
  * single, multi-select, whole agent, whole table, or merge-all — by passing the
  * right id set. Returns one result per affected dataset for checkpointing.
  */
-export async function acceptProposals(
-  db: SupabaseClient,
-  ids: string[],
-): Promise<BulkAcceptResult[]> {
+export async function acceptProposals(ids: string[]): Promise<BulkAcceptResult[]> {
   if (!ids.length) return [];
-  const { data, error } = await db
-    .from("dataset_rows")
-    .select(PROPOSAL_COLS)
-    .in("id", ids)
-    .eq("status", "proposed");
-  if (error) throw error;
-  const props = (data ?? []) as ProposalRow[];
+  const data = await prisma.dataset_rows.findMany({
+    where: { id: { in: ids }, status: "proposed" },
+    select: PROPOSAL_SELECT,
+  });
+  const props = data as ProposalRow[];
   if (!props.length) return [];
 
   const perDataset = new Map<string, { adds: number; updates: number; actors: Set<string> }>();
   for (const p of props) {
-    const kind = await applyProposalRow(db, p);
+    const kind = await applyProposalRow(p);
     const agg = perDataset.get(p.dataset_id) ?? { adds: 0, updates: 0, actors: new Set<string>() };
     if (kind === "update") agg.updates++; else agg.adds++;
     agg.actors.add(p.proposed_by ?? "An agent");
@@ -427,10 +418,9 @@ export async function acceptProposals(
 }
 
 /** Reject (discard) an arbitrary set of proposals. */
-export async function rejectProposals(db: SupabaseClient, ids: string[]): Promise<void> {
+export async function rejectProposals(ids: string[]): Promise<void> {
   if (!ids.length) return;
-  const { error } = await db.from("dataset_rows").delete().in("id", ids).eq("status", "proposed");
-  if (error) throw error;
+  await prisma.dataset_rows.deleteMany({ where: { id: { in: ids }, status: "proposed" } });
 }
 
 /**
@@ -438,28 +428,22 @@ export async function rejectProposals(db: SupabaseClient, ids: string[]): Promis
  * can be seen without a live extraction pipeline. Proposes one brand-new row
  * and one change to the first existing row.
  */
-export async function simulateAgentUpdate(
-  db: SupabaseClient,
-  orgId: string,
-  datasetId: string,
-): Promise<void> {
-  const { data: dsRow } = await db
-    .from("datasets")
-    .select("columns, agents ( name )")
-    .eq("id", datasetId)
-    .maybeSingle();
+export async function simulateAgentUpdate(orgId: string, datasetId: string): Promise<void> {
+  const dsRow = await prisma.datasets.findUnique({
+    where: { id: datasetId },
+    select: { columns: true, agents: { select: { name: true } } },
+  });
   const ds = dsRow as { columns: DatasetColumn[]; agents: { name: string } | null } | null;
   if (!ds) throw new Error("Table not found");
   const cols = Array.isArray(ds.columns) ? ds.columns : [];
   const agentName = ds.agents?.name ?? "An agent";
 
-  const { data: rowsData } = await db
-    .from("dataset_rows")
-    .select("id, data")
-    .eq("dataset_id", datasetId)
-    .eq("status", "accepted")
-    .order("created_at", { ascending: true })
-    .limit(1);
+  const rowsData = await prisma.dataset_rows.findMany({
+    where: { dataset_id: datasetId, status: "accepted" },
+    select: { id: true, data: true },
+    orderBy: { created_at: "asc" },
+    take: 1,
+  });
   const first = (rowsData ?? [])[0] as { id: string; data: Record<string, unknown> } | undefined;
 
   // A brand-new row.
@@ -483,42 +467,32 @@ export async function simulateAgentUpdate(
     updates.push({ targetRowId: first.id, data: next });
   }
 
-  await proposeAgentRows(db, orgId, datasetId, agentName, [addData], updates);
+  await proposeAgentRows(orgId, datasetId, agentName, [addData], updates);
 }
 
 /** Fetch a single dataset by id (RLS returns null when not visible). */
-export async function getDataset(
-  db: SupabaseClient,
-  datasetId: string,
-): Promise<DatasetRecord | null> {
-  const { data, error } = await db
-    .from("datasets")
-    .select("*")
-    .eq("id", datasetId)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) return null;
-  const d = data as DatasetRecord;
-  return { ...d, columns: Array.isArray(d.columns) ? d.columns : [] };
+export async function getDataset(datasetId: string): Promise<DatasetRecord | null> {
+  const d = await prisma.datasets.findUnique({ where: { id: datasetId } });
+  if (!d) return null;
+  return {
+    ...(d as unknown as DatasetRecord),
+    columns: Array.isArray(d.columns) ? (d.columns as unknown as DatasetColumn[]) : [],
+    created_at: d.created_at.toISOString(),
+    updated_at: d.updated_at.toISOString(),
+  };
 }
 
 /** Accepted rows for a dataset, oldest first — the exportable/live rows. */
-export async function listAcceptedRows(
-  db: SupabaseClient,
-  datasetId: string,
-): Promise<{ data: Record<string, unknown> }[]> {
-  const { data, error } = await db
-    .from("dataset_rows")
-    .select("data")
-    .eq("dataset_id", datasetId)
-    .eq("status", "accepted")
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as { data: Record<string, unknown> }[];
+export async function listAcceptedRows(datasetId: string): Promise<{ data: Record<string, unknown> }[]> {
+  const data = await prisma.dataset_rows.findMany({
+    where: { dataset_id: datasetId, status: "accepted" },
+    select: { data: true },
+    orderBy: { created_at: "asc" },
+  });
+  return data as { data: Record<string, unknown> }[];
 }
 
 export async function createDataset(
-  db: SupabaseClient,
   orgId: string,
   createdBy: string,
   input: {
@@ -531,46 +505,37 @@ export async function createDataset(
   const name = input.name?.trim();
   if (!name) throw new Error("Dataset name is required");
 
-  const { data, error } = await db
-    .from("datasets")
-    .insert({
+  const data = await prisma.datasets.create({
+    data: {
       org_id: orgId,
       created_by: createdBy,
       agent_id: input.agentId ?? null,
       name,
       description: input.description?.trim() || null,
-      columns: input.columns ?? [],
-    })
-    .select("*")
-    .single();
-  if (error) throw error;
-  return data as DatasetRecord;
+      columns: (input.columns ?? []) as object,
+    },
+  });
+  return {
+    ...(data as unknown as DatasetRecord),
+    columns: Array.isArray(data.columns) ? (data.columns as unknown as DatasetColumn[]) : [],
+    created_at: data.created_at.toISOString(),
+    updated_at: data.updated_at.toISOString(),
+  };
 }
 
-export async function renameDataset(
-  db: SupabaseClient,
-  datasetId: string,
-  name: string,
-): Promise<void> {
+export async function renameDataset(datasetId: string, name: string): Promise<void> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Dataset name is required");
-  const { error } = await db.from("datasets").update({ name: trimmed }).eq("id", datasetId);
-  if (error) throw error;
+  await prisma.datasets.update({ where: { id: datasetId }, data: { name: trimmed } });
 }
 
-export async function deleteDataset(db: SupabaseClient, datasetId: string): Promise<void> {
-  const { error } = await db.from("datasets").delete().eq("id", datasetId);
-  if (error) throw error;
+export async function deleteDataset(datasetId: string): Promise<void> {
+  await prisma.datasets.delete({ where: { id: datasetId } });
 }
 
 /** Replace a dataset's whole column set (used for retype/relabel/reorder). */
-export async function setColumns(
-  db: SupabaseClient,
-  datasetId: string,
-  columns: DatasetColumn[],
-): Promise<void> {
-  const { error } = await db.from("datasets").update({ columns }).eq("id", datasetId);
-  if (error) throw error;
+export async function setColumns(datasetId: string, columns: DatasetColumn[]): Promise<void> {
+  await prisma.datasets.update({ where: { id: datasetId }, data: { columns: columns as object } });
 }
 
 /**
@@ -578,11 +543,10 @@ export async function setColumns(
  * jsonb update). Keys are derived from the label and de-duplicated.
  */
 export async function addColumn(
-  db: SupabaseClient,
   datasetId: string,
   column: { label: string; type: string; defaultValue?: unknown },
 ): Promise<void> {
-  const dataset = await getDataset(db, datasetId);
+  const dataset = await getDataset(datasetId);
   if (!dataset) throw new Error("Table not found");
 
   const label = column.label.trim();
@@ -595,65 +559,49 @@ export async function addColumn(
   while (existingKeys.has(key)) key = `${base}_${n++}`;
 
   const columns = [...dataset.columns, { key, label, type: column.type || "text" }];
-  await setColumns(db, datasetId, columns);
+  await setColumns(datasetId, columns);
 
   // Backfill every row in a single set-based update (Postgres jsonb_set) instead
   // of fetching + updating each row one at a time.
   const def = column.defaultValue ?? null;
-  const { error } = await db.rpc("add_dataset_column", {
-    p_dataset_id: datasetId,
-    p_key: key,
-    p_default: def,
-  });
-  if (error) throw error;
+  await prisma.$executeRaw`SELECT add_dataset_column(${datasetId}::uuid, ${key}, ${JSON.stringify(def)}::jsonb)`;
 }
 
 /** Remove a column definition and strip its key from every row. */
-export async function removeColumn(
-  db: SupabaseClient,
-  datasetId: string,
-  key: string,
-): Promise<void> {
-  const dataset = await getDataset(db, datasetId);
+export async function removeColumn(datasetId: string, key: string): Promise<void> {
+  const dataset = await getDataset(datasetId);
   if (!dataset) throw new Error("Table not found");
-  await setColumns(db, datasetId, dataset.columns.filter((c) => c.key !== key));
+  await setColumns(datasetId, dataset.columns.filter((c) => c.key !== key));
 
   // Strip the key from every row in one set-based update.
-  const { error } = await db.rpc("remove_dataset_column", { p_dataset_id: datasetId, p_key: key });
-  if (error) throw error;
+  await prisma.$executeRaw`SELECT remove_dataset_column(${datasetId}::uuid, ${key})`;
 }
 
 /** Insert one structured row into a dataset. */
 export async function insertRow(
-  db: SupabaseClient,
   orgId: string,
   datasetId: string,
   data: Record<string, unknown>,
   opts: { createdBy?: string; sourceItemId?: string | null; status?: "accepted" | "proposed" } = {},
 ): Promise<void> {
-  const { error } = await db.from("dataset_rows").insert({
-    org_id: orgId,
-    dataset_id: datasetId,
-    data,
-    status: opts.status ?? "accepted",
-    source_item_id: opts.sourceItemId ?? null,
-    created_by: opts.createdBy ?? null,
+  await prisma.dataset_rows.create({
+    data: {
+      org_id: orgId,
+      dataset_id: datasetId,
+      data: data as object,
+      status: opts.status ?? "accepted",
+      source_item_id: opts.sourceItemId ?? null,
+      created_by: opts.createdBy ?? null,
+    },
   });
-  if (error) throw error;
 }
 
 /** Manual row edit — marks the row human-edited so agents can't silently
  *  overwrite it (their differing values become a conflict to review). */
-export async function updateRow(
-  db: SupabaseClient,
-  rowId: string,
-  data: Record<string, unknown>,
-): Promise<void> {
-  const { error } = await db.from("dataset_rows").update({ data, human_edited: true }).eq("id", rowId);
-  if (error) throw error;
+export async function updateRow(rowId: string, data: Record<string, unknown>): Promise<void> {
+  await prisma.dataset_rows.update({ where: { id: rowId }, data: { data: data as object, human_edited: true } });
 }
 
-export async function deleteRow(db: SupabaseClient, rowId: string): Promise<void> {
-  const { error } = await db.from("dataset_rows").delete().eq("id", rowId);
-  if (error) throw error;
+export async function deleteRow(rowId: string): Promise<void> {
+  await prisma.dataset_rows.delete({ where: { id: rowId } });
 }

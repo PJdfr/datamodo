@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   const db = createClient(await cookies());
   const { data: { user } } = await db.auth.getUser();
   if (!user) return json({ error: "Unauthorized" }, 401);
-  const org = await getActiveOrg(db, user.id);
+  const org = await getActiveOrg(user.id);
   if (!org) return json({ error: "No organization found" }, 404);
 
   let form: FormData;
@@ -46,9 +46,9 @@ export async function POST(req: Request) {
     const rawName = (form.get("name") as string | null) || file.name.replace(/\.(xlsx|xls|csv)$/i, "");
     input = { tableName: rawName || "Imported", columns: snapshot.columns, rows: snapshot.rows };
   } else if (typeof datasetId === "string" && datasetId) {
-    const ds = await getDataset(db, datasetId);
+    const ds = await getDataset(datasetId);
     if (!ds || ds.org_id !== org.id) return json({ error: "Table not found" }, 404);
-    const { rows } = await listDatasetRows(db, datasetId, { limit: 5000 });
+    const { rows } = await listDatasetRows(datasetId, { limit: 5000 });
     input = { tableName: ds.name, columns: ds.columns, rows: rows.map((r) => r.data) };
   } else {
     return json({ error: "Upload a file or pass a datasetId." }, 400);
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
 
   const admin = createAdminClient();
   try {
-    const result = await importTableAsGraph(admin, org.id, user.id, input);
+    const result = await importTableAsGraph(org.id, user.id, input);
     return json({ ok: true, ...result });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "Import failed." }, 500);

@@ -93,9 +93,9 @@ export async function POST(req: Request) {
   const handle = ev.user;
   const admin = createAdminClient();
 
-  const bound = await isHandleBound(admin, "slack", handle);
+  const bound = await isHandleBound("slack", handle);
   if (!bound) {
-    const link = await redeemChannelLinkCode(admin, "slack", handle, ev.text, { provider: "slack" });
+    const link = await redeemChannelLinkCode("slack", handle, ev.text, { provider: "slack" });
     // Whether it was an unknown sender (no code) or a just-completed bind, the
     // activation message carries no user data — acknowledge without capturing it.
     // (No auto-reply here; that would need chat.postMessage. The app UI confirms.)

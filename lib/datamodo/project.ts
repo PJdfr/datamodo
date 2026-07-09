@@ -1,4 +1,5 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 import type { DatasetColumn } from "./types";
 
 // FACTS → TABLES projection (pipeline step ⑦). A user table is a projection of
@@ -44,14 +45,15 @@ export interface ProjectResult {
  * name in the label column. Emits proposals for new/changed rows.
  */
 export async function projectEntitiesToDataset(
-  admin: SupabaseClient,
   orgId: string,
   opts: { kind: string; datasetId: string; agentName?: string; labelColumn?: string },
 ): Promise<ProjectResult> {
-  const { data: ds, error: dsErr } = await admin
-    .from("datasets").select("columns").eq("id", opts.datasetId).eq("org_id", orgId).single();
-  if (dsErr) throw dsErr;
-  const columns = ((ds as { columns: DatasetColumn[] }).columns ?? []);
+  const ds = await prisma.datasets.findFirst({
+    where: { id: opts.datasetId, org_id: orgId },
+    select: { columns: true },
+  });
+  if (!ds) throw new Error("dataset not found");
+  const columns = ((ds as unknown as { columns: DatasetColumn[] }).columns ?? []);
   const colType = new Map(columns.map((c) => [c.key, c.type]));
   const colKeys = new Set(columns.map((c) => c.key));
   // Which column holds the entity's own name.
@@ -60,26 +62,45 @@ export async function projectEntitiesToDataset(
     columns.find((c) => ["name", "label", opts.kind].includes(c.key))?.key ??
     columns[0]?.key;
 
-  const { data: ents, error: eErr } = await admin
-    .from("entities").select("id, canonical_label").eq("org_id", orgId).eq("kind", opts.kind).is("merged_into", null);
-  if (eErr) throw eErr;
-  const entities = (ents as { id: string; canonical_label: string }[] | null) ?? [];
+  const ents = await prisma.entities.findMany({
+    where: { org_id: orgId, kind: opts.kind, merged_into: null },
+    select: { id: true, canonical_label: true },
+  });
+  const entities = ents ?? [];
   if (entities.length === 0) return { entities: 0, added: 0, updated: 0, unchanged: 0, batchId: null };
   const entIds = entities.map((e) => e.id);
 
-  const { data: facts, error: fErr } = await admin
-    .from("facts")
-    .select("subject_entity_id, object_entity_id, predicate, value_text, value_num, value_date, unit")
-    .eq("org_id", orgId).in("subject_entity_id", entIds).is("valid_to", null);
-  if (fErr) throw fErr;
-  const factList = (facts as FactLite[] | null) ?? [];
+  const facts = await prisma.facts.findMany({
+    where: { org_id: orgId, subject_entity_id: { in: entIds }, valid_to: null },
+    select: {
+      subject_entity_id: true,
+      object_entity_id: true,
+      predicate: true,
+      value_text: true,
+      value_num: true,
+      value_date: true,
+      unit: true,
+    },
+  });
+  const factList: FactLite[] = (facts ?? []).map((f) => ({
+    subject_entity_id: f.subject_entity_id,
+    object_entity_id: f.object_entity_id,
+    predicate: f.predicate,
+    value_text: f.value_text,
+    value_num: f.value_num != null ? Number(f.value_num) : null,
+    value_date: f.value_date ? f.value_date.toISOString().slice(0, 10) : null,
+    unit: f.unit,
+  }));
 
   // Labels for entity-valued cells (object entities may be other kinds).
   const label = new Map(entities.map((e) => [e.id, e.canonical_label]));
   const objIds = [...new Set(factList.map((f) => f.object_entity_id).filter(Boolean) as string[])].filter((id) => !label.has(id));
   if (objIds.length) {
-    const { data: objs } = await admin.from("entities").select("id, canonical_label").in("id", objIds);
-    for (const o of (objs as { id: string; canonical_label: string }[] | null) ?? []) label.set(o.id, o.canonical_label);
+    const objs = await prisma.entities.findMany({
+      where: { id: { in: objIds } },
+      select: { id: true, canonical_label: true },
+    });
+    for (const o of objs ?? []) label.set(o.id, o.canonical_label);
   }
   const labelOf = (id: string) => label.get(id) ?? "?";
 
@@ -89,9 +110,11 @@ export async function projectEntitiesToDataset(
     bySubject.get(f.subject_entity_id)!.push(f);
   }
 
-  const { data: existing } = await admin
-    .from("dataset_rows").select("id, subject_entity_id, data, human_edited, status").eq("dataset_id", opts.datasetId).in("subject_entity_id", entIds);
-  const existingRows = (existing as { id: string; subject_entity_id: string; data: Record<string, unknown>; human_edited: boolean; status: string }[] | null) ?? [];
+  const existing = await prisma.dataset_rows.findMany({
+    where: { dataset_id: opts.datasetId, subject_entity_id: { in: entIds } },
+    select: { id: true, subject_entity_id: true, data: true, human_edited: true, status: true },
+  });
+  const existingRows = (existing as { id: string; subject_entity_id: string | null; data: Record<string, unknown>; human_edited: boolean; status: string }[] | null) ?? [];
   // Skip entities that already have a proposal queued (don't stack duplicates);
   // decide add-vs-update against the ACCEPTED row (the real table state).
   const pendingEntities = new Set(existingRows.filter((r) => r.status === "proposed").map((r) => r.subject_entity_id));
@@ -121,21 +144,19 @@ export async function projectEntitiesToDataset(
   // Tables are a PROJECTION of accepted facts — the user reviews at the fact
   // level, so we materialize rows directly (no separate table-level review).
   if (adds.length) {
-    const { error } = await admin.from("dataset_rows").insert(
-      adds.map((a) => ({
+    await prisma.dataset_rows.createMany({
+      data: adds.map((a) => ({
         org_id: orgId,
         dataset_id: opts.datasetId,
         status: "accepted",
         origin: "agent",
         subject_entity_id: a.entityId,
-        data: a.data,
+        data: a.data as Prisma.InputJsonValue,
       })),
-    );
-    if (error) throw error;
+    });
   }
   for (const u of updates) {
-    const { error } = await admin.from("dataset_rows").update({ data: u.data, origin: "agent" }).eq("id", u.rowId);
-    if (error) throw error;
+    await prisma.dataset_rows.update({ where: { id: u.rowId }, data: { data: u.data as Prisma.InputJsonValue, origin: "agent" } });
   }
   return { entities: entities.length, added: adds.length, updated: updates.length, unchanged, batchId: null };
 }

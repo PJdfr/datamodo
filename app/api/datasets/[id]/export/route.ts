@@ -22,10 +22,10 @@ export async function GET(
   } = await db.auth.getUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
 
-  const org = await getActiveOrg(db, user.id);
+  const org = await getActiveOrg(user.id);
   if (!org) return new Response("Not found", { status: 404 });
 
-  const dataset = (await listDatasets(db, org.id)).find((d) => d.id === id);
+  const dataset = (await listDatasets(org.id)).find((d) => d.id === id);
   if (!dataset) return new Response("Not found", { status: 404 });
 
   const buf = await datasetsToWorkbook([

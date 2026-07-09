@@ -359,9 +359,14 @@ schema-only port, no data/auth migration. All work lands on `dev`, promotes to `
 the same migration SQL to `prod` — Neon branches don't git-merge DDL).
 
 - ✅ **0. Schema port** — done + verified on Neon `prod`/`dev` ([neon/schema.sql](neon/schema.sql)).
-- ⬜ **1. DB access → Prisma** — swap `@supabase/*` / PostgREST (`.from()`) for **Prisma**
-  (already a dep) across ~23 files. `prisma db pull` from Neon → `schema.prisma`; port queries
-  in `lib/**`, `app/**`, `utils/**`.
+- ✅ **1. DB access → Prisma** — done. `prisma db pull` from Neon → 20 models
+  ([prisma/schema.prisma](prisma/schema.prisma)); [lib/prisma.ts](lib/prisma.ts) singleton over
+  `@prisma/adapter-neon`. All **17 `lib/datamodo/*` modules ported** off supabase-js to Prisma
+  (delegate = table name, fields snake_case) + all call sites updated (dropped the leading
+  client arg). Prisma `Date`/`JsonValue` vs the app's string types bridged with `as unknown as`
+  casts — **runtime date-serialization is a follow-up to verify when the app runs**. `tsc` clean
+  + `next build` green. Remaining `@supabase` usage is only the auth (`utils/supabase/*`,
+  `app/auth/confirm`) and storage (`lib/ingest/store.ts`) layers → steps 2 & 5.
 - ⬜ **2. Auth → Neon Auth** (Stack Auth) — rewrite `app/auth/*`,
   `utils/supabase/{client,server,admin}.ts`, `middleware.ts`; add a session→`org_id` helper.
 - ⬜ **3. App-layer authz** — RLS is gone; central `requireUser()` and always filter by

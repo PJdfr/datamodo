@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { prisma } from "@/lib/prisma";
 import type { DatasetColumn } from "./types";
 import type { Extraction, ExtractedEntity, ExtractedFact } from "./knowledge";
 
@@ -190,18 +190,19 @@ export interface ImportGraphResult {
 }
 
 /** Infer a graph from a table and merge every row into the existing knowledge
- *  graph via `ingestExtraction` (resolution + dedup + bitemporal). Uses the admin
- *  client because knowledge writes go through service_role. */
+ *  graph via `ingestExtraction` (resolution + dedup + bitemporal). */
 export async function importTableAsGraph(
-  admin: SupabaseClient,
   orgId: string,
   ownerUserId: string | null,
   input: InferInput,
 ): Promise<ImportGraphResult> {
   // Existing entity labels feed reference detection (a column of known entities
   // is a relationship, even without a telltale name).
-  const { data } = await admin.from("entities").select("canonical_label").eq("org_id", orgId).is("merged_into", null);
-  const knownLabels = new Set(((data as { canonical_label: string }[] | null) ?? []).map((e) => e.canonical_label.trim().toLowerCase()));
+  const data = await prisma.entities.findMany({
+    where: { org_id: orgId, merged_into: null },
+    select: { canonical_label: true },
+  });
+  const knownLabels = new Set(data.map((e) => e.canonical_label.trim().toLowerCase()));
 
   const inferred = inferGraphFromTable(input, { knownLabels });
 
@@ -209,7 +210,7 @@ export async function importTableAsGraph(
   const { ingestExtraction } = await import("./knowledge");
   const totals = { entitiesCreated: 0, entitiesResolved: 0, factsNew: 0, factsDeduped: 0 };
   for (const ex of inferred.extractions) {
-    const r = await ingestExtraction(admin, orgId, ownerUserId, null, ex);
+    const r = await ingestExtraction(orgId, ownerUserId, null, ex);
     totals.entitiesCreated += r.entitiesCreated;
     totals.entitiesResolved += r.entitiesResolved;
     totals.factsNew += r.factsNew;

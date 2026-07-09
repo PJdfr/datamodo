@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { prisma } from "@/lib/prisma";
 
 // ANALYTICS over the canonical facts — the "numbers" answer from the research.
 // Facts live in a relational store, so aggregation is plain grouped arithmetic
@@ -28,16 +28,22 @@ interface GroupFact { subject_entity_id: string; object_entity_id: string | null
 
 /** Current (non-superseded) numeric facts for a measure predicate, optionally
  *  restricted to subjects of a given entity kind. */
-async function measures(admin: SupabaseClient, orgId: string, predicate: string, kind?: string): Promise<MeasureFact[]> {
+async function measures(orgId: string, predicate: string, kind?: string): Promise<MeasureFact[]> {
   let subjectFilter: Set<string> | null = null;
   if (kind) {
-    const { data: ents } = await admin.from("entities").select("id").eq("org_id", orgId).eq("kind", kind).is("merged_into", null);
-    subjectFilter = new Set((ents as { id: string }[] | null ?? []).map((e) => e.id));
+    const ents = await prisma.entities.findMany({
+      where: { org_id: orgId, kind, merged_into: null },
+      select: { id: true },
+    });
+    subjectFilter = new Set(ents.map((e) => e.id));
   }
-  const { data } = await admin
-    .from("facts").select("subject_entity_id, value_num")
-    .eq("org_id", orgId).eq("predicate", predicate).is("valid_to", null);
-  return (data as MeasureFact[] | null ?? []).filter((f) => f.value_num != null && (!subjectFilter || subjectFilter.has(f.subject_entity_id)));
+  const data = await prisma.facts.findMany({
+    where: { org_id: orgId, predicate, valid_to: null },
+    select: { subject_entity_id: true, value_num: true },
+  });
+  return data
+    .map((f) => ({ subject_entity_id: f.subject_entity_id, value_num: f.value_num == null ? null : Number(f.value_num) }))
+    .filter((f) => f.value_num != null && (!subjectFilter || subjectFilter.has(f.subject_entity_id)));
 }
 
 export interface AggRow { group: string; value: number; count: number }
@@ -48,24 +54,33 @@ export interface AggRow { group: string; value: number; count: number }
  * e.g. sum "amount" of invoices grouped by "issued_by" → total per vendor.
  */
 export async function aggregate(
-  admin: SupabaseClient,
   orgId: string,
   o: { measure: string; op?: AggOp; groupBy?: string; kind?: string },
 ): Promise<{ op: AggOp; total: number; rows: AggRow[] }> {
   const op = o.op ?? "sum";
-  const ms = await measures(admin, orgId, o.measure, o.kind);
+  const ms = await measures(orgId, o.measure, o.kind);
 
   const groupOf = new Map<string, string>();
   if (o.groupBy) {
-    const { data: gf } = await admin
-      .from("facts").select("subject_entity_id, object_entity_id, value_text, value_num, value_date")
-      .eq("org_id", orgId).eq("predicate", o.groupBy).is("valid_to", null);
-    const gfacts = (gf as GroupFact[] | null) ?? [];
+    const gf = await prisma.facts.findMany({
+      where: { org_id: orgId, predicate: o.groupBy, valid_to: null },
+      select: { subject_entity_id: true, object_entity_id: true, value_text: true, value_num: true, value_date: true },
+    });
+    const gfacts: GroupFact[] = gf.map((g) => ({
+      subject_entity_id: g.subject_entity_id,
+      object_entity_id: g.object_entity_id,
+      value_text: g.value_text,
+      value_num: g.value_num == null ? null : Number(g.value_num),
+      value_date: g.value_date == null ? null : g.value_date.toISOString().slice(0, 10),
+    }));
     const objIds = [...new Set(gfacts.map((g) => g.object_entity_id).filter(Boolean) as string[])];
     const labels = new Map<string, string>();
     if (objIds.length) {
-      const { data: objs } = await admin.from("entities").select("id, canonical_label").in("id", objIds);
-      for (const o2 of (objs as { id: string; canonical_label: string }[] | null ?? [])) labels.set(o2.id, o2.canonical_label);
+      const objs = await prisma.entities.findMany({
+        where: { id: { in: objIds } },
+        select: { id: true, canonical_label: true },
+      });
+      for (const o2 of objs) labels.set(o2.id, o2.canonical_label);
     }
     for (const g of gfacts) {
       const v = g.object_entity_id ? (labels.get(g.object_entity_id) ?? "?")
@@ -91,20 +106,21 @@ export interface SeriesPoint { month: string; value: number; count: number }
 /** Monthly time series: a numeric measure bucketed by a date predicate of the
  *  same subject. e.g. "amount" invoiced per month by "due_date". */
 export async function monthlySeries(
-  admin: SupabaseClient,
   orgId: string,
   o: { measure: string; date: string; op?: AggOp; kind?: string },
 ): Promise<SeriesPoint[]> {
   const op = o.op ?? "sum";
-  const ms = await measures(admin, orgId, o.measure, o.kind);
+  const ms = await measures(orgId, o.measure, o.kind);
   const numOf = new Map(ms.map((m) => [m.subject_entity_id, m.value_num as number]));
-  const { data: df } = await admin
-    .from("facts").select("subject_entity_id, value_date")
-    .eq("org_id", orgId).eq("predicate", o.date).is("valid_to", null);
+  const df = await prisma.facts.findMany({
+    where: { org_id: orgId, predicate: o.date, valid_to: null },
+    select: { subject_entity_id: true, value_date: true },
+  });
   const buckets = new Map<string, number[]>();
-  for (const d of (df as { subject_entity_id: string; value_date: string | null }[] | null ?? [])) {
-    if (!d.value_date || !numOf.has(d.subject_entity_id)) continue;
-    const month = d.value_date.slice(0, 7);
+  for (const d of df) {
+    const valueDate = d.value_date == null ? null : d.value_date.toISOString().slice(0, 10);
+    if (!valueDate || !numOf.has(d.subject_entity_id)) continue;
+    const month = valueDate.slice(0, 7);
     if (!buckets.has(month)) buckets.set(month, []);
     buckets.get(month)!.push(numOf.get(d.subject_entity_id)!);
   }
@@ -122,14 +138,15 @@ const humanize = (p: string) => p.replace(/_/g, " ");
  *  values (measures to sum/avg), `groupBy` = relationship or categorical-text
  *  predicates (axes to break a measure down by). Lets the Insights UI offer the
  *  user's OWN measures instead of hardcoding invoice fields. */
-export async function listMeasures(admin: SupabaseClient, orgId: string): Promise<FactSchema> {
-  const { data } = await admin
-    .from("facts").select("predicate, value_num, object_entity_id, value_text")
-    .eq("org_id", orgId).is("valid_to", null).limit(20000);
-  const facts = (data as { predicate: string; value_num: number | null; object_entity_id: string | null; value_text: string | null }[] | null) ?? [];
+export async function listMeasures(orgId: string): Promise<FactSchema> {
+  const data = await prisma.facts.findMany({
+    where: { org_id: orgId, valid_to: null },
+    select: { predicate: true, value_num: true, object_entity_id: true, value_text: true },
+    take: 20000,
+  });
   const numeric = new Map<string, number>();
   const groupable = new Map<string, number>();
-  for (const f of facts) {
+  for (const f of data) {
     if (f.value_num != null) numeric.set(f.predicate, (numeric.get(f.predicate) ?? 0) + 1);
     if (f.object_entity_id || (f.value_text != null && f.value_text !== "")) groupable.set(f.predicate, (groupable.get(f.predicate) ?? 0) + 1);
   }
@@ -141,14 +158,17 @@ export async function listMeasures(admin: SupabaseClient, orgId: string): Promis
 export interface FactMetrics { entitiesByKind: { kind: string; count: number }[]; totalEntities: number; totalFacts: number }
 
 /** Headline counts across the knowledge layer. */
-export async function factMetrics(admin: SupabaseClient, orgId: string): Promise<FactMetrics> {
-  const { data: ents } = await admin.from("entities").select("kind").eq("org_id", orgId).is("merged_into", null);
+export async function factMetrics(orgId: string): Promise<FactMetrics> {
+  const ents = await prisma.entities.findMany({
+    where: { org_id: orgId, merged_into: null },
+    select: { kind: true },
+  });
   const byKind = new Map<string, number>();
-  for (const e of (ents as { kind: string }[] | null ?? [])) byKind.set(e.kind, (byKind.get(e.kind) ?? 0) + 1);
-  const { count } = await admin.from("facts").select("id", { count: "exact", head: true }).eq("org_id", orgId).is("valid_to", null);
+  for (const e of ents) byKind.set(e.kind, (byKind.get(e.kind) ?? 0) + 1);
+  const count = await prisma.facts.count({ where: { org_id: orgId, valid_to: null } });
   return {
     entitiesByKind: [...byKind.entries()].map(([kind, c]) => ({ kind, count: c })).sort((a, b) => b.count - a.count),
-    totalEntities: (ents as unknown[] | null ?? []).length,
-    totalFacts: count ?? 0,
+    totalEntities: ents.length,
+    totalFacts: count,
   };
 }

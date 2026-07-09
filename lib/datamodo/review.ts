@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { prisma } from "@/lib/prisma";
 import type { DatasetColumn, DiffCell, ReviewItem } from "./types";
 
 // The read side of the versioning ("pull request") surface: every pending
@@ -36,31 +36,38 @@ function sameValue(a: unknown, b: unknown): boolean {
 }
 
 /** All pending changes in an org, newest first, ready for the review surface. */
-export async function listPendingChanges(
-  db: SupabaseClient,
-  orgId: string,
-): Promise<ReviewItem[]> {
+export async function listPendingChanges(orgId: string): Promise<ReviewItem[]> {
   // Tables (name + columns) for labels and diff shape.
-  const { data: dsData, error: dsErr } = await db
-    .from("datasets")
-    .select("id, name, columns")
-    .eq("org_id", orgId);
-  if (dsErr) throw dsErr;
+  const dsData = await prisma.datasets.findMany({
+    where: { org_id: orgId },
+    select: { id: true, name: true, columns: true },
+  });
   const datasets = new Map(
-    ((dsData ?? []) as { id: string; name: string; columns: DatasetColumn[] }[]).map((d) => [
+    (dsData as { id: string; name: string; columns: unknown }[]).map((d) => [
       d.id,
-      { name: d.name, columns: Array.isArray(d.columns) ? d.columns : [] },
+      { name: d.name, columns: (Array.isArray(d.columns) ? d.columns : []) as DatasetColumn[] },
     ]),
   );
 
   // Every row for the org once (we need accepted targets to diff updates).
-  const { data: rowData, error: rowErr } = await db
-    .from("dataset_rows")
-    .select("id, dataset_id, data, status, human_edited, proposed_kind, target_row_id, proposed_by, batch_id, created_at, source_item_id")
-    .eq("org_id", orgId)
-    .order("created_at", { ascending: false });
-  if (rowErr) throw rowErr;
-  const allRows = (rowData ?? []) as RawRow[];
+  const rowData = await prisma.dataset_rows.findMany({
+    where: { org_id: orgId },
+    select: {
+      id: true,
+      dataset_id: true,
+      data: true,
+      status: true,
+      human_edited: true,
+      proposed_kind: true,
+      target_row_id: true,
+      proposed_by: true,
+      batch_id: true,
+      created_at: true,
+      source_item_id: true,
+    },
+    orderBy: { created_at: "desc" },
+  });
+  const allRows = rowData as unknown as RawRow[];
 
   const acceptedById = new Map<string, RawRow>();
   const proposed: RawRow[] = [];
@@ -74,8 +81,11 @@ export async function listPendingChanges(
   const sourceIds = [...new Set(proposed.filter((r) => r.source_item_id).map((r) => r.source_item_id as string))];
   const sourceLabels = new Map<string, string>();
   if (sourceIds.length) {
-    const { data: items } = await db.from("items").select("id, subject, sender").in("id", sourceIds);
-    for (const it of (items ?? []) as { id: string; subject: string | null; sender: string | null }[]) {
+    const items = await prisma.items.findMany({
+      where: { id: { in: sourceIds } },
+      select: { id: true, subject: true, sender: true },
+    });
+    for (const it of items as { id: string; subject: string | null; sender: string | null }[]) {
       sourceLabels.set(it.id, it.subject?.trim() || it.sender?.trim() || "a message");
     }
   }

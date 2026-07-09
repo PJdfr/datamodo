@@ -11,8 +11,8 @@ export async function GET() {
   const db = createClient(await cookies());
   const { data: { user } } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const org = await getActiveOrg(db, user.id);
+  const org = await getActiveOrg(user.id);
   if (!org) return NextResponse.json({ entities: [] });
-  const entities = await listKnowledge(db, org.id);
+  const entities = await listKnowledge(org.id);
   return NextResponse.json({ entities });
 }

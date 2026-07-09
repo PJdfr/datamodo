@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { prisma } from "@/lib/prisma";
 import { mergeEntities } from "./knowledge";
 import type {
   ReviewItem,
@@ -63,25 +63,76 @@ function entitySide(e: EntityLite | undefined, edges: number, parsedLabel?: stri
   return { label: e?.canonical_label ?? parsedLabel ?? "?", type: e?.kind ?? "thing", attrs };
 }
 
-export async function listPendingReviews(db: SupabaseClient, orgId: string): Promise<ReviewItem[]> {
-  const { data, error } = await db
-    .from("knowledge_reviews")
-    .select("id, kind, status, confidence, impact, source_entity_id, target_entity_id, old_fact_id, new_fact_id, item_id, detail, created_at")
-    .eq("org_id", orgId)
-    .eq("status", "pending")
-    .order("impact", { ascending: false })
-    .order("confidence", { ascending: false, nullsFirst: false });
-  if (error) throw error;
-  const rows = (data as ReviewRow[] | null) ?? [];
+export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
+  const data = await prisma.knowledge_reviews.findMany({
+    where: { org_id: orgId, status: "pending" },
+    select: {
+      id: true,
+      kind: true,
+      status: true,
+      confidence: true,
+      impact: true,
+      source_entity_id: true,
+      target_entity_id: true,
+      old_fact_id: true,
+      new_fact_id: true,
+      item_id: true,
+      detail: true,
+      created_at: true,
+    },
+    orderBy: [
+      { impact: "desc" },
+      { confidence: { sort: "desc", nulls: "last" } },
+    ],
+  });
+  const rows: ReviewRow[] = data.map((r) => ({
+    ...r,
+    kind: r.kind as ReviewRow["kind"],
+    detail: (r.detail as Record<string, unknown>) ?? {},
+    created_at: r.created_at.toISOString(),
+  }));
   if (rows.length === 0) return [];
 
   // Pull the org's entities + facts once (small at individual scale).
-  const [{ data: ents }, { data: facts }] = await Promise.all([
-    db.from("entities").select("id, canonical_label, kind, natural_keys").eq("org_id", orgId),
-    db.from("facts").select("id, subject_entity_id, object_entity_id, predicate, value_text, value_num, value_date, unit, confidence, source_item_id, valid_to").eq("org_id", orgId).limit(5000),
+  const [ents, facts] = await Promise.all([
+    prisma.entities.findMany({
+      where: { org_id: orgId },
+      select: { id: true, canonical_label: true, kind: true, natural_keys: true },
+    }),
+    prisma.facts.findMany({
+      where: { org_id: orgId },
+      select: {
+        id: true,
+        subject_entity_id: true,
+        object_entity_id: true,
+        predicate: true,
+        value_text: true,
+        value_num: true,
+        value_date: true,
+        unit: true,
+        confidence: true,
+        source_item_id: true,
+        valid_to: true,
+      },
+      take: 5000,
+    }),
   ]);
-  const entMap = new Map<string, EntityLite>((ents as EntityLite[] | null ?? []).map((e) => [e.id, e]));
-  const factList = (facts as FactLite[] | null) ?? [];
+  const entMap = new Map<string, EntityLite>(
+    ents.map((e) => [e.id, { ...e, natural_keys: (e.natural_keys as Record<string, string>) ?? {} }]),
+  );
+  const factList: FactLite[] = facts.map((f) => ({
+    id: f.id,
+    subject_entity_id: f.subject_entity_id,
+    object_entity_id: f.object_entity_id,
+    predicate: f.predicate,
+    value_text: f.value_text,
+    value_num: f.value_num == null ? null : Number(f.value_num),
+    value_date: f.value_date == null ? null : f.value_date.toISOString().slice(0, 10),
+    unit: f.unit,
+    confidence: f.confidence,
+    source_item_id: f.source_item_id,
+    valid_to: f.valid_to == null ? null : f.valid_to.toISOString(),
+  }));
   const factMap = new Map<string, FactLite>(factList.map((f) => [f.id, f]));
   const label = (id: string) => entMap.get(id)?.canonical_label ?? "?";
 
@@ -98,17 +149,22 @@ export async function listPendingReviews(db: SupabaseClient, orgId: string): Pro
   const srcCount = new Map<string, number>();
   const srcSnippet = new Map<string, string>();
   if (factIds.length) {
-    const { data: fs } = await db.from("fact_sources").select("fact_id, snippet").in("fact_id", factIds);
-    for (const s of (fs as { fact_id: string; snippet: string | null }[] | null) ?? []) {
+    const fs = await prisma.fact_sources.findMany({
+      where: { fact_id: { in: factIds } },
+      select: { fact_id: true, snippet: true },
+    });
+    for (const s of fs) {
       srcCount.set(s.fact_id, (srcCount.get(s.fact_id) ?? 0) + 1);
       if (s.snippet && !srcSnippet.has(s.fact_id)) srcSnippet.set(s.fact_id, s.snippet);
     }
   }
   const itemMap = new Map<string, { sender: string | null; channel: string | null; body_preview: string | null }>();
   if (itemIds.length) {
-    const { data: its } = await db.from("items").select("id, sender, channel, body_preview").in("id", itemIds);
-    for (const it of (its as { id: string; sender: string | null; channel: string | null; body_preview: string | null }[] | null) ?? [])
-      itemMap.set(it.id, it);
+    const its = await prisma.items.findMany({
+      where: { id: { in: itemIds } },
+      select: { id: true, sender: true, channel: true, body_preview: true },
+    });
+    for (const it of its) itemMap.set(it.id, { sender: it.sender, channel: it.channel, body_preview: it.body_preview });
   }
 
   const out: ReviewItem[] = [];
@@ -167,46 +223,64 @@ export async function listPendingReviews(db: SupabaseClient, orgId: string): Pro
 
 interface FullRow extends ReviewRow { org_id: string }
 
-async function loadPending(db: SupabaseClient, orgId: string, id: string): Promise<FullRow | null> {
-  const { data, error } = await db
-    .from("knowledge_reviews").select("*").eq("org_id", orgId).eq("id", id).eq("status", "pending").maybeSingle();
-  if (error) throw error;
-  return (data as FullRow | null) ?? null;
+async function loadPending(orgId: string, id: string): Promise<FullRow | null> {
+  const data = await prisma.knowledge_reviews.findFirst({
+    where: { org_id: orgId, id, status: "pending" },
+  });
+  if (!data) return null;
+  return {
+    ...data,
+    kind: data.kind as ReviewRow["kind"],
+    detail: (data.detail as Record<string, unknown>) ?? {},
+    created_at: data.created_at.toISOString(),
+  };
 }
 
 /** Accept: apply the merge / confirm the conflict / confirm the extraction. */
-export async function acceptReview(db: SupabaseClient, orgId: string, id: string): Promise<void> {
-  const r = await loadPending(db, orgId, id);
+export async function acceptReview(orgId: string, id: string): Promise<void> {
+  const r = await loadPending(orgId, id);
   if (!r) return;
   if (r.kind === "entity_merge" && r.source_entity_id && r.target_entity_id) {
-    await mergeEntities(db, orgId, r.source_entity_id, r.target_entity_id);
+    await mergeEntities(orgId, r.source_entity_id, r.target_entity_id);
   }
   // fact_conflict + extraction: already applied to the store — accept = confirm.
-  await db.from("knowledge_reviews").update({ status: "accepted", resolved_at: new Date().toISOString() }).eq("id", id);
+  await prisma.knowledge_reviews.update({
+    where: { id },
+    data: { status: "accepted", resolved_at: new Date() },
+  });
 }
 
 /** Reject: keep entities separate / revert a conflict / retract an extraction. */
-export async function rejectReview(db: SupabaseClient, orgId: string, id: string): Promise<void> {
-  const r = await loadPending(db, orgId, id);
+export async function rejectReview(orgId: string, id: string): Promise<void> {
+  const r = await loadPending(orgId, id);
   if (!r) return;
 
   if (r.kind === "fact_conflict" && r.old_fact_id && r.new_fact_id) {
-    const now = new Date().toISOString();
-    await db.from("facts").update({ valid_to: now }).eq("id", r.new_fact_id);
-    await db.from("facts").update({ valid_to: null, superseded_by: null }).eq("id", r.old_fact_id);
+    const now = new Date();
+    await prisma.facts.update({ where: { id: r.new_fact_id }, data: { valid_to: now } });
+    await prisma.facts.update({ where: { id: r.old_fact_id }, data: { valid_to: null, superseded_by: null } });
   } else if (r.kind === "extraction" && r.item_id) {
     // Retract this message's contribution: drop its provenance, then delete any
     // fact left with no remaining source (corroborated facts survive).
-    await db.from("fact_sources").delete().eq("org_id", orgId).eq("source_item_id", r.item_id);
-    const { data: mine } = await db.from("facts").select("id").eq("org_id", orgId).eq("source_item_id", r.item_id);
-    const ids = (mine as { id: string }[] | null ?? []).map((f) => f.id);
+    await prisma.fact_sources.deleteMany({ where: { org_id: orgId, source_item_id: r.item_id } });
+    const mine = await prisma.facts.findMany({
+      where: { org_id: orgId, source_item_id: r.item_id },
+      select: { id: true },
+    });
+    const ids = mine.map((f) => f.id);
     if (ids.length) {
-      const { data: remaining } = await db.from("fact_sources").select("fact_id").in("fact_id", ids);
-      const kept = new Set((remaining as { fact_id: string }[] | null ?? []).map((s) => s.fact_id));
+      const remaining = await prisma.fact_sources.findMany({
+        where: { fact_id: { in: ids } },
+        select: { fact_id: true },
+      });
+      const kept = new Set(remaining.map((s) => s.fact_id));
       const orphans = ids.filter((fid) => !kept.has(fid));
-      if (orphans.length) await db.from("facts").delete().in("id", orphans);
+      if (orphans.length) await prisma.facts.deleteMany({ where: { id: { in: orphans } } });
     }
   }
   // entity_merge: nothing was merged (only proposed) — just mark rejected.
-  await db.from("knowledge_reviews").update({ status: "rejected", resolved_at: new Date().toISOString() }).eq("id", id);
+  await prisma.knowledge_reviews.update({
+    where: { id },
+    data: { status: "rejected", resolved_at: new Date() },
+  });
 }

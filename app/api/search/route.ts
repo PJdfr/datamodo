@@ -15,14 +15,14 @@ export async function GET(req: Request) {
   const { data: { user } } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!q) return NextResponse.json({ query: "", terms: [], total: 0, hits: [], entities: [] });
-  const org = await getActiveOrg(db, user.id);
+  const org = await getActiveOrg(user.id);
   if (!org) return NextResponse.json({ query: q, terms: [], total: 0, hits: [], entities: [] });
 
   // Table rows + knowledge in parallel; knowledge is best-effort (may be behind
   // on migrations) so a failure there never drops the table results.
   const [result, kviews] = await Promise.all([
-    searchDatasets(db, org.id, q),
-    listKnowledge(db, org.id).catch(() => []),
+    searchDatasets(org.id, q),
+    listKnowledge(org.id).catch(() => []),
   ]);
   const entities = searchKnowledge(kviews, result.terms);
   return NextResponse.json({ ...result, entities });

@@ -32,7 +32,7 @@ export async function POST(req: Request) {
       const userId = s.client_reference_id ?? s.metadata?.user_id;
       const plan = (s.metadata?.plan as Plan) ?? "pro";
       if (userId) {
-        await setPlanFromStripe(admin, userId, {
+        await setPlanFromStripe(userId, {
           plan,
           status: "active",
           customerId: (s.customer as string) ?? undefined,

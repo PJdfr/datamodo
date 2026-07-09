@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { prisma } from "@/lib/prisma";
 import { proposeAgentRows } from "./datasets";
 
 // Sheet sync engine. An external sheet is pulled and reconciled against the
@@ -63,65 +63,71 @@ export function reconcile(
 }
 
 /** The link for a dataset, or null if it isn't synced to a sheet yet. */
-export async function getSheetLink(
-  db: SupabaseClient,
-  datasetId: string,
-): Promise<SheetLink | null> {
-  const { data, error } = await db
-    .from("sheet_links")
-    .select("id, dataset_id, org_id, source_kind, source_ref, key_column, last_synced_at")
-    .eq("dataset_id", datasetId)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as SheetLink | null) ?? null;
-}
-
-export async function createSheetLink(
-  db: SupabaseClient,
-  input: {
-    datasetId: string;
-    orgId: string;
-    keyColumn: string;
-    sourceKind?: string;
-    sourceRef?: string | null;
-    createdBy?: string | null;
-  },
-): Promise<void> {
-  const { error } = await db.from("sheet_links").insert({
-    dataset_id: input.datasetId,
-    org_id: input.orgId,
-    key_column: input.keyColumn,
-    source_kind: input.sourceKind ?? "upload",
-    source_ref: input.sourceRef ?? null,
-    created_by: input.createdBy ?? null,
-    last_synced_at: new Date().toISOString(),
+export async function getSheetLink(datasetId: string): Promise<SheetLink | null> {
+  const row = await prisma.sheet_links.findFirst({
+    where: { dataset_id: datasetId },
+    select: {
+      id: true,
+      dataset_id: true,
+      org_id: true,
+      source_kind: true,
+      source_ref: true,
+      key_column: true,
+      last_synced_at: true,
+    },
   });
-  if (error) throw error;
+  if (!row) return null;
+  return {
+    id: row.id,
+    dataset_id: row.dataset_id,
+    org_id: row.org_id,
+    source_kind: row.source_kind,
+    source_ref: row.source_ref,
+    key_column: row.key_column,
+    last_synced_at: row.last_synced_at ? row.last_synced_at.toISOString() : null,
+  };
 }
 
-export async function touchSheetLink(db: SupabaseClient, datasetId: string): Promise<void> {
-  const { error } = await db
-    .from("sheet_links")
-    .update({ last_synced_at: new Date().toISOString() })
-    .eq("dataset_id", datasetId);
-  if (error) throw error;
+export async function createSheetLink(input: {
+  datasetId: string;
+  orgId: string;
+  keyColumn: string;
+  sourceKind?: string;
+  sourceRef?: string | null;
+  createdBy?: string | null;
+}): Promise<void> {
+  await prisma.sheet_links.create({
+    data: {
+      dataset_id: input.datasetId,
+      org_id: input.orgId,
+      key_column: input.keyColumn,
+      source_kind: input.sourceKind ?? "upload",
+      source_ref: input.sourceRef ?? null,
+      created_by: input.createdBy ?? null,
+      last_synced_at: new Date(),
+    },
+  });
+}
+
+export async function touchSheetLink(datasetId: string): Promise<void> {
+  await prisma.sheet_links.updateMany({
+    where: { dataset_id: datasetId },
+    data: { last_synced_at: new Date() },
+  });
 }
 
 /** Accepted rows (with ids) for reconcile — mirrors listAcceptedRows but keeps ids. */
 async function acceptedRowsWithIds(
-  db: SupabaseClient,
   datasetId: string,
 ): Promise<{ id: string; data: Record<string, unknown> }[]> {
-  const { data, error } = await db
-    .from("dataset_rows")
-    .select("id, data")
-    .eq("dataset_id", datasetId)
-    .eq("status", "accepted")
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-  return ((data ?? []) as { id: string; data: Record<string, unknown> }[]).map((r) => ({
+  const rows = await prisma.dataset_rows.findMany({
+    where: { dataset_id: datasetId, status: "accepted" },
+    select: { id: true, data: true },
+    orderBy: { created_at: "asc" },
+  });
+  return rows.map((r) => ({
     id: r.id,
-    data: r.data ?? {},
+    data: (r.data as Record<string, unknown>) ?? {},
   }));
 }
 
@@ -130,15 +136,14 @@ async function acceptedRowsWithIds(
  * many rows would be added / changed so the UI can report the sync result.
  */
 export async function syncSnapshotAsProposals(
-  db: SupabaseClient,
   orgId: string,
   datasetId: string,
   incoming: Record<string, unknown>[],
   keyColumn: string,
 ): Promise<{ added: number; changed: number }> {
-  const existing = await acceptedRowsWithIds(db, datasetId);
+  const existing = await acceptedRowsWithIds(datasetId);
   const { adds, updates } = reconcile(existing, incoming, keyColumn);
-  await proposeAgentRows(db, orgId, datasetId, SHEET_SOURCE_NAME, adds, updates);
-  await touchSheetLink(db, datasetId);
+  await proposeAgentRows(orgId, datasetId, SHEET_SOURCE_NAME, adds, updates);
+  await touchSheetLink(datasetId);
   return { added: adds.length, changed: updates.length };
 }

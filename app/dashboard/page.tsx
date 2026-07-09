@@ -43,30 +43,30 @@ export default async function DashboardPage() {
 
   if (user) {
     try {
-      const org = await getActiveOrg(supabase, user.id);
+      const org = await getActiveOrg(user.id);
       try {
-        settings = await getSettings(supabase, user.id);
+        settings = await getSettings(user.id);
       } catch {
         notice = SCHEMA_NOTICE;
       }
       try {
-        onboarding = await getOnboardingContext(supabase, user.id);
+        onboarding = await getOnboardingContext(user.id);
       } catch {
         /* table may be behind on migrations — leave defaults */
       }
       if (org) {
         // Ensure the user has a capture inbox (best-effort — never blocks render).
         try {
-          inbox = await provisionInbox(supabase, org.id, user.id);
+          inbox = await provisionInbox(org.id, user.id);
         } catch {
           /* keep the placeholder */
         }
         const [ag, ds, rel, pend, act] = await Promise.allSettled([
-          listAgents(supabase, org.id),
-          listDatasets(supabase, org.id),
-          listRelations(supabase, org.id),
-          listPendingChanges(supabase, org.id),
-          listAgentActivity(supabase, org.id),
+          listAgents(org.id),
+          listDatasets(org.id),
+          listRelations(org.id),
+          listPendingChanges(org.id),
+          listAgentActivity(org.id),
         ]);
         if (ag.status === "fulfilled") agents = ag.value; else notice = SCHEMA_NOTICE;
         if (ds.status === "fulfilled") datasets = ds.value; else notice = SCHEMA_NOTICE;

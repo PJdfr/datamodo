@@ -18,6 +18,6 @@ export async function POST(req: Request) {
     answers?: Record<string, unknown>;
   };
   const admin = createAdminClient();
-  await saveOnboarding(admin, user.id, { businessContext: body.businessContext, answers: body.answers });
+  await saveOnboarding(user.id, { businessContext: body.businessContext, answers: body.answers });
   return NextResponse.json({ ok: true });
 }

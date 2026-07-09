@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { prisma } from "@/lib/prisma";
 import { getLlmProvider } from "@/lib/llm";
 import { readBlob } from "@/lib/ingest/store";
 import { ingestExtraction, createExtractionReview, type Extraction, type ExtractedFact } from "@/lib/datamodo/knowledge";
@@ -216,10 +216,10 @@ interface ItemRow {
 }
 
 /** Load an item's best-available text (full body blob, else the preview). */
-async function loadItemText(admin: SupabaseClient, item: ItemRow): Promise<string> {
+async function loadItemText(item: ItemRow): Promise<string> {
   if (item.body_hash) {
     try {
-      const buf = await readBlob(item.org_id, item.body_hash, admin);
+      const buf = await readBlob(item.org_id, item.body_hash);
       const parsed = JSON.parse(buf.toString("utf8")) as { text?: string; html?: string };
       if (parsed.text) return parsed.text;
       if (parsed.html) return parsed.html.replace(/<[^>]+>/g, " "); // crude strip
@@ -235,23 +235,29 @@ async function loadItemText(admin: SupabaseClient, item: ItemRow): Promise<strin
  * layer. Drives item.status stored → analyzing → analyzed | failed.
  */
 export async function runExtractionForItem(
-  admin: SupabaseClient,
   itemId: string,
   agentPurpose?: string | null,
 ): Promise<ExtractResult & { knowledge: Awaited<ReturnType<typeof ingestExtraction>> }> {
-  const { data: item, error } = await admin
-    .from("items")
-    .select("id, org_id, owner_user_id, subject, sender, channel, body_hash, body_preview")
-    .eq("id", itemId)
-    .single();
-  if (error) throw error;
-  const row = item as ItemRow;
+  const item = await prisma.items.findUniqueOrThrow({
+    where: { id: itemId },
+    select: {
+      id: true,
+      org_id: true,
+      owner_user_id: true,
+      subject: true,
+      sender: true,
+      channel: true,
+      body_hash: true,
+      body_preview: true,
+    },
+  });
+  const row = item as unknown as ItemRow;
 
-  await admin.from("items").update({ status: "analyzing" }).eq("id", row.id);
+  await prisma.items.update({ where: { id: row.id }, data: { status: "analyzing" } });
   try {
-    const text = await loadItemText(admin, row);
+    const text = await loadItemText(row);
     const businessContext = row.owner_user_id
-      ? (await getOnboardingContext(admin, row.owner_user_id)).businessContext
+      ? (await getOnboardingContext(row.owner_user_id)).businessContext
       : null;
     const result = await extractFromMessage({
       text,
@@ -261,25 +267,25 @@ export async function runExtractionForItem(
       agentPurpose,
       businessContext,
     });
-    const knowledge = await ingestExtraction(admin, row.org_id, row.owner_user_id, row.id, result.extraction);
+    const knowledge = await ingestExtraction(row.org_id, row.owner_user_id, row.id, result.extraction);
     // Low-confidence extractions get surfaced for the user to confirm; confident
     // ones file silently (keeps the review queue meaningful, not a firehose).
     const EXTRACTION_REVIEW_BELOW = 0.75;
     if (result.overallConfidence < EXTRACTION_REVIEW_BELOW && result.extraction.facts.length > 0) {
-      await createExtractionReview(admin, row.org_id, row.owner_user_id, {
+      await createExtractionReview(row.org_id, row.owner_user_id, {
         itemId: row.id,
         snippet: text,
         confidence: result.overallConfidence,
         factCount: result.extraction.facts.length,
       });
     }
-    await admin.from("items").update({ status: "analyzed" }).eq("id", row.id);
+    await prisma.items.update({ where: { id: row.id }, data: { status: "analyzed" } });
     return { ...result, knowledge };
   } catch (e) {
-    await admin
-      .from("items")
-      .update({ status: "failed", error: String((e as Error)?.message ?? e).slice(0, 500) })
-      .eq("id", row.id);
+    await prisma.items.update({
+      where: { id: row.id },
+      data: { status: "failed", error: String((e as Error)?.message ?? e).slice(0, 500) },
+    });
     throw e;
   }
 }

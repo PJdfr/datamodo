@@ -80,9 +80,9 @@ export async function POST(req: Request) {
   const admin = createAdminClient();
 
   // Identify-once: bind this sender if not already, using a code in the message.
-  let bound = await isHandleBound(admin, "whatsapp", waId);
+  let bound = await isHandleBound("whatsapp", waId);
   if (!bound) {
-    const link = await redeemChannelLinkCode(admin, "whatsapp", waId, body, {
+    const link = await redeemChannelLinkCode("whatsapp", waId, body, {
       provider: "twilio",
       displayName: profileName,
     });

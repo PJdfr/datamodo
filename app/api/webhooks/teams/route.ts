@@ -66,9 +66,9 @@ export async function POST(req: Request) {
   const text = activity.text ?? null;
   const admin = createAdminClient();
 
-  const bound = await isHandleBound(admin, "teams", handle);
+  const bound = await isHandleBound("teams", handle);
   if (!bound) {
-    await redeemChannelLinkCode(admin, "teams", handle, text, {
+    await redeemChannelLinkCode("teams", handle, text, {
       provider: "azure_bot",
       displayName: activity.from?.name,
     });

@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { prisma } from "@/lib/prisma";
 import type { DatasetColumn, KnowledgeEntityView } from "./types";
 
 /**
@@ -52,7 +52,6 @@ export function tokenize(q: string): string[] {
 }
 
 export async function searchDatasets(
-  db: SupabaseClient,
   orgId: string,
   rawQuery: string,
   opts: { limit?: number; scan?: number } = {},
@@ -63,23 +62,20 @@ export async function searchDatasets(
   const scan = opts.scan ?? 2000; // cap the rows we pull for a single search
   if (terms.length === 0) return { query, terms, total: 0, hits: [] };
 
-  const { data: dsData, error: dsErr } = await db
-    .from("datasets")
-    .select("id, name, columns")
-    .eq("org_id", orgId);
-  if (dsErr) throw dsErr;
-  const datasets = (dsData ?? []) as { id: string; name: string; columns: DatasetColumn[] | null }[];
+  const dsData = await prisma.datasets.findMany({
+    where: { org_id: orgId },
+    select: { id: true, name: true, columns: true },
+  });
+  const datasets = dsData as { id: string; name: string; columns: DatasetColumn[] | null }[];
   if (datasets.length === 0) return { query, terms, total: 0, hits: [] };
   const dsById = new Map(datasets.map((d) => [d.id, d]));
 
-  const { data: rowData, error: rowErr } = await db
-    .from("dataset_rows")
-    .select("id, dataset_id, data")
-    .eq("org_id", orgId)
-    .eq("status", "accepted")
-    .limit(scan);
-  if (rowErr) throw rowErr;
-  const rows = (rowData ?? []) as { id: string; dataset_id: string; data: Record<string, unknown> | null }[];
+  const rowData = await prisma.dataset_rows.findMany({
+    where: { org_id: orgId, status: "accepted" },
+    select: { id: true, dataset_id: true, data: true },
+    take: scan,
+  });
+  const rows = rowData as { id: string; dataset_id: string; data: Record<string, unknown> | null }[];
 
   const hits: SearchHit[] = [];
   for (const r of rows) {

@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   } = await db.auth.getUser();
   if (!user) return json({ error: "Unauthorized" }, 401);
 
-  const org = await getActiveOrg(db, user.id);
+  const org = await getActiveOrg(user.id);
   if (!org) return json({ error: "No organization found" }, 404);
 
   let form: FormData;
@@ -59,15 +59,15 @@ export async function POST(req: Request) {
 
   // --- Sync into an existing table: incoming rows become reviewable proposals.
   if (typeof datasetId === "string" && datasetId) {
-    const ds = await getDataset(db, datasetId);
+    const ds = await getDataset(datasetId);
     if (!ds) return json({ error: "Table not found" }, 404);
 
-    const link = await getSheetLink(db, datasetId);
+    const link = await getSheetLink(datasetId);
     let keyColumn = link?.key_column;
     if (!keyColumn) {
       // First time syncing this table: match on its first column, and remember it.
       keyColumn = ds.columns[0]?.key ?? snapshot.columns[0].key;
-      await createSheetLink(db, {
+      await createSheetLink({
         datasetId,
         orgId: org.id,
         keyColumn,
@@ -77,7 +77,6 @@ export async function POST(req: Request) {
     }
 
     const { added, changed } = await syncSnapshotAsProposals(
-      db,
       org.id,
       datasetId,
       snapshot.rows,
@@ -91,7 +90,7 @@ export async function POST(req: Request) {
   const fallback = file.name.replace(/\.[^.]+$/, "").trim() || "Imported table";
   const name = (typeof nameField === "string" && nameField.trim()) || fallback;
 
-  const dataset = await createDataset(db, org.id, user.id, {
+  const dataset = await createDataset(org.id, user.id, {
     name,
     description: `Imported from ${file.name}`,
     columns: snapshot.columns,
@@ -110,8 +109,8 @@ export async function POST(req: Request) {
     if (error) return json({ error: error.message }, 500);
   }
 
-  await snapshotDataset(db, dataset.id, "You", `Imported ${snapshot.rows.length} rows from ${file.name}`);
-  await createSheetLink(db, {
+  await snapshotDataset(dataset.id, "You", `Imported ${snapshot.rows.length} rows from ${file.name}`);
+  await createSheetLink({
     datasetId: dataset.id,
     orgId: org.id,
     keyColumn: snapshot.columns[0].key,

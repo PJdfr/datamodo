@@ -20,10 +20,10 @@ export async function GET(req: Request) {
   } = await db.auth.getUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
 
-  const org = await getActiveOrg(db, user.id);
+  const org = await getActiveOrg(user.id);
   if (!org) return new Response("Not found", { status: 404 });
 
-  const all = await listDatasets(db, org.id);
+  const all = await listDatasets(org.id);
   const idsParam = new URL(req.url).searchParams.get("ids");
   const chosen = idsParam
     ? all.filter((d) => idsParam.split(",").filter(Boolean).includes(d.id))
