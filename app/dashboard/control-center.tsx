@@ -56,7 +56,7 @@ import {
 } from "./actions";
 import type { AgentActivityEntry, AgentRecord, ChangeChunk, DatasetColumn, DatasetRelation, DatasetRowRecord, DatasetView, Proposal, ReviewItem, SnapshotFull } from "@/lib/datamodo/types";
 import type { UserSettings, OnboardingContext } from "@/lib/datamodo/settings";
-import type { SearchResult, SearchHit } from "@/lib/datamodo/search";
+import type { SearchResult, SearchHit, KnowledgeHit } from "@/lib/datamodo/search";
 import type { RelationSuggestion } from "@/lib/datamodo/relations";
 import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
 import {
@@ -856,10 +856,39 @@ function HitCard({ hit, terms, onOpen }: { hit: SearchHit; terms: string[]; onOp
   );
 }
 
+type SearchResponse = SearchResult & { entities: KnowledgeHit[] };
+
+const KNOWLEDGE_TONE: Record<string, string> = { person: C.blue, people: C.blue, company: C.accent, org: C.accent, organization: C.accent, invoice: C.gold, project: C.green };
+const knowledgeTone = (k: string) => KNOWLEDGE_TONE[k.toLowerCase()] ?? C.ink;
+
+function KnowledgeHitCard({ hit, terms }: { hit: KnowledgeHit; terms: string[] }) {
+  const tone = knowledgeTone(hit.kind);
+  const facts = [...hit.facts].sort((a, b) => Number(b.matched) - Number(a.matched)).slice(0, 4);
+  return (
+    <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 13, padding: "12px 15px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: facts.length ? 9 : 0 }}>
+        <span style={{ width: 26, height: 26, borderRadius: 8, background: tone, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 12, flexShrink: 0 }}>{hit.label.charAt(0).toUpperCase()}</span>
+        <span className="dm-display" style={{ fontWeight: 700, fontSize: 14.5, color: C.ink }}><Highlight text={hit.label} terms={terms} /></span>
+        <span className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "#A39B8B" }}>{hit.kind}</span>
+      </div>
+      {facts.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "3px 12px", fontSize: 12.5, paddingLeft: 35 }}>
+          {facts.map((f, i) => (
+            <Fragment key={i}>
+              <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", whiteSpace: "nowrap" }}>{f.predicate.replace(/_/g, " ")}</span>
+              <span style={{ color: f.ref ? C.accent : "#3A352C", fontWeight: f.matched ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis" }}>{f.ref ? "→ " : ""}<Highlight text={f.value} terms={terms} /></span>
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
   const [q, setQ] = useState("");
   const [submitted, setSubmitted] = useState("");
-  const [result, setResult] = useState<SearchResult | null>(null);
+  const [result, setResult] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
   const run = async (query: string) => {
@@ -869,9 +898,10 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
     setLoading(true);
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(term)}`);
-      setResult((await res.json()) as SearchResult);
+      const json = (await res.json()) as Partial<SearchResponse>;
+      setResult({ query: json.query ?? term, terms: json.terms ?? [], total: json.total ?? 0, hits: json.hits ?? [], entities: json.entities ?? [] });
     } catch {
-      setResult({ query: term, terms: [], total: 0, hits: [] });
+      setResult({ query: term, terms: [], total: 0, hits: [], entities: [] });
     } finally {
       setLoading(false);
     }
@@ -883,25 +913,34 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
     <div style={{ maxWidth: 820 }}>
       <form onSubmit={(e) => { e.preventDefault(); void run(q); }} style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 13, padding: "12px 14px", boxShadow: "0 18px 44px -34px rgba(33,30,24,.35)" }}>
         <span style={{ color: C.accent, fontSize: 16 }}>✦</span>
-        <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Search across your tables — a name, company, amount…" style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: 15.5, color: C.ink }} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Search everything — a name, company, amount…" style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: 15.5, color: C.ink }} />
         <button type="submit" className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", border: "1px solid #E1D9C8", borderRadius: 6, padding: "4px 9px", background: "#fff", cursor: "pointer" }}>Ask ↵</button>
       </form>
-      <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", margin: "9px 2px 0" }}>Searches the text in your tables. Plain-language answers with citations are coming.</div>
+      <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", margin: "9px 2px 0" }}>Searches your tables and everything your agents know. Plain-language answers with citations are coming.</div>
 
       {loading && <div className="dm-mono" style={{ color: "#A39B8B", fontSize: 13, padding: "30px 4px" }}>Searching…</div>}
 
       {!loading && result && submitted && (
-        result.total > 0 ? (
-          <div style={{ marginTop: 18 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "0 2px 12px" }}>
-              <span className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink }}>{result.total} match{result.total === 1 ? "" : "es"}</span>
-              <span style={{ fontSize: 12.5, color: "#A39B8B" }}>for “{submitted}”</span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {result.hits.map((h) => <HitCard key={h.rowId} hit={h} terms={result.terms} onOpen={() => onOpenTable(h.datasetId)} />)}
-            </div>
-            {result.total > result.hits.length && (
-              <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginTop: 12 }}>Showing the first {result.hits.length} of {result.total}.</div>
+        result.total > 0 || result.entities.length > 0 ? (
+          <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 22 }}>
+            {result.entities.length > 0 && (
+              <div>
+                <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 10 }}>In your knowledge · {result.entities.length}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {result.entities.map((e) => <KnowledgeHitCard key={e.id} hit={e} terms={result.terms} />)}
+                </div>
+              </div>
+            )}
+            {result.total > 0 && (
+              <div>
+                <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 10 }}>In your tables · {result.total}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {result.hits.map((h) => <HitCard key={h.rowId} hit={h} terms={result.terms} onOpen={() => onOpenTable(h.datasetId)} />)}
+                </div>
+                {result.total > result.hits.length && (
+                  <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginTop: 12 }}>Showing the first {result.hits.length} of {result.total}.</div>
+                )}
+              </div>
             )}
           </div>
         ) : (
@@ -910,7 +949,7 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#A39B8B" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg>
             </div>
             <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 20, letterSpacing: "-0.02em", margin: "0 0 6px" }}>No matches for “{submitted}”</h2>
-            <p style={{ fontSize: 14, color: "#57534A", maxWidth: "40ch", margin: 0, lineHeight: 1.5 }}>Try a name, company, or amount that appears in one of your tables.</p>
+            <p style={{ fontSize: 14, color: "#57534A", maxWidth: "40ch", margin: 0, lineHeight: 1.5 }}>Try a name, company, or amount from your messages or tables.</p>
           </div>
         )
       )}
