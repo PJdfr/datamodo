@@ -12,6 +12,27 @@
 > Last updated: 2026-07-09
 
 ## Recent changes
+- **2026-07-09** — **Extraction loop closed — infra decided (all-in Vercel + Supabase,
+  GitHub-driven).** `runExtractionForItem` existed but was *called from nowhere*; the
+  capture→extraction pipeline had no runtime. Decided architecture (see "Infra" below)
+  and built the thinnest real slice with **zero external services**, so a self-hoster
+  gets the whole loop from just their Supabase + Vercel + an LLM key. **Queue:** migration
+  [`20260709110000_extraction_queue.sql`](supabase/migrations/20260709110000_extraction_queue.sql)
+  enables **pgmq**, creates queue `extraction_jobs`, and a trigger on `items` that enqueues
+  `{item_id}` when `status→'stored'` (the pgmq schema stays unexposed; access via
+  `SECURITY DEFINER` `public.extraction_{enqueue,read_batch,archive}` wrappers granted to
+  `service_role` only). **Consumer:** [`app/api/jobs/extract-tick/route.ts`](app/api/jobs/extract-tick/route.ts)
+  (Node, `CRON_SECRET`-gated) drains a bounded batch, runs the existing `runExtractionForItem`
+  per item, archives on success, lets pgmq's visibility timeout retry failures, and dead-letters
+  poison messages after 5 attempts. **Schedule:** [`vercel.json`](vercel.json) cron hits it
+  every minute (needs Vercel **Pro** for per-minute). **CI gate:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+  applies every migration + seed to a throwaway local Postgres (the "never lose user data"
+  check) + typecheck + build. Verified locally end-to-end: `supabase db reset` applies the
+  migration clean; trigger enqueues on both INSERT-at-stored and UPDATE-to-stored; `service_role`
+  wrappers read + archive correctly; full `tsc --noEmit` clean. **Not yet run:** the route
+  against a live LLM (needs a running server + OpenRouter key), and prod apply (pending the
+  branch-DB→PR→merge flow). **Setup owed by a human:** set `CRON_SECRET` in Vercel env; Vercel
+  Pro for per-minute cron.
 - **2026-07-09** — **Visual polish pass — texture, depth & motion (keeps the warm,
   non-techy vibe).** The signed-in app read as flat solid-color rounded rectangles;
   added a reusable motion/texture layer in [globals.css](app/globals.css) and applied
@@ -361,9 +382,11 @@ ingest()                    lib/ingest/store.ts
    ├─ storeBlob: sha256 + gzip + dedupe → Storage 'ingest' bucket + blobs table
    └─ insert items(status received→stored) + attachments
    ▼
-   ┌──────────  ⛔ NOT BUILT: extraction / knowledge pipeline  ──────────┐
-   │  small model triages → big model extracts → knowledge layer → tables │
-   └───────────────────────────────────────────────────────────────────────┘
+   trigger on items(status→'stored')  →  pgmq queue 'extraction_jobs'
+   ▼
+   Vercel Cron (every min) → POST /api/jobs/extract-tick  (CRON_SECRET-gated)
+   └─ drains batch → runExtractionForItem → LLM extract → ingestExtraction
+      → entities/facts (knowledge layer) → projectEntitiesToDataset → tables
    ▼
 dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
    review / versioning / snapshots    lib/datamodo/review.ts
@@ -383,6 +406,32 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
   `dataset_snapshots`; raw side: `items`, `blobs`, `attachments`.
   See `supabase/migrations/`.
 
+## Infra & hosting (decided 2026-07-09)
+**All-in on Vercel + Supabase, GitHub-driven, no third ecosystem.** Rationale: Supabase
+handles auth/email/OAuth + Postgres + Storage; Vercel handles hosting + GitHub-integration
+deploys; everything runs from `git merge`. Hosted project `datamodo`
+(`dywkfirozofxyohqmxrn`, **eu-west-1**, PG 17) — good for EU data residency.
+- **Where jobs run:** in-Postgres **pgmq** queue drained by **Vercel Cron → a Next.js
+  route** (not Supabase Edge Functions — avoids a Deno fork of `lib/`; not an external
+  worker — avoids a third ecosystem a self-hoster must stand up). `pg_cron` + `pg_net`
+  are available if we later want DB-side/event-driven triggering instead of polling.
+- **Where client data lives:** 100% Supabase Postgres + Storage, RLS by `org_id`.
+  **Raw messages kept indefinitely** → facts/tables are rebuildable projections (re-extract
+  if a facts migration ever goes wrong). This is the "never lose their data" safety net.
+- **Migration discipline:** forward-only + additive; every PR runs migrations+seed against
+  a throwaway DB in CI; apply to a Supabase **branch** DB before prod; prod on merge. Turn
+  on **PITR** before real users.
+- **Business model steer (governs future decisions):** repo goes **open source**; the moat
+  is the **harness + versioning** (bitemporal facts, human-in-loop graph merge, LLM-cost
+  optimization). Two profiles, one codebase — **self-host/single-tenant** (their Supabase,
+  **BYOK/BYODB**) vs **hosted full-service multi-tenant** (we run OpenRouter + store data).
+  Everything stays env-driven; BYODB == the self-host path (no per-tenant DB routing in the
+  hosted product). Open decisions: **license** (open-core vs permissive), zero-retention LLM
+  path for full-service users.
+- **Tooling:** Supabase + Vercel MCPs are connected this session (can apply migrations, run
+  SQL, read build/runtime logs, manage env, spin branch DBs). Discipline: **no ad-hoc
+  writes to prod** — migrations as committed files, branch-tested first.
+
 ## Current state (2026-07-08)
 
 - ✅ **Capture pipeline** works end-to-end in code: email worker → `/api/ingest`
@@ -395,7 +444,8 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
   `items` status enum reserves `analyzing`/`analyzed` for this future step.
 - ⛔ **Only email** is a real adapter. Slack/WhatsApp/Teams are enum values +
   logo assets only. No connector OAuth (only Supabase auth OAuth exists).
-- ⛔ **No edge functions, cron, or queues.** `supabase/functions/` does not exist.
+- ✅ **Queue + cron now exist** (2026-07-09): pgmq `extraction_jobs` + a Vercel Cron
+  consumer drive extraction. No Supabase Edge Functions (deliberate — see "Infra").
 
 ## Next steps
 
@@ -406,10 +456,12 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
 1. ~~Connector smoke test~~ ✅ **done 2026-07-08** (see Recent changes). Capture
    path verified end-to-end; service_role grant bug fixed. Real inbound email
    (Cloudflare worker + live MX) still untested — only the synthetic POST path is.
-2. **Extraction pipeline** (design under discussion — see below). Target shape:
-   Supabase Edge Function, channel-agnostic (keys off `IngestEnvelope`), two-model
-   (cheap triage → capable extraction), output feeds `proposeAgentRows(...)` at
-   `lib/datamodo/datasets.ts` and sets `items.status stored→analyzing→analyzed`.
+2. ~~**Extraction pipeline**~~ ✅ **loop closed 2026-07-09** — pgmq queue + Vercel
+   Cron consumer (`/api/jobs/extract-tick`) now runs `runExtractionForItem` on every
+   stored item (see Recent changes + "Infra" below). **Follow-ups:** run it against a
+   live LLM end-to-end; two-model cheap-triage→capable-extract split (currently one
+   pass); a manual/backfill enqueue for pre-existing stored items; observability on the
+   queue (depth, poison count).
 3. **Knowledge layer (DECIDED — Phase A first; refined by 2026-07-08 research):**
    three-layer model — raw `items` → **canonical FACTS** (append-only, versioned;
    `facts(subject_entity, predicate, value, unit, ts, source_item_id, confidence,
