@@ -234,6 +234,27 @@ async function loadItemText(item: ItemRow): Promise<string> {
  * Run extraction for one captured item and fold the result into the knowledge
  * layer. Drives item.status stored → analyzing → analyzed | failed.
  */
+/**
+ * Atomically claim up to `limit` captured items for extraction, flipping them
+ * stored → analyzing in one statement. `FOR UPDATE SKIP LOCKED` means concurrent
+ * cron ticks never grab the same row — this is the Neon-native queue (no pgmq).
+ * Returns the claimed item ids for the caller to run extraction on.
+ */
+export async function claimStoredItems(limit: number): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    update items
+       set status = 'analyzing'
+     where id in (
+       select id from items
+        where status = 'stored'
+        order by received_at asc nulls last
+        limit ${limit}
+        for update skip locked
+     )
+    returning id`;
+  return rows.map((r) => r.id);
+}
+
 export async function runExtractionForItem(
   itemId: string,
   agentPurpose?: string | null,

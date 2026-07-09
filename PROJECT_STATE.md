@@ -394,9 +394,17 @@ the same migration SQL to `prod` — Neon branches don't git-merge DDL).
   is private-preview + **us-east-2 only**, but our DB is **eu-central-1** → not usable yet.
   The adapter is S3-generic, so wiring is just env vars once we have Neon Storage access **or**
   fall back to R2/S3. Ingest blob archival is non-functional until then (ingest isn't live yet).
-- ⬜ **6. Extraction loop (Neon way)** — queue = `items.status` + `SELECT … FOR UPDATE SKIP
-  LOCKED`; scheduler = **GitHub Actions cron** → `/api/jobs/extract-tick` (no pgmq/pg_cron/
-  pg_net). `runExtractionForItem`/`ingestExtraction` stay unchanged.
+- ✅ **6. Extraction loop (Neon way)** — done + **verified live on Neon**. Queue =
+  `claimStoredItems()` in [extract.ts](lib/datamodo/extract.ts) — one atomic `UPDATE … WHERE id IN
+  (SELECT … FOR UPDATE SKIP LOCKED) RETURNING id` (stored→analyzing, no double-claim; no pgmq).
+  Consumer [/api/jobs/extract-tick](app/api/jobs/extract-tick/route.ts) (CRON_SECRET-gated) claims
+  a batch and runs `runExtractionForItem` per item. Scheduler =
+  [.github/workflows/extract-cron.yml](.github/workflows/extract-cron.yml) (every 5 min → curls the
+  consumer; needs `APP_URL` + `CRON_SECRET` GitHub secrets). **Verified:** inserted a stored item →
+  endpoint returned `{claimed:1,processed:1,failed:0}`, item reached `analyzed`, LLM ran, facts
+  folded via Prisma (0 from nonsense text = correct); 401 without the secret. **TODO:** orphan
+  recovery (a crashed tick leaves an item in `analyzing`; needs a `claimed_at` column + reset) and
+  failed-item retry; throughput is 3/5min (raise `EXTRACT_BATCH` / add an internal drain loop).
 - ⬜ **7. Env/config + CI** — `DATABASE_URL` → Neon; Vercel envs (git `dev`→Neon `dev`,
   `prod`→Neon `prod`); retire Supabase envs; CI = Prisma migrate on a Neon branch + typecheck
   + build.
