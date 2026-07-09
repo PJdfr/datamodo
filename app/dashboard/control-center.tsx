@@ -55,7 +55,7 @@ import {
   updateComputeSettingsAction,
 } from "./actions";
 import type { AgentActivityEntry, AgentRecord, ChangeChunk, DatasetColumn, DatasetRelation, DatasetRowRecord, DatasetView, Proposal, ReviewItem, SnapshotFull } from "@/lib/datamodo/types";
-import type { UserSettings } from "@/lib/datamodo/settings";
+import type { UserSettings, OnboardingContext } from "@/lib/datamodo/settings";
 import type { SearchResult, SearchHit } from "@/lib/datamodo/search";
 import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
 import {
@@ -66,6 +66,7 @@ import {
 } from "./ui";
 import { ReviewStudio } from "./review-studio";
 import { ConnectionsModal } from "./connections";
+import { OnboardingModal } from "./onboarding-modal";
 import { KnowledgeView } from "./knowledge-view";
 import { InsightsView } from "./insights-view";
 import { BuildFromKnowledgeModal } from "./build-from-knowledge";
@@ -86,10 +87,11 @@ export type ControlCenterProps = {
   pendingReviewCount: number;
   agentActivity: Record<string, AgentActivityEntry[]>;
   settings: UserSettings;
+  onboarding: OnboardingContext;
   notice?: string | null;
 };
 
-export default function ControlCenter({ fullName, initial, inbox, agents, datasets, relations, pendingChanges, pendingReviewCount, agentActivity, settings, notice }: ControlCenterProps) {
+export default function ControlCenter({ fullName, initial, inbox, agents, datasets, relations, pendingChanges, pendingReviewCount, agentActivity, settings, onboarding, notice }: ControlCenterProps) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("agents");
   const [noticeOpen, setNoticeOpen] = useState(true);
@@ -171,6 +173,10 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const [openTableId, setOpenTableId] = useState<string | null>(null);
   const [createTableOpen, setCreateTableOpen] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [contextDismissed, setContextDismissed] = useState(false);
+  const onboardingTrack = Array.isArray(onboarding.answers?.track) ? (onboarding.answers.track as string[]) : [];
+  const hasContext = !!onboarding.businessContext;
   const [buildOpen, setBuildOpen] = useState(false);
   const [dataView, setDataView] = useState<DataView>("tables");
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
@@ -353,6 +359,10 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
             <div style={{ fontSize: 13, color: "#8A8477", marginTop: 2 }}>{titles[tab].sub}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: "auto" }}>
+            <Hov onClick={() => setOnboardingOpen(true)} title={hasContext ? "Edit your business context" : "Tell your agents what matters"} base={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 500, color: "#3A352C", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px", cursor: "pointer", fontFamily: "inherit" }} hover={{ background: "#FBF8F1" }}>
+              <span style={{ color: C.accent }}>✦</span>
+              Context{hasContext && <span style={{ color: C.green, fontSize: 13, lineHeight: 1 }}>✓</span>}
+            </Hov>
             <Hov onClick={() => setConnectionsOpen(true)} base={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 500, color: "#3A352C", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px", cursor: "pointer", fontFamily: "inherit" }} hover={{ background: "#FBF8F1" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8" /></svg>
               Connect
@@ -364,6 +374,17 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
         </div>
 
         <div className="cc-scroll" style={{ padding: "24px 26px", overflow: "auto", flex: 1 }}>
+          {!hasContext && !contextDismissed && (
+            <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", background: "linear-gradient(#FDF6F2,#FDF1EC)", border: "1px solid #F3D6CB", borderRadius: 14, padding: "13px 16px", marginBottom: 18 }}>
+              <span style={{ width: 34, height: 34, borderRadius: 10, background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, flexShrink: 0 }}>✦</span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 14, color: C.ink }}>Tell your agents what matters</div>
+                <div style={{ fontSize: 12.5, color: "#8A6a5f", marginTop: 1 }}>A sentence about your business sharpens what we extract from your messages.</div>
+              </div>
+              <Hov onClick={() => setOnboardingOpen(true)} base={{ ...primaryBtn(false), padding: "9px 16px", fontSize: 13, boxShadow: "none" }} hover={{ background: C.accentPress }}>Set it up</Hov>
+              <Hov onClick={() => setContextDismissed(true)} tag="button" base={{ background: "none", border: "none", color: "#A39B8B", cursor: "pointer", fontSize: 12, fontFamily: "inherit" }} hover={{ color: C.ink }}>Later</Hov>
+            </div>
+          )}
           {tab === "agents" && (populated ? <AgentsFull agents={uiAgents} activity={agentActivity} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} openModal={openModal} onManage={setManageAgentId} onReview={() => setTab("review")} pendingCount={pendingCount} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
           {tab === "data" && (
             <>
@@ -462,6 +483,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
         />
       )}
       {connectionsOpen && <ConnectionsModal inbox={inbox} onClose={() => setConnectionsOpen(false)} />}
+      {onboardingOpen && <OnboardingModal initialContext={onboarding.businessContext} initialTrack={onboardingTrack} onClose={() => setOnboardingOpen(false)} onSaved={() => { setOnboardingOpen(false); router.refresh(); }} />}
       {buildOpen && (
         <BuildFromKnowledgeModal
           datasets={datasets.map((d) => ({ id: d.id, name: d.name, columns: d.columns }))}
