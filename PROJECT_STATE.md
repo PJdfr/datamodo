@@ -12,6 +12,24 @@
 > Last updated: 2026-07-09
 
 ## Recent changes
+- **2026-07-09** — **Spreadsheet → knowledge graph (import + merge).** A user can hand
+  us a table and we **infer a graph from it and merge it into the existing knowledge
+  layer** — the flagship idea from the backlog. Pure, unit-tested `inferGraphFromTable`
+  ([infer-graph.ts](lib/datamodo/infer-graph.ts)): each row → a subject entity (kind
+  inferred from the table name), columns that name other things → relationship facts
+  to referenced entities, the rest → attribute facts; id-ish columns (email/phone/
+  invoice no) become natural keys that drive dedup. `importTableAsGraph` then merges
+  every row through the **existing `ingestExtraction`** (entity resolution + fact dedup
+  + bitemporal) — no new graph store. `POST /api/knowledge/import-graph` (xlsx upload
+  via `parseWorkbook`, or a `datasetId` to graph-ify an existing table). UI:
+  [ImportGraphModal](app/dashboard/import-graph-modal.tsx) — upload → merge → summary
+  (new/matched entities, facts added, inferred schema in plain words), reachable from
+  a Data-tab **"Spreadsheet → knowledge"** button and, per the cost note, a CTA in the
+  onboarding modal (cheapest while the graph is fresh). Verified: 20/20 unit tests on
+  the inference (Contacts/Invoices/known-label/edge cases) + full `next build` +
+  typecheck clean + modal screenshotted. Live merge rides on the already-verified
+  `ingestExtraction`. **Next:** dedupe referenced entities across rows before ingest
+  (cheaper), a pre-merge preview/confirm step, and column-mapping overrides.
 - **2026-07-09** — **Insights is now configurable (any measure × any axis, from your
   own facts).** Was hardcoded to `amount` by `issued_by`. New `listMeasures`
   ([analytics.ts](lib/datamodo/analytics.ts)) discovers chartable predicates from the
@@ -369,16 +387,10 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
 
 ## Next steps
 
-0. **Import a spreadsheet → infer a graph → merge into the knowledge graph** *(idea,
-   not built).* Let a user hand us a table/spreadsheet; infer entities + relationships
-   from it (columns → predicates, rows → entities, shared values → edges) and **merge
-   the result into the existing knowledge graph** (reuse the entity-resolution /
-   dedup / bitemporal machinery in `knowledge.ts`, not a fresh store). **Strongly
-   encourage this during onboarding**: merging a table into a *large* existing graph
-   is far costlier (more entities to resolve/compare against) than seeding it while the
-   graph is still fresh/empty — so make it a first-run step, not an afterthought.
-   Builds on today's `.xlsx` import (`spreadsheet.ts`/`sheets.ts`) + the auto-link
-   overlap detector (`suggestRelations`) as the edge-inference seed.
+0. ~~Import a spreadsheet → infer a graph → merge into the knowledge graph~~ ✅ **done
+   2026-07-09** (see Recent changes — `infer-graph.ts`, `POST /api/knowledge/import-graph`,
+   `ImportGraphModal`, onboarding CTA). Follow-ups: dedupe referenced entities across
+   rows before ingest, a pre-merge preview/confirm, and column-mapping overrides.
 1. ~~Connector smoke test~~ ✅ **done 2026-07-08** (see Recent changes). Capture
    path verified end-to-end; service_role grant bug fixed. Real inbound email
    (Cloudflare worker + live MX) still untested — only the synthetic POST path is.

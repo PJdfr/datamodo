@@ -8,7 +8,7 @@
  */
 
 import { useState } from "react";
-import { C, Hov, ModalShell, primaryBtn, fieldInput } from "./ui";
+import { C, Hov, ModalShell, primaryBtn, fieldInput, ghostBtn } from "./ui";
 
 export const TRACK_OPTIONS = [
   "Invoices & payments",
@@ -21,11 +21,12 @@ export const TRACK_OPTIONS = [
   "Leads & deals",
 ];
 
-export function OnboardingModal({ initialContext, initialTrack, onClose, onSaved }: {
+export function OnboardingModal({ initialContext, initialTrack, onClose, onSaved, onImportSpreadsheet }: {
   initialContext: string | null;
   initialTrack: string[];
   onClose: () => void;
   onSaved: () => void;
+  onImportSpreadsheet?: () => void;
 }) {
   const [context, setContext] = useState(initialContext ?? "");
   const [track, setTrack] = useState<string[]>(initialTrack);
@@ -104,6 +105,18 @@ export function OnboardingModal({ initialContext, initialTrack, onClose, onSaved
             })}
           </div>
         </div>
+
+        {onImportSpreadsheet && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", background: "#FDF9F2", border: "1px solid #EFE1D2", borderRadius: 12, padding: "12px 14px" }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 13.5, color: C.ink }}>Already have a spreadsheet?</div>
+              <div style={{ fontSize: 12, color: "#8A6a5f", marginTop: 1 }}>Seed your knowledge from it now — it&apos;s cheapest to do while your graph is fresh.</div>
+            </div>
+            <Hov onClick={onImportSpreadsheet} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0 }} hover={{ background: "#fff" }}>
+              <span style={{ color: C.accent }}>✦</span> Import a spreadsheet
+            </Hov>
+          </div>
+        )}
       </div>
     </ModalShell>
   );
