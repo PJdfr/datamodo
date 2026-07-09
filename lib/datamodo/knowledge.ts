@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getLlmProvider } from "@/lib/llm";
-import type { KnowledgeEntityView } from "./types";
+import type { KnowledgeEntityView, FactSourceView } from "./types";
 
 // Knowledge layer: turn an extraction (entities + facts pulled from one message)
 // into canonical, deduplicated, versioned knowledge — scoped per user (org_id).
@@ -550,12 +550,37 @@ export async function listKnowledge(db: SupabaseClient, orgId: string): Promise<
   const factList = (facts as KFact[] | null) ?? [];
   const label = new Map(entities.map((e) => [e.id, e.canonical_label]));
 
-  // Provenance: how many sources back each fact.
-  const srcCount = new Map<string, number>();
+  // Provenance: the actual messages behind each fact (the "where did this come
+  // from?" drill-down). fact_sources → items joined in two steps rather than a
+  // PostgREST embed, so we don't depend on the FK relationship being named.
+  const provByFact = new Map<string, FactSourceView[]>();
   const factIds = factList.map((f) => f.id);
   if (factIds.length) {
-    const { data: fs } = await db.from("fact_sources").select("fact_id").in("fact_id", factIds);
-    for (const s of (fs as { fact_id: string }[] | null ?? [])) srcCount.set(s.fact_id, (srcCount.get(s.fact_id) ?? 0) + 1);
+    const { data: fs } = await db
+      .from("fact_sources")
+      .select("fact_id, snippet, source_item_id")
+      .in("fact_id", factIds);
+    const fsList = (fs as { fact_id: string; snippet: string | null; source_item_id: string | null }[] | null) ?? [];
+    const itemIds = [...new Set(fsList.map((s) => s.source_item_id).filter(Boolean) as string[])];
+    type ItemMeta = { id: string; channel: string; sender: string | null; subject: string | null; body_preview: string | null; received_at: string | null };
+    const itemById = new Map<string, ItemMeta>();
+    if (itemIds.length) {
+      const { data: its } = await db.from("items").select("id, channel, sender, subject, body_preview, received_at").in("id", itemIds);
+      for (const it of ((its as ItemMeta[] | null) ?? [])) itemById.set(it.id, it);
+    }
+    for (const s of fsList) {
+      const it = s.source_item_id ? itemById.get(s.source_item_id) : undefined;
+      const view: FactSourceView = {
+        channel: it?.channel ?? "unknown",
+        sender: it?.sender ?? null,
+        subject: it?.subject ?? null,
+        preview: it?.body_preview ?? null,
+        snippet: s.snippet ?? null,
+        receivedAt: it?.received_at ?? null,
+      };
+      if (!provByFact.has(s.fact_id)) provByFact.set(s.fact_id, []);
+      provByFact.get(s.fact_id)!.push(view);
+    }
   }
 
   const edges = new Map<string, number>();
@@ -582,7 +607,8 @@ export async function listKnowledge(db: SupabaseClient, orgId: string): Promise<
       edges: edges.get(e.id) ?? 0,
       facts: (bySubject.get(e.id) ?? []).map((f) => {
         const v = fmt(f);
-        return { predicate: f.predicate, value: v.value, ref: v.ref, sources: srcCount.get(f.id) ?? 1 };
+        const prov = provByFact.get(f.id) ?? [];
+        return { predicate: f.predicate, value: v.value, ref: v.ref, sources: prov.length, provenance: prov };
       }),
     }))
     .sort((a, b) => b.edges - a.edges);
