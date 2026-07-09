@@ -405,9 +405,17 @@ the same migration SQL to `prod` — Neon branches don't git-merge DDL).
   folded via Prisma (0 from nonsense text = correct); 401 without the secret. **TODO:** orphan
   recovery (a crashed tick leaves an item in `analyzing`; needs a `claimed_at` column + reset) and
   failed-item retry; throughput is 3/5min (raise `EXTRACT_BATCH` / add an internal drain loop).
-- ⬜ **7. Env/config + CI** — `DATABASE_URL` → Neon; Vercel envs (git `dev`→Neon `dev`,
-  `prod`→Neon `prod`); retire Supabase envs; CI = Prisma migrate on a Neon branch + typecheck
-  + build.
+- 🔨 **7. Env/config + prod cutover** — **prod flipped to Neon** (PR #27 merged; Vercel
+  production deploy `READY`). Fixed a Vercel build gap: added `postinstall: prisma generate`
+  (Vercel does a clean install and never generated the client). Vercel Production env set
+  (`DATABASE_URL`, `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, `CRON_SECRET`). **Verified
+  on prod:** app boots (200), `/dashboard`→`/login` (Neon Auth middleware works), build green.
+  **Owed by a human:** (a) **`CRON_SECRET` mismatch** — Vercel prod value ≠ generated one, and
+  GitHub Actions `CRON_SECRET`/`APP_URL` unset → set the SAME value in both so the extraction
+  cron authenticates; (b) a browser **signup on prod** to confirm the `DATABASE_URL`→Neon
+  runtime path (couldn't be tool-tested — browser sandboxed to localhost; identical to the
+  verified local flow). **Still ⬜:** Neon `dev`→Vercel Preview env; CI (Prisma-migrate on a
+  Neon branch + typecheck/build).
 - ⬜ **8. Decommission Supabase** — remove `supabase/`, `@supabase/*` deps; port the demo
   seed to Prisma/SQL.
 
