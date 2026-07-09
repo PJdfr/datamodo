@@ -56,6 +56,7 @@ import {
 } from "./actions";
 import type { AgentActivityEntry, AgentRecord, ChangeChunk, DatasetColumn, DatasetRelation, DatasetRowRecord, DatasetView, Proposal, ReviewItem, SnapshotFull } from "@/lib/datamodo/types";
 import type { UserSettings } from "@/lib/datamodo/settings";
+import type { SearchResult, SearchHit } from "@/lib/datamodo/search";
 import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
 import {
   Hov, C, LOGO, CH_NAMES, navStyle, modeCard, radioDot, bar, toggleTrack, toggleKnob,
@@ -382,7 +383,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
             </>
           )}
           {tab === "review" && <ReviewStudio />}
-          {tab === "search" && <SearchTab populated={populated} />}
+          {tab === "search" && <SearchTab onOpenTable={setOpenTableId} />}
         </div>
       </main>
 
@@ -784,82 +785,122 @@ function DataEmpty({ openModal }: { openModal: () => void }) {
 /* ================================================================== */
 /* SEARCH TAB                                                          */
 /* ================================================================== */
-function SearchTab({ populated }: { populated: boolean }) {
-  const recents = [
-    { q: "Which trips are still unpaid?", meta: "Trips · 2" },
-    { q: "Everyone I met at Acme this year", meta: "Contacts · 5" },
-    { q: "Total spend on flights this quarter", meta: "Receipts · $2,847" },
-  ];
-  const gnodes = [
-    { l: "18%", t: "30%", label: "Sarah Chen", dot: C.green, kind: "plain" },
-    { l: "50%", t: "50%", label: "Acme Inc", kind: "dark" },
-    { l: "80%", t: "26%", label: "#A-204", kind: "accent" },
-    { l: "80%", t: "76%", label: "$12,000", kind: "accent" },
-    { l: "20%", t: "78%", label: "accounts@acme.com", kind: "email" },
-  ];
-  const gedges = [
-    { l: "34%", t: "33%", label: "works at" },
-    { l: "66%", t: "31%", label: "billed to" },
-    { l: "66%", t: "66%", label: "amount" },
-    { l: "33%", t: "69%", label: "contact" },
-  ];
+const SEARCH_EXAMPLES = ["Which trips are still unpaid?", "Everyone I know at Acme", "Invoices over 1000"];
+
+const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Render `text` with any matched query terms wrapped in a soft highlight. */
+function Highlight({ text, terms }: { text: string; terms: string[] }) {
+  if (!terms.length || !text) return <>{text}</>;
+  const parts = text.split(new RegExp(`(${terms.map(escRe).join("|")})`, "ig"));
+  const set = new Set(terms.map((t) => t.toLowerCase()));
+  return (
+    <>
+      {parts.map((p, i) =>
+        set.has(p.toLowerCase())
+          ? <mark key={i} style={{ background: "#FBE7C6", color: C.ink, borderRadius: 3, padding: "0 1px" }}>{p}</mark>
+          : <Fragment key={i}>{p}</Fragment>,
+      )}
+    </>
+  );
+}
+
+function HitCard({ hit, terms, onOpen }: { hit: SearchHit; terms: string[]; onOpen: () => void }) {
+  const cells = hit.cells.filter((c) => c.value !== "" || c.matched);
+  return (
+    <Hov onClick={onOpen} base={{ textAlign: "left", width: "100%", background: "#fff", border: "1px solid #E7E0D2", borderRadius: 13, padding: "13px 16px", cursor: "pointer", fontFamily: "inherit", display: "block" }} hover={{ border: "1px solid #F3D6CB", background: "#FDF9F2" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 600, color: C.ink, background: "#F6F2E9", border: "1px solid #E7E0D2", borderRadius: 7, padding: "3px 9px" }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></svg>
+          {hit.datasetName}
+        </span>
+        <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginLeft: "auto" }}>open →</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 14px", fontSize: 13 }}>
+        {cells.map((c) => (
+          <Fragment key={c.column}>
+            <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", whiteSpace: "nowrap" }}>{c.label}</span>
+            <span style={{ color: c.matched ? C.ink : "#57534A", fontWeight: c.matched ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis" }}>
+              {c.value ? <Highlight text={c.value} terms={terms} /> : <span style={{ color: "#C9BCA6" }}>—</span>}
+            </span>
+          </Fragment>
+        ))}
+      </div>
+    </Hov>
+  );
+}
+
+function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
+  const [q, setQ] = useState("");
+  const [submitted, setSubmitted] = useState("");
+  const [result, setResult] = useState<SearchResult | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const run = async (query: string) => {
+    const term = query.trim();
+    setSubmitted(term);
+    if (!term) { setResult(null); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(term)}`);
+      setResult((await res.json()) as SearchResult);
+    } catch {
+      setResult({ query: term, terms: [], total: 0, hits: [] });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const ask = (query: string) => { setQ(query); void run(query); };
+
   return (
     <div style={{ maxWidth: 820 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 13, padding: "14px 16px", boxShadow: "0 18px 44px -34px rgba(33,30,24,.35)" }}>
+      <form onSubmit={(e) => { e.preventDefault(); void run(q); }} style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 13, padding: "12px 14px", boxShadow: "0 18px 44px -34px rgba(33,30,24,.35)" }}>
         <span style={{ color: C.accent, fontSize: 16 }}>✦</span>
-        <span style={{ flex: 1, fontSize: 15.5, color: C.ink }}>How much did I invoice Acme this quarter?<span style={{ display: "inline-block", width: 2, height: 17, background: C.accent, marginLeft: 2, verticalAlign: -3, animation: "cc-caret 1s step-end infinite" }} /></span>
-        <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", border: "1px solid #E1D9C8", borderRadius: 6, padding: "3px 8px" }}>Ask ↵</span>
-      </div>
+        <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Search across your tables — a name, company, amount…" style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: 15.5, color: C.ink }} />
+        <button type="submit" className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", border: "1px solid #E1D9C8", borderRadius: 6, padding: "4px 9px", background: "#fff", cursor: "pointer" }}>Ask ↵</button>
+      </form>
+      <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", margin: "9px 2px 0" }}>Searches the text in your tables. Plain-language answers with citations are coming.</div>
 
-      {populated && (
-        <>
-          <div style={{ marginTop: 16, background: C.ink, color: "#F1ECE1", borderRadius: 18, padding: "24px 26px" }}>
-            <div className="dm-mono" style={{ fontSize: 11, color: "#9A9384", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>Answer</div>
-            <div className="dm-display" style={{ fontWeight: 800, fontSize: 40, letterSpacing: "-0.03em", lineHeight: 1.05 }}>$20,750 <span style={{ fontSize: 19, fontWeight: 600, color: "#B7AF9F" }}>across 2 invoices</span></div>
-            <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "#C9C1B2" }}><span style={{ color: "#C98467" }}>↳</span>Acme Inc · <span className="dm-mono" style={{ color: "#F1ECE1" }}>#A-204</span> · <span className="dm-mono" style={{ color: C.accent }}>$12,000</span> · Approved</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "#C9C1B2" }}><span style={{ color: "#C98467" }}>↳</span>Acme Inc · <span className="dm-mono" style={{ color: "#F1ECE1" }}>#A-188</span> · <span className="dm-mono" style={{ color: "#F1ECE1" }}>$8,750</span> · Paid</div>
-            </div>
-            <div className="dm-mono" style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #3A352C", fontSize: 11, color: "#7C766B" }}>sourced from 2 forwarded emails · captured by Ledger · Invoices sheet</div>
-          </div>
+      {loading && <div className="dm-mono" style={{ color: "#A39B8B", fontSize: 13, padding: "30px 4px" }}>Searching…</div>}
 
-          <div style={{ marginTop: 16, background: "#fff", border: "1px solid #E7E0D2", borderRadius: 18, padding: "18px 20px 8px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-              <span className="dm-display" style={{ fontWeight: 700, fontSize: 14, letterSpacing: "-0.02em" }}>How this answer connects</span>
-              <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B" }}>knowledge graph · advanced</span>
+      {!loading && result && submitted && (
+        result.total > 0 ? (
+          <div style={{ marginTop: 18 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "0 2px 12px" }}>
+              <span className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink }}>{result.total} match{result.total === 1 ? "" : "es"}</span>
+              <span style={{ fontSize: 12.5, color: "#A39B8B" }}>for “{submitted}”</span>
             </div>
-            <div style={{ position: "relative", height: 230 }}>
-              <svg viewBox="0 0 820 230" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
-                <g stroke="#E1D9C8" strokeWidth="1.5" fill="none">
-                  {["M150,70 L410,115", "M410,115 L660,60", "M410,115 L660,175", "M410,115 L180,180"].map((d, i) => (
-                    <path key={i} d={d} style={{ strokeDasharray: 300, animation: `cc-draw 1.1s ease ${0.1 + i * 0.2}s both` }} />
-                  ))}
-                </g>
-              </svg>
-              {gedges.map((e) => (
-                <span key={e.label} className="dm-mono" style={{ position: "absolute", left: e.l, top: e.t, transform: "translate(-50%,-50%)", fontSize: 9.5, color: "#A39B8B", background: "#fff", padding: "0 4px" }}>{e.label}</span>
-              ))}
-              {gnodes.map((n) => (
-                <span key={n.label} className={n.kind === "accent" || n.kind === "email" ? "dm-mono" : undefined} style={{ position: "absolute", left: n.l, top: n.t, transform: "translate(-50%,-50%)", display: "flex", alignItems: "center", gap: 7, borderRadius: 999, ...(n.kind === "dark" ? { background: C.ink, color: "#F1ECE1", padding: "8px 16px", fontSize: 13, fontWeight: 600, boxShadow: "0 10px 24px -12px rgba(33,30,24,.5)" } : n.kind === "accent" ? { background: "#FDF1EC", border: "1px solid #F3D6CB", color: C.accent, padding: "6px 12px", fontSize: 12, fontWeight: 600 } : n.kind === "email" ? { background: "#F6F2E9", border: "1px solid #E1D9C8", color: "#57534A", padding: "6px 12px", fontSize: 11.5 } : { background: "#F6F2E9", border: "1px solid #E1D9C8", padding: "6px 12px", fontSize: 12, fontWeight: 500 }) }}>
-                  {n.dot && <span style={{ width: 7, height: 7, borderRadius: "50%", background: n.dot }} />}
-                  {n.label}
-                </span>
-              ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {result.hits.map((h) => <HitCard key={h.rowId} hit={h} terms={result.terms} onOpen={() => onOpenTable(h.datasetId)} />)}
             </div>
+            {result.total > result.hits.length && (
+              <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginTop: 12 }}>Showing the first {result.hits.length} of {result.total}.</div>
+            )}
           </div>
-        </>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "56px 20px" }}>
+            <div style={{ width: 58, height: 58, borderRadius: 17, background: "#F6F2E9", border: "1px solid #E7E0D2", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#A39B8B" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg>
+            </div>
+            <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 20, letterSpacing: "-0.02em", margin: "0 0 6px" }}>No matches for “{submitted}”</h2>
+            <p style={{ fontSize: 14, color: "#57534A", maxWidth: "40ch", margin: 0, lineHeight: 1.5 }}>Try a name, company, or amount that appears in one of your tables.</p>
+          </div>
+        )
       )}
 
-      <div style={{ marginTop: 20 }}>
-        <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 10 }}>Recent questions</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {recents.map((r) => (
-            <Hov key={r.q} base={{ textAlign: "left", background: "#fff", border: "1px solid #E7E0D2", borderRadius: 11, padding: "12px 15px", fontFamily: "inherit", fontSize: 14, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }} hover={{ border: "1px solid #F3D6CB", background: "#FDF1EC" }}>
-              {r.q}<span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>{r.meta}</span>
-            </Hov>
-          ))}
+      {!submitted && !loading && (
+        <div style={{ marginTop: 22 }}>
+          <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 10 }}>Try asking</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {SEARCH_EXAMPLES.map((x) => (
+              <Hov key={x} onClick={() => ask(x)} base={{ textAlign: "left", background: "#fff", border: "1px solid #E7E0D2", borderRadius: 11, padding: "12px 15px", fontFamily: "inherit", fontSize: 14, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }} hover={{ border: "1px solid #F3D6CB", background: "#FDF1EC" }}>
+                {x}<span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>search →</span>
+              </Hov>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
