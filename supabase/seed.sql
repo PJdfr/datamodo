@@ -19,6 +19,7 @@ declare
   v_inv_row     uuid;
   v_item1       uuid;
   v_item2       uuid;
+  v_item3       uuid;
   v_batch1      uuid;
   v_batch2      uuid;
   -- knowledge-layer demo entities
@@ -31,6 +32,9 @@ declare
   v_k_inv1      uuid;
   v_k_inv2      uuid;
   v_k_famt      uuid;
+  v_f_issued    uuid;
+  v_f_jworks    uuid;
+  v_f_mworks    uuid;
 begin
   -- 1. Ensure the demo auth user exists. The handle_new_user() trigger creates
   --    the matching profile, personal org, owner membership, and forwarding
@@ -158,13 +162,21 @@ begin
   select id into v_inv_row from public.dataset_rows
    where dataset_id = v_ds_invoices and data->>'invoice' = '#A-198' limit 1;
 
-  -- Source messages the agents parsed (the "comm chunk" grouping axis).
-  insert into public.items (org_id, owner_user_id, channel, sender, subject, received_at)
-  values (v_org, v_uid, 'email', 'billing@acme.com', 'Invoice #A-207 — Acme Inc', now())
+  -- Source messages the agents parsed (the "comm chunk" grouping axis). These
+  -- back the facts below via fact_sources, so the Knowledge tab's "where did
+  -- this come from?" drill-down shows the real message behind each claim.
+  insert into public.items (org_id, owner_user_id, channel, sender, subject, body_preview, received_at)
+  values (v_org, v_uid, 'email', 'billing@brightwave.io', 'Invoice INV-4417 — Brightwave',
+          'Hi, please find attached invoice INV-4417 for a total of $18,500. Issued by Brightwave, payable by Aug 31.', now())
   returning id into v_item1;
-  insert into public.items (org_id, owner_user_id, channel, sender, subject, received_at)
-  values (v_org, v_uid, 'whatsapp', 'Acme dinner', 'Met 2 people at the Acme dinner', now())
+  insert into public.items (org_id, owner_user_id, channel, sender, subject, body_preview, received_at)
+  values (v_org, v_uid, 'whatsapp', '+1 (415) 555-0142', 'Dinner with the Northwind team',
+          'Great dinner — James Porter from Brightwave and Maria Gomez who runs ops at Northwind. Will intro you both.', now())
   returning id into v_item2;
+  insert into public.items (org_id, owner_user_id, channel, sender, subject, body_preview, received_at)
+  values (v_org, v_uid, 'email', 'accounts@brightwave.io', 'Re: payment — INV-4417',
+          'Confirming the invoice for 18,500 USD is approved on our side; remittance to follow.', now())
+  returning id into v_item3;
 
   -- Knowledge layer — the canonical entities + facts the Knowledge tab shows and
   -- that tables are projected from. (Review now happens at the fact level, so we
@@ -189,22 +201,27 @@ begin
   insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_num, unit) values
     (v_org, v_uid, v_k_inv1, 'amount', v_k_inv1::text || '::amount', 'one', 0.95, 18500, 'USD') returning id into v_k_famt;
   insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_date) values (v_org, v_uid, v_k_inv1, 'due_date', v_k_inv1::text || '::due_date', 'one', 0.95, '2026-08-31');
-  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_inv1, 'issued_by', v_k_inv1::text || '::issued_by', 'one', 0.95, v_k_bright);
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_inv1, 'issued_by', v_k_inv1::text || '::issued_by', 'one', 0.95, v_k_bright) returning id into v_f_issued;
   insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_inv1, 'account_manager', v_k_inv1::text || '::account_manager', 'one', 0.9, v_k_elena);
   insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_num, unit) values (v_org, v_uid, v_k_inv2, 'amount', v_k_inv2::text || '::amount', 'one', 0.95, 4250, 'USD');
   insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_date) values (v_org, v_uid, v_k_inv2, 'due_date', v_k_inv2::text || '::due_date', 'one', 0.95, '2026-08-15');
   insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_inv2, 'issued_by', v_k_inv2::text || '::issued_by', 'one', 0.95, v_k_north);
   insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_text) values (v_org, v_uid, v_k_james, 'role', v_k_james::text || '::role', 'one', 0.9, 'Enterprise Account Executive');
-  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_james, 'works_for', v_k_james::text || '::works_for', 'one', 0.92, v_k_bright);
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_james, 'works_for', v_k_james::text || '::works_for', 'one', 0.92, v_k_bright) returning id into v_f_jworks;
   insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_text) values (v_org, v_uid, v_k_elena, 'role', v_k_elena::text || '::role', 'one', 0.9, 'Account Manager');
   insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_elena, 'works_for', v_k_elena::text || '::works_for', 'one', 0.9, v_k_bright);
-  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_maria, 'works_for', v_k_maria::text || '::works_for', 'one', 0.85, v_k_north);
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_maria, 'works_for', v_k_maria::text || '::works_for', 'one', 0.85, v_k_north) returning id into v_f_mworks;
   insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_text) values (v_org, v_uid, v_k_acme, 'industry', v_k_acme::text || '::industry', 'one', 0.8, 'Software');
 
-  -- Provenance: the invoice total is corroborated by two messages.
+  -- Provenance: each fact points back at the real message(s) it came from, so
+  -- the Knowledge tab's "where did this come from?" drill-down has evidence to
+  -- show. The invoice total is corroborated by two separate emails.
   insert into public.fact_sources (org_id, fact_id, source_item_id, snippet) values
-    (v_org, v_k_famt, null, 'total $18,500'),
-    (v_org, v_k_famt, null, 'invoice for 18,500 USD');
+    (v_org, v_k_famt,    v_item1, 'a total of $18,500'),
+    (v_org, v_k_famt,    v_item3, 'the invoice for 18,500 USD is approved'),
+    (v_org, v_f_issued,  v_item1, 'Issued by Brightwave, payable by Aug 31'),
+    (v_org, v_f_jworks,  v_item2, 'James Porter from Brightwave'),
+    (v_org, v_f_mworks,  v_item2, 'Maria Gomez who runs ops at Northwind');
 end
 $$;
 

@@ -12,6 +12,28 @@
 > Last updated: 2026-07-09
 
 ## Recent changes
+- **2026-07-09** — **Fact provenance drill-down ("where did this come from?").** The
+  Knowledge view showed only a provenance *count* per fact; now each fact with
+  sources is **expandable to reveal the actual message(s)** it was extracted from —
+  channel + sender + subject + the exact snippet. `listKnowledge`
+  ([knowledge.ts](lib/datamodo/knowledge.ts)) now joins `fact_sources → items` and
+  embeds `provenance: FactSourceView[]` per fact (new type in
+  [types.ts](lib/datamodo/types.ts)); `sources` is now the real count (was optimistic
+  `?? 1`). UI: expandable fact rows + `SourceRow` cards
+  ([knowledge-view.tsx](app/dashboard/knowledge-view.tsx)). This makes the "parse
+  from communications" story auditable — the trust layer over the smart store.
+  **Seed enriched** ([seed.sql](supabase/seed.sql)): items now carry `body_preview`, a
+  3rd item added, and `fact_sources` link real facts (invoice amount ×2 emails,
+  issued-by, two works-for) to those messages — so the drill-down is populated in the
+  demo. **Needs `supabase db reset`** locally to take effect. Typecheck clean. **NOT
+  yet verified in-browser.**
+- **2026-07-09** — **Real keyword search shipped (Search tab is no longer a mock).**
+  `searchDatasets` ([search.ts](lib/datamodo/search.ts)) + `GET /api/search?q=`
+  ([route.ts](app/api/search/route.ts)) + a rewritten `SearchTab` with a real input,
+  term-highlighted result cards that open the source table, empty/no-match states, and
+  example prompts. Ranks rows by distinct query terms matched across values / column
+  labels / table name. Honest note that NL answers + citations are still coming.
+  Typecheck clean; not yet verified in-browser. (PR #16.)
 - **2026-07-09** — **Nav simplified: Knowledge folded into Data (surface matches the
   promise).** Top nav is now **Agents · Data · Review · Search** (was 5 tabs). The
   Knowledge view is no longer a top-level tab — it's a **Tables / Knowledge**

@@ -9,7 +9,35 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { C, monoLabel } from "./ui";
-import type { KnowledgeEntityView } from "@/lib/datamodo/types";
+import type { KnowledgeEntityView, FactSourceView } from "@/lib/datamodo/types";
+
+const CHANNEL_META: Record<string, { emoji: string; label: string }> = {
+  email: { emoji: "✉", label: "Email" },
+  whatsapp: { emoji: "🟢", label: "WhatsApp" },
+  slack: { emoji: "▦", label: "Slack" },
+  teams: { emoji: "◇", label: "Teams" },
+};
+const channelMeta = (c: string) => CHANNEL_META[c] ?? { emoji: "•", label: c };
+
+/** One source message behind a fact — the "where did this come from?" evidence. */
+function SourceRow({ s }: { s: FactSourceView }) {
+  const ch = channelMeta(s.channel);
+  return (
+    <div style={{ background: "#FCFAF4", border: "1px solid #EDE7DA", borderRadius: 10, padding: "8px 10px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: s.snippet || s.preview ? 5 : 0, minWidth: 0 }}>
+        <span style={{ fontSize: 11 }}>{ch.emoji}</span>
+        <span className="dm-mono" style={{ fontSize: 9.5, color: "#8A8477", flexShrink: 0 }}>{ch.label}</span>
+        {s.sender && <span style={{ fontSize: 11.5, color: C.ink, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.sender}</span>}
+        {s.subject && <span style={{ fontSize: 11, color: "#8A8477", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>· {s.subject}</span>}
+      </div>
+      {s.snippet ? (
+        <div style={{ fontSize: 12, color: "#57534A", lineHeight: 1.45 }}>“<span style={{ fontStyle: "italic" }}>{s.snippet}</span>”</div>
+      ) : s.preview ? (
+        <div style={{ fontSize: 12, color: "#8A8477", lineHeight: 1.45, overflow: "hidden", textOverflow: "ellipsis" }}>{s.preview}</div>
+      ) : null}
+    </div>
+  );
+}
 
 const KIND_TONE: Record<string, string> = {
   person: C.blue,
@@ -27,6 +55,7 @@ const plural = (kind: string) => (/[sx]$/.test(kind) ? kind : kind + "s");
 function EntityCard({ e }: { e: KnowledgeEntityView }) {
   const tone = toneOf(e.kind);
   const keys = Object.entries(e.naturalKeys ?? {});
+  const [openFact, setOpenFact] = useState<number | null>(null);
   return (
     <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 13, padding: "13px 15px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: keys.length || e.facts.length ? 10 : 0 }}>
@@ -44,16 +73,35 @@ function EntityCard({ e }: { e: KnowledgeEntityView }) {
         </div>
       )}
       {e.facts.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(84px,auto) 1fr", gap: "5px 12px", fontSize: 12.5 }}>
-          {e.facts.map((f, i) => (
-            <div key={i} style={{ display: "contents" }}>
-              <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", whiteSpace: "nowrap" }}>{f.predicate.replace(/_/g, " ")}</span>
-              <span style={{ color: f.ref ? C.accent : "#3A352C", fontWeight: f.ref ? 600 : 400, display: "flex", gap: 6, alignItems: "baseline" }}>
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{f.ref ? `→ ${f.value}` : f.value}</span>
-                {f.sources > 1 && <span className="dm-mono" style={{ fontSize: 9, color: "#B7AF9F", flexShrink: 0 }}>×{f.sources}</span>}
-              </span>
-            </div>
-          ))}
+        <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          {e.facts.map((f, i) => {
+            const hasProv = f.provenance.length > 0;
+            const open = openFact === i;
+            return (
+              <div key={i}>
+                <button
+                  type="button"
+                  onClick={hasProv ? () => setOpenFact(open ? null : i) : undefined}
+                  aria-expanded={hasProv ? open : undefined}
+                  style={{ display: "grid", gridTemplateColumns: "minmax(84px,auto) 1fr auto", gap: 12, alignItems: "baseline", width: "100%", textAlign: "left", background: open ? "#FBF8F1" : "transparent", border: "none", borderRadius: 7, padding: "4px 6px", margin: "0 -6px", cursor: hasProv ? "pointer" : "default", fontFamily: "inherit", fontSize: 12.5, color: "inherit" }}
+                >
+                  <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", whiteSpace: "nowrap" }}>{f.predicate.replace(/_/g, " ")}</span>
+                  <span style={{ color: f.ref ? C.accent : "#3A352C", fontWeight: f.ref ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis" }}>{f.ref ? `→ ${f.value}` : f.value}</span>
+                  {hasProv && (
+                    <span className="dm-mono" style={{ fontSize: 9.5, color: open ? C.accent : "#B7AF9F", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      {f.sources} source{f.sources === 1 ? "" : "s"}
+                      <span style={{ display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }}>›</span>
+                    </span>
+                  )}
+                </button>
+                {open && hasProv && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, margin: "5px 0 8px", paddingLeft: 6 }}>
+                    {f.provenance.map((s, j) => <SourceRow key={j} s={s} />)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
