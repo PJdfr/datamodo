@@ -24,8 +24,12 @@
   `service_role` only). **Consumer:** [`app/api/jobs/extract-tick/route.ts`](app/api/jobs/extract-tick/route.ts)
   (Node, `CRON_SECRET`-gated) drains a bounded batch, runs the existing `runExtractionForItem`
   per item, archives on success, lets pgmq's visibility timeout retry failures, and dead-letters
-  poison messages after 5 attempts. **Schedule:** [`vercel.json`](vercel.json) cron hits it
-  every minute (needs Vercel **Pro** for per-minute). **CI gate:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+  poison messages after 5 attempts. **Schedule:** driven from **Supabase** (not Vercel
+  Cron — Hobby rejects sub-daily crons): migration
+  [`20260709120000_extraction_cron.sql`](supabase/migrations/20260709120000_extraction_cron.sql)
+  uses **pg_cron** + **pg_net** to POST to the consumer every minute, reading the app URL +
+  `CRON_SECRET` from **Supabase Vault** at run time (no secret in git; no-ops when unset so
+  CI/local stay green). Plan-independent + co-located with the queue. **CI gate:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
   applies every migration + seed to a throwaway local Postgres (the "never lose user data"
   check) + typecheck + build. Verified locally end-to-end: `supabase db reset` applies the
   migration clean; trigger enqueues on both INSERT-at-stored and UPDATE-to-stored; `service_role`
@@ -384,7 +388,7 @@ ingest()                    lib/ingest/store.ts
    ▼
    trigger on items(status→'stored')  →  pgmq queue 'extraction_jobs'
    ▼
-   Vercel Cron (every min) → POST /api/jobs/extract-tick  (CRON_SECRET-gated)
+   Supabase pg_cron (every min) → pg_net POST /api/jobs/extract-tick (CRON_SECRET-gated)
    └─ drains batch → runExtractionForItem → LLM extract → ingestExtraction
       → entities/facts (knowledge layer) → projectEntitiesToDataset → tables
    ▼
@@ -411,10 +415,11 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
 handles auth/email/OAuth + Postgres + Storage; Vercel handles hosting + GitHub-integration
 deploys; everything runs from `git merge`. Hosted project `datamodo`
 (`dywkfirozofxyohqmxrn`, **eu-west-1**, PG 17) — good for EU data residency.
-- **Where jobs run:** in-Postgres **pgmq** queue drained by **Vercel Cron → a Next.js
-  route** (not Supabase Edge Functions — avoids a Deno fork of `lib/`; not an external
-  worker — avoids a third ecosystem a self-hoster must stand up). `pg_cron` + `pg_net`
-  are available if we later want DB-side/event-driven triggering instead of polling.
+- **Where jobs run:** in-Postgres **pgmq** queue; a **Supabase pg_cron** job fires every
+  minute and **pg_net** POSTs to a **Next.js route** consumer (not Supabase Edge Functions —
+  avoids a Deno fork of `lib/`; not an external worker — avoids a third ecosystem; not Vercel
+  Cron — Hobby rejects sub-daily schedules). Scheduler lives with the queue and travels in the
+  migration, so self-hosters get it free. Secret/URL come from **Supabase Vault** at run time.
 - **Where client data lives:** 100% Supabase Postgres + Storage, RLS by `org_id`.
   **Raw messages kept indefinitely** → facts/tables are rebuildable projections (re-extract
   if a facts migration ever goes wrong). This is the "never lose their data" safety net.

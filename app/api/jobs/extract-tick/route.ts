@@ -10,8 +10,9 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 // How many jobs to drain per tick, and how long each stays invisible while we
-// work on it. Kept small so LLM cost/concurrency stays bounded per invocation.
-const BATCH = Number(process.env.EXTRACT_BATCH ?? 5);
+// work on it. Default 3 keeps a tick of sequential LLM calls under Vercel Hobby's
+// 60s function cap; raise EXTRACT_BATCH on Pro (up to 300s) for more throughput.
+const BATCH = Number(process.env.EXTRACT_BATCH ?? 3);
 const VISIBILITY_SECONDS = 120;
 // After this many delivery attempts a job is treated as poison and archived
 // (the item is already marked 'failed' with its error by runExtractionForItem).
