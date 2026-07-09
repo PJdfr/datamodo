@@ -9,9 +9,21 @@
 > "Recent changes", and adjust "Next steps". Keep it tight — this is a map,
 > not a changelog. Details live in code, migrations, and `app/dashboard/README.md`.
 >
-> Last updated: 2026-07-08
+> Last updated: 2026-07-09
 
 ## Recent changes
+- **2026-07-09** — **Nav simplified: Knowledge folded into Data (surface matches the
+  promise).** Top nav is now **Agents · Data · Review · Search** (was 5 tabs). The
+  Knowledge view is no longer a top-level tab — it's a **Tables / Knowledge**
+  sub-toggle inside the Data tab ([control-center.tsx](app/dashboard/control-center.tsx),
+  `Segmented` from `ui.tsx`), reinforcing "tables are *derived from* your knowledge"
+  rather than making the user reason about the facts ontology up front. `KnowledgeView`
+  and "Build from knowledge" are untouched — just relocated. Rationale: the product's
+  value prop is "forward messages → clean tables"; the facts/entities layer is the
+  engine, not a user-facing destination. Typecheck clean for the change (repo's
+  pre-existing tsc errors are from absent optional deps `stripe`/`@tanstack/react-table`
+  in this sandbox's partial node_modules). **NOT yet verified in-browser** (needs a
+  logged-in local session).
 - **2026-07-09** — **Clean Data table view + demo knowledge seeded.** Table detail
   no longer has the table-level "Review changes"/"Simulate agent update" panel
   (review is fact-level) — tables are just viewed/edited/synced (version History

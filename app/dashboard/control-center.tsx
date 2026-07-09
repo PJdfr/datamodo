@@ -71,7 +71,8 @@ import { BuildFromKnowledgeModal } from "./build-from-knowledge";
 /* ================================================================== */
 /* Component                                                           */
 /* ================================================================== */
-type Tab = "agents" | "knowledge" | "data" | "review" | "search";
+type Tab = "agents" | "data" | "review" | "search";
+type DataView = "tables" | "knowledge";
 export type ControlCenterProps = {
   fullName: string;
   initial: string;
@@ -169,6 +170,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const [createTableOpen, setCreateTableOpen] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [buildOpen, setBuildOpen] = useState(false);
+  const [dataView, setDataView] = useState<DataView>("tables");
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
   const manageAgent = agents.find((a) => a.id === manageAgentId) ?? null;
   const openTable = datasets.find((d) => d.id === openTableId) ?? null;
@@ -225,8 +227,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
 
   const titles: Record<Tab, { t: string; sub: string }> = {
     agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
-    knowledge: { t: "Knowledge", sub: "The people, companies & things we know about — your tables are built from these" },
-    data: { t: "Data", sub: uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · derived from your knowledge` : "No tables yet" },
+    data: { t: "Data", sub: dataView === "knowledge" ? "The people, companies & things we know about — your tables are built from these" : uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · derived from your knowledge` : "No tables yet" },
     review: { t: "Review", sub: reviewTotal ? `${reviewTotal} to confirm — merges, conflicts & new facts` : "Confirm what we inferred — merges, conflicts & new facts" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
   };
@@ -271,7 +272,6 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
         <nav className="cc-nav" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
           {([
             { key: "agents", label: "Agents", count: uiAgents.length ? String(uiAgents.length) : null, icon: <><rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8V4" /><circle cx="12" cy="3" r="1.4" fill="currentColor" stroke="none" /><path d="M9 14h.01M15 14h.01" /></> },
-            { key: "knowledge", label: "Knowledge", count: null, icon: <><circle cx="5" cy="6" r="2" /><circle cx="19" cy="7" r="2" /><circle cx="12" cy="17" r="2" /><path d="M6.7 7 10.5 15.4M17.6 8.4 13.2 15.6M7 6h10" /></> },
             { key: "data", label: "Data", count: uiTables.length ? String(uiTables.length) : null, icon: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></> },
             { key: "review", label: "Review", count: reviewTotal ? String(reviewTotal) : null, icon: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></> },
             { key: "search", label: "Search", count: null, icon: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></> },
@@ -363,18 +363,24 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
 
         <div className="cc-scroll" style={{ padding: "24px 26px", overflow: "auto", flex: 1 }}>
           {tab === "agents" && (populated ? <AgentsFull agents={uiAgents} activity={agentActivity} autoAccept={autoAccept} setAutoAccept={setAutoAccept} expanded={expanded} setExpanded={setExpanded} openModal={openModal} onManage={setManageAgentId} onReview={() => setTab("review")} pendingCount={pendingCount} /> : <AgentsEmpty openModal={openModal} inbox={inbox} />)}
-          {tab === "knowledge" && <KnowledgeView />}
-          {tab === "data" && (uiTables.length || createTableOpen ? (
+          {tab === "data" && (
             <>
-              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "knowledge", label: "Knowledge" }]} />
                 <Hov onClick={() => setBuildOpen(true)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
                   <span style={{ color: C.accent }}>✦</span> Build from knowledge
                 </Hov>
               </div>
-              {uiTables.length > 0 && <RelationshipGraph tables={uiTables} relations={relations} datasets={datasets} onOpen={setOpenTableId} onChanged={() => router.refresh()} />}
-              <DataFull tables={uiTables} onOpen={setOpenTableId} onCreate={() => setCreateTableOpen(true)} onImported={() => router.refresh()} selected={selectedTables} toggleSelect={(id) => setSelectedTables((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])} />
+              {dataView === "knowledge" ? (
+                <KnowledgeView />
+              ) : uiTables.length || createTableOpen ? (
+                <>
+                  {uiTables.length > 0 && <RelationshipGraph tables={uiTables} relations={relations} datasets={datasets} onOpen={setOpenTableId} onChanged={() => router.refresh()} />}
+                  <DataFull tables={uiTables} onOpen={setOpenTableId} onCreate={() => setCreateTableOpen(true)} onImported={() => router.refresh()} selected={selectedTables} toggleSelect={(id) => setSelectedTables((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])} />
+                </>
+              ) : <DataEmpty openModal={() => setCreateTableOpen(true)} />}
             </>
-          ) : <DataEmpty openModal={() => setCreateTableOpen(true)} />)}
+          )}
           {tab === "review" && <ReviewStudio />}
           {tab === "search" && <SearchTab populated={populated} />}
         </div>
