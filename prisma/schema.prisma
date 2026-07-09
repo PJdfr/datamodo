@@ -1,8 +1,477 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
   provider = "postgresql"
-  // Prisma 7 moved connection URLs (DATABASE_URL / DIRECT_URL) to prisma.config.ts.
+}
+
+model agents {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  org_id        String        @db.Uuid
+  owner_user_id String        @db.Uuid
+  name          String
+  purpose_text  String?
+  purpose       agent_purpose @default(curate)
+  channels      String[]      @default([])
+  mode          agent_mode    @default(auto)
+  status        agent_status  @default(active)
+  freestyle     Boolean       @default(false)
+  avatar_bg     String?
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime      @default(now()) @db.Timestamptz(6)
+  organizations organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  datasets      datasets[]
+
+  @@index([org_id, created_at], map: "agents_org_created_idx")
+  @@index([org_id], map: "agents_org_idx")
+  @@index([owner_user_id], map: "agents_owner_idx")
+}
+
+model attachments {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  item_id       String        @db.Uuid
+  org_id        String        @db.Uuid
+  owner_user_id String?       @db.Uuid
+  filename      String?
+  content_type  String?
+  bytes         BigInt        @default(0)
+  blob_hash     String
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  items         items         @relation(fields: [item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organizations organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([item_id], map: "attachments_item_idx")
+  @@index([org_id], map: "attachments_org_idx")
+}
+
+model blobs {
+  org_id        String        @db.Uuid
+  hash          String
+  storage_path  String
+  bytes         BigInt
+  stored_bytes  BigInt
+  encoding      String        @default("identity")
+  content_type  String?
+  ref_count     Int           @default(0)
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  organizations organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([org_id, hash])
+}
+
+model channel_link_codes {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code            String         @unique
+  org_id          String         @db.Uuid
+  owner_user_id   String         @db.Uuid
+  channel         ingest_channel
+  expires_at      DateTime       @db.Timestamptz(6)
+  consumed_at     DateTime?      @db.Timestamptz(6)
+  consumed_handle String?
+  created_at      DateTime       @default(now()) @db.Timestamptz(6)
+  organizations   organizations  @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([code], map: "channel_link_codes_live_idx", where: raw("(consumed_at IS NULL)"))
+  @@index([owner_user_id], map: "channel_link_codes_owner_idx")
+}
+
+model dataset_relations {
+  id                                                   String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  org_id                                               String        @db.Uuid
+  from_dataset_id                                      String        @db.Uuid
+  from_column                                          String
+  to_dataset_id                                        String        @db.Uuid
+  to_column                                            String
+  label                                                String?
+  created_by                                           String?       @db.Uuid
+  created_at                                           DateTime      @default(now()) @db.Timestamptz(6)
+  datasets_dataset_relations_from_dataset_idTodatasets datasets      @relation("dataset_relations_from_dataset_idTodatasets", fields: [from_dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organizations                                        organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  datasets_dataset_relations_to_dataset_idTodatasets   datasets      @relation("dataset_relations_to_dataset_idTodatasets", fields: [to_dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([from_dataset_id, from_column, to_dataset_id, to_column])
+  @@index([from_dataset_id], map: "dataset_relations_from_idx")
+  @@index([org_id], map: "dataset_relations_org_idx")
+  @@index([to_dataset_id], map: "dataset_relations_to_idx")
+}
+
+model dataset_rows {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dataset_id         String             @db.Uuid
+  org_id             String             @db.Uuid
+  data               Json               @default("{}")
+  status             dataset_row_status @default(accepted)
+  source_item_id     String?            @db.Uuid
+  version            Int                @default(1)
+  created_by         String?            @db.Uuid
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime           @default(now()) @db.Timestamptz(6)
+  origin             String             @default("manual")
+  human_edited       Boolean            @default(false)
+  proposed_kind      String?
+  target_row_id      String?            @db.Uuid
+  proposed_by        String?
+  batch_id           String?            @db.Uuid
+  subject_entity_id  String?            @db.Uuid
+  datasets           datasets           @relation(fields: [dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organizations      organizations      @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  items              items?             @relation(fields: [source_item_id], references: [id], onUpdate: NoAction)
+  entities           entities?          @relation(fields: [subject_entity_id], references: [id], onUpdate: NoAction)
+  dataset_rows       dataset_rows?      @relation("dataset_rowsTodataset_rows", fields: [target_row_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  other_dataset_rows dataset_rows[]     @relation("dataset_rowsTodataset_rows")
+
+  @@index([batch_id], map: "dataset_rows_batch_idx", where: raw("(status = 'proposed'::dataset_row_status)"))
+  @@index([dataset_id], map: "dataset_rows_dataset_idx")
+  @@index([dataset_id, status, created_at], map: "dataset_rows_dataset_status_created_idx")
+  @@index([dataset_id, subject_entity_id], map: "dataset_rows_entity_idx")
+  @@index([org_id, created_at], map: "dataset_rows_org_created_idx")
+  @@index([org_id], map: "dataset_rows_org_idx")
+  @@index([org_id, created_at(sort: Desc)], map: "dataset_rows_org_proposed_idx", where: raw("(status = 'proposed'::dataset_row_status)"))
+  @@index([dataset_id], map: "dataset_rows_proposed_idx", where: raw("(status = 'proposed'::dataset_row_status)"))
+}
+
+model dataset_snapshots {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dataset_id    String        @db.Uuid
+  org_id        String        @db.Uuid
+  actor         String        @default("You")
+  summary       String
+  columns       Json          @default("[]")
+  rows          Json          @default("[]")
+  created_by    String?       @db.Uuid
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  datasets      datasets      @relation(fields: [dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organizations organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([dataset_id, created_at(sort: Desc)], map: "dataset_snapshots_dataset_idx")
+  @@index([org_id, created_at(sort: Desc)], map: "dataset_snapshots_org_created_idx")
+}
+
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model datasets {
+  id                                                            String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  org_id                                                        String              @db.Uuid
+  agent_id                                                      String?             @db.Uuid
+  name                                                          String
+  description                                                   String?
+  columns                                                       Json                @default("[]")
+  created_by                                                    String?             @db.Uuid
+  created_at                                                    DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at                                                    DateTime            @default(now()) @db.Timestamptz(6)
+  dataset_relations_dataset_relations_from_dataset_idTodatasets dataset_relations[] @relation("dataset_relations_from_dataset_idTodatasets")
+  dataset_relations_dataset_relations_to_dataset_idTodatasets   dataset_relations[] @relation("dataset_relations_to_dataset_idTodatasets")
+  dataset_rows                                                  dataset_rows[]
+  dataset_snapshots                                             dataset_snapshots[]
+  agents                                                        agents?             @relation(fields: [agent_id], references: [id], onUpdate: NoAction)
+  organizations                                                 organizations       @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  sheet_links                                                   sheet_links?
+
+  @@index([agent_id], map: "datasets_agent_idx")
+  @@index([org_id, created_at], map: "datasets_org_created_idx")
+}
+
+model entities {
+  id                                                             String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  org_id                                                         String                 @db.Uuid
+  owner_user_id                                                  String?                @db.Uuid
+  kind                                                           String
+  canonical_label                                                String
+  normalized_key                                                 String
+  natural_keys                                                   Json                   @default("{}")
+  embedding                                                      Unsupported("vector")?
+  support                                                        Int                    @default(0)
+  merged_into                                                    String?                @db.Uuid
+  created_at                                                     DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at                                                     DateTime               @default(now()) @db.Timestamptz(6)
+  dataset_rows                                                   dataset_rows[]
+  entities                                                       entities?              @relation("entitiesToentities", fields: [merged_into], references: [id], onUpdate: NoAction)
+  other_entities                                                 entities[]             @relation("entitiesToentities")
+  organizations                                                  organizations          @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facts_facts_object_entity_idToentities                         facts[]                @relation("facts_object_entity_idToentities")
+  facts_facts_subject_entity_idToentities                        facts[]                @relation("facts_subject_entity_idToentities")
+  knowledge_reviews_knowledge_reviews_source_entity_idToentities knowledge_reviews[]    @relation("knowledge_reviews_source_entity_idToentities")
+  knowledge_reviews_knowledge_reviews_target_entity_idToentities knowledge_reviews[]    @relation("knowledge_reviews_target_entity_idToentities")
+
+  @@unique([org_id, kind, normalized_key], map: "entities_norm_key_uq", where: raw("(merged_into IS NULL)"))
+  @@index([embedding])
+  @@index([canonical_label(ops: raw("gin_trgm_ops"))], map: "entities_label_trgm", type: Gin)
+  @@index([org_id], map: "entities_org_idx")
+}
+
+model fact_sources {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  org_id         String        @db.Uuid
+  fact_id        String        @db.Uuid
+  source_item_id String?       @db.Uuid
+  snippet        String?
+  extracted_at   DateTime      @default(now()) @db.Timestamptz(6)
+  facts          facts         @relation(fields: [fact_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organizations  organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  items          items?        @relation(fields: [source_item_id], references: [id], onUpdate: NoAction)
+
+  @@unique([fact_id, source_item_id])
+  @@index([fact_id], map: "fact_sources_fact_idx")
+}
+
+model facts {
+  id                                                     String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  org_id                                                 String              @db.Uuid
+  owner_user_id                                          String?             @db.Uuid
+  subject_entity_id                                      String              @db.Uuid
+  predicate                                              String
+  object_entity_id                                       String?             @db.Uuid
+  value_text                                             String?
+  value_num                                              Decimal?            @db.Decimal
+  value_date                                             DateTime?           @db.Date
+  unit                                                   String?
+  cardinality                                            String              @default("one")
+  claim_key                                              String
+  confidence                                             Float               @default(1.0) @db.Real
+  valid_from                                             DateTime            @default(now()) @db.Timestamptz(6)
+  valid_to                                               DateTime?           @db.Timestamptz(6)
+  superseded_by                                          String?             @db.Uuid
+  source_item_id                                         String?             @db.Uuid
+  created_at                                             DateTime            @default(now()) @db.Timestamptz(6)
+  fact_sources                                           fact_sources[]
+  entities_facts_object_entity_idToentities              entities?           @relation("facts_object_entity_idToentities", fields: [object_entity_id], references: [id], onUpdate: NoAction)
+  organizations                                          organizations       @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  items                                                  items?              @relation(fields: [source_item_id], references: [id], onUpdate: NoAction)
+  entities_facts_subject_entity_idToentities             entities            @relation("facts_subject_entity_idToentities", fields: [subject_entity_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facts                                                  facts?              @relation("factsTofacts", fields: [superseded_by], references: [id], onUpdate: NoAction)
+  other_facts                                            facts[]             @relation("factsTofacts")
+  knowledge_reviews_knowledge_reviews_new_fact_idTofacts knowledge_reviews[] @relation("knowledge_reviews_new_fact_idTofacts")
+  knowledge_reviews_knowledge_reviews_old_fact_idTofacts knowledge_reviews[] @relation("knowledge_reviews_old_fact_idTofacts")
+
+  @@unique([org_id, claim_key], map: "facts_current_claim_uq", where: raw("(valid_to IS NULL)"))
+  @@index([org_id], map: "facts_org_idx")
+  @@index([source_item_id], map: "facts_source_idx")
+  @@index([subject_entity_id], map: "facts_subject_idx")
+}
+
+model forwarding_addresses {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  org_id        String        @db.Uuid
+  owner_user_id String?       @db.Uuid
+  address       String        @unique
+  label         String?
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  organizations organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([org_id])
+  @@index([owner_user_id], map: "forwarding_addresses_owner_idx")
+}
+
+model ingest_sources {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  org_id        String         @db.Uuid
+  owner_user_id String?        @db.Uuid
+  channel       ingest_channel
+  mode          capture_mode   @default(active)
+  handle        String
+  display_name  String?
+  provider      String?
+  secret        String?
+  status        String         @default("active")
+  created_at    DateTime       @default(now()) @db.Timestamptz(6)
+  organizations organizations  @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  items         items[]
+
+  @@unique([channel, handle])
+  @@index([org_id], map: "ingest_sources_org_idx")
+}
+
+model items {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  org_id            String              @db.Uuid
+  owner_user_id     String?             @db.Uuid
+  source_id         String?             @db.Uuid
+  channel           ingest_channel
+  capture_mode      capture_mode        @default(active)
+  external_id       String?
+  external_account  String?
+  sender            String?
+  recipients        String[]
+  subject           String?
+  body_preview      String?
+  body_hash         String?
+  raw_hash          String?
+  meta              Json                @default("{}")
+  bytes             BigInt              @default(0)
+  sent_at           DateTime?           @db.Timestamptz(6)
+  received_at       DateTime            @default(now()) @db.Timestamptz(6)
+  status            item_status         @default(received)
+  error             String?
+  created_at        DateTime            @default(now()) @db.Timestamptz(6)
+  attachments       attachments[]
+  dataset_rows      dataset_rows[]
+  fact_sources      fact_sources[]
+  facts             facts[]
+  organizations     organizations       @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ingest_sources    ingest_sources?     @relation(fields: [source_id], references: [id], onUpdate: NoAction)
+  knowledge_reviews knowledge_reviews[]
+
+  @@unique([org_id, channel, external_id], map: "items_idem_idx", where: raw("(external_id IS NOT NULL)"))
+  @@index([org_id, received_at(sort: Desc)], map: "items_org_received_idx")
+  @@index([status])
+}
+
+model knowledge_reviews {
+  id                                                    String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  org_id                                                String        @db.Uuid
+  owner_user_id                                         String?       @db.Uuid
+  kind                                                  String
+  status                                                String        @default("pending")
+  confidence                                            Float?        @db.Real
+  impact                                                Int           @default(0)
+  source_entity_id                                      String?       @db.Uuid
+  target_entity_id                                      String?       @db.Uuid
+  new_fact_id                                           String?       @db.Uuid
+  old_fact_id                                           String?       @db.Uuid
+  detail                                                Json          @default("{}")
+  created_at                                            DateTime      @default(now()) @db.Timestamptz(6)
+  resolved_at                                           DateTime?     @db.Timestamptz(6)
+  item_id                                               String?       @db.Uuid
+  items                                                 items?        @relation(fields: [item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facts_knowledge_reviews_new_fact_idTofacts            facts?        @relation("knowledge_reviews_new_fact_idTofacts", fields: [new_fact_id], references: [id], onUpdate: NoAction)
+  facts_knowledge_reviews_old_fact_idTofacts            facts?        @relation("knowledge_reviews_old_fact_idTofacts", fields: [old_fact_id], references: [id], onUpdate: NoAction)
+  organizations                                         organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  entities_knowledge_reviews_source_entity_idToentities entities?     @relation("knowledge_reviews_source_entity_idToentities", fields: [source_entity_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  entities_knowledge_reviews_target_entity_idToentities entities?     @relation("knowledge_reviews_target_entity_idToentities", fields: [target_entity_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([item_id], map: "knowledge_reviews_item_idx")
+  @@index([org_id, status, impact(sort: Desc), confidence], map: "knowledge_reviews_triage_idx")
+}
+
+model organization_members {
+  org_id        String        @db.Uuid
+  user_id       String        @db.Uuid
+  role          org_role      @default(member)
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  organizations organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([org_id, user_id])
+  @@index([user_id])
+}
+
+model organizations {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                 String
+  slug                 String                 @unique
+  is_personal          Boolean                @default(false)
+  created_by           String?                @db.Uuid
+  created_at           DateTime               @default(now()) @db.Timestamptz(6)
+  agents               agents[]
+  attachments          attachments[]
+  blobs                blobs[]
+  channel_link_codes   channel_link_codes[]
+  dataset_relations    dataset_relations[]
+  dataset_rows         dataset_rows[]
+  dataset_snapshots    dataset_snapshots[]
+  datasets             datasets[]
+  entities             entities[]
+  fact_sources         fact_sources[]
+  facts                facts[]
+  forwarding_addresses forwarding_addresses[]
+  ingest_sources       ingest_sources[]
+  items                items[]
+  knowledge_reviews    knowledge_reviews[]
+  organization_members organization_members[]
+  sheet_links          sheet_links[]
+}
+
+model profiles {
+  id         String   @id @db.Uuid
+  email      String?
+  full_name  String?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model sheet_links {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dataset_id     String        @unique @db.Uuid
+  org_id         String        @db.Uuid
+  source_kind    String        @default("upload")
+  source_ref     String?
+  key_column     String
+  last_synced_at DateTime?     @db.Timestamptz(6)
+  created_by     String?       @db.Uuid
+  created_at     DateTime      @default(now()) @db.Timestamptz(6)
+  datasets       datasets      @relation(fields: [dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organizations  organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([org_id], map: "sheet_links_org_idx")
+}
+
+model user_settings {
+  user_id                String       @id @db.Uuid
+  plan                   billing_plan @default(free)
+  compute_mode           String       @default("byok")
+  ai_provider            String       @default("anthropic")
+  byok_key               String?
+  stripe_customer_id     String?
+  stripe_subscription_id String?
+  plan_status            String?
+  current_period_end     DateTime?    @db.Timestamptz(6)
+  created_at             DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime     @default(now()) @db.Timestamptz(6)
+  business_context       String?
+  onboarding             Json         @default("{}")
+}
+
+enum agent_mode {
+  auto
+  ping
+}
+
+enum agent_purpose {
+  curate
+  auto
+}
+
+enum agent_status {
+  active
+  paused
+}
+
+enum billing_plan {
+  free
+  pro
+  max
+}
+
+enum capture_mode {
+  active
+  auto
+}
+
+enum dataset_row_status {
+  accepted
+  proposed
+}
+
+enum ingest_channel {
+  email
+  whatsapp
+  slack
+  teams
+  sms
+  upload
+  other
+}
+
+enum item_status {
+  received
+  stored
+  analyzing
+  analyzed
+  failed
+  skipped
+}
+
+enum org_role {
+  owner
+  admin
+  member
 }
