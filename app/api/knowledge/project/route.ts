@@ -1,6 +1,5 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
+import { getSessionUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { projectEntitiesToDataset } from "@/lib/datamodo/project";
@@ -11,8 +10,7 @@ import { projectEntitiesToDataset } from "@/lib/datamodo/project";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  const db = createClient(await cookies());
-  const { data: { user } } = await db.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const org = await getActiveOrg(user.id);
   if (!org) return NextResponse.json({ error: "no org" }, { status: 403 });

@@ -367,15 +367,19 @@ the same migration SQL to `prod` — Neon branches don't git-merge DDL).
   casts — **runtime date-serialization is a follow-up to verify when the app runs**. `tsc` clean
   + `next build` green. Remaining `@supabase` usage is only the auth (`utils/supabase/*`,
   `app/auth/confirm`) and storage (`lib/ingest/store.ts`) layers → steps 2 & 5.
-- 🔨 **2. Auth → Neon Auth** (**Better Auth**, provisioned; email+password + Google shared,
-  verification off; GitHub needs your own OAuth app creds). **Foundation done:**
-  `@neondatabase/auth` SDK, [lib/auth/server.ts](lib/auth/server.ts) + [client.ts](lib/auth/client.ts),
-  [/api/auth/[...path]](app/api/auth/[...path]/route.ts) handler, env (`NEON_AUTH_BASE_URL`,
-  `NEON_AUTH_COOKIE_SECRET`). **Remaining cutover:** rewrite `app/auth/actions.ts`
-  (signIn/signUp/signOut) + login/register pages, add `proxy.ts` middleware, replace
-  `supabase.auth.getUser()` with `auth.getSession()`, a session→`org_id` helper, then delete
-  `utils/supabase/*` + `app/auth/{callback,confirm}`. **Open decision:** Better Auth user id
-  type vs our `uuid` `owner_user_id`/`user_id` columns (may need text, or map).
+- ✅ **2. Auth → Neon Auth** — done (compile-verified; not yet run live). **Better Auth**,
+  provisioned; email+password + Google (shared creds), verification off. `@neondatabase/auth`
+  SDK; [lib/auth/server.ts](lib/auth/server.ts)/[client.ts](lib/auth/client.ts)/[session.ts](lib/auth/session.ts);
+  [/api/auth/[...path]](app/api/auth/[...path]/route.ts) handler; [proxy.ts](proxy.ts) protects
+  `/dashboard`. `app/auth/actions.ts` → `auth.signIn/signUp/signOut`; GoogleButton →
+  `authClient.signIn.social`; all `db.auth.getUser()` → `getSessionUser()`. Deleted
+  `app/auth/{callback,confirm}` + `utils/supabase/{server,client,middleware}`. Better Auth user
+  ids are **uuid** → drop straight into our columns, no schema change. `tsc` + `next build` green.
+  **Owed by a human:** GitHub OAuth needs your own OAuth-app client id/secret (no shared creds).
+- ✅ **3. App-layer authz** — folded into step 2: `requireUserOrg()`/`getSessionUser()` in
+  [lib/auth/session.ts](lib/auth/session.ts); all DB scoped by `org_id` in code (RLS gone).
+- ✅ **4. Signup side-effects** — folded in: `requireUserOrg()` lazily provisions personal org
+  + profile + settings + inbox on first sign-in (covers email + OAuth).
 - ⬜ **3. App-layer authz** — RLS is gone; central `requireUser()` and always filter by
   `org_id` in server code.
 - ⬜ **4. Signup side-effects** — reimplement the old `handle_new_user` trigger in app code:

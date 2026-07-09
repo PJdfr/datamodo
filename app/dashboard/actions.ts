@@ -1,8 +1,7 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/utils/supabase/server";
+import { getSessionUser } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { createAgent, deleteAgent, setAgentStatus, updateAgent } from "@/lib/datamodo/agents";
 import {
@@ -41,20 +40,17 @@ import type { DatasetColumn, DatasetRowRecord, NewAgentInput, SnapshotFull } fro
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
 async function ctx() {
-  const db = createClient(await cookies());
-  const {
-    data: { user },
-  } = await db.auth.getUser();
-  if (!user) return { db, user: null, org: null } as const;
+  const user = await getSessionUser();
+  if (!user) return { user: null, org: null } as const;
   const org = await getActiveOrg(user.id);
-  return { db, user, org } as const;
+  return { user, org } as const;
 }
 
 export async function createAgentAction(
   input: NewAgentInput,
 ): Promise<ActionResult> {
   try {
-    const { db, user, org } = await ctx();
+    const { user, org } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     if (!org) return { ok: false, error: "No organization found." };
     if (!input.name?.trim()) return { ok: false, error: "Give the agent a name." };
@@ -86,7 +82,7 @@ export async function updateComputeSettingsAction(patch: {
   byokKey?: string | null;
 }): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await updateComputeSettings(user.id, patch);
     revalidatePath("/dashboard");
@@ -103,7 +99,7 @@ export async function createDatasetAction(input: {
   agentId?: string | null;
 }): Promise<ActionResult> {
   try {
-    const { db, user, org } = await ctx();
+    const { user, org } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     if (!org) return { ok: false, error: "No organization found." };
     if (!input.name?.trim()) return { ok: false, error: "Give the dataset a name." };
@@ -128,7 +124,7 @@ export async function updateAgentAction(
   },
 ): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await updateAgent(agentId, patch);
     revalidatePath("/dashboard");
@@ -144,7 +140,7 @@ export async function updateAgentAction(
 
 export async function renameDatasetAction(datasetId: string, name: string): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await renameDataset(datasetId, name);
     revalidatePath("/dashboard");
@@ -156,7 +152,7 @@ export async function renameDatasetAction(datasetId: string, name: string): Prom
 
 export async function deleteDatasetAction(datasetId: string): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await deleteDataset(datasetId);
     revalidatePath("/dashboard");
@@ -171,7 +167,7 @@ export async function setColumnsAction(
   columns: DatasetColumn[],
 ): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await setColumns(datasetId, columns);
     revalidatePath("/dashboard");
@@ -186,7 +182,7 @@ export async function addColumnAction(
   column: { label: string; type: string; defaultValue?: unknown },
 ): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     if (!column.label?.trim()) return { ok: false, error: "Give the column a name." };
     await checkpoint(datasetId, `Added column “${column.label.trim()}”`, () => addColumn(datasetId, column));
@@ -199,7 +195,7 @@ export async function addColumnAction(
 
 export async function removeColumnAction(datasetId: string, key: string): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await checkpoint(datasetId, "Removed a column", () => removeColumn(datasetId, key));
     revalidatePath("/dashboard");
@@ -214,7 +210,7 @@ export async function addRowAction(
   data: Record<string, unknown>,
 ): Promise<ActionResult> {
   try {
-    const { db, user, org } = await ctx();
+    const { user, org } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     if (!org) return { ok: false, error: "No organization found." };
     await checkpoint(datasetId, "Added a row", () => insertRow(org.id, datasetId, data, { createdBy: user.id }));
@@ -231,7 +227,7 @@ export async function updateRowAction(
   data: Record<string, unknown>,
 ): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await checkpoint(datasetId, "Edited a row", () => updateRow(rowId, data));
     revalidatePath("/dashboard");
@@ -243,7 +239,7 @@ export async function updateRowAction(
 
 export async function deleteRowAction(datasetId: string, rowId: string): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await checkpoint(datasetId, "Deleted a row", () => deleteRow(rowId));
     revalidatePath("/dashboard");
@@ -272,7 +268,7 @@ export async function getDatasetRowsAction(
   opts?: { limit?: number; offset?: number },
 ): Promise<RowsResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     const { rows, total } = await listDatasetRows(datasetId, opts ?? {});
     return { ok: true, rows, total };
@@ -283,7 +279,7 @@ export async function getDatasetRowsAction(
 
 export async function getSnapshotsAction(datasetId: string): Promise<SnapshotsResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     const snapshots = await listSnapshotsFull(datasetId);
     return { ok: true, snapshots };
@@ -294,7 +290,7 @@ export async function getSnapshotsAction(datasetId: string): Promise<SnapshotsRe
 
 export async function restoreSnapshotAction(snapshotId: string): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await restoreSnapshot(snapshotId);
     revalidatePath("/dashboard");
@@ -306,7 +302,7 @@ export async function restoreSnapshotAction(snapshotId: string): Promise<ActionR
 
 export async function simulateAgentUpdateAction(datasetId: string): Promise<ActionResult> {
   try {
-    const { db, user, org } = await ctx();
+    const { user, org } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     if (!org) return { ok: false, error: "No organization found." };
     await simulateAgentUpdate(org.id, datasetId);
@@ -319,7 +315,7 @@ export async function simulateAgentUpdateAction(datasetId: string): Promise<Acti
 
 export async function acceptProposalAction(proposalId: string): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     const res = await acceptProposal(proposalId);
     if (res) await checkpoint(res.datasetId, res.summary, async () => {}, res.actor);
@@ -332,7 +328,7 @@ export async function acceptProposalAction(proposalId: string): Promise<ActionRe
 
 export async function rejectProposalAction(proposalId: string): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await rejectProposal(proposalId);
     revalidatePath("/dashboard");
@@ -344,7 +340,7 @@ export async function rejectProposalAction(proposalId: string): Promise<ActionRe
 
 export async function acceptBatchAction(batchId: string): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     const res = await acceptBatch(batchId);
     if (res) await checkpoint(res.datasetId, res.summary, async () => {}, res.actor);
@@ -357,7 +353,7 @@ export async function acceptBatchAction(batchId: string): Promise<ActionResult> 
 
 export async function rejectBatchAction(batchId: string): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await rejectBatch(batchId);
     revalidatePath("/dashboard");
@@ -372,7 +368,7 @@ export async function rejectBatchAction(batchId: string): Promise<ActionResult> 
  *  Snapshots each affected table once, attributed to the agent(s) involved. */
 export async function acceptProposalsAction(ids: string[]): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     const results = await acceptProposals(ids);
     for (const r of results) await checkpoint(r.datasetId, r.summary, async () => {}, r.actor);
@@ -386,7 +382,7 @@ export async function acceptProposalsAction(ids: string[]): Promise<ActionResult
 /** Reject (discard) an arbitrary set of proposals. */
 export async function rejectProposalsAction(ids: string[]): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await rejectProposals(ids);
     revalidatePath("/dashboard");
@@ -408,7 +404,7 @@ export async function createRelationAction(input: {
   label?: string | null;
 }): Promise<ActionResult> {
   try {
-    const { db, user, org } = await ctx();
+    const { user, org } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     if (!org) return { ok: false, error: "No organization found." };
     await createRelation(org.id, { ...input, createdBy: user.id });
@@ -421,7 +417,7 @@ export async function createRelationAction(input: {
 
 export async function deleteRelationAction(id: string): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await deleteRelation(id);
     revalidatePath("/dashboard");
@@ -438,7 +434,7 @@ export async function deleteRelationAction(id: string): Promise<ActionResult> {
 /** Retire the current inbound address and mint a fresh one. */
 export async function regenerateInboxAction(): Promise<ActionResult & { address?: string }> {
   try {
-    const { db, user, org } = await ctx();
+    const { user, org } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     if (!org) return { ok: false, error: "No organization found." };
     const address = await regenerateInbox(org.id, user.id);
@@ -457,7 +453,7 @@ export async function createChannelLinkCodeAction(
   channel: string,
 ): Promise<ActionResult & { code?: string; expiresAt?: string }> {
   try {
-    const { db, user, org } = await ctx();
+    const { user, org } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     if (!org) return { ok: false, error: "No organization found." };
     if (!LINKABLE_CHANNELS.includes(channel as IngestChannel)) {
@@ -475,7 +471,7 @@ export async function setAgentStatusAction(
   status: "active" | "paused",
 ): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await setAgentStatus(agentId, status);
     revalidatePath("/dashboard");
@@ -487,7 +483,7 @@ export async function setAgentStatusAction(
 
 export async function deleteAgentAction(agentId: string): Promise<ActionResult> {
   try {
-    const { db, user } = await ctx();
+    const { user } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     await deleteAgent(agentId);
     revalidatePath("/dashboard");

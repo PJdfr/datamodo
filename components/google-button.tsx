@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/utils/supabase/client";
+import { authClient } from "@/lib/auth/client";
 
 /**
- * Styled "Continue with Google" button for the auth screens. Uses the same
- * Supabase OAuth flow as the rest of the app; on success the browser is
- * redirected to Google, then back through /auth/callback.
+ * Styled "Continue with Google" button for the auth screens. Uses Neon Auth
+ * (Better Auth) social sign-in; on success the browser is redirected to Google,
+ * then back to `next` via the /api/auth callback handled by Neon Auth.
  */
 export function GoogleButton({
   next = "/dashboard",
@@ -15,21 +15,19 @@ export function GoogleButton({
   next?: string;
   label?: string;
 }) {
-  const supabase = createClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function signIn() {
     setBusy(true);
     setError(null);
-    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { error } = await authClient.signIn.social({
       provider: "google",
-      options: { redirectTo },
+      callbackURL: next,
     });
     if (error) {
       setBusy(false);
-      setError(error.message);
+      setError(error.message ?? "Google sign-in failed");
     }
     // On success the browser navigates away to Google.
   }

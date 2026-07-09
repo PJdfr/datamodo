@@ -1,5 +1,4 @@
-import { cookies } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
+import { getSessionUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { parseWorkbook } from "@/lib/datamodo/spreadsheet";
@@ -18,8 +17,7 @@ function json(body: unknown, status = 200) {
 }
 
 export async function POST(req: Request) {
-  const db = createClient(await cookies());
-  const { data: { user } } = await db.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return json({ error: "Unauthorized" }, 401);
   const org = await getActiveOrg(user.id);
   if (!org) return json({ error: "No organization found" }, 404);

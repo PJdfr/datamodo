@@ -1,5 +1,5 @@
-import { cookies } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
+import { getSessionUser } from "@/lib/auth/session";
+import { prisma } from "@/lib/prisma";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { listAgents } from "@/lib/datamodo/agents";
 import { listDatasets } from "@/lib/datamodo/datasets";
@@ -12,15 +12,12 @@ import type { AgentActivityEntry, AgentRecord, DatasetRelation, DatasetView, Rev
 import ControlCenter from "./control-center";
 
 export default async function DashboardPage() {
-  const supabase = createClient(await cookies());
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
 
   let inbox = `you@${inboundEmailDomain()}`;
 
   const fullName =
-    (user?.user_metadata?.full_name as string | undefined)?.trim() ||
+    (user?.name as string | undefined)?.trim() ||
     user?.email?.split("@")[0] ||
     "You";
   const initial = fullName.charAt(0).toUpperCase();
@@ -75,12 +72,9 @@ export default async function DashboardPage() {
         if (act.status === "fulfilled") agentActivity = act.value; else notice = SCHEMA_NOTICE;
         // Pending knowledge reviews (merges/conflicts/extractions) for the Review tab badge.
         try {
-          const { count } = await supabase
-            .from("knowledge_reviews")
-            .select("id", { count: "exact", head: true })
-            .eq("org_id", org.id)
-            .eq("status", "pending");
-          pendingReviewCount = count ?? 0;
+          pendingReviewCount = await prisma.knowledge_reviews.count({
+            where: { org_id: org.id, status: "pending" },
+          });
         } catch {
           /* table may be behind on migrations — leave 0 */
         }
