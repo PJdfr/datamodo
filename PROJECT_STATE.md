@@ -12,6 +12,18 @@
 > Last updated: 2026-07-09
 
 ## Recent changes
+- **2026-07-09** — **Search now covers the knowledge layer, not just tables.** The
+  search box promised "everything your agents have captured" but only scanned
+  `dataset_rows`. Added `searchKnowledge` ([search.ts](lib/datamodo/search.ts)):
+  pure, ranks `KnowledgeEntityView[]` (from the existing `listKnowledge`) by distinct
+  terms matched across label / kind / natural keys / each fact's predicate+value.
+  `GET /api/search` now returns `entities` alongside table `hits` (knowledge fetch is
+  best-effort so it never drops table results). `SearchTab`
+  ([control-center.tsx](app/dashboard/control-center.tsx)) renders an **"In your
+  knowledge"** section (entity cards w/ matched facts highlighted) above **"In your
+  tables"**; placeholder/subtitle updated to match. Verified: 8/8 unit tests on
+  `searchKnowledge` (label/fact-value/natural-key/ranking) + full `next build` +
+  typecheck clean + results screenshotted.
 - **2026-07-09** — **Auto-link suggestions across tables.** Relationships were
   manual-only; now we spot table pairs that share values in a column and propose the
   link the user hasn't drawn. Pure detector `suggestRelations` + fetch helper

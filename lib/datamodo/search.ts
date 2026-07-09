@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DatasetColumn } from "./types";
+import type { DatasetColumn, KnowledgeEntityView } from "./types";
 
 /**
  * Keyword search over the user's own tables — the buildable-today half of the
@@ -109,4 +109,34 @@ export async function searchDatasets(
 
   hits.sort((a, b) => b.score - a.score);
   return { query, terms, total: hits.length, hits: hits.slice(0, limit) };
+}
+
+/**
+ * Keyword search over the knowledge layer (entities + their facts), so searching
+ * finds the people/companies/things you know about — not just table rows. Pure:
+ * takes the already-built KnowledgeEntityView[] (from listKnowledge) and the same
+ * tokens as the table search, and ranks entities by distinct terms matched across
+ * their label, kind, natural keys, and each fact's predicate/value.
+ */
+export interface KnowledgeHitFact { predicate: string; value: string; ref: boolean; matched: boolean }
+export interface KnowledgeHit { id: string; label: string; kind: string; facts: KnowledgeHitFact[]; score: number }
+
+export function searchKnowledge(entities: KnowledgeEntityView[], terms: string[], opts: { limit?: number } = {}): KnowledgeHit[] {
+  const limit = opts.limit ?? 20;
+  if (terms.length === 0) return [];
+  const hits: KnowledgeHit[] = [];
+  for (const e of entities) {
+    const matched = new Set<string>();
+    const nk = Object.entries(e.naturalKeys ?? {}).map(([k, v]) => `${k} ${v}`).join(" ");
+    const head = `${e.label} ${e.kind} ${nk}`.toLowerCase();
+    for (const t of terms) if (head.includes(t)) matched.add(t);
+    const facts: KnowledgeHitFact[] = e.facts.map((f) => {
+      const hay = `${f.predicate} ${f.value}`.toLowerCase();
+      let m = false;
+      for (const t of terms) if (hay.includes(t)) { m = true; matched.add(t); }
+      return { predicate: f.predicate, value: f.value, ref: f.ref, matched: m };
+    });
+    if (matched.size > 0) hits.push({ id: e.id, label: e.label, kind: e.kind, facts, score: matched.size });
+  }
+  return hits.sort((a, b) => b.score - a.score).slice(0, limit);
 }
