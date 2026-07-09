@@ -28,12 +28,20 @@
   demo. **Needs `supabase db reset`** locally to take effect. Typecheck clean. **NOT
   yet verified in-browser.**
 - **2026-07-09** — **Real keyword search shipped (Search tab is no longer a mock).**
-  `searchDatasets` ([search.ts](lib/datamodo/search.ts)) + `GET /api/search?q=`
-  ([route.ts](app/api/search/route.ts)) + a rewritten `SearchTab` with a real input,
-  term-highlighted result cards that open the source table, empty/no-match states, and
-  example prompts. Ranks rows by distinct query terms matched across values / column
-  labels / table name. Honest note that NL answers + citations are still coming.
-  Typecheck clean; not yet verified in-browser. (PR #16.)
+  The Search tab was a static fake (hardcoded question, fake `$20,750` answer, fake
+  graph, fake "recent questions"). Replaced with **live keyword search over the
+  user's own tables**: `searchDatasets` ([search.ts](lib/datamodo/search.ts)) —
+  tokenizes the query (drops stop/question words), scans accepted `dataset_rows`,
+  scores each row by DISTINCT terms matched across its cell values / column labels /
+  table name, returns ranked hits with matched-cell flags. Exposed via
+  `GET /api/search?q=` ([route.ts](app/api/search/route.ts), user RLS client → own
+  data only). New `SearchTab` ([control-center.tsx](app/dashboard/control-center.tsx))
+  has a real input, term-highlighted result cards that open the source table, empty/
+  no-match states, and clickable example prompts; an honest note says plain-language
+  answers with citations are still coming. Typecheck clean. **NOT yet verified
+  in-browser** (needs a logged-in local session — the seeded demo's Invoices/Contacts/
+  Trips give it real data to hit). Next for search: NL answers + citations (needs the
+  LLM layer) and pg full-text / embeddings when volume grows.
 - **2026-07-09** — **Nav simplified: Knowledge folded into Data (surface matches the
   promise).** Top nav is now **Agents · Data · Review · Search** (was 5 tabs). The
   Knowledge view is no longer a top-level tab — it's a **Tables / Knowledge**
