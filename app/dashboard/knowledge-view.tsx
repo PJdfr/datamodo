@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { C, monoLabel } from "./ui";
+import { C, monoLabel, CountUp } from "./ui";
 import type { KnowledgeEntityView, FactSourceView } from "@/lib/datamodo/types";
 
 const CHANNEL_META: Record<string, { emoji: string; label: string }> = {
@@ -64,7 +64,7 @@ function EntityCard({ e }: { e: KnowledgeEntityView }) {
   const keys = Object.entries(e.naturalKeys ?? {});
   const [openFact, setOpenFact] = useState<number | null>(null);
   return (
-    <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 13, padding: "13px 15px" }}>
+    <div className="dm-card" style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 13, padding: "13px 15px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: keys.length || e.facts.length ? 10 : 0 }}>
         <span style={{ width: 30, height: 30, borderRadius: 9, background: tone, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{e.label.charAt(0).toUpperCase()}</span>
         <div style={{ minWidth: 0, flex: 1 }}>
@@ -166,7 +166,7 @@ export function KnowledgeView() {
     <div style={{ maxWidth: 980 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
         <div>
-          <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink }}>{entities.length} thing{entities.length === 1 ? "" : "s"} we know about</div>
+          <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink }}><CountUp value={entities.length} /> thing{entities.length === 1 ? "" : "s"} we know about</div>
           <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>{groups.length} kind{groups.length === 1 ? "" : "s"} · {totalFacts} fact{totalFacts === 1 ? "" : "s"} · your tables are built from these</div>
         </div>
         <div style={{ position: "relative", marginLeft: "auto", minWidth: 220 }}>
@@ -184,7 +184,7 @@ export function KnowledgeView() {
             <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink, margin: 0 }}>{titleCase(plural(kind))}</h2>
             <span className="dm-mono" style={{ ...monoLabel }}>{list.length}</span>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+          <div className="dm-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
             {list.map((e) => <EntityCard key={e.id} e={e} />)}
           </div>
         </div>

@@ -630,7 +630,7 @@ function AgentsEmpty({ openModal, inbox }: { openModal: () => void; inbox: strin
   ];
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "44px 20px 60px" }}>
-      <div style={{ width: 70, height: 70, borderRadius: 20, background: "#FDF1EC", border: "1px solid #F3D6CB", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 22 }}>
+      <div className="dm-bob" style={{ width: 70, height: 70, borderRadius: 20, background: "#FDF1EC", border: "1px solid #F3D6CB", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 22 }}>
         <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8V4" /><circle cx="12" cy="3" r="1.4" fill={C.accent} stroke="none" /><path d="M9 14h.01M15 14h.01" /></svg>
       </div>
       <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 30, letterSpacing: "-0.03em", margin: "0 0 10px" }}>Create your first agent</h2>
@@ -806,7 +806,7 @@ const exportBtn: CSSProperties = {
 function DataEmpty({ openModal }: { openModal: () => void }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "60px 20px" }}>
-      <div style={{ width: 64, height: 64, borderRadius: 18, background: "#F6F2E9", border: "1px solid #E7E0D2", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20 }}>
+      <div className="dm-bob" style={{ width: 64, height: 64, borderRadius: 18, background: "#F6F2E9", border: "1px solid #E7E0D2", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20 }}>
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#A39B8B" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></svg>
       </div>
       <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 26, letterSpacing: "-0.03em", margin: "0 0 8px" }}>No tables yet</h2>
@@ -842,7 +842,7 @@ function Highlight({ text, terms }: { text: string; terms: string[] }) {
 function HitCard({ hit, terms, onOpen }: { hit: SearchHit; terms: string[]; onOpen: () => void }) {
   const cells = hit.cells.filter((c) => c.value !== "" || c.matched);
   return (
-    <Hov onClick={onOpen} base={{ textAlign: "left", width: "100%", background: "#fff", border: "1px solid #E7E0D2", borderRadius: 13, padding: "13px 16px", cursor: "pointer", fontFamily: "inherit", display: "block" }} hover={{ border: "1px solid #F3D6CB", background: "#FDF9F2" }}>
+    <Hov onClick={onOpen} className="dm-card dm-card-tap" base={{ textAlign: "left", width: "100%", background: "#fff", border: "1px solid #E7E0D2", borderRadius: 13, padding: "13px 16px", cursor: "pointer", fontFamily: "inherit", display: "block" }} hover={{ border: "1px solid #F3D6CB", background: "#FDF9F2" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9 }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 600, color: C.ink, background: "#F6F2E9", border: "1px solid #E7E0D2", borderRadius: 7, padding: "3px 9px" }}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></svg>
@@ -873,7 +873,7 @@ function KnowledgeHitCard({ hit, terms }: { hit: KnowledgeHit; terms: string[] }
   const tone = knowledgeTone(hit.kind);
   const facts = [...hit.facts].sort((a, b) => Number(b.matched) - Number(a.matched)).slice(0, 4);
   return (
-    <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 13, padding: "12px 15px" }}>
+    <div className="dm-card" style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 13, padding: "12px 15px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: facts.length ? 9 : 0 }}>
         <span style={{ width: 26, height: 26, borderRadius: 8, background: tone, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 12, flexShrink: 0 }}>{hit.label.charAt(0).toUpperCase()}</span>
         <span className="dm-display" style={{ fontWeight: 700, fontSize: 14.5, color: C.ink }}><Highlight text={hit.label} terms={terms} /></span>
@@ -934,7 +934,7 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
             {result.entities.length > 0 && (
               <div>
                 <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 10 }}>In your knowledge · {result.entities.length}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div className="dm-stagger" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {result.entities.map((e) => <KnowledgeHitCard key={e.id} hit={e} terms={result.terms} />)}
                 </div>
               </div>
@@ -942,7 +942,7 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
             {result.total > 0 && (
               <div>
                 <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 10 }}>In your tables · {result.total}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div className="dm-stagger" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {result.hits.map((h) => <HitCard key={h.rowId} hit={h} terms={result.terms} onOpen={() => onOpenTable(h.datasetId)} />)}
                 </div>
                 {result.total > result.hits.length && (
@@ -953,7 +953,7 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "56px 20px" }}>
-            <div style={{ width: 58, height: 58, borderRadius: 17, background: "#F6F2E9", border: "1px solid #E7E0D2", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+            <div className="dm-bob" style={{ width: 58, height: 58, borderRadius: 17, background: "#F6F2E9", border: "1px solid #E7E0D2", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#A39B8B" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg>
             </div>
             <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 20, letterSpacing: "-0.02em", margin: "0 0 6px" }}>No matches for “{submitted}”</h2>
