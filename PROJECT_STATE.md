@@ -12,6 +12,21 @@
 > Last updated: 2026-07-09
 
 ## Recent changes
+- **2026-07-09** — **Insights view — the analytics backend finally has a UI.** The
+  `aggregate`/`monthlySeries`/`factMetrics` layer (`POST /api/knowledge/analytics`)
+  was built + verified but unsurfaced. New **Insights** sub-view under Data (third
+  `Segmented` toggle: Tables · Knowledge · Insights,
+  [insights-view.tsx](app/dashboard/insights-view.tsx)): headline stat tiles (total
+  invoiced, things known, facts on file), a single-hue "Invoiced by vendor" bar list
+  (sum of `amount` grouped by `issued_by`, direct-labelled), and an entity-mix
+  breakdown by kind — all computed live from facts, no new backend. Graceful empty
+  states when there are no numeric measures / no facts. Followed the dataviz skill
+  (validated the reused category palette; every colored mark carries a text label so
+  identity is never color-alone). **Also fixed** a shared pluralization bug
+  (`company→companies`, `person→people`; was "Companys"/"Persons") in both the new
+  view and [knowledge-view.tsx](app/dashboard/knowledge-view.tsx). Verified: full
+  `next build` + typecheck clean; layout screenshotted (Chromium) and eyeballed. The
+  DB-backed numbers themselves ride on the already-verified analytics functions.
 - **2026-07-09** — **Fact provenance drill-down ("where did this come from?").** The
   Knowledge view showed only a provenance *count* per fact; now each fact with
   sources is **expandable to reveal the actual message(s)** it was extracted from —

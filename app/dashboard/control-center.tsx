@@ -67,13 +67,14 @@ import {
 import { ReviewStudio } from "./review-studio";
 import { ConnectionsModal } from "./connections";
 import { KnowledgeView } from "./knowledge-view";
+import { InsightsView } from "./insights-view";
 import { BuildFromKnowledgeModal } from "./build-from-knowledge";
 
 /* ================================================================== */
 /* Component                                                           */
 /* ================================================================== */
 type Tab = "agents" | "data" | "review" | "search";
-type DataView = "tables" | "knowledge";
+type DataView = "tables" | "knowledge" | "insights";
 export type ControlCenterProps = {
   fullName: string;
   initial: string;
@@ -228,7 +229,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
 
   const titles: Record<Tab, { t: string; sub: string }> = {
     agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
-    data: { t: "Data", sub: dataView === "knowledge" ? "The people, companies & things we know about — your tables are built from these" : uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · derived from your knowledge` : "No tables yet" },
+    data: { t: "Data", sub: dataView === "knowledge" ? "The people, companies & things we know about — your tables are built from these" : dataView === "insights" ? "The numbers behind your knowledge — totals & breakdowns, computed live" : uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · derived from your knowledge` : "No tables yet" },
     review: { t: "Review", sub: reviewTotal ? `${reviewTotal} to confirm — merges, conflicts & new facts` : "Confirm what we inferred — merges, conflicts & new facts" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
   };
@@ -367,13 +368,15 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           {tab === "data" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "knowledge", label: "Knowledge" }]} />
+                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "knowledge", label: "Knowledge" }, { v: "insights", label: "Insights" }]} />
                 <Hov onClick={() => setBuildOpen(true)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
                   <span style={{ color: C.accent }}>✦</span> Build from knowledge
                 </Hov>
               </div>
               {dataView === "knowledge" ? (
                 <KnowledgeView />
+              ) : dataView === "insights" ? (
+                <InsightsView />
               ) : uiTables.length || createTableOpen ? (
                 <>
                   {uiTables.length > 0 && <RelationshipGraph tables={uiTables} relations={relations} datasets={datasets} onOpen={setOpenTableId} onChanged={() => router.refresh()} />}

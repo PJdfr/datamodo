@@ -50,7 +50,14 @@ const KIND_TONE: Record<string, string> = {
 };
 const toneOf = (kind: string) => KIND_TONE[kind.toLowerCase()] ?? C.ink;
 const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const plural = (kind: string) => (/[sx]$/.test(kind) ? kind : kind + "s");
+const IRREGULAR_PLURAL: Record<string, string> = { person: "people", company: "companies", organization: "organizations" };
+const plural = (kind: string) => {
+  const key = kind.toLowerCase();
+  if (IRREGULAR_PLURAL[key]) return IRREGULAR_PLURAL[key];
+  if (/[^aeiou]y$/.test(kind)) return kind.slice(0, -1) + "ies";
+  if (/(s|x|z|ch|sh)$/.test(kind)) return kind + "es";
+  return kind + "s";
+};
 
 function EntityCard({ e }: { e: KnowledgeEntityView }) {
   const tone = toneOf(e.kind);
