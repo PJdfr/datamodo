@@ -416,8 +416,12 @@ the same migration SQL to `prod` — Neon branches don't git-merge DDL).
   runtime path (couldn't be tool-tested — browser sandboxed to localhost; identical to the
   verified local flow). **Still ⬜:** Neon `dev`→Vercel Preview env; CI (Prisma-migrate on a
   Neon branch + typecheck/build).
-- ⬜ **8. Decommission Supabase** — remove `supabase/`, `@supabase/*` deps; port the demo
-  seed to Prisma/SQL.
+- ✅ **8. Decommission Supabase** — done. Deleted `supabase/` (migrations, seed, config),
+  removed the `supabase` CLI devDependency, cleaned Supabase out of `.env.example` +
+  `CLAUDE.md` + the dashboard schema-notice. Demo seed ported to
+  [neon/seed.sql](neon/seed.sql) (resolves the user via `profiles.email` — Neon Auth owns the
+  auth user, so sign up `user@example.com` first, then run the seed). Zero Supabase left in the
+  repo except historical mentions in this file's Recent-changes log.
 
 **Note:** the older "Next steps" below (Supabase Edge Function extraction, DuckDB, etc.) is
 superseded on the infra axis by this plan; the *product* goals there still hold.
@@ -514,18 +518,14 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
    live sandbox test); **Teams/Slack next** (same shared-bot + identify-once
    pattern via `ingest_sources` + `channel_link_codes`).
 
-## Local development (important gotcha)
-`.env.local` points `NEXT_PUBLIC_SUPABASE_URL` at the **remote** project, so plain
-`npm run dev` makes the app's **auth + all user-facing reads** hit remote — even
-if you're running `npx supabase` locally (only the admin/write client would use
-local). Symptom: you seed the local DB but the dashboard shows nothing. Fix: a
-gitignored **`.env.development.local`** (higher precedence in dev) that sets the
-LOCAL stack for the whole app:
-`NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321`,
-`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<local publishable>`, plus `SUPABASE_URL`/
-`SUPABASE_SECRET_KEY` local and the dev secrets (INGEST_WEBHOOK_SECRET,
-SLACK_SIGNING_SECRET, MICROSOFT_APP_ID, TEAMS_DEV_SKIP_AUTH). Get keys via
-`npx supabase status`. Delete the file to run against remote.
+## Local development
+No local DB stack anymore — dev runs against the Neon **`dev`** branch. Set in
+`.env.local` (gitignored): `DATABASE_URL` = the Neon `dev` pooled connection string,
+`NEON_AUTH_BASE_URL` + `NEON_AUTH_COOKIE_SECRET`, and `OPENROUTER_API_KEY` for
+extraction. `npm run dev`, then sign up (or `user@example.com`) — `requireUserOrg`
+provisions the org on first load; run `psql "$DATABASE_URL" -f neon/seed.sql` for demo
+data. Prod uses the Neon `prod` branch (Vercel Production env). Note: a stale
+`.env.development.local` from the Supabase era can override `.env.local` — delete it.
 
 ## Conventions
 - Individual-only product. Never add teams/sharing without an explicit decision.

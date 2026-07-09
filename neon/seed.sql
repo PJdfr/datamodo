@@ -1,10 +1,16 @@
--- Local demo seed. Runs after migrations on `supabase db reset`
--- (see [db.seed] in config.toml). Idempotent + safe to re-run.
+-- Demo data seed for Neon. Unlike the old Supabase seed, this does NOT create
+-- the auth user — Neon Auth owns users (neon_auth schema), so they can't be
+-- INSERTed via SQL. Instead:
 --
--- Goal: the demo account user@example.com (password: "password") always exists
--- with fake data across the app tables — a personal org, several agents, their
--- datasets, and dataset rows. This is the canonical signed-in state for local
--- development. Keep it in sync when the agents/datasets schema changes.
+--   1. Sign up user@example.com in the app (email + password). On first
+--      dashboard load, requireUserOrg() provisions their profile, personal org,
+--      settings and inbox.
+--   2. Run this file against the target Neon branch, e.g.:
+--        psql "$DATABASE_URL" -f neon/seed.sql
+--
+-- It then fills that user's org with demo agents/datasets/rows + the knowledge
+-- layer (entities/facts/provenance). Idempotent: it no-ops if the org already
+-- has agents.
 
 do $$
 declare
@@ -20,9 +26,6 @@ declare
   v_item1       uuid;
   v_item2       uuid;
   v_item3       uuid;
-  v_batch1      uuid;
-  v_batch2      uuid;
-  -- knowledge-layer demo entities
   v_k_acme      uuid;
   v_k_bright    uuid;
   v_k_north     uuid;
@@ -36,34 +39,11 @@ declare
   v_f_jworks    uuid;
   v_f_mworks    uuid;
 begin
-  -- 1. Ensure the demo auth user exists. The handle_new_user() trigger creates
-  --    the matching profile, personal org, owner membership, and forwarding
-  --    address. We never clobber an existing account (safe on shared/remote DBs).
-  select id into v_uid from auth.users where email = 'user@example.com';
+  -- 1. Resolve the demo user. Neon Auth users sync into our `profiles` table on
+  --    first sign-in (see requireUserOrg). If absent, the user hasn't signed up.
+  select id into v_uid from public.profiles where email = 'user@example.com';
   if v_uid is null then
-    v_uid := gen_random_uuid();
-
-    insert into auth.users (
-      instance_id, id, aud, role, email, encrypted_password,
-      email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
-      created_at, updated_at,
-      confirmation_token, email_change, email_change_token_new, recovery_token
-    ) values (
-      '00000000-0000-0000-0000-000000000000', v_uid, 'authenticated', 'authenticated',
-      'user@example.com', extensions.crypt('password', extensions.gen_salt('bf')),
-      now(), '{"provider":"email","providers":["email"]}', '{"full_name":"Demo User"}',
-      now(), now(), '', '', '', ''
-    );
-
-    -- GoTrue needs an identity row to allow email/password sign-in.
-    insert into auth.identities (
-      id, user_id, identity_data, provider, provider_id,
-      last_sign_in_at, created_at, updated_at
-    ) values (
-      gen_random_uuid(), v_uid,
-      jsonb_build_object('sub', v_uid::text, 'email', 'user@example.com'),
-      'email', v_uid::text, now(), now(), now()
-    );
+    raise exception 'Demo user not found. Sign up user@example.com in the app first (Neon Auth), then re-run this seed.';
   end if;
 
   -- 2. Resolve (or backfill) the demo user's personal org.
@@ -152,12 +132,10 @@ begin
     (v_ds_trips, v_org, '{"destination":"Berlin","traveler":"Priya Nair","dates":"Sep 12–15","booking":"LH #2210","cost":410}'::jsonb, v_uid);
 
   -- Relationships -------------------------------------------------------
-  -- An invoice's client is a company that lives in Contacts.
   insert into public.dataset_relations (org_id, from_dataset_id, from_column, to_dataset_id, to_column, label, created_by)
   values (v_org, v_ds_invoices, 'client', v_ds_contacts, 'company', 'billed to', v_uid)
   on conflict do nothing;
 
-  -- Pending review ("open pull request") --------------------------------
   -- One accepted invoice is human-edited, so an incoming agent change to it
   -- surfaces as a real conflict in the review flow.
   update public.dataset_rows set human_edited = true
@@ -165,9 +143,7 @@ begin
   select id into v_inv_row from public.dataset_rows
    where dataset_id = v_ds_invoices and data->>'invoice' = '#A-198' limit 1;
 
-  -- Source messages the agents parsed (the "comm chunk" grouping axis). These
-  -- back the facts below via fact_sources, so the Knowledge tab's "where did
-  -- this come from?" drill-down shows the real message behind each claim.
+  -- Source messages the agents parsed (back the facts below via fact_sources).
   insert into public.items (org_id, owner_user_id, channel, sender, subject, body_preview, received_at)
   values (v_org, v_uid, 'email', 'billing@brightwave.io', 'Invoice INV-4417 — Brightwave',
           'Hi, please find attached invoice INV-4417 for a total of $18,500. Issued by Brightwave, payable by Aug 31.', now())
@@ -181,9 +157,7 @@ begin
           'Confirming the invoice for 18,500 USD is approved on our side; remittance to follow.', now())
   returning id into v_item3;
 
-  -- Knowledge layer — the canonical entities + facts the Knowledge tab shows and
-  -- that tables are projected from. (Review now happens at the fact level, so we
-  -- no longer seed table-row "proposals".)
+  -- Knowledge layer — canonical entities + facts.
   insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys) values
     (v_org, v_uid, 'company', 'Acme Group', 'acme group', '{"domain":"acme.com"}'::jsonb) returning id into v_k_acme;
   insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys) values
@@ -216,9 +190,7 @@ begin
   insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values (v_org, v_uid, v_k_maria, 'works_for', v_k_maria::text || '::works_for', 'one', 0.85, v_k_north) returning id into v_f_mworks;
   insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_text) values (v_org, v_uid, v_k_acme, 'industry', v_k_acme::text || '::industry', 'one', 0.8, 'Software');
 
-  -- Provenance: each fact points back at the real message(s) it came from, so
-  -- the Knowledge tab's "where did this come from?" drill-down has evidence to
-  -- show. The invoice total is corroborated by two separate emails.
+  -- Provenance: each fact points back at the message(s) it came from.
   insert into public.fact_sources (org_id, fact_id, source_item_id, snippet) values
     (v_org, v_k_famt,    v_item1, 'a total of $18,500'),
     (v_org, v_k_famt,    v_item3, 'the invoice for 18,500 USD is approved'),
@@ -229,9 +201,7 @@ end
 $$;
 
 -- Demo account runs on the Pro plan so its seeded auto-mode agents stay valid.
--- (A default 'free' settings row is created by the on_auth_user_created_settings
--- trigger when the user above is inserted.)
 update public.user_settings s
    set plan = 'pro', compute_mode = 'cloud'
-  from auth.users u
- where u.id = s.user_id and u.email = 'user@example.com';
+  from public.profiles p
+ where p.id = s.user_id and p.email = 'user@example.com';
