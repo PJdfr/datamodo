@@ -12,6 +12,19 @@
 > Last updated: 2026-07-09
 
 ## Recent changes
+- **2026-07-09** — **Pivoting off Supabase → Neon (dev/prod branching; leaving Supabase
+  long-term).** Zero users, so no data migration — porting the **schema only**. Schema
+  **ported + verified on Neon** (project `still-dew-44832149`, PG18, eu-central-1): dumped
+  the local `public`+`private` schema, stripped Supabase-isms (55 RLS policies, `auth.*`
+  coupling, `authenticated`/`service_role` grants, `auth.users` FKs, and the
+  pgmq/pg_cron/pg_net/vault objects), rewrote `extensions.`→`public.`, applied to Neon
+  `prod` and `dev` — **20 tables, 0 policies**, pgvector/pg_trgm intact, `entities.embedding
+  vector(1536)` preserved. Saved to [neon/schema.sql](neon/schema.sql). **Reverted** the
+  just-merged pgmq/pg_cron extraction PR #26 (Supabase-specific — no pgmq/pg_net on Neon).
+  Authz moves to **app-layer** (RLS dropped; scope by `org_id` in server code). Branch model:
+  two standing branches **`dev`/`prod`** mirrored across GitHub ↔ Vercel ↔ Neon (no throwaway
+  branches). **The app still runs on Supabase** — the rewrite (see "Neon migration plan") is
+  the remaining work.
 - **2026-07-09** — **Visual polish pass — texture, depth & motion (keeps the warm,
   non-techy vibe).** The signed-in app read as flat solid-color rounded rectangles;
   added a reusable motion/texture layer in [globals.css](app/globals.css) and applied
@@ -339,6 +352,36 @@
   tables (migrations only granted `authenticated`; platform default privileges
   didn't cover service_role), so the whole ingest path 500'd with `42501`.
   Added migration `20260708120000_grant_service_role_dml.sql`.
+
+## Neon migration plan (in progress — started 2026-07-09)
+Leaving Supabase for **Neon** (Postgres 18 + cheap branching) + **Neon Auth**. Zero users →
+schema-only port, no data/auth migration. All work lands on `dev`, promotes to `prod` (apply
+the same migration SQL to `prod` — Neon branches don't git-merge DDL).
+
+- ✅ **0. Schema port** — done + verified on Neon `prod`/`dev` ([neon/schema.sql](neon/schema.sql)).
+- ⬜ **1. DB access → Prisma** — swap `@supabase/*` / PostgREST (`.from()`) for **Prisma**
+  (already a dep) across ~23 files. `prisma db pull` from Neon → `schema.prisma`; port queries
+  in `lib/**`, `app/**`, `utils/**`.
+- ⬜ **2. Auth → Neon Auth** (Stack Auth) — rewrite `app/auth/*`,
+  `utils/supabase/{client,server,admin}.ts`, `middleware.ts`; add a session→`org_id` helper.
+- ⬜ **3. App-layer authz** — RLS is gone; central `requireUser()` and always filter by
+  `org_id` in server code.
+- ⬜ **4. Signup side-effects** — reimplement the old `handle_new_user` trigger in app code:
+  on first sign-in create `profiles` + personal `organizations` + `organization_members` +
+  `user_settings` + a `forwarding_addresses` inbox.
+- ⬜ **5. Storage** — Supabase Storage → **Vercel Blob** or **Cloudflare R2** in
+  `lib/ingest/store.ts` (`blobs.storage_path`).
+- ⬜ **6. Extraction loop (Neon way)** — queue = `items.status` + `SELECT … FOR UPDATE SKIP
+  LOCKED`; scheduler = **GitHub Actions cron** → `/api/jobs/extract-tick` (no pgmq/pg_cron/
+  pg_net). `runExtractionForItem`/`ingestExtraction` stay unchanged.
+- ⬜ **7. Env/config + CI** — `DATABASE_URL` → Neon; Vercel envs (git `dev`→Neon `dev`,
+  `prod`→Neon `prod`); retire Supabase envs; CI = Prisma migrate on a Neon branch + typecheck
+  + build.
+- ⬜ **8. Decommission Supabase** — remove `supabase/`, `@supabase/*` deps; port the demo
+  seed to Prisma/SQL.
+
+**Note:** the older "Next steps" below (Supabase Edge Function extraction, DuckDB, etc.) is
+superseded on the infra axis by this plan; the *product* goals there still hold.
 
 ## What datamodo is
 
