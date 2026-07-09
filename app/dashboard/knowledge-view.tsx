@@ -20,11 +20,14 @@ const CHANNEL_META: Record<string, { emoji: string; label: string }> = {
 const channelMeta = (c: string) => CHANNEL_META[c] ?? { emoji: "•", label: c };
 
 /** One source message behind a fact — the "where did this come from?" evidence. */
-function SourceRow({ s }: { s: FactSourceView }) {
+/** One node on the provenance timeline: a dot on the connector line + the
+ *  message it came from, flowing to the right (no box). */
+function SourceNode({ s }: { s: FactSourceView }) {
   const ch = channelMeta(s.channel);
   return (
-    <div style={{ background: "#FCFAF4", border: "1px solid #EDE7DA", borderRadius: 10, padding: "8px 10px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: s.snippet || s.preview ? 5 : 0, minWidth: 0 }}>
+    <div style={{ position: "relative" }}>
+      <span style={{ position: "absolute", left: -18, top: 3, width: 11, height: 11, borderRadius: "50%", background: "#fff", border: `2px solid ${C.accent}`, boxShadow: "0 0 0 3px #FBF8F1", boxSizing: "border-box" }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: s.snippet || s.preview ? 4 : 0, minWidth: 0 }}>
         <span style={{ fontSize: 11 }}>{ch.emoji}</span>
         <span className="dm-mono" style={{ fontSize: 9.5, color: "#8A8477", flexShrink: 0 }}>{ch.label}</span>
         {s.sender && <span style={{ fontSize: 11.5, color: C.ink, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.sender}</span>}
@@ -102,8 +105,11 @@ function EntityCard({ e }: { e: KnowledgeEntityView }) {
                   )}
                 </button>
                 {open && hasProv && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, margin: "5px 0 8px", paddingLeft: 6 }}>
-                    {f.provenance.map((s, j) => <SourceRow key={j} s={s} />)}
+                  <div className="dm-fade-in" style={{ position: "relative", margin: "7px 0 10px", paddingLeft: 24 }}>
+                    <span style={{ position: "absolute", left: 5, top: 5, bottom: 5, width: 2, background: "linear-gradient(#EAC0B2, #EFE9DC)", borderRadius: 2 }} />
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      {f.provenance.map((s, j) => <SourceNode key={j} s={s} />)}
+                    </div>
                   </div>
                 )}
               </div>

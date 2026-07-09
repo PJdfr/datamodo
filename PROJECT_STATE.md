@@ -20,10 +20,15 @@
   bars that grow on paint; **`.dm-modal-in`/`.dm-fade-in`** so every `ModalShell` pops in;
   richer `primaryBtn` (top-highlight gradient + warm glow); **`.dm-bob`** gentle float on
   empty-state icons. New **`CountUp`** ([ui.tsx](app/dashboard/ui.tsx)) animates headline
-  numbers (Insights tiles, Knowledge/Search counts). All motion is class-opt-in and
-  **disabled under `prefers-reduced-motion`**. Verified: `next build` + typecheck clean;
-  rendered against the real `globals.css` with a hovered card (grain/glow/lift/sheen/bars
-  confirmed).
+  numbers (Insights tiles, Knowledge/Search counts). **Form variety (not everything a
+  card):** Insights entity-mix is now a **donut ring + legend** floating on the page
+  (borderless, [insights-view.tsx](app/dashboard/insights-view.tsx) `Donut`); fact
+  provenance renders as a **connector-line timeline** (line + hollow node dots, no
+  boxes — [knowledge-view.tsx](app/dashboard/knowledge-view.tsx) `SourceNode`). All
+  motion is class-opt-in and **disabled under `prefers-reduced-motion`**. Verified:
+  `next build` + typecheck clean; grain/glow/lift/sheen/bars, the donut, and the
+  timeline each rendered against the real `globals.css` and eyeballed. Next: extend the
+  form vocabulary + polish to Agents grid, Review studio, and the table editor.
 - **2026-07-09** — **Spreadsheet → knowledge graph (import + merge).** A user can hand
   us a table and we **infer a graph from it and merge it into the existing knowledge
   layer** — the flagship idea from the backlog. Pure, unit-tested `inferGraphFromTable`

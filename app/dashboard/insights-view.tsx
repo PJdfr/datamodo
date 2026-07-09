@@ -82,6 +82,33 @@ function BarList({ rows, tone, fmt }: { rows: AggRow[]; tone: string; fmt: (n: n
   );
 }
 
+/** Part-to-whole as a ring, not a row of boxes. ≤ a handful of slices, each
+ *  colored by kind and named in the legend (identity never color-alone). */
+function Donut({ segments, centerTop, centerSub, size = 152 }: { segments: { label: string; value: number; color: string }[]; centerTop: string; centerSub: string; size?: number }) {
+  const total = segments.reduce((s, x) => s + x.value, 0) || 1;
+  const stroke = Math.round(size * 0.135);
+  const r = (size - stroke) / 2 - 2;
+  const c = 2 * Math.PI * r;
+  const gap = Math.min(0.02 * c, c / (segments.length * 2 || 1));
+  let acc = 0;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }} role="img" aria-label="Entity mix by kind">
+      <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#EFE9DC" strokeWidth={stroke} />
+        {segments.map((s, i) => {
+          const frac = s.value / total;
+          const len = Math.max(frac * c - gap, 0.6);
+          const el = <circle key={i} className="dm-fade-in" style={{ animationDelay: `${0.15 + i * 0.12}s`, animationDuration: "0.5s" }} cx={size / 2} cy={size / 2} r={r} fill="none" stroke={s.color} strokeWidth={stroke} strokeDasharray={`${len} ${c - len}`} strokeDashoffset={-acc} strokeLinecap="round" />;
+          acc += frac * c;
+          return el;
+        })}
+      </g>
+      <text x="50%" y="48%" textAnchor="middle" className="dm-display" style={{ fontSize: size * 0.22, fontWeight: 800, fill: C.ink }}>{centerTop}</text>
+      <text x="50%" y="63%" textAnchor="middle" className="dm-mono" style={{ fontSize: size * 0.072, fill: "#A39B8B", letterSpacing: "0.08em" }}>{centerSub}</text>
+    </svg>
+  );
+}
+
 function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
     <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: "16px 18px" }}>
@@ -194,17 +221,33 @@ export function InsightsView() {
         </div>
       )}
 
-      <Section title="What you know" hint={`${kinds.length} kind${kinds.length === 1 ? "" : "s"}`}>
-        <div className="dm-stagger" style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-          {kinds.map((k) => (
-            <div key={k.kind} className="dm-card" style={{ display: "flex", alignItems: "center", gap: 9, background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11, padding: "9px 13px" }}>
-              <span style={{ width: 9, height: 9, borderRadius: 3, background: toneOf(k.kind), flexShrink: 0 }} />
-              <span style={{ fontSize: 13, color: C.ink }}>{titleCase(plural(k.kind))}</span>
-              <span className="dm-mono" style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>{num(k.count)}</span>
-            </div>
-          ))}
+      {/* Entity mix as a ring + legend — floats on the page, not another boxed card. */}
+      <div style={{ padding: "6px 2px 4px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 14 }}>
+          <span className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink }}>What you know</span>
+          <span style={{ fontSize: 12, color: "#A39B8B" }}>{kinds.length} kind{kinds.length === 1 ? "" : "s"}</span>
         </div>
-      </Section>
+        <div style={{ display: "flex", alignItems: "center", gap: 30, flexWrap: "wrap" }}>
+          <Donut
+            segments={kinds.map((k) => ({ label: k.kind, value: k.count, color: toneOf(k.kind) }))}
+            centerTop={num(metrics.totalEntities)}
+            centerSub="THINGS"
+          />
+          <div className="dm-stagger" style={{ display: "flex", flexDirection: "column", gap: 11, minWidth: 200, flex: "1 1 220px", maxWidth: 320 }}>
+            {kinds.map((k) => {
+              const pct = Math.round((k.count / (metrics.totalEntities || 1)) * 100);
+              return (
+                <div key={k.kind} style={{ display: "flex", alignItems: "center", gap: 11, fontSize: 13.5 }}>
+                  <span style={{ width: 11, height: 11, borderRadius: "50%", background: toneOf(k.kind), flexShrink: 0 }} />
+                  <span style={{ color: C.ink, flex: 1 }}>{titleCase(plural(k.kind))}</span>
+                  <span className="dm-mono" style={{ color: C.ink, fontWeight: 600 }}>{num(k.count)}</span>
+                  <span className="dm-mono" style={{ color: "#A39B8B", fontSize: 11.5, width: 38, textAlign: "right" }}>{pct}%</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
