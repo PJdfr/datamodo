@@ -15,6 +15,15 @@ import { C } from "./ui";
 interface AggRow { group: string; value: number; count: number }
 interface AggResult { op: string; total: number; rows: AggRow[] }
 interface Metrics { entitiesByKind: { kind: string; count: number }[]; totalEntities: number; totalFacts: number }
+interface MeasureOption { predicate: string; label: string; count: number }
+interface FactSchema { numeric: MeasureOption[]; groupBy: MeasureOption[] }
+
+type Agg = "sum" | "avg" | "min" | "max" | "count";
+const AGG_OPTS: { v: Agg; label: string }[] = [
+  { v: "sum", label: "Total" }, { v: "avg", label: "Average" }, { v: "count", label: "Count" }, { v: "max", label: "Max" }, { v: "min", label: "Min" },
+];
+const MONEYISH = /amount|cost|price|total|revenue|invoice|spend|paid|fee|balance|budget|salary/i;
+const fmtFor = (measure: string, op: Agg) => (op !== "count" && MONEYISH.test(measure) ? money : num);
 
 const KIND_TONE: Record<string, string> = {
   person: C.blue, people: C.blue,
@@ -85,28 +94,47 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   );
 }
 
+const selectStyle = { fontFamily: "inherit", fontSize: 13, color: C.ink, background: "#fff", border: "1px solid #DDD5C5", borderRadius: 9, padding: "6px 9px", cursor: "pointer", maxWidth: 200 };
+
 export function InsightsView() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [spend, setSpend] = useState<AggResult | null>(null);
+  const [schema, setSchema] = useState<FactSchema | null>(null);
+  const [agg, setAgg] = useState<Agg>("sum");
+  const [measure, setMeasure] = useState("");
+  const [groupBy, setGroupBy] = useState("");
+  const [result, setResult] = useState<AggResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let alive = true;
     (async () => {
-      const [m, s] = await Promise.all([
-        analytics<Metrics>({ op: "metrics" }),
-        analytics<AggResult>({ op: "aggregate", measure: "amount", agg: "sum", groupBy: "issued_by" }),
-      ]);
+      const [m, sc] = await Promise.all([analytics<Metrics>({ op: "metrics" }), analytics<FactSchema>({ op: "measures" })]);
       if (!alive) return;
       setMetrics(m);
-      setSpend(s);
+      setSchema(sc);
+      const nums = sc?.numeric ?? [], groups = sc?.groupBy ?? [];
+      setMeasure(nums.find((o) => o.predicate === "amount")?.predicate ?? nums[0]?.predicate ?? "");
+      setGroupBy(groups.find((o) => o.predicate === "issued_by")?.predicate ?? groups[0]?.predicate ?? "");
       setLoading(false);
     })();
     return () => { alive = false; };
   }, []);
 
+  useEffect(() => {
+    if (!measure) { setResult(null); return; }
+    let alive = true;
+    setBusy(true);
+    analytics<AggResult>({ op: "aggregate", measure, agg, groupBy: groupBy || undefined }).then((r) => { if (alive) { setResult(r); setBusy(false); } });
+    return () => { alive = false; };
+  }, [measure, groupBy, agg]);
+
   const kinds = useMemo(() => (metrics?.entitiesByKind ?? []).slice().sort((a, b) => b.count - a.count), [metrics]);
-  const hasSpend = !!spend && spend.total > 0 && spend.rows.length > 0;
+  const nums = schema?.numeric ?? [], groups = schema?.groupBy ?? [];
+  const measureLabel = nums.find((o) => o.predicate === measure)?.label ?? measure;
+  const aggLabel = AGG_OPTS.find((o) => o.v === agg)!.label;
+  const fmt = fmtFor(measure, agg);
+  const rows = result?.rows ?? [];
 
   if (loading) return <div className="dm-mono" style={{ color: "#A39B8B", fontSize: 13, padding: "40px 4px" }}>Crunching your numbers…</div>;
 
@@ -128,15 +156,42 @@ export function InsightsView() {
       </div>
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        {hasSpend && <StatTile label="Total invoiced" value={money(spend!.total)} tone={C.gold} />}
+        {measure && result && <StatTile label={`${aggLabel} · ${measureLabel}`} value={fmt(result.total)} tone={C.gold} />}
         <StatTile label="Things known" value={num(metrics.totalEntities)} />
         <StatTile label="Facts on file" value={num(metrics.totalFacts)} />
       </div>
 
-      {hasSpend && (
-        <Section title="Invoiced by vendor" hint="sum of amount · count of invoices">
-          <BarList rows={spend!.rows} tone={C.gold} fmt={money} />
+      {nums.length > 0 ? (
+        <Section title="Break it down" hint="pick a measure and an axis — from your own facts">
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+            <select value={agg} onChange={(e) => setAgg(e.target.value as Agg)} style={selectStyle} aria-label="Aggregation">
+              {AGG_OPTS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+            </select>
+            <span style={{ fontSize: 13, color: "#8A8477" }}>of</span>
+            <select value={measure} onChange={(e) => setMeasure(e.target.value)} style={selectStyle} aria-label="Measure">
+              {nums.map((o) => <option key={o.predicate} value={o.predicate}>{o.label} ({o.count})</option>)}
+            </select>
+            {groups.length > 0 && (
+              <>
+                <span style={{ fontSize: 13, color: "#8A8477" }}>by</span>
+                <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} style={selectStyle} aria-label="Group by">
+                  {groups.map((o) => <option key={o.predicate} value={o.predicate}>{o.label}</option>)}
+                </select>
+              </>
+            )}
+          </div>
+          {busy ? (
+            <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "8px 0" }}>Recomputing…</div>
+          ) : rows.length > 0 ? (
+            <BarList rows={rows} tone={C.gold} fmt={fmt} />
+          ) : (
+            <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "8px 0" }}>No data for this combination.</div>
+          )}
         </Section>
+      ) : (
+        <div className="dm-mono" style={{ fontSize: 11.5, color: "#A39B8B", padding: "0 2px" }}>
+          No numeric measures (like amounts) in your facts yet — once your agents extract some, breakdowns appear here.
+        </div>
       )}
 
       <Section title="What you know" hint={`${kinds.length} kind${kinds.length === 1 ? "" : "s"}`}>
@@ -150,12 +205,6 @@ export function InsightsView() {
           ))}
         </div>
       </Section>
-
-      {!hasSpend && (
-        <div className="dm-mono" style={{ fontSize: 11.5, color: "#A39B8B", padding: "0 2px" }}>
-          No numeric measures (like invoice amounts) in your facts yet — add some and a spend breakdown appears here.
-        </div>
-      )}
     </div>
   );
 }

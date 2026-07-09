@@ -12,6 +12,17 @@
 > Last updated: 2026-07-09
 
 ## Recent changes
+- **2026-07-09** — **Insights is now configurable (any measure × any axis, from your
+  own facts).** Was hardcoded to `amount` by `issued_by`. New `listMeasures`
+  ([analytics.ts](lib/datamodo/analytics.ts)) discovers chartable predicates from the
+  user's facts — `numeric` (has value_num) vs `groupBy` (relationship or categorical
+  text) — exposed via `POST /api/knowledge/analytics {op:"measures"}`. Insights view
+  ([insights-view.tsx](app/dashboard/insights-view.tsx)) gains **[agg] of [measure] by
+  [axis]** dropdowns that re-aggregate live; the total tile + bar list follow the
+  selection (currency formatting via a name heuristic). Defaults to amount/issued_by
+  when present, else the top predicates. Degrades gracefully (no numeric → hint; no
+  groupables → total tile only). Verified: 6/6 unit tests on `listMeasures` +
+  `next build` + typecheck clean + controls screenshotted.
 - **2026-07-09** — **Search now covers the knowledge layer, not just tables.** The
   search box promised "everything your agents have captured" but only scanned
   `dataset_rows`. Added `searchKnowledge` ([search.ts](lib/datamodo/search.ts)):

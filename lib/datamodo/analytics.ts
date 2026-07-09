@@ -113,6 +113,31 @@ export async function monthlySeries(
     .sort((a, b) => a.month.localeCompare(b.month));
 }
 
+export interface MeasureOption { predicate: string; label: string; count: number }
+export interface FactSchema { numeric: MeasureOption[]; groupBy: MeasureOption[] }
+
+const humanize = (p: string) => p.replace(/_/g, " ");
+
+/** Discover which predicates can be charted: `numeric` = predicates with numeric
+ *  values (measures to sum/avg), `groupBy` = relationship or categorical-text
+ *  predicates (axes to break a measure down by). Lets the Insights UI offer the
+ *  user's OWN measures instead of hardcoding invoice fields. */
+export async function listMeasures(admin: SupabaseClient, orgId: string): Promise<FactSchema> {
+  const { data } = await admin
+    .from("facts").select("predicate, value_num, object_entity_id, value_text")
+    .eq("org_id", orgId).is("valid_to", null).limit(20000);
+  const facts = (data as { predicate: string; value_num: number | null; object_entity_id: string | null; value_text: string | null }[] | null) ?? [];
+  const numeric = new Map<string, number>();
+  const groupable = new Map<string, number>();
+  for (const f of facts) {
+    if (f.value_num != null) numeric.set(f.predicate, (numeric.get(f.predicate) ?? 0) + 1);
+    if (f.object_entity_id || (f.value_text != null && f.value_text !== "")) groupable.set(f.predicate, (groupable.get(f.predicate) ?? 0) + 1);
+  }
+  const toOpts = (m: Map<string, number>): MeasureOption[] =>
+    [...m.entries()].map(([predicate, count]) => ({ predicate, label: humanize(predicate), count })).sort((a, b) => b.count - a.count);
+  return { numeric: toOpts(numeric), groupBy: toOpts(groupable) };
+}
+
 export interface FactMetrics { entitiesByKind: { kind: string; count: number }[]; totalEntities: number; totalFacts: number }
 
 /** Headline counts across the knowledge layer. */

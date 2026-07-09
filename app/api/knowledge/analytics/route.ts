@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
-import { aggregate, monthlySeries, factMetrics, type AggOp } from "@/lib/datamodo/analytics";
+import { aggregate, monthlySeries, factMetrics, listMeasures, type AggOp } from "@/lib/datamodo/analytics";
 
 // Analytics over the knowledge layer's facts. Read-only aggregation, so it runs
 // with the user's RLS client (their org's facts only).
@@ -18,12 +18,15 @@ export async function POST(req: Request) {
   const admin = createAdminClient();
 
   const body = (await req.json().catch(() => ({}))) as {
-    op?: "aggregate" | "series" | "metrics";
+    op?: "aggregate" | "series" | "metrics" | "measures";
     measure?: string; groupBy?: string; kind?: string; date?: string; agg?: AggOp;
   };
 
   if (body.op === "metrics" || !body.op) {
     return NextResponse.json(await factMetrics(admin, org.id));
+  }
+  if (body.op === "measures") {
+    return NextResponse.json(await listMeasures(admin, org.id));
   }
   if (body.op === "aggregate") {
     if (!body.measure) return NextResponse.json({ error: "measure required" }, { status: 400 });
