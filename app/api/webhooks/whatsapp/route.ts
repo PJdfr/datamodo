@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { createAdminClient } from "@/utils/supabase/admin";
 import { ingest } from "@/lib/ingest/store";
 import { isHandleBound, redeemChannelLinkCode } from "@/lib/datamodo/channels";
 import type { IngestAttachment, IngestEnvelope } from "@/lib/ingest/types";
@@ -77,7 +76,6 @@ export async function POST(req: Request) {
 
   const body = params.get("Body");
   const profileName = params.get("ProfileName") ?? undefined;
-  const admin = createAdminClient();
 
   // Identify-once: bind this sender if not already, using a code in the message.
   let bound = await isHandleBound("whatsapp", waId);

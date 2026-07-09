@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createAdminClient } from "@/utils/supabase/admin";
 import { saveOnboarding } from "@/lib/datamodo/settings";
 import { getSessionUser } from "@/lib/auth/session";
 
@@ -15,7 +14,6 @@ export async function POST(req: Request) {
     businessContext?: string;
     answers?: Record<string, unknown>;
   };
-  const admin = createAdminClient();
   await saveOnboarding(user.id, { businessContext: body.businessContext, answers: body.answers });
   return NextResponse.json({ ok: true });
 }

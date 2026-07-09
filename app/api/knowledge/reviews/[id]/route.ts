@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/session";
-import { createAdminClient } from "@/utils/supabase/admin";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { acceptReview, rejectReview } from "@/lib/datamodo/reviews";
 
@@ -17,7 +16,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!org) return NextResponse.json({ error: "no org" }, { status: 403 });
 
   const { action } = (await req.json().catch(() => ({}))) as { action?: string };
-  const admin = createAdminClient();
   if (action === "accept") await acceptReview(org.id, id);
   else if (action === "reject") await rejectReview(org.id, id);
   else return NextResponse.json({ error: "action must be accept|reject" }, { status: 400 });

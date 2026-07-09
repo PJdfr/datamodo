@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { createAdminClient } from "@/utils/supabase/admin";
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { putBlob, getBlob } from "@/lib/storage/blob";
 import type { IngestEnvelope, IngestResult } from "./types";
 
-const BUCKET = "ingest";
 const PREVIEW_LEN = 200;
 
 export class IngestError extends Error {
@@ -29,10 +29,7 @@ interface Target {
  * explicit (orgId, ownerUserId), or we look up the recipient handle: email
  * against forwarding_addresses, every other channel against ingest_sources.
  */
-async function resolveTarget(
-  admin: SupabaseClient,
-  env: IngestEnvelope,
-): Promise<Target> {
+async function resolveTarget(env: IngestEnvelope): Promise<Target> {
   if (env.orgId) {
     return { orgId: env.orgId, ownerUserId: env.ownerUserId ?? null, sourceId: null };
   }
@@ -43,12 +40,10 @@ async function resolveTarget(
 
   if (env.channel === "email") {
     const addr = handle.toLowerCase();
-    const { data, error } = await admin
-      .from("forwarding_addresses")
-      .select("id, org_id, owner_user_id")
-      .eq("address", addr)
-      .maybeSingle();
-    if (error) throw error;
+    const data = await prisma.forwarding_addresses.findFirst({
+      where: { address: addr },
+      select: { id: true, org_id: true, owner_user_id: true },
+    });
     if (data) {
       return {
         orgId: data.org_id,
@@ -59,13 +54,10 @@ async function resolveTarget(
     }
   }
 
-  const { data: src, error: srcErr } = await admin
-    .from("ingest_sources")
-    .select("id, org_id, owner_user_id")
-    .eq("channel", env.channel)
-    .eq("handle", handle)
-    .maybeSingle();
-  if (srcErr) throw srcErr;
+  const src = await prisma.ingest_sources.findFirst({
+    where: { channel: env.channel, handle },
+    select: { id: true, org_id: true, owner_user_id: true },
+  });
   if (src) {
     return { orgId: src.org_id, ownerUserId: src.owner_user_id, sourceId: src.id };
   }
@@ -88,20 +80,16 @@ interface StoredBlob {
  * Never touches ref_count (DB triggers own that when a row references the blob).
  */
 async function storeBlob(
-  admin: SupabaseClient,
   orgId: string,
   bytes: Buffer,
   contentType?: string,
 ): Promise<StoredBlob> {
   const hash = createHash("sha256").update(bytes).digest("hex");
 
-  const { data: existing, error: selErr } = await admin
-    .from("blobs")
-    .select("hash")
-    .eq("org_id", orgId)
-    .eq("hash", hash)
-    .maybeSingle();
-  if (selErr) throw selErr;
+  const existing = await prisma.blobs.findFirst({
+    where: { org_id: orgId, hash },
+    select: { hash: true },
+  });
   if (existing) return { hash, reused: true, bytes: bytes.length };
 
   const gz = gzipSync(bytes);
@@ -110,27 +98,29 @@ async function storeBlob(
   const encoding = useGzip ? "gzip" : "identity";
   const path = `${orgId}/${hash.slice(0, 2)}/${hash}`;
 
-  const { error: upErr } = await admin.storage
-    .from(BUCKET)
-    .upload(path, payload, {
-      contentType: useGzip ? "application/gzip" : contentType ?? "application/octet-stream",
-      upsert: false,
-    });
-  // Content-addressed path: an "already exists" error means a concurrent
-  // ingest stored the identical bytes — that's fine.
-  if (upErr && !/exists|duplicate/i.test(upErr.message)) throw upErr;
+  // Content-addressed key: identical bytes overwrite themselves harmlessly.
+  await putBlob(
+    path,
+    payload,
+    useGzip ? "application/gzip" : contentType ?? "application/octet-stream",
+  );
 
-  const { error: insErr } = await admin.from("blobs").insert({
-    org_id: orgId,
-    hash,
-    storage_path: path,
-    bytes: bytes.length,
-    stored_bytes: payload.length,
-    encoding,
-    content_type: contentType ?? null,
-  });
-  // Unique (org_id, hash) violation → another writer won the race; harmless.
-  if (insErr && insErr.code !== "23505") throw insErr;
+  try {
+    await prisma.blobs.create({
+      data: {
+        org_id: orgId,
+        hash,
+        storage_path: path,
+        bytes: BigInt(bytes.length),
+        stored_bytes: BigInt(payload.length),
+        encoding,
+        content_type: contentType ?? null,
+      },
+    });
+  } catch (e) {
+    // Unique (org_id, hash) violation → another writer won the race; harmless.
+    if ((e as { code?: string }).code !== "P2002") throw e;
+  }
 
   return { hash, reused: false, bytes: bytes.length };
 }
@@ -151,19 +141,14 @@ function preview(env: IngestEnvelope): string | null {
  */
 export async function ingest(env: IngestEnvelope): Promise<IngestResult> {
   if (!env.channel) throw new IngestError("NO_CHANNEL", "channel is required", 400);
-  const admin = createAdminClient();
-  const target = await resolveTarget(admin, env);
+  const target = await resolveTarget(env);
 
   // Idempotency: same provider message id per org+channel is captured once.
   if (env.externalId) {
-    const { data: dup, error } = await admin
-      .from("items")
-      .select("id, bytes")
-      .eq("org_id", target.orgId)
-      .eq("channel", env.channel)
-      .eq("external_id", env.externalId)
-      .maybeSingle();
-    if (error) throw error;
+    const dup = await prisma.items.findFirst({
+      where: { org_id: target.orgId, channel: env.channel, external_id: env.externalId },
+      select: { id: true, bytes: true },
+    });
     if (dup) {
       return {
         itemId: dup.id,
@@ -171,7 +156,7 @@ export async function ingest(env: IngestEnvelope): Promise<IngestResult> {
         deduped: true,
         attachments: 0,
         blobsReused: 0,
-        bytes: dup.bytes,
+        bytes: Number(dup.bytes ?? 0),
       };
     }
   }
@@ -186,7 +171,7 @@ export async function ingest(env: IngestEnvelope): Promise<IngestResult> {
       JSON.stringify({ text: env.bodyText ?? null, html: env.bodyHtml ?? null }),
       "utf8",
     );
-    const b = await storeBlob(admin, target.orgId, buf, "application/json");
+    const b = await storeBlob(target.orgId, buf, "application/json");
     bodyHash = b.hash;
     if (b.reused) blobsReused++;
     totalBytes += b.bytes;
@@ -196,7 +181,7 @@ export async function ingest(env: IngestEnvelope): Promise<IngestResult> {
   let rawHash: string | null = null;
   if (env.raw?.dataBase64) {
     const buf = Buffer.from(env.raw.dataBase64, "base64");
-    const b = await storeBlob(admin, target.orgId, buf, env.raw.contentType);
+    const b = await storeBlob(target.orgId, buf, env.raw.contentType);
     rawHash = b.hash;
     if (b.reused) blobsReused++;
     totalBytes += b.bytes;
@@ -205,9 +190,8 @@ export async function ingest(env: IngestEnvelope): Promise<IngestResult> {
   const meta = { ...(env.meta ?? {}) } as Record<string, unknown>;
   if (target.forwardingAddressId) meta.forwarding_address_id = target.forwardingAddressId;
 
-  const { data: item, error: itemErr } = await admin
-    .from("items")
-    .insert({
+  const item = await prisma.items.create({
+    data: {
       org_id: target.orgId,
       owner_user_id: target.ownerUserId,
       source_id: target.sourceId,
@@ -216,41 +200,41 @@ export async function ingest(env: IngestEnvelope): Promise<IngestResult> {
       external_id: env.externalId ?? null,
       external_account: env.externalAccount ?? null,
       sender: env.sender ?? null,
-      recipients: env.recipients ?? null,
+      recipients: env.recipients ?? [],
       subject: env.subject ?? null,
       body_preview: preview(env),
       body_hash: bodyHash,
       raw_hash: rawHash,
-      meta,
-      sent_at: env.sentAt ?? null,
+      meta: meta as Prisma.InputJsonValue,
+      sent_at: env.sentAt ? new Date(env.sentAt) : null,
       status: "received",
-    })
-    .select("id")
-    .single();
-  if (itemErr) throw itemErr;
+    },
+    select: { id: true },
+  });
 
   try {
     for (const att of env.attachments ?? []) {
       const buf = Buffer.from(att.dataBase64, "base64");
-      const b = await storeBlob(admin, target.orgId, buf, att.contentType);
+      const b = await storeBlob(target.orgId, buf, att.contentType);
       if (b.reused) blobsReused++;
       totalBytes += b.bytes;
-      const { error: attErr } = await admin.from("attachments").insert({
-        item_id: item.id,
-        org_id: target.orgId,
-        owner_user_id: target.ownerUserId,
-        filename: att.filename ?? null,
-        content_type: att.contentType ?? null,
-        bytes: buf.length,
-        blob_hash: b.hash,
+      await prisma.attachments.create({
+        data: {
+          item_id: item.id,
+          org_id: target.orgId,
+          owner_user_id: target.ownerUserId,
+          filename: att.filename ?? null,
+          content_type: att.contentType ?? null,
+          bytes: BigInt(buf.length),
+          blob_hash: b.hash,
+        },
       });
-      if (attErr) throw attErr;
     }
 
-    await admin
-      .from("items")
-      .update({ status: "stored", bytes: totalBytes })
-      .eq("id", item.id);
+    await prisma.items.update({
+      where: { id: item.id },
+      data: { status: "stored", bytes: BigInt(totalBytes) },
+    });
 
     return {
       itemId: item.id,
@@ -261,29 +245,21 @@ export async function ingest(env: IngestEnvelope): Promise<IngestResult> {
       bytes: totalBytes,
     };
   } catch (e) {
-    await admin
-      .from("items")
-      .update({ status: "failed", error: String((e as Error)?.message ?? e).slice(0, 500) })
-      .eq("id", item.id);
+    await prisma.items.update({
+      where: { id: item.id },
+      data: { status: "failed", error: String((e as Error)?.message ?? e).slice(0, 500) },
+    });
     throw e;
   }
 }
 
 /** Read a stored blob back, transparently decompressing. */
-export async function readBlob(
-  orgId: string,
-  hash: string,
-  admin: SupabaseClient = createAdminClient(),
-): Promise<Buffer> {
-  const { data: row, error } = await admin
-    .from("blobs")
-    .select("storage_path, encoding")
-    .eq("org_id", orgId)
-    .eq("hash", hash)
-    .single();
-  if (error) throw error;
-  const { data, error: dlErr } = await admin.storage.from(BUCKET).download(row.storage_path);
-  if (dlErr) throw dlErr;
-  const buf = Buffer.from(await data.arrayBuffer());
+export async function readBlob(orgId: string, hash: string): Promise<Buffer> {
+  const row = await prisma.blobs.findFirst({
+    where: { org_id: orgId, hash },
+    select: { storage_path: true, encoding: true },
+  });
+  if (!row) throw new Error(`No blob ${hash} for org ${orgId}`);
+  const buf = await getBlob(row.storage_path);
   return row.encoding === "gzip" ? gunzipSync(buf) : buf;
 }

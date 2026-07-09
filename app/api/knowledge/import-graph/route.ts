@@ -1,5 +1,4 @@
 import { getSessionUser } from "@/lib/auth/session";
-import { createAdminClient } from "@/utils/supabase/admin";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { parseWorkbook } from "@/lib/datamodo/spreadsheet";
 import { getDataset, listDatasetRows } from "@/lib/datamodo/datasets";
@@ -54,7 +53,6 @@ export async function POST(req: Request) {
 
   if (input.rows.length === 0) return json({ error: "That table has no rows to import." }, 400);
 
-  const admin = createAdminClient();
   try {
     const result = await importTableAsGraph(org.id, user.id, input);
     return json({ ok: true, ...result });

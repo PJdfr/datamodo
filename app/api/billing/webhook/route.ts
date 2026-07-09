@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { createAdminClient } from "@/utils/supabase/admin";
+import { prisma } from "@/lib/prisma";
 import { setPlanFromStripe } from "@/lib/datamodo/settings";
 import type { Plan } from "@/lib/datamodo/plans";
 
@@ -24,8 +24,6 @@ export async function POST(req: Request) {
     return new Response("Invalid signature", { status: 400 });
   }
 
-  const admin = createAdminClient();
-
   try {
     if (event.type === "checkout.session.completed") {
       const s = event.data.object as Stripe.Checkout.Session;
@@ -41,10 +39,10 @@ export async function POST(req: Request) {
       }
     } else if (event.type === "customer.subscription.deleted") {
       const sub = event.data.object as Stripe.Subscription;
-      await admin
-        .from("user_settings")
-        .update({ plan: "free", plan_status: "canceled" })
-        .eq("stripe_customer_id", sub.customer as string);
+      await prisma.user_settings.updateMany({
+        where: { stripe_customer_id: sub.customer as string },
+        data: { plan: "free", plan_status: "canceled" },
+      });
     }
   } catch (e) {
     console.error("[billing/webhook] handler failed", e);

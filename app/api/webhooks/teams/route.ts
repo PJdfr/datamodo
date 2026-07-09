@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { createAdminClient } from "@/utils/supabase/admin";
 import { ingest } from "@/lib/ingest/store";
 import { isHandleBound, redeemChannelLinkCode } from "@/lib/datamodo/channels";
 import type { IngestEnvelope } from "@/lib/ingest/types";
@@ -64,7 +63,6 @@ export async function POST(req: Request) {
   if (!handle) return NextResponse.json({ ok: true });
 
   const text = activity.text ?? null;
-  const admin = createAdminClient();
 
   const bound = await isHandleBound("teams", handle);
   if (!bound) {

@@ -385,8 +385,15 @@ the same migration SQL to `prod` — Neon branches don't git-merge DDL).
 - ⬜ **4. Signup side-effects** — reimplement the old `handle_new_user` trigger in app code:
   on first sign-in create `profiles` + personal `organizations` + `organization_members` +
   `user_settings` + a `forwarding_addresses` inbox.
-- ⬜ **5. Storage** — Supabase Storage → **Vercel Blob** or **Cloudflare R2** in
-  `lib/ingest/store.ts` (`blobs.storage_path`).
+- ✅ **5. Storage + remaining admin-client DB writes** — done (code). `store.ts` fully
+  ported: DB → Prisma, storage → an **S3-compatible adapter** [lib/storage/blob.ts](lib/storage/blob.ts)
+  (`putBlob`/`getBlob`, `AWS_*` env). 9 remaining `createAdminClient` sites cleaned
+  (dead ones removed; `billing/webhook` `user_settings` write → Prisma). **`utils/supabase/`
+  deleted; all `@supabase/*` SDK deps removed — zero `@supabase` imports in app/lib.** `tsc`
+  + `next build` green. **⚠️ Storage not provisioned:** chosen target **Neon Object Storage**
+  is private-preview + **us-east-2 only**, but our DB is **eu-central-1** → not usable yet.
+  The adapter is S3-generic, so wiring is just env vars once we have Neon Storage access **or**
+  fall back to R2/S3. Ingest blob archival is non-functional until then (ingest isn't live yet).
 - ⬜ **6. Extraction loop (Neon way)** — queue = `items.status` + `SELECT … FOR UPDATE SKIP
   LOCKED`; scheduler = **GitHub Actions cron** → `/api/jobs/extract-tick` (no pgmq/pg_cron/
   pg_net). `runExtractionForItem`/`ingestExtraction` stay unchanged.
