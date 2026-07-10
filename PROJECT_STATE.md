@@ -647,6 +647,52 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
 
 ## Next steps
 
+-2. **Ontology layer — user-editable kind registry ("Categories") (DESIGNED 2026-07-10,
+   not built).** The answer to "how do we structure the graph so we're not lost" +
+   "users should define categories with templates the agent fills". Decision: the
+   substrate stays UNIVERSAL (one node shape = `entities`, edges = facts whose value is
+   an entity — verbs with confidence/valid-time/provenance already); what's missing is
+   a VOCABULARY layer, not a storage change.
+   - **`kinds` table** (per org): kind slug, label, plural, icon/color, plain-language
+     description (steers the classifier), `fields` jsonb (template:
+     `[{key,label,type(text|number|date|entity),unit?,required?,aliases[]}]`),
+     `relations` jsonb (verb vocabulary: `[{predicate,label,targetKind?}]`). Seeded
+     with editable builtins (person, company, invoice, document, event, concept…);
+     users add their own.
+   - Powers: ① extraction steering (prompt gets the category menu + field keys as
+     predicate names); ② **canonicalization** post-LLM (kind `org`→`company`,
+     predicate `invoice_amount`→`amount` via aliases — FIXES the long-documented
+     predicate-drift fact-dedup bug); ③ navigable UI (registry order/icons/colors,
+     template fields first on cards, completeness cues "invoice missing due_date");
+     ④ template ⇢ table schema (makes `projectEntitiesToDataset`'s slug==key
+     convention explicit; one-click "build table from category"); ⑤ growth loop
+     (no-fit entities land as free-form `thing` + the agent can PROPOSE a new
+     category w/ inferred template via the Review queue).
+   - Templates STEER, never block — off-template facts still land (reviewable).
+   - **Concepts as nodes, with a leash**: builtin `concept` kind; extraction links
+     content to ≤3 concepts, prefers the user's existing list, proposes new ones via
+     review (never silently). Edges `about` / `related_to`. Obsidian-style map of
+     content without noun-soup.
+   - **Physical layer stays Postgres + R2** (evaluated the Lance/lance-graph
+     "multimodal KG in one columnar dataset" thesis, thedataquarry 2026-04: their
+     "split-brain" critique targets 3-system stacks with sync drift; we are 2 systems
+     joined by immutable content hashes, embeddings live IN the node row via pgvector,
+     and our writes are OLTP-shaped — entity resolution, SKIP LOCKED queues,
+     bitemporal supersession — which is Postgres's home turf. **lance-graph is the
+     designated candidate for the "derived graph index"/columnar analytics sidecar**
+     (PROJECT_STATE already treats the graph as a derived index) when multi-hop
+     traversal or >100k-fact analytics arrive; Lance reads object storage, so an
+     entities+facts+embeddings export to R2 is a clean later add-on, same slot as the
+     documented DuckDB path.)
+   - From the CocoIndex/LanceDB incremental-pipeline article: adopt the discipline,
+     not the framework — we already have content-hash dedup, idempotent ingest,
+     claim-key dedup and fact_sources lineage; the missing piece is an
+     **`extraction_version` stamp** on items/facts so prompt/model/ontology upgrades
+     can requeue ONLY stale items (delta reprocessing) instead of everything.
+   - Build order: ① `kinds` registry + seeds + prompt injection + canonicalization →
+     ② Categories manager UI + fields-first cards + completeness → ③ template→table
+     generator + new-category review proposals → ④ concept kind + embeddings
+     (Tier 1b, `entities.embedding` already in schema) + extraction_version.
 -1. **Attachments → documents in the graph + smart folders — ✅ BUILT 2026-07-10**
    (see Recent changes) **except step ①: provision the blob bucket** (Cloudflare R2 or
    S3 until Neon Object Storage reaches eu; wiring is env vars only —
