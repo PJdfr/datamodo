@@ -12,6 +12,28 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Ontology phase ② SHIPPED: embeddings (Tier 1b) + the document
+  evidence layer (chunks).** The two adoptions from the multimodal-KG research.
+  - **Embeddings** ([lib/llm/embeddings.ts](lib/llm/embeddings.ts)): OpenAI-compatible
+    /embeddings client, 1536-dim (matches `entities.embedding`), FAIL-SOFT — no
+    `EMBEDDINGS_API_KEY`/`OPENAI_API_KEY` → null and every caller degrades to the
+    non-semantic path. `ingestExtraction` batch-embeds all extracted entities in one
+    call; embeddings stored on entity create (raw SQL — the vector column is
+    Unsupported in Prisma); `resolveEntity` gains **Tier 1b semantic blocking**: when
+    trigram finds <5 candidates, ANN over the org+kind's embeddings RECALLS more
+    (cosine ≥0.5) — resolution still goes through LLM adjudication, cosine never
+    auto-merges. **Owed by a human: set `OPENAI_API_KEY` (or `EMBEDDINGS_API_KEY`) in
+    Vercel** or embeddings stay off (everything still works without).
+  - **doc_chunks** (migration [20260710190000_doc_chunks.sql](neon/migrations/20260710190000_doc_chunks.sql),
+    applied to all 3 Neon branches): after fact extraction, a document's PASSAGES now
+    survive — pure `chunkDocText` (per-PDF-page lineage, ~1200 chars, paragraph/sentence
+    boundaries, 60-chunk cap) → [chunks.ts](lib/datamodo/chunks.ts) `storeDocChunks`
+    (idempotent replace per entity + best-effort chunk embeddings). `searchChunks`
+    (keyword, ≤2 passages/doc) joins `GET /api/search` as `passages`, renders as an
+    **"In your documents"** section (page-cited quote cards), and feeds the grounded
+    answer as `[n] Passage from "report.pdf" (page 3)` sources — answers can now cite
+    from INSIDE documents. Verified: 27/27 unit tests + tsc + lint + build green.
+    Semantic (ANN) chunk search is a later drop-in behind the same searchChunks shape.
 - **2026-07-10** — **Ontology layer ① SHIPPED: user-editable kind registry
   ("Categories").** New `kinds` table (migration
   [20260710180000_kinds_registry.sql](neon/migrations/20260710180000_kinds_registry.sql),

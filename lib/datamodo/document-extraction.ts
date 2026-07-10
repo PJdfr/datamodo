@@ -59,6 +59,8 @@ export interface ExtractedDocText {
   truncated: boolean;
   /** Total pages in the source (PDF only). */
   pages: number | null;
+  /** Per-page text for chunking, 1-based page numbers (PDF only). */
+  pageTexts?: { page: number; text: string }[];
 }
 
 /** Pull the text layer out of an attachment's bytes, capped. Throws on
@@ -71,12 +73,78 @@ export async function extractAttachmentText(
     const { getDocumentProxy, extractText } = await import("unpdf");
     const pdf = await getDocumentProxy(new Uint8Array(bytes));
     const { totalPages, text } = await extractText(pdf, { mergePages: false });
-    const joined = text.slice(0, MAX_DOC_PAGES).join("\n\n").trim();
+    const kept = text.slice(0, MAX_DOC_PAGES);
+    const joined = kept.join("\n\n").trim();
     const truncated = totalPages > MAX_DOC_PAGES || joined.length > MAX_DOC_CHARS;
-    return { text: joined.slice(0, MAX_DOC_CHARS), truncated, pages: totalPages };
+    return {
+      text: joined.slice(0, MAX_DOC_CHARS),
+      truncated,
+      pages: totalPages,
+      pageTexts: kept.map((t, i) => ({ page: i + 1, text: t.trim() })).filter((p) => p.text),
+    };
   }
   const s = Buffer.from(bytes).toString("utf8").trim();
   return { text: s.slice(0, MAX_DOC_CHARS), truncated: s.length > MAX_DOC_CHARS, pages: null };
+}
+
+// --- Chunks: the evidence layer -------------------------------------------------
+
+export interface DocChunk {
+  seq: number;
+  page: number | null;
+  text: string;
+}
+
+/** Target chunk size (chars) and a hard cap on chunks per document. */
+export const CHUNK_SIZE = 1200;
+export const MAX_CHUNKS = 60;
+
+/** Split one block of text into ~CHUNK_SIZE pieces on paragraph, then
+ *  sentence boundaries — never mid-word unless a single token exceeds it. */
+function splitBlock(text: string): string[] {
+  const clean = text.replace(/[ \t]+/g, " ").trim();
+  if (clean.length <= CHUNK_SIZE) return clean ? [clean] : [];
+  const paras = clean.split(/\n\s*\n/);
+  const out: string[] = [];
+  let buf = "";
+  const flush = () => { if (buf.trim()) out.push(buf.trim()); buf = ""; };
+  for (const p of paras) {
+    if (buf.length + p.length + 2 <= CHUNK_SIZE) { buf += (buf ? "\n\n" : "") + p; continue; }
+    flush();
+    if (p.length <= CHUNK_SIZE) { buf = p; continue; }
+    // Paragraph itself too long → sentence-ish splits, then hard cuts.
+    let rest = p;
+    while (rest.length > CHUNK_SIZE) {
+      const window = rest.slice(0, CHUNK_SIZE);
+      const cut = Math.max(window.lastIndexOf(". "), window.lastIndexOf("! "), window.lastIndexOf("? "), window.lastIndexOf("\n"));
+      const at = cut > CHUNK_SIZE * 0.4 ? cut + 1 : CHUNK_SIZE;
+      out.push(rest.slice(0, at).trim());
+      rest = rest.slice(at);
+    }
+    buf = rest;
+  }
+  flush();
+  return out;
+}
+
+/** Chunk a document's text for the evidence layer. PDFs chunk per page (page
+ *  lineage survives into citations); plain text chunks by paragraphs. */
+export function chunkDocText(doc: ExtractedDocText): DocChunk[] {
+  const chunks: DocChunk[] = [];
+  if (doc.pageTexts?.length) {
+    for (const p of doc.pageTexts) {
+      for (const piece of splitBlock(p.text)) {
+        chunks.push({ seq: chunks.length, page: p.page, text: piece });
+        if (chunks.length >= MAX_CHUNKS) return chunks;
+      }
+    }
+    return chunks;
+  }
+  for (const piece of splitBlock(doc.text)) {
+    chunks.push({ seq: chunks.length, page: null, text: piece });
+    if (chunks.length >= MAX_CHUNKS) break;
+  }
+  return chunks;
 }
 
 /** Spreadsheets: index at most this many data rows into the prompt. */

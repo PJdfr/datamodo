@@ -648,6 +648,33 @@ CREATE TABLE public.items (
 
 
 --
+-- Name: doc_chunks; Type: TABLE; Schema: public; Owner: -
+--
+-- Evidence layer: chunk-level passages from documents (page lineage +
+-- optional embeddings) so search and grounded answers can cite from INSIDE
+-- documents, not just from extracted facts.
+
+CREATE TABLE public.doc_chunks (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    org_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    entity_id uuid NOT NULL REFERENCES public.entities(id) ON DELETE CASCADE,
+    item_id uuid,
+    seq integer NOT NULL,
+    page integer,
+    text text NOT NULL,
+    embedding public.vector(1536),
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE INDEX doc_chunks_org_idx ON public.doc_chunks USING btree (org_id);
+
+CREATE INDEX doc_chunks_entity_idx ON public.doc_chunks USING btree (entity_id, seq);
+
+CREATE INDEX doc_chunks_embedding_idx ON public.doc_chunks USING hnsw (embedding public.vector_cosine_ops);
+
+
+
+--
 -- Name: kinds; Type: TABLE; Schema: public; Owner: -
 --
 -- Ontology layer: user-editable kind registry ("Categories") — display
