@@ -12,6 +12,33 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Projections catalog continued: TIMELINE + GRAPH CURATION shipped**
+  (the next two items from the designed remainder).
+  - **Timeline** — the chronological projection, pure query as designed. Pure core
+    [timeline.ts](lib/datamodo/timeline.ts) (`buildTimeline`, no imports → unit-testable):
+    events derive from data that already carries time — **messages** (received_at, with
+    "N facts extracted" + entity chips), **domain dates** (current facts with value_date:
+    due dates, meeting days; future ones surface as an **Upcoming** section, soonest
+    first), **changes** (superseded facts → "1200 EUR → 1450 EUR" at valid_to), **first
+    sightings** (entities.created_at). `?entity=` narrows to "everything about X, in
+    order" — in the UI, click any entity chip. `GET /api/knowledge/timeline` (fetch +
+    row-adaptation live in the route; the projection is pure). UI
+    [timeline-view.tsx](app/dashboard/timeline-view.tsx): 5th Data sub-toggle
+    (Tables · Knowledge · Insights · Files · **Timeline**), day-grouped sections.
+  - **Graph curation** — the canvas is now a lived-in space
+    ([knowledge-graph.tsx](app/dashboard/knowledge-graph.tsx)): **dragging a node PINS
+    it** — persisted to `entities.graph_pin` (jsonb {x,y} normalized 0..1; migration
+    [20260710220000](neon/migrations/20260710220000_entities_graph_pin.sql), **applied +
+    verified on all 4 Neon branches** incl. both previews) via
+    `PATCH /api/knowledge/entities/[id]` (`{graphPin}` only — facts are NOT editable
+    there; knowledge changes stay extraction+review). Layout holds pinned nodes fixed
+    and relaxes the rest around them; pinned nodes show an accent dot; **Unpin** in the
+    inspector. **Hypernodes**: "clusters" chips fold a whole kind into one
+    "Invoices (12)" node (edges reroute + dedup, click to expand) — session-local by
+    design (a reading mode, not data). `KnowledgeEntityView` gains `graphPin`.
+  - Verified: 46/46 tests (7 new on the pure timeline) + tsc + build green; lint ==
+    baseline (8 errors/16 warnings, all pre-existing); SSR smoke-rendered both views
+    (graph: chips/edges/pin marker/cluster row; timeline first paint).
 - **2026-07-10** — **Generated notes SHIPPED: a dump becomes a note WE author (the
   Obsidian move, inverted to fit the product).** Decision: users never write structured
   notes — they dump prose into any channel and the PIPELINE authors the note.
@@ -780,12 +807,12 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
      user DUMPS prose via any channel; the pipeline authors the note node (distilled
      body_md + machine-made mention/about edges). No editor — authoring is our job,
      not the user's. Explicit gesture: subject `note:`/`memo`.
-   - **Graph curation** — persist per-entity x/y pins (small jsonb) so the canvas
-     becomes a lived-in space; collapse a kind-cluster into one "Invoices (12)" table
-     node (the hypernode); expand on click.
-   - **Timeline** — facts and items all carry time (valid_from, value_date, sent_at):
-     a chronological projection per entity ("everything about Brightwave, in order")
-     and globally. Pure query.
+   - ~~Graph curation~~ ✅ **shipped 2026-07-10** — drag-to-pin persisted in
+     `entities.graph_pin`, unpin in the inspector, kind-cluster hypernodes
+     (session-local). See Recent changes.
+   - ~~Timeline~~ ✅ **shipped 2026-07-10** — pure chronological projection
+     (messages / domain dates / changes / first sightings, Upcoming section,
+     per-entity filter). See Recent changes.
    - **Concept map** — concepts + `about`/`related_to` edges only: the Obsidian-style
      map of content, one zoom level above the entity graph.
    - **Dossier/report export** — an entity page + its neighborhood rendered to a
