@@ -1,13 +1,13 @@
-# Project State — datamodo
+# Project State — datamodo (the journal)
 
-> **Living handoff doc.** Read this first when starting a session. It is the
-> single place that summarizes what datamodo is, where it stands, and what's
-> next — so a fresh agent (or human) can get oriented without prior context.
->
-> **Every agent MUST update this file at the end of a task** that changes the
-> product's state: move items between sections, add a dated line to
-> "Recent changes", and adjust "Next steps". Keep it tight — this is a map,
-> not a changelog. Details live in code, migrations, and `app/dashboard/README.md`.
+> **This file is the dated JOURNAL** — every state-changing task adds a line to
+> "Recent changes" (with its verification details). For orientation, read the
+> **living docs first** (they are updated with every commit — rule in
+> `AGENTS.md`):
+> [docs/MEMORY.md](docs/MEMORY.md) (aim · product model · dev/prod flow ·
+> decisions) → [docs/STATE.md](docs/STATE.md) (feature→code map · stack · env
+> vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
+> [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
 > Last updated: 2026-07-10
 
