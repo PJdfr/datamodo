@@ -30,25 +30,25 @@ async function handle(req: Request) {
   // instead of EXTRACT_BATCH per 5-minute cron.
   const recovered = await recoverExtractionQueue();
   const startedAt = Date.now();
-  // Claim another batch only while a worst-case batch (~30s of LLM calls)
-  // still fits inside maxDuration.
+  // Claim ONE item at a time so a function-timeout kill (Vercel caps us at
+  // maxDuration) strands at most the item in flight — the recovery pass
+  // requeues it next tick. Stop claiming while a worst-case item (LLM calls
+  // for the body, attachments, and entity adjudication) still fits.
   const CLAIM_CUTOFF_MS = 25_000;
   let claimed = 0;
   let processed = 0;
   let failed = 0;
-  while (Date.now() - startedAt < CLAIM_CUTOFF_MS) {
-    const ids = await claimStoredItems(BATCH);
-    if (ids.length === 0) break;
-    claimed += ids.length;
-    for (const id of ids) {
-      try {
-        await runExtractionForItem(id);
-        processed++;
-      } catch (e) {
-        // runExtractionForItem already set items.status = 'failed' + error.
-        failed++;
-        console.error(`[extract-tick] item ${id} failed`, e);
-      }
+  while (Date.now() - startedAt < CLAIM_CUTOFF_MS && claimed < BATCH * 4) {
+    const [id] = await claimStoredItems(1);
+    if (!id) break;
+    claimed++;
+    try {
+      await runExtractionForItem(id);
+      processed++;
+    } catch (e) {
+      // runExtractionForItem already set items.status = 'failed' + error.
+      failed++;
+      console.error(`[extract-tick] item ${id} failed`, e);
     }
   }
 
