@@ -337,6 +337,39 @@ async function createConflictReview(
   });
 }
 
+/** File a document's template-restrained facts as a reviewable decision:
+ *  accept replays `detail.extraction` through ingest ("add them anyway"),
+ *  reject discards. Nothing is applied at filing time. */
+export async function createOffTemplateReview(
+  orgId: string,
+  ownerUserId: string | null,
+  args: {
+    itemId: string | null;
+    docLabel: string;
+    docKind: string | null;
+    extraction: Extraction;
+    display: unknown[]; // pre-rendered card lines (OffTemplateDisplayFact[])
+  },
+): Promise<void> {
+  await prisma.knowledge_reviews.create({
+    data: {
+      org_id: orgId,
+      owner_user_id: ownerUserId,
+      kind: "off_template",
+      status: "pending",
+      confidence: null,
+      impact: args.display.length,
+      item_id: args.itemId,
+      detail: {
+        docLabel: args.docLabel,
+        docKind: args.docKind,
+        extraction: args.extraction,
+        facts: args.display,
+      } as unknown as import("@prisma/client").Prisma.InputJsonValue,
+    },
+  });
+}
+
 /** Surface a low-confidence extraction for the user to confirm ("did we
  *  understand this message?"). High-confidence extractions file silently. */
 export async function createExtractionReview(
@@ -620,7 +653,7 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
   const [ents, facts] = await Promise.all([
     prisma.entities.findMany({
       where: { org_id: orgId, merged_into: null },
-      select: { id: true, kind: true, canonical_label: true, natural_keys: true, body_md: true },
+      select: { id: true, kind: true, canonical_label: true, natural_keys: true, body_md: true, graph_pin: true },
     }),
     prisma.facts.findMany({
       where: { org_id: orgId, valid_to: null },
@@ -637,7 +670,7 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
       take: 5000,
     }),
   ]);
-  const entities = (ents as { id: string; kind: string; canonical_label: string; natural_keys: Record<string, string>; body_md: string | null }[] | null) ?? [];
+  const entities = (ents as { id: string; kind: string; canonical_label: string; natural_keys: Record<string, string>; body_md: string | null; graph_pin: { x?: unknown; y?: unknown } | null }[] | null) ?? [];
   const factList = (facts as unknown as KFact[] | null) ?? [];
   const label = new Map(entities.map((e) => [e.id, e.canonical_label]));
 
@@ -699,6 +732,10 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
       label: e.canonical_label,
       naturalKeys: e.natural_keys ?? {},
       bodyMd: e.body_md ?? null,
+      graphPin:
+        e.graph_pin && typeof e.graph_pin.x === "number" && typeof e.graph_pin.y === "number"
+          ? { x: e.graph_pin.x, y: e.graph_pin.y }
+          : null,
       edges: edges.get(e.id) ?? 0,
       facts: (bySubject.get(e.id) ?? []).map((f) => {
         const v = fmt(f);

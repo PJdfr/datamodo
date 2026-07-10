@@ -60,6 +60,9 @@ export interface KnowledgeEntityView {
   /** Thick nodes: a generated markdown body (e.g. a document's summary),
    *  rendered as the node's page. Null for thin nodes. */
   bodyMd: string | null;
+  /** Graph curation: the user's pinned canvas position ({x,y} normalized 0..1),
+   *  or null for auto layout. */
+  graphPin: { x: number; y: number } | null;
 }
 
 /** A row of the `datasets` table. */

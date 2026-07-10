@@ -12,6 +12,106 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Vision tier BUILT: image attachments become understood thick
+  nodes** (the last projections-catalog item; scanned-PDF OCR still out — needs
+  page rasterization, images-only is the v1).
+  - **Provider layer sees**: `ChatJsonRequest.images` ([types.ts](lib/llm/types.ts)) —
+    OpenAI-compatible sends data-URI `image_url` parts, Anthropic sends base64 image
+    blocks; `LlmModels.vision` (env `OPENROUTER_VISION_MODEL` / `OPENAI_VISION_MODEL` /
+    `ANTHROPIC_VISION_MODEL`, defaults to the extract model). A blind model just
+    errors → the attachment degrades to `metadata_only` like any unreadable PDF.
+  - **`extractFromImage`** ([extract.ts](lib/datamodo/extract.ts)): SINGLE vision call
+    classifies AND extracts (no separate classify pass, no escalation ladder — vision
+    calls cost real money): prompt = full category menu + "the primary entity's kind
+    IS the classification" ([buildImagePrompt](lib/datamodo/ontology.ts)); output =
+    summary (transcribing load-bearing text/numbers) + template facts + ≤3 concepts.
+    Same restraint backstop + **off-template review routing** as documents (shared
+    `restrainForKinds` tail).
+  - **Pipeline** ([documents.ts](lib/datamodo/documents.ts)): image gate
+    `attachmentImageType` (png/jpeg/webp/gif via content-type or extension,
+    `MAX_IMAGE_BYTES` 3.5MB keeps base64 under provider caps); summary becomes the
+    node's `body_md` AND is chunked as its passage — image content is searchable/
+    citable. **`EXTRACTION_VERSION` bumped to 2** — after deploy, one authed
+    `POST /api/jobs/extract-requeue` re-runs old items so past image attachments
+    get understood.
+  - Verified: 67/67 tests (6 new: gate, size cap vs base64 math, prompt) + tsc +
+    build green; lint == baseline. **NOT run against a live vision model** (no key
+    in sandbox) — same chatJSON contract as verified paths. **Owed by a human:**
+    set `OPENROUTER_VISION_MODEL` (or provider equivalent) in Vercel to a
+    vision-capable model, then curl the requeue endpoint once.
+- **2026-07-10** — **Off-template review routing + delta-reprocessing endpoint**
+  (closes two documented gaps: restraint drops were silent; extraction_version
+  had no requeue trigger).
+  - **Off-template → Review queue**: `restrictExtractionToTemplates` now RETURNS the
+    facts it dropped for vocabulary reasons (`offTemplate` — concept-leash drops stay
+    policy, never routed); pure `buildOffTemplateReview` ([ontology.ts](lib/datamodo/ontology.ts))
+    packages them as a SELF-CONTAINED replayable unit (mini extraction = the facts +
+    exactly the entities they touch, from the pre-restriction extraction, plus
+    pre-rendered display lines). The document pipeline files it as a new
+    `knowledge_reviews.kind = "off_template"` (no migration — kind is free text;
+    best-effort, never fails the attachment). **Accept = "add anyway"**: replays the
+    payload through the normal `ingestExtraction` (resolution + dedup + provenance);
+    reject discards — nothing is applied at filing time, unlike the other kinds.
+    Review Studio renders it as a 4th decision type (± rows, "Outside the template"
+    group, card nudges "or add the field to the category"); simulated preview updated.
+  - **`POST /api/jobs/extract-requeue?below=N`** ([route](app/api/jobs/extract-requeue/route.ts),
+    CRON_SECRET-gated like the tick): flips analyzed items stamped `extraction_version
+    < N` (or unstamped) back to `stored` with fresh attempts; the normal tick
+    re-extracts them. Safe by construction (resolution/claim-key dedup/supersession).
+    Bump `EXTRACTION_VERSION`, deploy, curl once.
+  - Verified: 61/61 tests (4 new on capture/packaging) + tsc + build green; lint ==
+    baseline. Accept-path ingest rides on the already-verified `ingestExtraction`.
+- **2026-07-10** — **Projections catalog continued ②: CONCEPT MAP + DOSSIER EXPORT
+  shipped** (the last two pure-query items of the designed remainder).
+  - **Concept map** — the Obsidian-style map of content, one zoom level above the
+    entity graph. Pure core [concept-map.ts](lib/datamodo/concept-map.ts)
+    (`buildConceptMap`, type-imports only → unit-testable): nodes = `concept` entities
+    sized by how much content is `about` them; links = explicit concept→concept facts
+    (`related_to`, solid) MERGED with **co-occurrence** (two concepts sharing a
+    document/note, dashed, weighted by shared count). UI
+    [concept-map-view.tsx](app/dashboard/concept-map-view.tsx): third Knowledge mode
+    (Cards · Graph · **Concepts**), deterministic bubble layout, click a concept →
+    drawer lists its content with jump-to-page; reads over ALL entities (not the
+    search subset — a half-filtered map of content misleads).
+  - **Dossier export** — "everything we know about Acme, cited", as downloadable
+    markdown. Pure renderer [dossier.ts](lib/datamodo/dossier.ts) (`buildDossier`,
+    `generatedOn` injected → deterministic tests): summary (body_md), attribute facts
+    with `[n]` citations, connections BOTH directions, the 1-hop neighborhood's facts,
+    and a numbered Sources footer (identical messages collapse to one number;
+    no-provenance case stays honest). `GET /api/knowledge/entities/[id]/dossier`
+    streams it as an `.md` attachment (`dossierFilename` slug). **"dossier ↓" on every
+    entity page footer** (documents keep "original ↓" beside it). PDF stays a later
+    add-on behind the same builder.
+  - Verified: 57/57 tests (11 new) + tsc + build green; lint == baseline (8/16);
+    SSR smoke: concept labels/dashed edges/legend/empty state render (12 checks incl.
+    the prior graph+timeline ones).
+- **2026-07-10** — **Projections catalog continued: TIMELINE + GRAPH CURATION shipped**
+  (the next two items from the designed remainder).
+  - **Timeline** — the chronological projection, pure query as designed. Pure core
+    [timeline.ts](lib/datamodo/timeline.ts) (`buildTimeline`, no imports → unit-testable):
+    events derive from data that already carries time — **messages** (received_at, with
+    "N facts extracted" + entity chips), **domain dates** (current facts with value_date:
+    due dates, meeting days; future ones surface as an **Upcoming** section, soonest
+    first), **changes** (superseded facts → "1200 EUR → 1450 EUR" at valid_to), **first
+    sightings** (entities.created_at). `?entity=` narrows to "everything about X, in
+    order" — in the UI, click any entity chip. `GET /api/knowledge/timeline` (fetch +
+    row-adaptation live in the route; the projection is pure). UI
+    [timeline-view.tsx](app/dashboard/timeline-view.tsx): 5th Data sub-toggle
+    (Tables · Knowledge · Insights · Files · **Timeline**), day-grouped sections.
+  - **Graph curation** — the canvas is now a lived-in space
+    ([knowledge-graph.tsx](app/dashboard/knowledge-graph.tsx)): **dragging a node PINS
+    it** — persisted to `entities.graph_pin` (jsonb {x,y} normalized 0..1; migration
+    [20260710220000](neon/migrations/20260710220000_entities_graph_pin.sql), **applied +
+    verified on all 4 Neon branches** incl. both previews) via
+    `PATCH /api/knowledge/entities/[id]` (`{graphPin}` only — facts are NOT editable
+    there; knowledge changes stay extraction+review). Layout holds pinned nodes fixed
+    and relaxes the rest around them; pinned nodes show an accent dot; **Unpin** in the
+    inspector. **Hypernodes**: "clusters" chips fold a whole kind into one
+    "Invoices (12)" node (edges reroute + dedup, click to expand) — session-local by
+    design (a reading mode, not data). `KnowledgeEntityView` gains `graphPin`.
+  - Verified: 46/46 tests (7 new on the pure timeline) + tsc + build green; lint ==
+    baseline (8 errors/16 warnings, all pre-existing); SSR smoke-rendered both views
+    (graph: chips/edges/pin marker/cluster row; timeline first paint).
 - **2026-07-10** — **Generated notes SHIPPED: a dump becomes a note WE author (the
   Obsidian move, inverted to fit the product).** Decision: users never write structured
   notes — they dump prose into any channel and the PIPELINE authors the note.
@@ -780,21 +880,23 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
      user DUMPS prose via any channel; the pipeline authors the note node (distilled
      body_md + machine-made mention/about edges). No editor — authoring is our job,
      not the user's. Explicit gesture: subject `note:`/`memo`.
-   - **Graph curation** — persist per-entity x/y pins (small jsonb) so the canvas
-     becomes a lived-in space; collapse a kind-cluster into one "Invoices (12)" table
-     node (the hypernode); expand on click.
-   - **Timeline** — facts and items all carry time (valid_from, value_date, sent_at):
-     a chronological projection per entity ("everything about Brightwave, in order")
-     and globally. Pure query.
-   - **Concept map** — concepts + `about`/`related_to` edges only: the Obsidian-style
-     map of content, one zoom level above the entity graph.
-   - **Dossier/report export** — an entity page + its neighborhood rendered to a
-     shareable markdown/PDF ("everything we know about Acme, cited").
-   - **Vision/OCR tier** — images + scanned PDFs become understood thick nodes (today
-     they land metadata_only); pipeline upgrade behind `extraction_version` requeue.
-   - **Off-template review routing** — restrained document facts currently DROP
-     (documented in restrictExtractionToTemplates; text survives in chunks); route
-     them to the Review queue instead once volume justifies it.
+   - ~~Graph curation~~ ✅ **shipped 2026-07-10** — drag-to-pin persisted in
+     `entities.graph_pin`, unpin in the inspector, kind-cluster hypernodes
+     (session-local). See Recent changes.
+   - ~~Timeline~~ ✅ **shipped 2026-07-10** — pure chronological projection
+     (messages / domain dates / changes / first sightings, Upcoming section,
+     per-entity filter). See Recent changes.
+   - ~~Concept map~~ ✅ **shipped 2026-07-10** — concept bubbles sized by content,
+     explicit + co-occurrence links, drawer to the content. See Recent changes.
+   - ~~Dossier export~~ ✅ **shipped 2026-07-10** — cited markdown download on every
+     entity page ("dossier ↓"); PDF later behind the same builder. See Recent changes.
+   - ~~Vision tier (images)~~ ✅ **built 2026-07-10** — image attachments →
+     understood thick nodes via one vision call; needs `OPENROUTER_VISION_MODEL`
+     env + a live key to verify, then a requeue curl. See Recent changes.
+     **Scanned-PDF OCR remains** — needs page rasterization (canvas) before the
+     same vision call; images-only was the deliberate v1 cut.
+   - ~~Off-template review routing~~ ✅ **shipped 2026-07-10** — drops become
+     `off_template` reviews; accept replays them through ingest. See Recent changes.
 -3. **Local / open-source single-user edition (DESIGNED 2026-07-10, not built).**
    Self-hosted, one user, privacy-first. ~90% of code ships unchanged because the
    seams are already provider-generic (Postgres-native schema, S3-generic blobs,

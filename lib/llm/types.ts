@@ -5,10 +5,21 @@
 
 export type ProviderName = "openrouter" | "openai" | "anthropic";
 
+/** One image attached to a chat request (the vision tier). */
+export interface ChatImage {
+  /** image/png | image/jpeg | image/webp | image/gif */
+  mediaType: string;
+  /** Raw image bytes, base64-encoded — no data: prefix. */
+  dataBase64: string;
+}
+
 export interface ChatJsonRequest {
   system: string;
   user: string;
   model: string;
+  /** Images for vision-capable models. A non-vision model errors on these —
+   *  callers treat that like any other LLM failure (degrade, don't crash). */
+  images?: ChatImage[];
   /** JSON Schema for provider-native structured output (only sent when `structured`). */
   schema?: Record<string, unknown>;
   schemaName?: string;
@@ -24,6 +35,10 @@ export interface LlmModels {
   extract: string;
   /** Stronger model for low-confidence escalation. */
   escalate: string;
+  /** Vision-capable model for image understanding. Defaults to `extract` —
+   *  override via env when the workhorse can't see (a blind model just errors
+   *  and the caller degrades to metadata_only). */
+  vision: string;
 }
 
 export interface LlmProvider {

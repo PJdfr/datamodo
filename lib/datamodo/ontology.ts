@@ -1,4 +1,4 @@
-import type { Extraction } from "./knowledge";
+import type { Extraction, ExtractedEntity, ExtractedFact } from "./knowledge";
 
 // Ontology layer (pure core, no DB): the user-editable kind registry that
 // keeps the graph navigable. The storage substrate stays universal — one node
@@ -251,6 +251,10 @@ export interface RestrictResult {
   extraction: Extraction;
   droppedFacts: number;
   droppedEntities: number;
+  /** Facts dropped ONLY because their predicate is outside the subject kind's
+   *  template vocabulary — the reviewable drops. Concept-leash drops (capped or
+   *  kind-named concepts) are policy, not candidates, and are NOT included. */
+  offTemplate: ExtractedFact[];
 }
 
 /**
@@ -262,8 +266,9 @@ export interface RestrictResult {
  *
  * Rules (expects a canonicalized extraction):
  * - a fact whose subject's kind HAS a template must use a template field or
- *   relation predicate; off-template facts drop. Kinds with no template pass
- *   through untouched.
+ *   relation predicate; off-template facts drop from the extraction but are
+ *   RETURNED in `offTemplate` so the caller can route them to the Review
+ *   queue (accept = add anyway). Kinds with no template pass through untouched.
  * - at most `maxConcepts` concept entities survive (in order of appearance);
  *   facts touching dropped concepts drop with them.
  * - a concept whose label just names a registry KIND ("invoice", "person")
@@ -298,13 +303,18 @@ export function restrictExtractionToTemplates(
     return e?.kind === "concept" && !keptConcepts.has(localId);
   };
 
+  const offTemplate: ExtractedFact[] = [];
   const facts = extraction.facts.filter((f) => {
     const subj = byLocal.get(f.subjectLocalId);
     if (!subj) return false;
     if (conceptDropped(f.subjectLocalId)) return false;
     if (f.value.kind === "entity" && conceptDropped(f.value.entityLocalId)) return false;
     const allowed = allowedByKind.get(subj.kind);
-    return allowed ? allowed.has(f.predicate) : true;
+    if (allowed && !allowed.has(f.predicate)) {
+      offTemplate.push(f); // dropped by the template — reviewable, not lost
+      return false;
+    }
+    return true;
   });
 
   const touched = new Set<string>();
@@ -325,7 +335,66 @@ export function restrictExtractionToTemplates(
     extraction: { entities, facts: finalFacts },
     droppedFacts: extraction.facts.length - finalFacts.length,
     droppedEntities: extraction.entities.length - entities.length,
+    offTemplate,
   };
+}
+
+// --- Off-template review payload (documents) -------------------------------------
+
+export interface OffTemplateDisplayFact {
+  subject: string;
+  subjectKind: string;
+  predicate: string;
+  value: string;
+  /** Value is a relationship to another entity. */
+  ref: boolean;
+}
+
+export interface OffTemplateReviewPayload {
+  /** Self-contained replay: exactly the off-template facts + the entities they
+   *  touch. Accepting the review ingests THIS through the normal pipeline. */
+  extraction: Extraction;
+  /** Pre-rendered lines for the review card (no interpretation needed later). */
+  display: OffTemplateDisplayFact[];
+}
+
+/**
+ * Package restraint drops as a reviewable, replayable unit. Entities come from
+ * the PRE-restriction extraction (the restricted one may have dropped them);
+ * facts are the off-template drops verbatim. Null when there's nothing to file.
+ */
+export function buildOffTemplateReview(
+  original: Extraction,
+  offTemplate: ExtractedFact[],
+): OffTemplateReviewPayload | null {
+  if (offTemplate.length === 0) return null;
+  const byLocal = new Map(original.entities.map((e) => [e.localId, e]));
+
+  const needed = new Set<string>();
+  const facts = offTemplate.filter((f) => {
+    const subj = byLocal.get(f.subjectLocalId);
+    if (!subj) return false;
+    if (f.value.kind === "entity" && !byLocal.has(f.value.entityLocalId)) return false;
+    needed.add(f.subjectLocalId);
+    if (f.value.kind === "entity") needed.add(f.value.entityLocalId);
+    return true;
+  });
+  if (facts.length === 0) return null;
+
+  const entities: ExtractedEntity[] = original.entities.filter((e) => needed.has(e.localId));
+  const labelOf = (localId: string) => byLocal.get(localId)?.label ?? "?";
+  const display: OffTemplateDisplayFact[] = facts.map((f) => {
+    const subj = byLocal.get(f.subjectLocalId)!;
+    const v = f.value;
+    const value =
+      v.kind === "entity" ? labelOf(v.entityLocalId)
+      : v.kind === "number" ? `${v.num}${v.unit ? " " + v.unit : ""}`
+      : v.kind === "date" ? v.date
+      : v.text;
+    return { subject: subj.label, subjectKind: subj.kind, predicate: f.predicate, value, ref: v.kind === "entity" };
+  });
+
+  return { extraction: { entities, facts }, display };
 }
 
 // --- Prompt rendering -----------------------------------------------------------
@@ -399,6 +468,40 @@ export function buildDocumentPrompt(input: DocumentPromptInput): string {
   if (input.businessContext) parts.push(`About the user's work: ${input.businessContext}`);
   if (input.filename) parts.push(`Filename: ${input.filename}`);
   parts.push(`\nDocument text:\n${input.text}`);
+  return parts.join("\n\n");
+}
+
+export interface ImagePromptInput {
+  filename?: string | null;
+  businessContext?: string | null;
+  kinds?: KindDef[];
+  concepts?: string[];
+}
+
+/** The user prompt for the single-call IMAGE extraction (vision tier). Unlike
+ *  documents there is no cheap pre-classification pass — a second vision call
+ *  costs real money — so the full category menu rides along and the model
+ *  classifies by choosing the primary entity's kind. The restraint backstop
+ *  enforces that kind's vocabulary afterwards exactly as for documents. */
+export function buildImagePrompt(input: ImagePromptInput): string {
+  const parts: string[] = [];
+  if (input.kinds?.length) {
+    parts.push(promptCategories(input.kinds));
+    parts.push(
+      "First decide which ONE category above the image's PRIMARY SUBJECT belongs to " +
+        "(a photographed receipt IS an invoice; a screenshot of a contract IS a document). " +
+        "Make the first entity that kind and use ONLY that category's template predicates for its facts.",
+    );
+  }
+  if (input.concepts?.length) {
+    parts.push(
+      `The user's existing CONCEPTS (topics): ${input.concepts.join(", ")}.\n` +
+        "STRONGLY prefer these exact labels; invent a new concept only when the image is clearly about something not listed.",
+    );
+  }
+  if (input.businessContext) parts.push(`About the user's work: ${input.businessContext}`);
+  if (input.filename) parts.push(`Filename: ${input.filename}`);
+  parts.push("The image is attached.");
   return parts.join("\n\n");
 }
 

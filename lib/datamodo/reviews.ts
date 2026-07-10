@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { mergeEntities } from "./knowledge";
+import { ingestExtraction, mergeEntities, type Extraction } from "./knowledge";
 import type {
   ReviewItem,
   ReviewEntitySide,
@@ -16,7 +16,7 @@ export type { ReviewItem } from "./review-types";
 
 interface ReviewRow {
   id: string;
-  kind: "entity_merge" | "fact_conflict" | "extraction";
+  kind: "entity_merge" | "fact_conflict" | "extraction" | "off_template";
   status: string;
   confidence: number | null;
   impact: number;
@@ -214,6 +214,16 @@ export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
         entities: [...entSet.values()],
         facts: rf,
       });
+    } else if (r.kind === "off_template") {
+      // Everything the card needs was pre-rendered at filing time.
+      const display = (r.detail.facts as { subject: string; predicate: string; value: string; ref?: boolean }[]) ?? [];
+      out.push({
+        ...base,
+        kind: "off_template",
+        docLabel: (r.detail.docLabel as string) || "a document",
+        docKind: (r.detail.docKind as string) ?? null,
+        facts: display.map((d) => ({ s: d.subject, p: d.predicate, v: d.value, c: 1, ref: Boolean(d.ref) })),
+      });
     }
   }
   return out;
@@ -221,7 +231,7 @@ export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
 
 /* ------------------------------ mutations -------------------------------- */
 
-interface FullRow extends ReviewRow { org_id: string }
+interface FullRow extends ReviewRow { org_id: string; owner_user_id: string | null }
 
 async function loadPending(orgId: string, id: string): Promise<FullRow | null> {
   const data = await prisma.knowledge_reviews.findFirst({
@@ -242,6 +252,11 @@ export async function acceptReview(orgId: string, id: string): Promise<void> {
   if (!r) return;
   if (r.kind === "entity_merge" && r.source_entity_id && r.target_entity_id) {
     await mergeEntities(orgId, r.source_entity_id, r.target_entity_id);
+  } else if (r.kind === "off_template" && r.detail.extraction) {
+    // "Add them anyway": replay the packaged facts through the normal ingest
+    // (entity resolution + dedup + provenance) — off-template stops meaning
+    // dropped, it means deferred to the user.
+    await ingestExtraction(orgId, r.owner_user_id, r.item_id, r.detail.extraction as unknown as Extraction);
   }
   // fact_conflict + extraction: already applied to the store — accept = confirm.
   await prisma.knowledge_reviews.update({
@@ -278,7 +293,8 @@ export async function rejectReview(orgId: string, id: string): Promise<void> {
       if (orphans.length) await prisma.facts.deleteMany({ where: { id: { in: orphans } } });
     }
   }
-  // entity_merge: nothing was merged (only proposed) — just mark rejected.
+  // entity_merge + off_template: nothing was applied (only proposed) — just
+  // mark rejected.
   await prisma.knowledge_reviews.update({
     where: { id },
     data: { status: "rejected", resolved_at: new Date() },

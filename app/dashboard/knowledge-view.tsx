@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { C, monoLabel, CountUp, Segmented } from "./ui";
 import { KnowledgeGraphView } from "./knowledge-graph";
+import { ConceptMapView } from "./concept-map-view";
 import { EntityPageModal } from "./entity-page";
 import type { KnowledgeEntityView, FactSourceView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
@@ -139,7 +140,7 @@ export function KnowledgeView() {
   const [kinds, setKinds] = useState<KindDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
-  const [mode, setMode] = useState<"cards" | "graph">("cards");
+  const [mode, setMode] = useState<"cards" | "graph" | "concepts">("cards");
   const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -199,7 +200,7 @@ export function KnowledgeView() {
           <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>{groups.length} kind{groups.length === 1 ? "" : "s"} · {totalFacts} fact{totalFacts === 1 ? "" : "s"} · your tables are built from these</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <Segmented value={mode} onChange={setMode} options={[{ v: "cards", label: "Cards" }, { v: "graph", label: "Graph" }]} />
+          <Segmented value={mode} onChange={setMode} options={[{ v: "cards", label: "Cards" }, { v: "graph", label: "Graph" }, { v: "concepts", label: "Concepts" }]} />
           <div style={{ position: "relative", minWidth: 220 }}>
             <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search entities & facts…" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
@@ -210,6 +211,10 @@ export function KnowledgeView() {
       {shown.length === 0 && <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Nothing matches “{q.trim()}”.</div>}
 
       {mode === "graph" && shown.length > 0 && <KnowledgeGraphView entities={shown} onOpen={setOpenId} />}
+
+      {/* The concept map reads over ALL entities, not the search subset — a
+          half-filtered map of content misleads more than it helps. */}
+      {mode === "concepts" && <ConceptMapView entities={entities} onOpen={setOpenId} />}
 
       {mode === "cards" && groups.map(([kind, list]) => {
         const def = kindByName.get(kind);

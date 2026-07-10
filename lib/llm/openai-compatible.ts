@@ -28,11 +28,21 @@ export class OpenAICompatibleProvider implements LlmProvider {
     if (!this.cfg.apiKey) throw new Error(`${this.name}: API key not set`);
 
     const call = (withSchema: boolean): Promise<Response> => {
+      // Vision: images ride along as data-URI parts of the user message.
+      const userContent = req.images?.length
+        ? [
+            { type: "text", text: req.user },
+            ...req.images.map((im) => ({
+              type: "image_url",
+              image_url: { url: `data:${im.mediaType};base64,${im.dataBase64}` },
+            })),
+          ]
+        : req.user;
       const body: Record<string, unknown> = {
         model: req.model,
         messages: [
           { role: "system", content: req.system },
-          { role: "user", content: req.user },
+          { role: "user", content: userContent },
         ],
         temperature: req.temperature ?? 0,
         max_tokens: req.maxTokens ?? 2048,
