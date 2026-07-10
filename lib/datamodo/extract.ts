@@ -8,12 +8,14 @@ import { getOnboardingContext } from "@/lib/datamodo/settings";
 import {
   buildClassifyPrompt,
   buildDocumentPrompt,
+  buildOffTemplateReview,
   canonicalizeExtraction,
   promptCategories,
   restrictExtractionToTemplates,
   slugify,
   type DocumentPromptInput,
   type KindDef,
+  type OffTemplateReviewPayload,
 } from "@/lib/datamodo/ontology";
 
 // LLM extraction: one message → structured entities + facts (the ⑤ step).
@@ -348,6 +350,9 @@ export interface DocumentExtractResult extends ExtractResult {
   summary: string | null;
   /** What the document was classified as (registry slug), or null. */
   docKind: string | null;
+  /** Facts the template restraint dropped, packaged for the Review queue
+   *  (accept = ingest them anyway). Null when nothing was dropped. */
+  offTemplateReview: OffTemplateReviewPayload | null;
 }
 
 /** ①+② Extract a DOCUMENT: classify into the user's categories, then distill
@@ -388,6 +393,7 @@ export async function extractFromDocument(
   }
 
   let extraction = toExtraction(raw);
+  let offTemplateReview: OffTemplateReviewPayload | null = null;
   if (input.kinds?.length) {
     extraction = canonicalizeExtraction(extraction, input.kinds);
     const restricted = restrictExtractionToTemplates(extraction, input.kinds, { maxConcepts: 3 });
@@ -396,11 +402,15 @@ export async function extractFromDocument(
         `[extract] document restraint dropped ${restricted.droppedFacts} off-template facts, ${restricted.droppedEntities} incidental entities`,
       );
     }
+    // Template drops aren't lost anymore — they become a review the user can
+    // accept ("add anyway") or reject. Built from the PRE-restriction
+    // extraction so the payload replays through ingest on its own.
+    offTemplateReview = buildOffTemplateReview(extraction, restricted.offTemplate);
     extraction = restricted.extraction;
   }
 
   const summary = typeof raw.summary === "string" && raw.summary.trim() ? raw.summary.trim() : null;
-  return { extraction, summary, docKind, note: null, model: `${llm.name}:${model}`, overallConfidence: confidence, escalated };
+  return { extraction, summary, docKind, note: null, model: `${llm.name}:${model}`, overallConfidence: confidence, escalated, offTemplateReview };
 }
 
 // --- Glue: item (status 'stored') → extract → knowledge layer (steps ⑤+⑥) ----

@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { readBlob } from "@/lib/ingest/store";
 import type { LlmProvider } from "@/lib/llm";
 import { extractFromDocument } from "./extract";
-import { ingestExtraction } from "./knowledge";
+import { createOffTemplateReview, ingestExtraction } from "./knowledge";
 import { parseWorkbook } from "./spreadsheet";
 import { storeDocChunks } from "./chunks";
 import { normalizeKey } from "./knowledge";
@@ -67,6 +67,8 @@ export async function processItemAttachments(
       let indexing: DocumentIndexing = "metadata_only";
       let inner = null;
       let summary: string | null = null;
+      let docKind: string | null = null;
+      let offTemplate: import("./ontology").OffTemplateReviewPayload | null = null;
       let doc: Awaited<ReturnType<typeof extractAttachmentText>> | null = null;
       const kind = attachmentTextKind(att.filename, att.content_type);
       if (kind) {
@@ -93,6 +95,8 @@ export async function processItemAttachments(
             );
             inner = res.extraction;
             summary = res.summary;
+            docKind = res.docKind;
+            offTemplate = res.offTemplateReview;
             indexing = doc.truncated ? "partial" : "full";
           }
         } catch (e) {
@@ -102,6 +106,23 @@ export async function processItemAttachments(
 
       const extraction = buildDocumentExtraction(meta, indexing, inner);
       const folded = await ingestExtraction(item.org_id, item.owner_user_id, item.id, extraction, llm);
+
+      // Template drops become a pending review instead of vanishing — the
+      // user decides "add anyway" or "leave out". Best-effort, never fails
+      // the attachment.
+      if (offTemplate) {
+        try {
+          await createOffTemplateReview(item.org_id, item.owner_user_id, {
+            itemId: item.id,
+            docLabel: att.filename ?? "attachment",
+            docKind,
+            extraction: offTemplate.extraction,
+            display: offTemplate.display,
+          });
+        } catch (e) {
+          console.error(`[documents] off-template review filing failed for ${att.id}`, e);
+        }
+      }
 
       // Evidence + body: keep the document's PASSAGES (facts alone lose the
       // prose) and write the generated markdown summary as the node's body —

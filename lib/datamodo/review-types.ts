@@ -4,7 +4,7 @@
 // stays clean. Each kind carries exactly the structured fields its card needs;
 // the API returns this shape and the tab's simulated data conforms to it too.
 
-export type ReviewKind = "entity_merge" | "fact_conflict" | "extraction";
+export type ReviewKind = "entity_merge" | "fact_conflict" | "extraction" | "off_template";
 
 export interface EntityAttr {
   k: string;
@@ -63,4 +63,13 @@ export interface ExtractionReview extends ReviewBase {
   facts: ReviewFact[];
 }
 
-export type ReviewItem = MergeReview | ConflictReview | ExtractionReview;
+/** "A document said things its category template doesn't cover — keep them?"
+ *  Nothing is applied until accepted (unlike the other kinds). */
+export interface OffTemplateReview extends ReviewBase {
+  kind: "off_template";
+  docLabel: string; // the document the facts came from
+  docKind: string | null; // its classified category, when known
+  facts: ReviewFact[];
+}
+
+export type ReviewItem = MergeReview | ConflictReview | ExtractionReview | OffTemplateReview;

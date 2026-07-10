@@ -337,6 +337,39 @@ async function createConflictReview(
   });
 }
 
+/** File a document's template-restrained facts as a reviewable decision:
+ *  accept replays `detail.extraction` through ingest ("add them anyway"),
+ *  reject discards. Nothing is applied at filing time. */
+export async function createOffTemplateReview(
+  orgId: string,
+  ownerUserId: string | null,
+  args: {
+    itemId: string | null;
+    docLabel: string;
+    docKind: string | null;
+    extraction: Extraction;
+    display: unknown[]; // pre-rendered card lines (OffTemplateDisplayFact[])
+  },
+): Promise<void> {
+  await prisma.knowledge_reviews.create({
+    data: {
+      org_id: orgId,
+      owner_user_id: ownerUserId,
+      kind: "off_template",
+      status: "pending",
+      confidence: null,
+      impact: args.display.length,
+      item_id: args.itemId,
+      detail: {
+        docLabel: args.docLabel,
+        docKind: args.docKind,
+        extraction: args.extraction,
+        facts: args.display,
+      } as unknown as import("@prisma/client").Prisma.InputJsonValue,
+    },
+  });
+}
+
 /** Surface a low-confidence extraction for the user to confirm ("did we
  *  understand this message?"). High-confidence extractions file silently. */
 export async function createExtractionReview(

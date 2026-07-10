@@ -12,6 +12,28 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Off-template review routing + delta-reprocessing endpoint**
+  (closes two documented gaps: restraint drops were silent; extraction_version
+  had no requeue trigger).
+  - **Off-template → Review queue**: `restrictExtractionToTemplates` now RETURNS the
+    facts it dropped for vocabulary reasons (`offTemplate` — concept-leash drops stay
+    policy, never routed); pure `buildOffTemplateReview` ([ontology.ts](lib/datamodo/ontology.ts))
+    packages them as a SELF-CONTAINED replayable unit (mini extraction = the facts +
+    exactly the entities they touch, from the pre-restriction extraction, plus
+    pre-rendered display lines). The document pipeline files it as a new
+    `knowledge_reviews.kind = "off_template"` (no migration — kind is free text;
+    best-effort, never fails the attachment). **Accept = "add anyway"**: replays the
+    payload through the normal `ingestExtraction` (resolution + dedup + provenance);
+    reject discards — nothing is applied at filing time, unlike the other kinds.
+    Review Studio renders it as a 4th decision type (± rows, "Outside the template"
+    group, card nudges "or add the field to the category"); simulated preview updated.
+  - **`POST /api/jobs/extract-requeue?below=N`** ([route](app/api/jobs/extract-requeue/route.ts),
+    CRON_SECRET-gated like the tick): flips analyzed items stamped `extraction_version
+    < N` (or unstamped) back to `stored` with fresh attempts; the normal tick
+    re-extracts them. Safe by construction (resolution/claim-key dedup/supersession).
+    Bump `EXTRACTION_VERSION`, deploy, curl once.
+  - Verified: 61/61 tests (4 new on capture/packaging) + tsc + build green; lint ==
+    baseline. Accept-path ingest rides on the already-verified `ingestExtraction`.
 - **2026-07-10** — **Projections catalog continued ②: CONCEPT MAP + DOSSIER EXPORT
   shipped** (the last two pure-query items of the designed remainder).
   - **Concept map** — the Obsidian-style map of content, one zoom level above the
@@ -842,10 +864,11 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
    - ~~Dossier export~~ ✅ **shipped 2026-07-10** — cited markdown download on every
      entity page ("dossier ↓"); PDF later behind the same builder. See Recent changes.
    - **Vision/OCR tier** — images + scanned PDFs become understood thick nodes (today
-     they land metadata_only); pipeline upgrade behind `extraction_version` requeue.
-   - **Off-template review routing** — restrained document facts currently DROP
-     (documented in restrictExtractionToTemplates; text survives in chunks); route
-     them to the Review queue instead once volume justifies it.
+     they land metadata_only); pipeline upgrade behind `extraction_version` requeue
+     (the requeue endpoint now exists: `POST /api/jobs/extract-requeue`). **The last
+     unbuilt catalog item — needs a vision-capable LLM + live key to verify.**
+   - ~~Off-template review routing~~ ✅ **shipped 2026-07-10** — drops become
+     `off_template` reviews; accept replays them through ingest. See Recent changes.
 -3. **Local / open-source single-user edition (DESIGNED 2026-07-10, not built).**
    Self-hosted, one user, privacy-first. ~90% of code ships unchanged because the
    seams are already provider-generic (Postgres-native schema, S3-generic blobs,
