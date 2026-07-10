@@ -81,7 +81,9 @@ export default {
     const body = (await res.json().catch(() => ({}))) as { code?: string; error?: string };
 
     // Unknown recipient → no user has this address. Bounce so the sender knows.
-    if (body.code === "NO_SOURCE" || body.code === "NO_ROUTING") {
+    // (UNKNOWN_TARGET is what resolveTarget actually throws; NO_ROUTING = no
+    // recipient on the envelope at all.)
+    if (body.code === "UNKNOWN_TARGET" || body.code === "NO_ROUTING") {
       message.setReject("The address you sent to does not exist.");
       return;
     }

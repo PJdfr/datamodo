@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
-import { claimStoredItems, runExtractionForItem } from "@/lib/datamodo/extract";
+import { claimStoredItems, recoverExtractionQueue, runExtractionForItem } from "@/lib/datamodo/extract";
 
 // Extraction runs the LLM + Node built-ins.
 export const runtime = "nodejs";
@@ -24,11 +24,24 @@ async function handle(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  // Claim a batch atomically (stored → analyzing, SKIP LOCKED), then extract.
-  const ids = await claimStoredItems(BATCH);
+  // Recover the queue (requeue crashed-tick orphans + retryable failures, cap
+  // poison items), then DRAIN: keep claiming batches (stored → analyzing, SKIP
+  // LOCKED) while there's time budget left, so a backlog clears at LLM speed
+  // instead of EXTRACT_BATCH per 5-minute cron.
+  const recovered = await recoverExtractionQueue();
+  const startedAt = Date.now();
+  // Claim ONE item at a time so a function-timeout kill (Vercel caps us at
+  // maxDuration) strands at most the item in flight — the recovery pass
+  // requeues it next tick. Stop claiming while a worst-case item (LLM calls
+  // for the body, attachments, and entity adjudication) still fits.
+  const CLAIM_CUTOFF_MS = 25_000;
+  let claimed = 0;
   let processed = 0;
   let failed = 0;
-  for (const id of ids) {
+  while (Date.now() - startedAt < CLAIM_CUTOFF_MS && claimed < BATCH * 4) {
+    const [id] = await claimStoredItems(1);
+    if (!id) break;
+    claimed++;
     try {
       await runExtractionForItem(id);
       processed++;
@@ -39,7 +52,7 @@ async function handle(req: Request) {
     }
   }
 
-  return NextResponse.json({ claimed: ids.length, processed, failed });
+  return NextResponse.json({ claimed, processed, failed, ...recovered });
 }
 
 export const POST = handle;

@@ -4,6 +4,7 @@ import { llmForUser } from "./llm-for-user";
 import { readBlob } from "@/lib/ingest/store";
 import { ingestExtraction, createExtractionReview, type Extraction, type ExtractedFact } from "@/lib/datamodo/knowledge";
 import { getOnboardingContext } from "@/lib/datamodo/settings";
+import { canonicalizeExtraction, promptCategories, type KindDef } from "@/lib/datamodo/ontology";
 
 // LLM extraction: one message → structured entities + facts (the ⑤ step).
 // Small-model-first with a confidence-gated escalation. Produces the same
@@ -108,6 +109,12 @@ export interface ExtractInput {
   agentPurpose?: string | null;
   /** The user's business context from onboarding — steers entity/predicate choices. */
   businessContext?: string | null;
+  /** The user's kind registry — steers classification into their categories
+   *  and canonicalizes the output's kinds/predicates against the templates. */
+  kinds?: KindDef[];
+  /** The user's existing concept labels — the leash that keeps topics from
+   *  multiplying: prefer these, at most a few per message, never noun-soup. */
+  concepts?: string[];
 }
 
 export interface ExtractResult {
@@ -120,8 +127,20 @@ export interface ExtractResult {
 // Below this overall confidence we re-run on the escalation model.
 const ESCALATE_BELOW = 0.55;
 
+/** Bump when the prompt/pipeline changes enough that old extractions are
+ *  stale — items with a lower stamp can then be requeued selectively
+ *  (delta reprocessing) instead of everything or nothing. */
+export const EXTRACTION_VERSION = 1;
+
 function buildUserPrompt(input: ExtractInput): string {
   const parts: string[] = [];
+  if (input.kinds?.length) parts.push(promptCategories(input.kinds));
+  if (input.concepts?.length) {
+    parts.push(
+      `The user's existing CONCEPTS (topics): ${input.concepts.join(", ")}.\n` +
+        "Tag content with AT MOST 3 concept entities. STRONGLY prefer these exact labels; invent a new concept only when the content is clearly about something not listed.",
+    );
+  }
   if (input.businessContext) parts.push(`About the user's work (use this to pick relevant entities, relationships, and predicate names): ${input.businessContext}`);
   if (input.agentPurpose) parts.push(`Assistant purpose: ${input.agentPurpose}`);
   if (input.channel) parts.push(`Channel: ${input.channel}`);
@@ -203,7 +222,13 @@ export async function extractFromMessage(
     escalated = true;
   }
 
-  return { extraction: toExtraction(raw), model: `${llm.name}:${model}`, overallConfidence: confidence, escalated };
+  // Canonicalize against the user's registry: kind synonyms collapse to the
+  // canonical slug, predicate synonyms to template field keys — so the same
+  // real-world fact always produces the same claim key.
+  const extraction = input.kinds?.length
+    ? canonicalizeExtraction(toExtraction(raw), input.kinds)
+    : toExtraction(raw);
+  return { extraction, model: `${llm.name}:${model}`, overallConfidence: confidence, escalated };
 }
 
 // --- Glue: item (status 'stored') → extract → knowledge layer (steps ⑤+⑥) ----
@@ -247,7 +272,7 @@ async function loadItemText(item: ItemRow): Promise<string> {
 export async function claimStoredItems(limit: number): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ id: string }[]>`
     update items
-       set status = 'analyzing'
+       set status = 'analyzing', claimed_at = now(), attempts = attempts + 1
      where id in (
        select id from items
         where status = 'stored'
@@ -257,6 +282,35 @@ export async function claimStoredItems(limit: number): Promise<string[]> {
      )
     returning id`;
   return rows.map((r) => r.id);
+}
+
+// A tick that dies mid-extraction leaves items stuck in 'analyzing'; transient
+// LLM/network errors leave them 'failed'. Both get another shot — capped, so a
+// poison item can't loop forever.
+const MAX_ATTEMPTS = 3;
+const ORPHAN_AFTER_MINUTES = 10;
+
+/**
+ * Recover the queue before claiming: stale 'analyzing' orphans and retryable
+ * 'failed' items go back to 'stored'; orphans that already burned all their
+ * attempts are marked 'failed' instead. Returns counts for observability.
+ */
+export async function recoverExtractionQueue(): Promise<{ requeued: number; abandoned: number }> {
+  const requeued = await prisma.$executeRaw`
+    update items
+       set status = 'stored', claimed_at = null
+     where (status = 'analyzing'
+            and (claimed_at is null or claimed_at < now() - make_interval(mins => ${ORPHAN_AFTER_MINUTES}))
+            and attempts < ${MAX_ATTEMPTS})
+        or (status = 'failed' and attempts < ${MAX_ATTEMPTS})`;
+  const abandoned = await prisma.$executeRaw`
+    update items
+       set status = 'failed',
+           error = coalesce(error, 'extraction timed out (tick died mid-run)')
+     where status = 'analyzing'
+       and (claimed_at is null or claimed_at < now() - make_interval(mins => ${ORPHAN_AFTER_MINUTES}))
+       and attempts >= ${MAX_ATTEMPTS}`;
+  return { requeued, abandoned };
 }
 
 export async function runExtractionForItem(
@@ -284,6 +338,20 @@ export async function runExtractionForItem(
     const businessContext = row.owner_user_id
       ? (await getOnboardingContext(row.owner_user_id)).businessContext
       : null;
+    // The user's category registry steers classification + canonicalizes
+    // kinds/predicates. Best-effort: extraction works without it.
+    const { listKinds } = await import("./kinds");
+    const kinds = await listKinds(row.org_id, row.owner_user_id).catch(() => []);
+    // Existing concepts, most-corroborated first — the leash on topic sprawl.
+    const conceptRows = await prisma.entities
+      .findMany({
+        where: { org_id: row.org_id, kind: "concept", merged_into: null },
+        select: { canonical_label: true },
+        orderBy: { support: "desc" },
+        take: 30,
+      })
+      .catch(() => []);
+    const concepts = conceptRows.map((c) => c.canonical_label);
     // BYOK: analysis runs on the owner's own provider account when they've
     // brought a key; otherwise on the platform provider from env.
     const llm = await llmForUser(row.owner_user_id);
@@ -295,10 +363,22 @@ export async function runExtractionForItem(
         channel: row.channel,
         agentPurpose,
         businessContext,
+        kinds,
+        concepts,
       },
       llm,
     );
     const knowledge = await ingestExtraction(row.org_id, row.owner_user_id, row.id, result.extraction, llm);
+    // Attachments → document entities in the graph (best-effort; a missing
+    // blob bucket or a scanned PDF degrades to metadata-only, never fails the
+    // item). Dynamic import: documents.ts uses extractFromMessage, so a static
+    // import here would be circular.
+    try {
+      const { processItemAttachments } = await import("./documents");
+      await processItemAttachments(row, llm, businessContext, kinds, concepts);
+    } catch (e) {
+      console.error(`[extract] attachment processing failed for item ${row.id}`, e);
+    }
     // Low-confidence extractions get surfaced for the user to confirm; confident
     // ones file silently (keeps the review queue meaningful, not a firehose).
     const EXTRACTION_REVIEW_BELOW = 0.75;
@@ -310,7 +390,10 @@ export async function runExtractionForItem(
         factCount: result.extraction.facts.length,
       });
     }
-    await prisma.items.update({ where: { id: row.id }, data: { status: "analyzed" } });
+    await prisma.items.update({
+      where: { id: row.id },
+      data: { status: "analyzed", extraction_version: EXTRACTION_VERSION },
+    });
     return { ...result, knowledge };
   } catch (e) {
     await prisma.items.update({

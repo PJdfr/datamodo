@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { C, monoLabel, CountUp, Segmented } from "./ui";
 import { KnowledgeGraphView } from "./knowledge-graph";
 import type { KnowledgeEntityView, FactSourceView } from "@/lib/datamodo/types";
+import type { KindDef } from "@/lib/datamodo/ontology";
 
 const CHANNEL_META: Record<string, { emoji: string; label: string }> = {
   email: { emoji: "✉", label: "Email" },
@@ -60,24 +61,34 @@ const plural = (kind: string) => {
   return kind + "s";
 };
 
-function EntityCard({ e }: { e: KnowledgeEntityView }) {
-  const tone = toneOf(e.kind);
+function EntityCard({ e, kindDef }: { e: KnowledgeEntityView; kindDef?: KindDef }) {
+  const tone = kindDef?.color ?? toneOf(e.kind);
   const keys = Object.entries(e.naturalKeys ?? {});
   const [openFact, setOpenFact] = useState<number | null>(null);
+  // Completeness against the category template: which REQUIRED fields are
+  // still unknown for this entity?
+  const missing = (kindDef?.fields ?? [])
+    .filter((f) => f.required && !e.facts.some((fact) => fact.predicate === f.key))
+    .map((f) => f.label);
   return (
     <div className="dm-card" style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 13, padding: "13px 15px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: keys.length || e.facts.length ? 10 : 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: keys.length || e.facts.length || missing.length ? 10 : 0 }}>
         <span style={{ width: 30, height: 30, borderRadius: 9, background: tone, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{e.label.charAt(0).toUpperCase()}</span>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em", color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.label}</div>
           <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "#A39B8B" }}>{e.kind} · {e.edges} link{e.edges === 1 ? "" : "s"}</div>
         </div>
       </div>
-      {keys.length > 0 && (
+      {(keys.length > 0 || missing.length > 0) && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: e.facts.length ? 10 : 0 }}>
           {keys.map(([k, v]) => (
             <span key={k} className="dm-mono" style={{ fontSize: 10.5, color: "#57534A", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 6, padding: "2px 7px" }}>{k.replace(/_/g, " ")}: {v}</span>
           ))}
+          {missing.length > 0 && (
+            <span className="dm-mono" title="Required by the category template but not captured yet" style={{ fontSize: 10.5, color: "#8A6D1F", background: "#FBF3DE", border: "1px solid #EFDDAE", borderRadius: 6, padding: "2px 7px" }}>
+              missing: {missing.join(", ")}
+            </span>
+          )}
         </div>
       )}
       {e.facts.length > 0 && (
@@ -118,6 +129,7 @@ function EntityCard({ e }: { e: KnowledgeEntityView }) {
 
 export function KnowledgeView() {
   const [entities, setEntities] = useState<KnowledgeEntityView[]>([]);
+  const [kinds, setKinds] = useState<KindDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [mode, setMode] = useState<"cards" | "graph">("cards");
@@ -126,9 +138,14 @@ export function KnowledgeView() {
     let alive = true;
     (async () => {
       try {
-        const res = await fetch("/api/knowledge/entities");
+        // Registry in parallel: it colors groups + powers completeness cues.
+        const [res, kres] = await Promise.all([
+          fetch("/api/knowledge/entities"),
+          fetch("/api/kinds").catch(() => null),
+        ]);
         const json = await res.json();
         if (alive) setEntities(json.entities ?? []);
+        if (alive && kres?.ok) setKinds((await kres.json()).kinds ?? []);
       } catch {
         /* leave empty */
       } finally {
@@ -137,6 +154,8 @@ export function KnowledgeView() {
     })();
     return () => { alive = false; };
   }, []);
+
+  const kindByName = useMemo(() => new Map(kinds.map((k) => [k.kind, k])), [kinds]);
 
   const shown = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -184,18 +203,21 @@ export function KnowledgeView() {
 
       {mode === "graph" && shown.length > 0 && <KnowledgeGraphView entities={shown} />}
 
-      {mode === "cards" && groups.map(([kind, list]) => (
-        <div key={kind} style={{ marginBottom: 24 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 9, margin: "0 2px 11px" }}>
-            <span style={{ width: 9, height: 9, borderRadius: 3, background: toneOf(kind) }} />
-            <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink, margin: 0 }}>{titleCase(plural(kind))}</h2>
-            <span className="dm-mono" style={{ ...monoLabel }}>{list.length}</span>
+      {mode === "cards" && groups.map(([kind, list]) => {
+        const def = kindByName.get(kind);
+        return (
+          <div key={kind} style={{ marginBottom: 24 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 9, margin: "0 2px 11px" }}>
+              {def?.icon ? <span style={{ fontSize: 13 }}>{def.icon}</span> : <span style={{ width: 9, height: 9, borderRadius: 3, background: def?.color ?? toneOf(kind) }} />}
+              <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink, margin: 0 }}>{def?.plural ?? titleCase(plural(kind))}</h2>
+              <span className="dm-mono" style={{ ...monoLabel }}>{list.length}</span>
+            </div>
+            <div className="dm-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+              {list.map((e) => <EntityCard key={e.id} e={e} kindDef={def} />)}
+            </div>
           </div>
-          <div className="dm-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
-            {list.map((e) => <EntityCard key={e.id} e={e} />)}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

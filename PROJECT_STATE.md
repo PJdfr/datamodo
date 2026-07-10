@@ -12,6 +12,176 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Ontology phase ④ SHIPPED: leashed concepts, completeness cues,
+  extraction_version.**
+  - **Concepts, with the leash**: extraction now receives the user's existing concept
+    labels (top 30 by support) with a hard instruction — ≤3 concept tags, strongly
+    prefer existing labels. In the document pipeline, concept entities get **`about`**
+    edges from the document (the map-of-content edge) instead of generic `mentions`.
+  - **Completeness cues** ([knowledge-view.tsx](app/dashboard/knowledge-view.tsx)):
+    Knowledge cards check the entity against its category template and show an amber
+    "missing: due date" chip for unmet REQUIRED fields; kind groups now use the
+    registry's icon/color/plural.
+  - **`items.extraction_version`** (migration
+    [20260710200000](neon/migrations/20260710200000_items_extraction_version.sql),
+    applied to all 3 Neon branches): stamped on every analyzed item
+    (`EXTRACTION_VERSION = 1` in [extract.ts](lib/datamodo/extract.ts)). Bump it when
+    the prompt/pipeline changes materially, then requeue `extraction_version < N`
+    for delta reprocessing (requeue endpoint itself: future work).
+  - Verified: 27/27 tests + tsc + lint + build green.
+- **2026-07-10** — **Ontology phase ③ SHIPPED: AI-drafted categories + one-click
+  category → table** (feedback: the first editor was too form-heavy).
+  - **The user never writes schema now**: name the category + optional sentence →
+    "✦ Draft it" (`suggestKindTemplate` in [kinds.ts](lib/datamodo/kinds.ts),
+    `POST /api/kinds/suggest`, BYOK-aware) proposes icon/plural/description/aliases/
+    typed fields/relations; the editor shows the template as **prunable chips**
+    (type glyph, required dot, unit hint) with one-line adders (key auto-slugified
+    from the label); aliases + raw keys live under an "Advanced" disclosure.
+  - **Category → table** (`POST /api/kinds/[id]/table`): creates a dataset whose
+    columns mirror the template (fields + relation verbs; bookkeeping fields like
+    file_size skipped) and projects every entity of the kind via the existing
+    `projectEntitiesToDataset` — column key == predicate **by construction**. Name
+    collision → projects into the existing table instead. "▦ Build table" button in
+    the category editor.
+  - Verified: 27/27 tests + tsc + lint + build green + redesigned editor screenshotted.
+- **2026-07-10** — **Ontology phase ② SHIPPED: embeddings (Tier 1b) + the document
+  evidence layer (chunks).** The two adoptions from the multimodal-KG research.
+  - **Embeddings** ([lib/llm/embeddings.ts](lib/llm/embeddings.ts)): OpenAI-compatible
+    /embeddings client, 1536-dim (matches `entities.embedding`), FAIL-SOFT — no
+    `EMBEDDINGS_API_KEY`/`OPENAI_API_KEY` → null and every caller degrades to the
+    non-semantic path. `ingestExtraction` batch-embeds all extracted entities in one
+    call; embeddings stored on entity create (raw SQL — the vector column is
+    Unsupported in Prisma); `resolveEntity` gains **Tier 1b semantic blocking**: when
+    trigram finds <5 candidates, ANN over the org+kind's embeddings RECALLS more
+    (cosine ≥0.5) — resolution still goes through LLM adjudication, cosine never
+    auto-merges. **Owed by a human: set `OPENAI_API_KEY` (or `EMBEDDINGS_API_KEY`) in
+    Vercel** or embeddings stay off (everything still works without).
+  - **doc_chunks** (migration [20260710190000_doc_chunks.sql](neon/migrations/20260710190000_doc_chunks.sql),
+    applied to all 3 Neon branches): after fact extraction, a document's PASSAGES now
+    survive — pure `chunkDocText` (per-PDF-page lineage, ~1200 chars, paragraph/sentence
+    boundaries, 60-chunk cap) → [chunks.ts](lib/datamodo/chunks.ts) `storeDocChunks`
+    (idempotent replace per entity + best-effort chunk embeddings). `searchChunks`
+    (keyword, ≤2 passages/doc) joins `GET /api/search` as `passages`, renders as an
+    **"In your documents"** section (page-cited quote cards), and feeds the grounded
+    answer as `[n] Passage from "report.pdf" (page 3)` sources — answers can now cite
+    from INSIDE documents. Verified: 27/27 unit tests + tsc + lint + build green.
+    Semantic (ANN) chunk search is a later drop-in behind the same searchChunks shape.
+- **2026-07-10** — **Ontology layer ① SHIPPED: user-editable kind registry
+  ("Categories").** New `kinds` table (migration
+  [20260710180000_kinds_registry.sql](neon/migrations/20260710180000_kinds_registry.sql),
+  applied to all 3 Neon branches). Pure core
+  [ontology.ts](lib/datamodo/ontology.ts): `DEFAULT_KINDS` (person/company/invoice/
+  document/event/concept, each with field templates + relation verbs + aliases),
+  `canonicalizeExtraction` (kind synonyms → canonical slug, predicate synonyms →
+  template field keys — **fixes the predicate-drift fact-dedup bug**; off-template
+  vocabulary passes through slugified, never blocked), `promptCategories` (compact
+  category menu injected into the extraction prompt). DB side
+  [kinds.ts](lib/datamodo/kinds.ts) (lazy per-org seeding + CRUD), `GET/POST /api/kinds`
+  + `PATCH/DELETE /api/kinds/[id]`. Extraction (`extractFromMessage` +
+  `runExtractionForItem` + document pipeline) now loads the registry, steers on it,
+  and canonicalizes output. UI: **Categories** manager
+  ([categories-modal.tsx](app/dashboard/categories-modal.tsx)) from the Data tab —
+  list + editor (icon, description, aliases, typed fields w/ required, relation verbs
+  w/ target kinds); builtins editable, slug immutable (identity). Verified: 22/22 unit
+  tests + tsc + lint + build green + both modal views screenshotted.
+- **2026-07-10** — **Inbound email verified LIVE end-to-end + extraction no longer
+  waits for GitHub's cron.** First real forwarded emails (Gmail → Cloudflare Email
+  Routing → worker → `/api/ingest`) captured on the dev DB with the attachment blob +
+  body archived to the new **R2 bucket** (`ingest`, eu; env vars live in Vercel; worker
+  secret wired). Debugged en route: worker crashed first on missing
+  `INGEST_WEBHOOK_SECRET` (401) then on missing R2 env (500) — both fixed in Vercel by
+  the human; dev redeployed (empty commit `cb74c7e` on `dev`). Diagnosed the cron gap:
+  GitHub fires the 5-min schedule **hours** apart on a quiet repo, and the `APP_URL`
+  repo secret points at PROD only — so dev items sat `stored`. Fixes: **ingest now
+  kicks extraction itself** post-response (`after()` from next/server in
+  [app/api/ingest/route.ts](app/api/ingest/route.ts), atomic claim → race-safe with
+  the cron, which becomes the sweeper) and
+  [extract-cron.yml](.github/workflows/extract-cron.yml) ticks **both** environments
+  (`APP_URL` + www.datamodo.dev). NOTE: the scheduled workflow runs from the DEFAULT
+  branch (`prod`) — the both-env tick takes effect only once this merges through to prod.
+- **2026-07-10** — **Search now ANSWERS in plain language with citations + document
+  originals downloadable + extract tick drains the backlog.**
+  - **Grounded answers** ([answer.ts](lib/datamodo/answer.ts)): the Search tab's
+    long-promised second half. Keyword+knowledge search picks the evidence; the model
+    gets a NUMBERED source list (top 6 entities + 8 rows) and must answer from it only,
+    citing `[n]` — `citedSources` rejects any answer that cites nothing, so ungrounded
+    prose never renders. BYOK-aware (`llmForUser`), best-effort by construction: any
+    LLM failure returns null and plain results still show. `GET /api/search?q=&answer=1`;
+    UI [answer-card.tsx](app/dashboard/answer-card.tsx) — prose with inline citation
+    chips (click → opens the cited table) + a source-chip row.
+  - **Download the original** ([app/api/documents/[id]/route.ts](app/api/documents/%5Bid%5D/route.ts)):
+    a `document` entity's natural key carries its blob hash → org-scoped entity → blob →
+    streamed bytes with the attachment's real filename/content-type. 503 until the blob
+    bucket exists. "original ↓" button on every Files card.
+  - **Tick drain loop** ([extract-tick](app/api/jobs/extract-tick/route.ts)): keeps
+    claiming batches while <25s elapsed, so a backlog clears at LLM speed instead of
+    `EXTRACT_BATCH` per 5-minute cron.
+  - Verified: 17/17 unit tests (new pure tests for context building + citation
+    filtering) + tsc + lint + `next build` green + AnswerCard screenshotted (citation
+    chips + source row). **Answer path not yet run against a live LLM** (sandbox has
+    no key) — the prompt follows the same chatJSON contract as extraction.
+- **2026-07-10** — **Extraction queue hardened + spreadsheets join the document
+  pipeline + `simulateAgentUpdate` deleted.**
+  - **Orphan recovery & retry** (the step-6 TODO): `items` gains `claimed_at` +
+    `attempts` (migration [neon/migrations/20260710130000_items_claim_tracking.sql](neon/migrations/20260710130000_items_claim_tracking.sql),
+    idempotent; schema.sql + Prisma schema updated). `claimStoredItems` stamps both;
+    new `recoverExtractionQueue` ([extract.ts](lib/datamodo/extract.ts)) runs at the top
+    of every tick: stale `analyzing` orphans (>10 min or null claim) and retryable
+    `failed` items requeue to `stored`, capped at 3 attempts — beyond that orphans are
+    marked failed ("extraction timed out"), poison items stay failed. Tick response now
+    reports `{requeued, abandoned}`. **DDL applied + verified 2026-07-10** on all three
+    Neon branches (`dev`, `prod`, and the Vercel-created
+    `preview/claude/dev-branch-work-4p5wlf`) via the Neon MCP — nothing owed at promote.
+  - **.xlsx attachments** now flow through the document pipeline:
+    `attachmentTextKind` gains `"sheet"`, parsed with the EXISTING `parseWorkbook`,
+    flattened by pure `sheetToText` (header + pipe-rows, 200-row cap → `partial`).
+  - **`simulateAgentUpdate` deleted** (Next-steps item 4 — real extraction flows):
+    removed from datasets.ts / actions.ts / a dead control-center import;
+    `proposeAgentRows` kept (sheet sync uses it).
+  - Verified: 13/13 unit tests; recovery/claim state machine exercised on a throwaway
+    local PG16 across all 8 item states (fresh/in-flight/orphan/legacy-null/out-of-
+    attempts/transient-fail/poison/analyzed — every transition correct); migration
+    idempotent against updated schema; tsc + lint + `next build` green.
+- **2026-07-10** — **Attachments → documents in the graph + smart folders (built — the
+  designed Next-steps item; bucket provisioning ① still owed by a human).**
+  - **Document pipeline**: every attachment on an item now becomes a `document`
+    **entity** (natural key = blob hash + filename → the same file re-forwarded dedupes)
+    with `file_type`/`file_size`/`indexed` facts and `mentions` relationship facts to
+    whatever its text talks about. Pure core in
+    [document-extraction.ts](lib/datamodo/document-extraction.ts) (`buildDocumentExtraction`
+    composes the combined Extraction; `extractAttachmentText` reads the PDF text layer via
+    **unpdf**, or plain text/CSV/JSON, capped at 20 pages / 20k chars → `indexed: partial`);
+    orchestration in [documents.ts](lib/datamodo/documents.ts) (`processItemAttachments`:
+    readBlob → text → the SAME `extractFromMessage` → `ingestExtraction`, provenance =
+    the item). Hooked into `runExtractionForItem` best-effort: **no blob bucket / scanned
+    PDF / LLM error degrades that document to `metadata_only` — never fails the item**.
+  - **Files sub-view** ([files-view.tsx](app/dashboard/files-view.tsx)): Data tab gains a
+    4th toggle (Tables · Knowledge · Insights · **Files**). Smart folders are
+    **projections over `mentions` facts** — chips per linked entity ("every document
+    linked to Brightwave"), one doc lives in many folders, nothing is moved. Cards show
+    type/size, an indexed/partially/not-indexed badge, clickable mention chips, and the
+    message it arrived via.
+  - **Seed**: [neon/seed.sql](neon/seed.sql) now seeds 2 demo attachments + document
+    entities (INV-4417.pdf, Brightwave-MSA-2026.pdf) with mentions + provenance.
+  - Verified: 10/10 unit tests (`npm test`, new node:test setup — incl. reading a real
+    generated PDF through unpdf) + seed applied twice against a throwaway local PG16
+    (idempotent, graph correct) + tsc + `next build` green + Files view screenshotted
+    (Chromium, all-docs + folder-filtered states). **NOT yet run live end-to-end**
+    (needs the blob bucket ① and a real inbound attachment).
+  - Also hardened `NEXT_PUBLIC_SITE_URL` handling (`||` not `??` in layout/robots/sitemap
+    — an EMPTY env var crashed `next build` with `ERR_INVALID_URL`).
+- **2026-07-10** — **Fixed env split-brain: www.datamodo.dev signed users up into the
+  PROD branch.** `www.datamodo.dev` serves the **dev git branch** (Vercel Preview), and
+  `DATABASE_URL` was correctly scoped per environment — but `NEON_AUTH_BASE_URL` was one
+  shared value (the prod endpoint) across Preview+Production, so auth users landed in the
+  Neon **prod** branch while app data went to the **dev** DB. Fixed via `vercel env`:
+  removed the shared var; `NEON_AUTH_BASE_URL` is now Production → `ep-falling-sound…`
+  (prod) and Preview(dev) → `ep-wispy-river…` (dev), mirroring DATABASE_URL. Redeployed
+  dev (empty commit). **Verified live**: sign-up on www.datamodo.dev created
+  `wiring-check@datamodo.dev` in the dev branch's `neon_auth."user"` (was empty).
+  Leftovers a human may want to clean: the 2 old users in the prod branch's auth
+  (signed up before the fix; passwords are hashed and unrecoverable — reset or delete in
+  Neon console → Auth), and the throwaway `wiring-check@datamodo.dev` in dev.
 - **2026-07-10** — **Fixed "invalid origin" on sign-in/sign-up at www.datamodo.dev.**
   Neon Auth rejects state-changing auth calls whose browser Origin isn't in the
   branch's `trusted_origins`. The lists were mirror-mismatched: the **prod** branch
@@ -209,8 +379,9 @@
   no-match states, and clickable example prompts; an honest note says plain-language
   answers with citations are still coming. Typecheck clean. **NOT yet verified
   in-browser** (needs a logged-in local session — the seeded demo's Invoices/Contacts/
-  Trips give it real data to hit). Next for search: NL answers + citations (needs the
-  LLM layer) and pg full-text / embeddings when volume grows.
+  Trips give it real data to hit). Next for search: ~~NL answers + citations~~ ✅ **done
+  2026-07-10** (grounded answers, see Recent changes); pg full-text / embeddings when
+  volume grows.
 - **2026-07-09** — **Nav simplified: Knowledge folded into Data (surface matches the
   promise).** Top nav is now **Agents · Data · Review · Search** (was 5 tabs). The
   Knowledge view is no longer a top-level tab — it's a **Tables / Knowledge**
@@ -464,9 +635,10 @@ the same migration SQL to `prod` — Neon branches don't git-merge DDL).
   [.github/workflows/extract-cron.yml](.github/workflows/extract-cron.yml) (every 5 min → curls the
   consumer; needs `APP_URL` + `CRON_SECRET` GitHub secrets). **Verified:** inserted a stored item →
   endpoint returned `{claimed:1,processed:1,failed:0}`, item reached `analyzed`, LLM ran, facts
-  folded via Prisma (0 from nonsense text = correct); 401 without the secret. **TODO:** orphan
-  recovery (a crashed tick leaves an item in `analyzing`; needs a `claimed_at` column + reset) and
-  failed-item retry; throughput is 3/5min (raise `EXTRACT_BATCH` / add an internal drain loop).
+  folded via Prisma (0 from nonsense text = correct); 401 without the secret. ~~TODO: orphan
+  recovery + failed-item retry~~ ✅ **done 2026-07-10** (`recoverExtractionQueue`; the
+  `items_claim_tracking` migration is applied to all Neon branches — see Recent changes).
+  Remaining: throughput is 3/5min (raise `EXTRACT_BATCH` / add an internal drain loop).
 - 🔨 **7. Env/config + prod cutover** — **prod flipped to Neon** (PR #27 merged; Vercel
   production deploy `READY`). Fixed a Vercel build gap: added `postinstall: prisma generate`
   (Vercel does a clean install and never generated the client). Vercel Production env set
@@ -547,8 +719,91 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
 
 ## Next steps
 
--1. **Attachments → documents in the graph + smart folders (DESIGNED 2026-07-10, not built).**
-   The decision on "what do we do with a big PDF in a forwarded message":
+-3. **Local / open-source single-user edition (DESIGNED 2026-07-10, not built).**
+   Self-hosted, one user, privacy-first. ~90% of code ships unchanged because the
+   seams are already provider-generic (Postgres-native schema, S3-generic blobs,
+   OpenAI-compatible LLM client).
+   - **Stack**: same Next.js app (`next start`, Docker) — the 60s cap + cron hacks
+     vanish; local Postgres 16 + pgvector/pg_trgm (schema validated on vanilla PG16);
+     `@prisma/adapter-pg` (env-switched vs adapter-neon); **filesystem blob driver**
+     (`~/.datamodo/blobs/<hash>`); **`SINGLE_USER=1`** auth bypass (bind 127.0.0.1,
+     auto-provision the one user — no Neon Auth); a standing **worker process**
+     reusing `recoverExtractionQueue`/`claimStoredItems` in a loop; LLM = Ollama via
+     the OpenAI-compatible client (BYOK-to-cloud stays the quality path); embedding
+     DIMENSION must become config (local models are 768-dim vs vector(1536)).
+     Packaging: docker-compose (app+db+worker); PGlite for a no-Docker v2.
+   - **Connectors — push→pull inversion** (a laptop has no public endpoint; every
+     connection originates OUTBOUND from the user's machine). Model: **BYOB — bring
+     your own bot**: the user owns the bot/credentials on every channel, we ship
+     wizards + blueprints ("send to your datamodo" UX preserved).
+     · Email: IMAP pull of a dedicated mailbox/label (IDLE = near-instant) — a
+       mailbox IS a user-owned bot address. Easiest, ship first.
+     · Telegram: own bot via @BotFather + long-polling `getUpdates` — pure BYOB,
+       zero infra. · Slack: own app from our manifest + **Socket Mode** (official
+       no-public-URL path). · WhatsApp/Teams (push-only providers): **user-owned
+       dead-drop relay** — a ~50-line worker deployed to the USER's free Cloudflare
+       account (deploy-button; generalizes our email worker): provider webhooks →
+       relay → their own KV/queue → local instance polls outbound w/ shared secret.
+       WhatsApp caveat: Meta Cloud API needs a separate bot phone number; Baileys
+       linked-device bridge is the unofficial no-number alternative. Teams stays
+       "relay/tunnel-supported, not first-class".
+     · Cross-channel UX: **"your self-chat / your bot is your inbox"** — capture
+       stays gesture-based (forward/label), never account-wide slurping.
+   - Effort: seams (fs blobs, pg adapter, single-user mode, worker) ~1 day; IMAP ~1
+     day; Telegram ~½; Slack ~1; WhatsApp bridge ~2-3; relay template ~1.
+-2. **Ontology layer — user-editable kind registry ("Categories") (DESIGNED 2026-07-10,
+   not built).** The answer to "how do we structure the graph so we're not lost" +
+   "users should define categories with templates the agent fills". Decision: the
+   substrate stays UNIVERSAL (one node shape = `entities`, edges = facts whose value is
+   an entity — verbs with confidence/valid-time/provenance already); what's missing is
+   a VOCABULARY layer, not a storage change.
+   - **`kinds` table** (per org): kind slug, label, plural, icon/color, plain-language
+     description (steers the classifier), `fields` jsonb (template:
+     `[{key,label,type(text|number|date|entity),unit?,required?,aliases[]}]`),
+     `relations` jsonb (verb vocabulary: `[{predicate,label,targetKind?}]`). Seeded
+     with editable builtins (person, company, invoice, document, event, concept…);
+     users add their own.
+   - Powers: ① extraction steering (prompt gets the category menu + field keys as
+     predicate names); ② **canonicalization** post-LLM (kind `org`→`company`,
+     predicate `invoice_amount`→`amount` via aliases — FIXES the long-documented
+     predicate-drift fact-dedup bug); ③ navigable UI (registry order/icons/colors,
+     template fields first on cards, completeness cues "invoice missing due_date");
+     ④ template ⇢ table schema (makes `projectEntitiesToDataset`'s slug==key
+     convention explicit; one-click "build table from category"); ⑤ growth loop
+     (no-fit entities land as free-form `thing` + the agent can PROPOSE a new
+     category w/ inferred template via the Review queue).
+   - Templates STEER, never block — off-template facts still land (reviewable).
+   - **Concepts as nodes, with a leash**: builtin `concept` kind; extraction links
+     content to ≤3 concepts, prefers the user's existing list, proposes new ones via
+     review (never silently). Edges `about` / `related_to`. Obsidian-style map of
+     content without noun-soup.
+   - **Physical layer stays Postgres + R2** (evaluated the Lance/lance-graph
+     "multimodal KG in one columnar dataset" thesis, thedataquarry 2026-04: their
+     "split-brain" critique targets 3-system stacks with sync drift; we are 2 systems
+     joined by immutable content hashes, embeddings live IN the node row via pgvector,
+     and our writes are OLTP-shaped — entity resolution, SKIP LOCKED queues,
+     bitemporal supersession — which is Postgres's home turf. **lance-graph is the
+     designated candidate for the "derived graph index"/columnar analytics sidecar**
+     (PROJECT_STATE already treats the graph as a derived index) when multi-hop
+     traversal or >100k-fact analytics arrive; Lance reads object storage, so an
+     entities+facts+embeddings export to R2 is a clean later add-on, same slot as the
+     documented DuckDB path.)
+   - From the CocoIndex/LanceDB incremental-pipeline article: adopt the discipline,
+     not the framework — we already have content-hash dedup, idempotent ingest,
+     claim-key dedup and fact_sources lineage; the missing piece is an
+     **`extraction_version` stamp** on items/facts so prompt/model/ontology upgrades
+     can requeue ONLY stale items (delta reprocessing) instead of everything.
+   - Build order: ① `kinds` registry + seeds + prompt injection + canonicalization →
+     ② Categories manager UI + fields-first cards + completeness → ③ template→table
+     generator + new-category review proposals → ④ concept kind + embeddings
+     (Tier 1b, `entities.embedding` already in schema) + extraction_version.
+-1. **Attachments → documents in the graph + smart folders — ✅ BUILT 2026-07-10**
+   (see Recent changes) **except step ①: provision the blob bucket** (Cloudflare R2 or
+   S3 until Neon Object Storage reaches eu; wiring is env vars only —
+   `AWS_ENDPOINT_URL_S3`/`AWS_REGION`/`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`BLOB_BUCKET`).
+   Until then documents land as `metadata_only` nodes. Follow-ups: OCR tier for scanned
+   PDFs, xlsx/docx text extraction, open/download the original from the Files card.
+   The original design decision, for the record:
    - **Always keep the original.** Attachments are already captured as deduped,
      ref-counted blobs (sha256 + gzip) via `lib/ingest/store.ts` → the S3-generic
      adapter [lib/storage/blob.ts](lib/storage/blob.ts). The only blocker is
@@ -604,7 +859,7 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
      via `proposeAgentRows`. Proves the loop, ships value.
    - **Phase B (later):** persist `entities`/`facts`/`entity_mentions` as canonical
      store, move versioning there, make `dataset_rows` a projection. Additive — no rewrite.
-4. Delete `simulateAgentUpdate()` once real extraction flows.
+4. ~~Delete `simulateAgentUpdate()` once real extraction flows~~ ✅ **done 2026-07-10**.
 5. Additional channel adapters — **WhatsApp done** (Twilio, needs Connect-UI +
    live sandbox test); **Teams/Slack next** (same shared-bot + identify-once
    pattern via `ingest_sources` + `channel_link_codes`).

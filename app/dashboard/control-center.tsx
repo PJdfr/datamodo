@@ -45,7 +45,6 @@ import {
   restoreSnapshotAction,
   getSnapshotsAction,
   getDatasetRowsAction,
-  simulateAgentUpdateAction,
   acceptProposalAction,
   rejectProposalAction,
   acceptBatchAction,
@@ -57,6 +56,8 @@ import {
 import type { AgentActivityEntry, AgentRecord, ChangeChunk, DatasetColumn, DatasetRelation, DatasetRowRecord, DatasetView, Proposal, ReviewItem, SnapshotFull } from "@/lib/datamodo/types";
 import type { UserSettings, OnboardingContext } from "@/lib/datamodo/settings";
 import type { SearchResult, SearchHit, KnowledgeHit } from "@/lib/datamodo/search";
+import type { GroundedAnswer } from "@/lib/datamodo/answer";
+import type { ChunkHit } from "@/lib/datamodo/chunks";
 import type { RelationSuggestion } from "@/lib/datamodo/relations";
 import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
 import {
@@ -71,13 +72,16 @@ import { OnboardingModal } from "./onboarding-modal";
 import { ImportGraphModal } from "./import-graph-modal";
 import { KnowledgeView } from "./knowledge-view";
 import { InsightsView } from "./insights-view";
+import { FilesView } from "./files-view";
+import { AnswerCard } from "./answer-card";
+import { CategoriesModal } from "./categories-modal";
 import { BuildFromKnowledgeModal } from "./build-from-knowledge";
 
 /* ================================================================== */
 /* Component                                                           */
 /* ================================================================== */
 type Tab = "agents" | "data" | "review" | "search";
-type DataView = "tables" | "knowledge" | "insights";
+type DataView = "tables" | "knowledge" | "insights" | "files";
 export type ControlCenterProps = {
   fullName: string;
   initial: string;
@@ -177,6 +181,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [importGraphOpen, setImportGraphOpen] = useState(false);
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [contextDismissed, setContextDismissed] = useState(false);
   const onboardingTrack = Array.isArray(onboarding.answers?.track) ? (onboarding.answers.track as string[]) : [];
   const hasContext = !!onboarding.businessContext;
@@ -238,7 +243,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
 
   const titles: Record<Tab, { t: string; sub: string }> = {
     agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
-    data: { t: "Data", sub: dataView === "knowledge" ? "The people, companies & things we know about — your tables are built from these" : dataView === "insights" ? "The numbers behind your knowledge — totals & breakdowns, computed live" : uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · derived from your knowledge` : "No tables yet" },
+    data: { t: "Data", sub: dataView === "knowledge" ? "The people, companies & things we know about — your tables are built from these" : dataView === "insights" ? "The numbers behind your knowledge — totals & breakdowns, computed live" : dataView === "files" ? "Documents that arrived as attachments — filed by what they mention, originals kept" : uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · derived from your knowledge` : "No tables yet" },
     review: { t: "Review", sub: reviewTotal ? `${reviewTotal} to confirm — merges, conflicts & new facts` : "Confirm what we inferred — merges, conflicts & new facts" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
   };
@@ -392,8 +397,11 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           {tab === "data" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "knowledge", label: "Knowledge" }, { v: "insights", label: "Insights" }]} />
+                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "knowledge", label: "Knowledge" }, { v: "insights", label: "Insights" }, { v: "files", label: "Files" }]} />
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <Hov onClick={() => setCategoriesOpen(true)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
+                    <span style={{ color: C.accent }}>▣</span> Categories
+                  </Hov>
                   <Hov onClick={() => setImportGraphOpen(true)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
                     <span style={{ color: C.accent }}>✦</span> Spreadsheet → knowledge
                   </Hov>
@@ -406,6 +414,8 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                 <KnowledgeView />
               ) : dataView === "insights" ? (
                 <InsightsView />
+              ) : dataView === "files" ? (
+                <FilesView />
               ) : uiTables.length || createTableOpen ? (
                 <>
                   {uiTables.length > 0 && <RelationshipGraph tables={uiTables} relations={relations} datasets={datasets} onOpen={setOpenTableId} onChanged={() => router.refresh()} />}
@@ -493,6 +503,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
       {connectionsOpen && <ConnectionsModal inbox={inbox} onClose={() => setConnectionsOpen(false)} />}
       {onboardingOpen && <OnboardingModal initialContext={onboarding.businessContext} initialTrack={onboardingTrack} onClose={() => setOnboardingOpen(false)} onSaved={() => { setOnboardingOpen(false); router.refresh(); }} onImportSpreadsheet={() => { setOnboardingOpen(false); setImportGraphOpen(true); }} />}
       {importGraphOpen && <ImportGraphModal onClose={() => setImportGraphOpen(false)} onDone={() => router.refresh()} />}
+      {categoriesOpen && <CategoriesModal onClose={() => setCategoriesOpen(false)} onChanged={() => router.refresh()} />}
       {buildOpen && (
         <BuildFromKnowledgeModal
           datasets={datasets.map((d) => ({ id: d.id, name: d.name, columns: d.columns }))}
@@ -864,7 +875,23 @@ function HitCard({ hit, terms, onOpen }: { hit: SearchHit; terms: string[]; onOp
   );
 }
 
-type SearchResponse = SearchResult & { entities: KnowledgeHit[] };
+type SearchResponse = SearchResult & { entities: KnowledgeHit[]; passages: ChunkHit[]; answer: GroundedAnswer | null };
+
+/** A passage found INSIDE a document — the evidence layer, cited by page. */
+function PassageCard({ p, terms }: { p: ChunkHit; terms: string[] }) {
+  return (
+    <div className="dm-card" style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 13, padding: "12px 15px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
+        <span style={{ fontSize: 13 }}>📄</span>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.docLabel}</span>
+        {p.page && <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B", flexShrink: 0 }}>p.{p.page}</span>}
+      </div>
+      <div style={{ fontSize: 12.5, color: "#57534A", lineHeight: 1.5 }}>
+        “<Highlight text={p.text} terms={terms} />”
+      </div>
+    </div>
+  );
+}
 
 const KNOWLEDGE_TONE: Record<string, string> = { person: C.blue, people: C.blue, company: C.accent, org: C.accent, organization: C.accent, invoice: C.gold, project: C.green };
 const knowledgeTone = (k: string) => KNOWLEDGE_TONE[k.toLowerCase()] ?? C.ink;
@@ -905,11 +932,11 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
     if (!term) { setResult(null); return; }
     setLoading(true);
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(term)}`);
+      const res = await fetch(`/api/search?q=${encodeURIComponent(term)}&answer=1`);
       const json = (await res.json()) as Partial<SearchResponse>;
-      setResult({ query: json.query ?? term, terms: json.terms ?? [], total: json.total ?? 0, hits: json.hits ?? [], entities: json.entities ?? [] });
+      setResult({ query: json.query ?? term, terms: json.terms ?? [], total: json.total ?? 0, hits: json.hits ?? [], entities: json.entities ?? [], passages: json.passages ?? [], answer: json.answer ?? null });
     } catch {
-      setResult({ query: term, terms: [], total: 0, hits: [], entities: [] });
+      setResult({ query: term, terms: [], total: 0, hits: [], entities: [], passages: [], answer: null });
     } finally {
       setLoading(false);
     }
@@ -924,13 +951,22 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
         <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Search everything — a name, company, amount…" style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: 15.5, color: C.ink }} />
         <button type="submit" className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", border: "1px solid #E1D9C8", borderRadius: 6, padding: "4px 9px", background: "#fff", cursor: "pointer" }}>Ask ↵</button>
       </form>
-      <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", margin: "9px 2px 0" }}>Searches your tables and everything your agents know. Plain-language answers with citations are coming.</div>
+      <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", margin: "9px 2px 0" }}>Searches your tables and everything your agents know, then answers in plain language — every claim cited back to your own data.</div>
 
-      {loading && <div className="dm-mono" style={{ color: "#A39B8B", fontSize: 13, padding: "30px 4px" }}>Searching…</div>}
+      {loading && <div className="dm-mono" style={{ color: "#A39B8B", fontSize: 13, padding: "30px 4px" }}>Searching &amp; composing an answer…</div>}
 
       {!loading && result && submitted && (
-        result.total > 0 || result.entities.length > 0 ? (
+        result.total > 0 || result.entities.length > 0 || result.passages.length > 0 ? (
           <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 22 }}>
+            {result.answer && <AnswerCard answer={result.answer} onOpenTable={onOpenTable} />}
+            {result.passages.length > 0 && (
+              <div>
+                <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 10 }}>In your documents · {result.passages.length}</div>
+                <div className="dm-stagger" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {result.passages.map((p, i) => <PassageCard key={i} p={p} terms={result.terms} />)}
+                </div>
+              </div>
+            )}
             {result.entities.length > 0 && (
               <div>
                 <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 10 }}>In your knowledge · {result.entities.length}</div>
