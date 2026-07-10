@@ -503,7 +503,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
       {connectionsOpen && <ConnectionsModal inbox={inbox} onClose={() => setConnectionsOpen(false)} />}
       {onboardingOpen && <OnboardingModal initialContext={onboarding.businessContext} initialTrack={onboardingTrack} onClose={() => setOnboardingOpen(false)} onSaved={() => { setOnboardingOpen(false); router.refresh(); }} onImportSpreadsheet={() => { setOnboardingOpen(false); setImportGraphOpen(true); }} />}
       {importGraphOpen && <ImportGraphModal onClose={() => setImportGraphOpen(false)} onDone={() => router.refresh()} />}
-      {categoriesOpen && <CategoriesModal onClose={() => setCategoriesOpen(false)} />}
+      {categoriesOpen && <CategoriesModal onClose={() => setCategoriesOpen(false)} onChanged={() => router.refresh()} />}
       {buildOpen && (
         <BuildFromKnowledgeModal
           datasets={datasets.map((d) => ({ id: d.id, name: d.name, columns: d.columns }))}

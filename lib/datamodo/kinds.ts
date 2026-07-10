@@ -147,3 +147,51 @@ export async function deleteKind(orgId: string, id: string): Promise<void> {
   // template goes away. Builtins can be deleted too — it's the user's ontology.
   await prisma.kinds.delete({ where: { id, org_id: orgId } });
 }
+
+// --- AI-drafted templates ------------------------------------------------------
+
+const SUGGEST_SYSTEM = `You design a TEMPLATE for a knowledge category in a personal data assistant. The user names a category of thing they care about (e.g. "Property", "Candidate", "Shipment"); you propose what the assistant should capture about each one.
+
+Rules:
+- fields: 3-7 attributes worth tracking. snake_case keys, human labels, type one of text|number|date. Add unit for money/quantities (e.g. "USD"). Mark at most 2 as required — only what DEFINES the thing.
+- relations: 1-4 verbs linking it to other things (snake_case predicate, human label, optional targetKind like person/company/document).
+- aliases: 2-5 other names the category might be called (lowercase).
+- icon: ONE fitting emoji. plural: the plural label. description: one plain sentence saying what belongs in this category.
+
+Respond with ONLY JSON:
+{"icon":"…","plural":"…","description":"…","aliases":["…"],"fields":[{"key":"…","label":"…","type":"text|number|date","unit":"…?","required":false,"aliases":["…"]}],"relations":[{"predicate":"…","label":"…","targetKind":"…?","aliases":["…"]}]}`;
+
+export interface SuggestedTemplate {
+  icon?: string;
+  plural?: string;
+  description?: string;
+  aliases: string[];
+  fields: KindField[];
+  relations: KindRelation[];
+}
+
+/** Draft a category template from a name (+ optional hint) so the user prunes
+ *  chips instead of hand-writing schema. Runs on the owner's LLM (BYOK-aware). */
+export async function suggestKindTemplate(
+  ownerUserId: string | null,
+  name: string,
+  hint?: string | null,
+): Promise<SuggestedTemplate> {
+  const { llmForUser } = await import("./llm-for-user");
+  const llm = await llmForUser(ownerUserId);
+  const r = await llm.chatJSON<SuggestedTemplate>({
+    model: llm.models.extract,
+    system: SUGGEST_SYSTEM,
+    user: `Category: ${name}${hint ? `\nAbout the user's use of it: ${hint}` : ""}`,
+    maxTokens: 4096,
+    temperature: 0,
+  });
+  return {
+    icon: typeof r.icon === "string" ? r.icon.slice(0, 4) : undefined,
+    plural: typeof r.plural === "string" ? r.plural.slice(0, 60) : undefined,
+    description: typeof r.description === "string" ? r.description.slice(0, 300) : undefined,
+    aliases: (Array.isArray(r.aliases) ? r.aliases : []).map(slugify).filter(Boolean).slice(0, 6),
+    fields: sanitizeFields(Array.isArray(r.fields) ? r.fields : []).slice(0, 8),
+    relations: sanitizeRelations(Array.isArray(r.relations) ? r.relations : []).slice(0, 5),
+  };
+}
