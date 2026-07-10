@@ -12,6 +12,27 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Search now ANSWERS in plain language with citations + document
+  originals downloadable + extract tick drains the backlog.**
+  - **Grounded answers** ([answer.ts](lib/datamodo/answer.ts)): the Search tab's
+    long-promised second half. Keyword+knowledge search picks the evidence; the model
+    gets a NUMBERED source list (top 6 entities + 8 rows) and must answer from it only,
+    citing `[n]` — `citedSources` rejects any answer that cites nothing, so ungrounded
+    prose never renders. BYOK-aware (`llmForUser`), best-effort by construction: any
+    LLM failure returns null and plain results still show. `GET /api/search?q=&answer=1`;
+    UI [answer-card.tsx](app/dashboard/answer-card.tsx) — prose with inline citation
+    chips (click → opens the cited table) + a source-chip row.
+  - **Download the original** ([app/api/documents/[id]/route.ts](app/api/documents/%5Bid%5D/route.ts)):
+    a `document` entity's natural key carries its blob hash → org-scoped entity → blob →
+    streamed bytes with the attachment's real filename/content-type. 503 until the blob
+    bucket exists. "original ↓" button on every Files card.
+  - **Tick drain loop** ([extract-tick](app/api/jobs/extract-tick/route.ts)): keeps
+    claiming batches while <25s elapsed, so a backlog clears at LLM speed instead of
+    `EXTRACT_BATCH` per 5-minute cron.
+  - Verified: 17/17 unit tests (new pure tests for context building + citation
+    filtering) + tsc + lint + `next build` green + AnswerCard screenshotted (citation
+    chips + source row). **Answer path not yet run against a live LLM** (sandbox has
+    no key) — the prompt follows the same chatJSON contract as extraction.
 - **2026-07-10** — **Extraction queue hardened + spreadsheets join the document
   pipeline + `simulateAgentUpdate` deleted.**
   - **Orphan recovery & retry** (the step-6 TODO): `items` gains `claimed_at` +
@@ -271,8 +292,9 @@
   no-match states, and clickable example prompts; an honest note says plain-language
   answers with citations are still coming. Typecheck clean. **NOT yet verified
   in-browser** (needs a logged-in local session — the seeded demo's Invoices/Contacts/
-  Trips give it real data to hit). Next for search: NL answers + citations (needs the
-  LLM layer) and pg full-text / embeddings when volume grows.
+  Trips give it real data to hit). Next for search: ~~NL answers + citations~~ ✅ **done
+  2026-07-10** (grounded answers, see Recent changes); pg full-text / embeddings when
+  volume grows.
 - **2026-07-09** — **Nav simplified: Knowledge folded into Data (surface matches the
   promise).** Top nav is now **Agents · Data · Review · Search** (was 5 tabs). The
   Knowledge view is no longer a top-level tab — it's a **Tables / Knowledge**

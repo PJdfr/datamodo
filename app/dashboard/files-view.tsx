@@ -96,6 +96,13 @@ function DocCard({ d, onFolder }: { d: DocView; onFolder: (id: string) => void }
             {badge && <span style={{ background: badge.bg, color: badge.fg, borderRadius: 5, padding: "1px 6px", textTransform: "none", letterSpacing: 0 }}>{badge.label}</span>}
           </div>
         </div>
+        {/* The original binary never leaves blob storage — this streams it back. */}
+        <a
+          href={`/api/documents/${d.id}`}
+          title="Download the original file"
+          className="dm-mono"
+          style={{ fontSize: 10.5, color: "#8A8477", border: "1px solid #ECE5D8", borderRadius: 7, padding: "4px 8px", textDecoration: "none", flexShrink: 0, whiteSpace: "nowrap" }}
+        >original ↓</a>
       </div>
       {d.links.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
