@@ -12,6 +12,18 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Fixed env split-brain: www.datamodo.dev signed users up into the
+  PROD branch.** `www.datamodo.dev` serves the **dev git branch** (Vercel Preview), and
+  `DATABASE_URL` was correctly scoped per environment — but `NEON_AUTH_BASE_URL` was one
+  shared value (the prod endpoint) across Preview+Production, so auth users landed in the
+  Neon **prod** branch while app data went to the **dev** DB. Fixed via `vercel env`:
+  removed the shared var; `NEON_AUTH_BASE_URL` is now Production → `ep-falling-sound…`
+  (prod) and Preview(dev) → `ep-wispy-river…` (dev), mirroring DATABASE_URL. Redeployed
+  dev (empty commit). **Verified live**: sign-up on www.datamodo.dev created
+  `wiring-check@datamodo.dev` in the dev branch's `neon_auth."user"` (was empty).
+  Leftovers a human may want to clean: the 2 old users in the prod branch's auth
+  (signed up before the fix; passwords are hashed and unrecoverable — reset or delete in
+  Neon console → Auth), and the throwaway `wiring-check@datamodo.dev` in dev.
 - **2026-07-10** — **Fixed "invalid origin" on sign-in/sign-up at www.datamodo.dev.**
   Neon Auth rejects state-changing auth calls whose browser Origin isn't in the
   branch's `trusted_origins`. The lists were mirror-mismatched: the **prod** branch
