@@ -12,6 +12,92 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Inbound email verified LIVE end-to-end + extraction no longer
+  waits for GitHub's cron.** First real forwarded emails (Gmail → Cloudflare Email
+  Routing → worker → `/api/ingest`) captured on the dev DB with the attachment blob +
+  body archived to the new **R2 bucket** (`ingest`, eu; env vars live in Vercel; worker
+  secret wired). Debugged en route: worker crashed first on missing
+  `INGEST_WEBHOOK_SECRET` (401) then on missing R2 env (500) — both fixed in Vercel by
+  the human; dev redeployed (empty commit `cb74c7e` on `dev`). Diagnosed the cron gap:
+  GitHub fires the 5-min schedule **hours** apart on a quiet repo, and the `APP_URL`
+  repo secret points at PROD only — so dev items sat `stored`. Fixes: **ingest now
+  kicks extraction itself** post-response (`after()` from next/server in
+  [app/api/ingest/route.ts](app/api/ingest/route.ts), atomic claim → race-safe with
+  the cron, which becomes the sweeper) and
+  [extract-cron.yml](.github/workflows/extract-cron.yml) ticks **both** environments
+  (`APP_URL` + www.datamodo.dev). NOTE: the scheduled workflow runs from the DEFAULT
+  branch (`prod`) — the both-env tick takes effect only once this merges through to prod.
+- **2026-07-10** — **Search now ANSWERS in plain language with citations + document
+  originals downloadable + extract tick drains the backlog.**
+  - **Grounded answers** ([answer.ts](lib/datamodo/answer.ts)): the Search tab's
+    long-promised second half. Keyword+knowledge search picks the evidence; the model
+    gets a NUMBERED source list (top 6 entities + 8 rows) and must answer from it only,
+    citing `[n]` — `citedSources` rejects any answer that cites nothing, so ungrounded
+    prose never renders. BYOK-aware (`llmForUser`), best-effort by construction: any
+    LLM failure returns null and plain results still show. `GET /api/search?q=&answer=1`;
+    UI [answer-card.tsx](app/dashboard/answer-card.tsx) — prose with inline citation
+    chips (click → opens the cited table) + a source-chip row.
+  - **Download the original** ([app/api/documents/[id]/route.ts](app/api/documents/%5Bid%5D/route.ts)):
+    a `document` entity's natural key carries its blob hash → org-scoped entity → blob →
+    streamed bytes with the attachment's real filename/content-type. 503 until the blob
+    bucket exists. "original ↓" button on every Files card.
+  - **Tick drain loop** ([extract-tick](app/api/jobs/extract-tick/route.ts)): keeps
+    claiming batches while <25s elapsed, so a backlog clears at LLM speed instead of
+    `EXTRACT_BATCH` per 5-minute cron.
+  - Verified: 17/17 unit tests (new pure tests for context building + citation
+    filtering) + tsc + lint + `next build` green + AnswerCard screenshotted (citation
+    chips + source row). **Answer path not yet run against a live LLM** (sandbox has
+    no key) — the prompt follows the same chatJSON contract as extraction.
+- **2026-07-10** — **Extraction queue hardened + spreadsheets join the document
+  pipeline + `simulateAgentUpdate` deleted.**
+  - **Orphan recovery & retry** (the step-6 TODO): `items` gains `claimed_at` +
+    `attempts` (migration [neon/migrations/20260710130000_items_claim_tracking.sql](neon/migrations/20260710130000_items_claim_tracking.sql),
+    idempotent; schema.sql + Prisma schema updated). `claimStoredItems` stamps both;
+    new `recoverExtractionQueue` ([extract.ts](lib/datamodo/extract.ts)) runs at the top
+    of every tick: stale `analyzing` orphans (>10 min or null claim) and retryable
+    `failed` items requeue to `stored`, capped at 3 attempts — beyond that orphans are
+    marked failed ("extraction timed out"), poison items stay failed. Tick response now
+    reports `{requeued, abandoned}`. **DDL applied + verified 2026-07-10** on all three
+    Neon branches (`dev`, `prod`, and the Vercel-created
+    `preview/claude/dev-branch-work-4p5wlf`) via the Neon MCP — nothing owed at promote.
+  - **.xlsx attachments** now flow through the document pipeline:
+    `attachmentTextKind` gains `"sheet"`, parsed with the EXISTING `parseWorkbook`,
+    flattened by pure `sheetToText` (header + pipe-rows, 200-row cap → `partial`).
+  - **`simulateAgentUpdate` deleted** (Next-steps item 4 — real extraction flows):
+    removed from datasets.ts / actions.ts / a dead control-center import;
+    `proposeAgentRows` kept (sheet sync uses it).
+  - Verified: 13/13 unit tests; recovery/claim state machine exercised on a throwaway
+    local PG16 across all 8 item states (fresh/in-flight/orphan/legacy-null/out-of-
+    attempts/transient-fail/poison/analyzed — every transition correct); migration
+    idempotent against updated schema; tsc + lint + `next build` green.
+- **2026-07-10** — **Attachments → documents in the graph + smart folders (built — the
+  designed Next-steps item; bucket provisioning ① still owed by a human).**
+  - **Document pipeline**: every attachment on an item now becomes a `document`
+    **entity** (natural key = blob hash + filename → the same file re-forwarded dedupes)
+    with `file_type`/`file_size`/`indexed` facts and `mentions` relationship facts to
+    whatever its text talks about. Pure core in
+    [document-extraction.ts](lib/datamodo/document-extraction.ts) (`buildDocumentExtraction`
+    composes the combined Extraction; `extractAttachmentText` reads the PDF text layer via
+    **unpdf**, or plain text/CSV/JSON, capped at 20 pages / 20k chars → `indexed: partial`);
+    orchestration in [documents.ts](lib/datamodo/documents.ts) (`processItemAttachments`:
+    readBlob → text → the SAME `extractFromMessage` → `ingestExtraction`, provenance =
+    the item). Hooked into `runExtractionForItem` best-effort: **no blob bucket / scanned
+    PDF / LLM error degrades that document to `metadata_only` — never fails the item**.
+  - **Files sub-view** ([files-view.tsx](app/dashboard/files-view.tsx)): Data tab gains a
+    4th toggle (Tables · Knowledge · Insights · **Files**). Smart folders are
+    **projections over `mentions` facts** — chips per linked entity ("every document
+    linked to Brightwave"), one doc lives in many folders, nothing is moved. Cards show
+    type/size, an indexed/partially/not-indexed badge, clickable mention chips, and the
+    message it arrived via.
+  - **Seed**: [neon/seed.sql](neon/seed.sql) now seeds 2 demo attachments + document
+    entities (INV-4417.pdf, Brightwave-MSA-2026.pdf) with mentions + provenance.
+  - Verified: 10/10 unit tests (`npm test`, new node:test setup — incl. reading a real
+    generated PDF through unpdf) + seed applied twice against a throwaway local PG16
+    (idempotent, graph correct) + tsc + `next build` green + Files view screenshotted
+    (Chromium, all-docs + folder-filtered states). **NOT yet run live end-to-end**
+    (needs the blob bucket ① and a real inbound attachment).
+  - Also hardened `NEXT_PUBLIC_SITE_URL` handling (`||` not `??` in layout/robots/sitemap
+    — an EMPTY env var crashed `next build` with `ERR_INVALID_URL`).
 - **2026-07-10** — **Fixed env split-brain: www.datamodo.dev signed users up into the
   PROD branch.** `www.datamodo.dev` serves the **dev git branch** (Vercel Preview), and
   `DATABASE_URL` was correctly scoped per environment — but `NEON_AUTH_BASE_URL` was one
@@ -221,8 +307,9 @@
   no-match states, and clickable example prompts; an honest note says plain-language
   answers with citations are still coming. Typecheck clean. **NOT yet verified
   in-browser** (needs a logged-in local session — the seeded demo's Invoices/Contacts/
-  Trips give it real data to hit). Next for search: NL answers + citations (needs the
-  LLM layer) and pg full-text / embeddings when volume grows.
+  Trips give it real data to hit). Next for search: ~~NL answers + citations~~ ✅ **done
+  2026-07-10** (grounded answers, see Recent changes); pg full-text / embeddings when
+  volume grows.
 - **2026-07-09** — **Nav simplified: Knowledge folded into Data (surface matches the
   promise).** Top nav is now **Agents · Data · Review · Search** (was 5 tabs). The
   Knowledge view is no longer a top-level tab — it's a **Tables / Knowledge**
@@ -476,9 +563,10 @@ the same migration SQL to `prod` — Neon branches don't git-merge DDL).
   [.github/workflows/extract-cron.yml](.github/workflows/extract-cron.yml) (every 5 min → curls the
   consumer; needs `APP_URL` + `CRON_SECRET` GitHub secrets). **Verified:** inserted a stored item →
   endpoint returned `{claimed:1,processed:1,failed:0}`, item reached `analyzed`, LLM ran, facts
-  folded via Prisma (0 from nonsense text = correct); 401 without the secret. **TODO:** orphan
-  recovery (a crashed tick leaves an item in `analyzing`; needs a `claimed_at` column + reset) and
-  failed-item retry; throughput is 3/5min (raise `EXTRACT_BATCH` / add an internal drain loop).
+  folded via Prisma (0 from nonsense text = correct); 401 without the secret. ~~TODO: orphan
+  recovery + failed-item retry~~ ✅ **done 2026-07-10** (`recoverExtractionQueue`; the
+  `items_claim_tracking` migration is applied to all Neon branches — see Recent changes).
+  Remaining: throughput is 3/5min (raise `EXTRACT_BATCH` / add an internal drain loop).
 - 🔨 **7. Env/config + prod cutover** — **prod flipped to Neon** (PR #27 merged; Vercel
   production deploy `READY`). Fixed a Vercel build gap: added `postinstall: prisma generate`
   (Vercel does a clean install and never generated the client). Vercel Production env set
@@ -559,8 +647,13 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
 
 ## Next steps
 
--1. **Attachments → documents in the graph + smart folders (DESIGNED 2026-07-10, not built).**
-   The decision on "what do we do with a big PDF in a forwarded message":
+-1. **Attachments → documents in the graph + smart folders — ✅ BUILT 2026-07-10**
+   (see Recent changes) **except step ①: provision the blob bucket** (Cloudflare R2 or
+   S3 until Neon Object Storage reaches eu; wiring is env vars only —
+   `AWS_ENDPOINT_URL_S3`/`AWS_REGION`/`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`BLOB_BUCKET`).
+   Until then documents land as `metadata_only` nodes. Follow-ups: OCR tier for scanned
+   PDFs, xlsx/docx text extraction, open/download the original from the Files card.
+   The original design decision, for the record:
    - **Always keep the original.** Attachments are already captured as deduped,
      ref-counted blobs (sha256 + gzip) via `lib/ingest/store.ts` → the S3-generic
      adapter [lib/storage/blob.ts](lib/storage/blob.ts). The only blocker is
@@ -616,7 +709,7 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
      via `proposeAgentRows`. Proves the loop, ships value.
    - **Phase B (later):** persist `entities`/`facts`/`entity_mentions` as canonical
      store, move versioning there, make `dataset_rows` a projection. Additive — no rewrite.
-4. Delete `simulateAgentUpdate()` once real extraction flows.
+4. ~~Delete `simulateAgentUpdate()` once real extraction flows~~ ✅ **done 2026-07-10**.
 5. Additional channel adapters — **WhatsApp done** (Twilio, needs Connect-UI +
    live sandbox test); **Teams/Slack next** (same shared-bot + identify-once
    pattern via `ingest_sources` + `channel_link_codes`).

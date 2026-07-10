@@ -640,6 +640,8 @@ CREATE TABLE public.items (
     received_at timestamp with time zone DEFAULT now() NOT NULL,
     status public.item_status DEFAULT 'received'::public.item_status NOT NULL,
     error text,
+    claimed_at timestamp with time zone,
+    attempts integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 

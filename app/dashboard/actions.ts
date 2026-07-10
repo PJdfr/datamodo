@@ -23,7 +23,6 @@ import {
   renameDataset,
   restoreSnapshot,
   setColumns,
-  simulateAgentUpdate,
   updateRow,
 } from "@/lib/datamodo/datasets";
 import { createRelation, deleteRelation } from "@/lib/datamodo/relations";
@@ -297,19 +296,6 @@ export async function restoreSnapshotAction(snapshotId: string): Promise<ActionR
     return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message ?? "Failed to restore version." };
-  }
-}
-
-export async function simulateAgentUpdateAction(datasetId: string): Promise<ActionResult> {
-  try {
-    const { user, org } = await ctx();
-    if (!user) return { ok: false, error: "Not signed in." };
-    if (!org) return { ok: false, error: "No organization found." };
-    await simulateAgentUpdate(org.id, datasetId);
-    revalidatePath("/dashboard");
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: (e as Error).message ?? "Failed to simulate an agent update." };
   }
 }
 
