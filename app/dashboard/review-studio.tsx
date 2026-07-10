@@ -7,6 +7,7 @@
  *   • entity_merge → "are these the same thing?"   (side-by-side comparison)
  *   • fact_conflict → "which value is right now?"   (before → after diff)
  *   • extraction   → "did we understand this?"      (message ↔ facts, editorial)
+ *   • off_template → "keep what didn't fit the template?" (doc facts, opt-in)
  * Flow: triage header → impact spotlight → calmer grouped sections, ranked by impact.
  *
  * Data comes from GET /api/knowledge/reviews (typed by lib/datamodo/review-types).
@@ -16,7 +17,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { C, Hov, ghostBtn, relTime } from "./ui";
-import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, ReviewEntitySide } from "@/lib/datamodo/review-types";
+import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, OffTemplateReview, ReviewEntitySide } from "@/lib/datamodo/review-types";
 
 /* --------------------------- simulated fallback --------------------------- */
 
@@ -50,6 +51,11 @@ const SIMULATED: ReviewItem[] = [
     snippet: "Dinner with the Northwind team Thurs 7pm — they’ll send the SOW next week 👍",
     entities: [{ label: "Northwind", type: "company" }],
     facts: [{ s: "Northwind", p: "meeting", v: "Thu 7:00pm", c: 0.62 }, { s: "Northwind", p: "expected", v: "SOW next week", c: 0.55 }],
+  },
+  {
+    id: "sim-o1", kind: "off_template", impact: 2, confidence: null, createdAt: ago(8),
+    docLabel: "INV-4417.pdf", docKind: "invoice",
+    facts: [{ s: "INV-4417", p: "purchase_order", v: "PO-2211", c: 1 }, { s: "INV-4417", p: "payment_terms", v: "net 45", c: 1 }],
   },
 ];
 
@@ -239,9 +245,40 @@ function ExtractionCard({ e, onResolve }: { e: ExtractionReview; onResolve: Reso
   );
 }
 
+function OffTemplateCard({ o, onResolve }: { o: OffTemplateReview; onResolve: Resolve }) {
+  return (
+    <div style={{ border: "1px solid #E7E0D2", borderRadius: 15, background: "#fff", overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 15px", background: "#FBF8F1", borderBottom: "1px solid #EFE9DC", flexWrap: "wrap" }}>
+        <TypeChip label="Off the template" tone={C.blue} />
+        <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginLeft: "auto" }}>▤ {o.docLabel} · {relTime(o.createdAt)}</span>
+      </div>
+      <div style={{ padding: "15px 16px" }}>
+        <div style={{ fontSize: 12.5, color: "#57534A", lineHeight: 1.5, marginBottom: 11 }}>
+          This document said things {o.docKind ? <>the <b style={{ fontWeight: 600 }}>{o.docKind}</b> template</> : "its category template"} doesn&apos;t cover. We kept them out of your graph — your call whether they belong.
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          {o.facts.map((f, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.blue, flexShrink: 0 }} />
+              <span style={{ color: "#8A8477" }}>{f.s}</span>
+              <span className="dm-mono" style={{ fontSize: 10.5, color: "#B7AF9F" }}>{f.p}</span>
+              <span style={{ color: f.ref ? C.accent : C.ink, fontWeight: 600 }}>{f.ref ? `→ ${f.v}` : f.v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderTop: "1px solid #F1EDE4", background: "#FCFAF4" }}>
+        <span style={{ fontSize: 12, color: "#8A8477" }}>Accept to file them into your graph anyway — or add the field to the category so next time it just fits.</span>
+        <div style={{ marginLeft: "auto" }}><Actions id={o.id} onResolve={onResolve} acceptLabel="Add anyway" rejectLabel="Leave out" /></div>
+      </div>
+    </div>
+  );
+}
+
 function renderCard(it: ReviewItem, onResolve: Resolve) {
   if (it.kind === "entity_merge") return <MergeCard m={it} onResolve={onResolve} />;
   if (it.kind === "fact_conflict") return <ConflictCard c={it} onResolve={onResolve} />;
+  if (it.kind === "off_template") return <OffTemplateCard o={it} onResolve={onResolve} />;
   return <ExtractionCard e={it} onResolve={onResolve} />;
 }
 
@@ -290,6 +327,7 @@ function PillBtn({ on, color, onClick, title, children }: { on?: boolean; color:
 function rowMeta(it: ReviewItem): { glyph: string; color: string; text: string } {
   if (it.kind === "entity_merge") return { glyph: "⇄", color: C.gold, text: `merge  “${it.parsed.label}”  into  “${it.canonical.label}”` };
   if (it.kind === "fact_conflict") return { glyph: "~", color: C.accent, text: `${it.subject} · ${it.field}  “${it.was}” → “${it.now}”` };
+  if (it.kind === "off_template") return { glyph: "±", color: C.blue, text: `${it.facts.length} off-template fact${it.facts.length === 1 ? "" : "s"} from “${it.docLabel}”` };
   const who = it.entities.map((e) => e.label).join(", ") || channelOf(it.channel).label;
   return { glyph: "+", color: C.green, text: `${it.facts.length} fact${it.facts.length === 1 ? "" : "s"} about ${who}` };
 }
@@ -298,6 +336,7 @@ const GROUP_META: Record<ReviewItem["kind"], { title: string; hint: string }> = 
   entity_merge: { title: "Duplicates", hint: "same real-world thing twice?" },
   fact_conflict: { title: "Changed values", hint: "a newer message disagrees" },
   extraction: { title: "New from your messages", hint: "accept to file into your data" },
+  off_template: { title: "Outside the template", hint: "a document said more than its category covers" },
 };
 
 function DiffRow({ it, expanded, onToggle, onResolve }: { it: ReviewItem; expanded: boolean; onToggle: () => void; onResolve: Resolve }) {
@@ -371,7 +410,7 @@ export function ReviewStudio() {
 
   const live = useMemo(() => [...items].sort((a, b) => b.impact - a.impact), [items]);
   const groups = useMemo(() => {
-    const order: ReviewItem["kind"][] = ["extraction", "fact_conflict", "entity_merge"];
+    const order: ReviewItem["kind"][] = ["extraction", "fact_conflict", "entity_merge", "off_template"];
     return order
       .map((kind) => ({ kind, items: live.filter((i) => i.kind === kind) }))
       .filter((g) => g.items.length > 0);
@@ -380,6 +419,7 @@ export function ReviewStudio() {
     merge: live.filter((i) => i.kind === "entity_merge").length,
     conflict: live.filter((i) => i.kind === "fact_conflict").length,
     extraction: live.filter((i) => i.kind === "extraction").length,
+    offTemplate: live.filter((i) => i.kind === "off_template").length,
   };
 
   if (loading) return <div className="dm-mono" style={{ color: "#A39B8B", fontSize: 13, padding: "40px 4px" }}>Loading review queue…</div>;
@@ -422,6 +462,7 @@ export function ReviewStudio() {
             {counts.extraction > 0 && <span style={{ marginLeft: 4, color: C.green }}>+{counts.extraction}</span>}
             {counts.conflict > 0 && <span style={{ color: C.accent }}>~{counts.conflict}</span>}
             {counts.merge > 0 && <span style={{ color: C.gold }}>⇄{counts.merge}</span>}
+            {counts.offTemplate > 0 && <span style={{ color: C.blue }}>±{counts.offTemplate}</span>}
           </div>
         </div>
 

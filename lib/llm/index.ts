@@ -22,6 +22,7 @@ export function getLlmProvider(name?: ProviderName, apiKey?: string): LlmProvide
         models: {
           extract: env("OPENAI_EXTRACT_MODEL") ?? "gpt-4o-mini",
           escalate: env("OPENAI_ESCALATE_MODEL") ?? "gpt-4.1",
+          vision: env("OPENAI_VISION_MODEL") ?? env("OPENAI_EXTRACT_MODEL") ?? "gpt-4o-mini",
         },
       });
     case "anthropic":
@@ -30,6 +31,7 @@ export function getLlmProvider(name?: ProviderName, apiKey?: string): LlmProvide
         models: {
           extract: env("ANTHROPIC_EXTRACT_MODEL") ?? "claude-haiku-4-5",
           escalate: env("ANTHROPIC_ESCALATE_MODEL") ?? "claude-sonnet-5",
+          vision: env("ANTHROPIC_VISION_MODEL") ?? env("ANTHROPIC_EXTRACT_MODEL") ?? "claude-haiku-4-5",
         },
       });
     case "openrouter":
@@ -42,6 +44,9 @@ export function getLlmProvider(name?: ProviderName, apiKey?: string): LlmProvide
           // Free defaults for dev; set env to a paid model for reliability.
           extract: env("OPENROUTER_EXTRACT_MODEL") ?? "cohere/north-mini-code:free",
           escalate: env("OPENROUTER_ESCALATE_MODEL") ?? "cohere/north-mini-code:free",
+          // The free default can't see — set OPENROUTER_VISION_MODEL to a
+          // vision-capable model or image attachments stay metadata_only.
+          vision: env("OPENROUTER_VISION_MODEL") ?? env("OPENROUTER_EXTRACT_MODEL") ?? "cohere/north-mini-code:free",
         },
         extraHeaders: {
           "HTTP-Referer": env("OPENROUTER_APP_URL") ?? "https://datamodo.dev",

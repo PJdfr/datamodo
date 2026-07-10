@@ -337,6 +337,39 @@ async function createConflictReview(
   });
 }
 
+/** File a document's template-restrained facts as a reviewable decision:
+ *  accept replays `detail.extraction` through ingest ("add them anyway"),
+ *  reject discards. Nothing is applied at filing time. */
+export async function createOffTemplateReview(
+  orgId: string,
+  ownerUserId: string | null,
+  args: {
+    itemId: string | null;
+    docLabel: string;
+    docKind: string | null;
+    extraction: Extraction;
+    display: unknown[]; // pre-rendered card lines (OffTemplateDisplayFact[])
+  },
+): Promise<void> {
+  await prisma.knowledge_reviews.create({
+    data: {
+      org_id: orgId,
+      owner_user_id: ownerUserId,
+      kind: "off_template",
+      status: "pending",
+      confidence: null,
+      impact: args.display.length,
+      item_id: args.itemId,
+      detail: {
+        docLabel: args.docLabel,
+        docKind: args.docKind,
+        extraction: args.extraction,
+        facts: args.display,
+      } as unknown as import("@prisma/client").Prisma.InputJsonValue,
+    },
+  });
+}
+
 /** Surface a low-confidence extraction for the user to confirm ("did we
  *  understand this message?"). High-confidence extractions file silently. */
 export async function createExtractionReview(
@@ -367,8 +400,10 @@ async function bumpSupport(id: string): Promise<void> {
 }
 
 /**
- * Merge duplicate entity `loserId` into `winnerId`: re-point its facts, tombstone
- * it. Intended for the async compaction pass, not the hot path.
+ * Merge duplicate entity `loserId` into `winnerId`: re-point everything hanging
+ * off it (facts, document chunks, projected rows, body), tombstone it. Merge
+ * moves IDENTITY only — no stored content (blobs, chunk text, markdown) is ever
+ * rewritten. Intended for the async compaction pass, not the hot path.
  */
 export async function mergeEntities(
   orgId: string,
@@ -383,6 +418,23 @@ export async function mergeEntities(
     where: { org_id: orgId, object_entity_id: loserId },
     data: { object_entity_id: winnerId },
   });
+  // Thick-node payloads follow the identity: the loser's document passages and
+  // any table rows projected from it must not stay attached to the tombstone.
+  await prisma.doc_chunks.updateMany({
+    where: { org_id: orgId, entity_id: loserId },
+    data: { entity_id: winnerId },
+  });
+  await prisma.dataset_rows.updateMany({
+    where: { subject_entity_id: loserId },
+    data: { subject_entity_id: winnerId },
+  });
+  const [loser, winner] = await Promise.all([
+    prisma.entities.findUnique({ where: { id: loserId }, select: { body_md: true } }),
+    prisma.entities.findUnique({ where: { id: winnerId }, select: { body_md: true } }),
+  ]);
+  if (loser?.body_md && !winner?.body_md) {
+    await prisma.entities.update({ where: { id: winnerId, org_id: orgId }, data: { body_md: loser.body_md } });
+  }
   await prisma.entities.update({ where: { id: loserId, org_id: orgId }, data: { merged_into: winnerId } });
 }
 
@@ -601,7 +653,7 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
   const [ents, facts] = await Promise.all([
     prisma.entities.findMany({
       where: { org_id: orgId, merged_into: null },
-      select: { id: true, kind: true, canonical_label: true, natural_keys: true },
+      select: { id: true, kind: true, canonical_label: true, natural_keys: true, body_md: true, graph_pin: true },
     }),
     prisma.facts.findMany({
       where: { org_id: orgId, valid_to: null },
@@ -618,7 +670,7 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
       take: 5000,
     }),
   ]);
-  const entities = (ents as { id: string; kind: string; canonical_label: string; natural_keys: Record<string, string> }[] | null) ?? [];
+  const entities = (ents as { id: string; kind: string; canonical_label: string; natural_keys: Record<string, string>; body_md: string | null; graph_pin: { x?: unknown; y?: unknown } | null }[] | null) ?? [];
   const factList = (facts as unknown as KFact[] | null) ?? [];
   const label = new Map(entities.map((e) => [e.id, e.canonical_label]));
 
@@ -679,6 +731,11 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
       kind: e.kind,
       label: e.canonical_label,
       naturalKeys: e.natural_keys ?? {},
+      bodyMd: e.body_md ?? null,
+      graphPin:
+        e.graph_pin && typeof e.graph_pin.x === "number" && typeof e.graph_pin.y === "number"
+          ? { x: e.graph_pin.x, y: e.graph_pin.y }
+          : null,
       edges: edges.get(e.id) ?? 0,
       facts: (bySubject.get(e.id) ?? []).map((f) => {
         const v = fmt(f);

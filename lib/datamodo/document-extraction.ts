@@ -33,6 +33,30 @@ export interface AttachmentMeta {
   blobHash: string;
 }
 
+/** Media types a vision model accepts; keys double as extension matches. */
+const IMAGE_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+};
+
+/** Keep well under provider per-image caps (~5 MB) with base64 overhead. */
+export const MAX_IMAGE_BYTES = 3_500_000;
+
+/** The vision tier's gate: the attachment's image media type, or null when it
+ *  isn't an image a vision model can read. */
+export function attachmentImageType(
+  filename: string | null,
+  contentType: string | null,
+): string | null {
+  const ct = (contentType ?? "").toLowerCase().split(";")[0].trim();
+  if (Object.values(IMAGE_TYPES).includes(ct)) return ct;
+  const ext = /\.([a-z0-9]+)$/.exec((filename ?? "").toLowerCase())?.[1];
+  return (ext && IMAGE_TYPES[ext]) || null;
+}
+
 /** Which text-extraction path an attachment supports (OCR is a later tier).
  *  "sheet" is handled by the orchestrator via the existing xlsx parser. */
 export function attachmentTextKind(
@@ -166,6 +190,57 @@ export function sheetToText(sheet: {
   const joined = lines.join("\n").trim();
   const truncated = sheet.rows.length > MAX_SHEET_ROWS || joined.length > MAX_DOC_CHARS;
   return { text: joined.slice(0, MAX_DOC_CHARS), truncated, pages: null };
+}
+
+// --- Generated notes: a dump becomes a thick node WE author ---------------------
+// The product never asks the user to write structured notes — they dump prose
+// into any channel and the PIPELINE authors the note: a distilled markdown body
+// (stored as entities.body_md) plus machine-made "wikilinks" — real mentions/
+// about edges to the entities the message extraction found in the same text.
+
+export const NOTE_KIND = "note";
+
+export interface GeneratedNote {
+  title: string;
+  /** Distilled markdown of the user's dump — their points, faithfully. */
+  body: string;
+}
+
+/** The note entity's stable local id inside the composed extraction. */
+const NOTE_LOCAL_ID = "note";
+
+/**
+ * Compose the Extraction that lands one generated note in the graph: the note
+ * entity (natural key = the source item id, so re-extraction of the same
+ * message dedupes to one node) + edges to the entities the message extraction
+ * already found (NOT their facts — those were ingested by the message pass).
+ */
+export function buildNoteExtraction(
+  itemId: string,
+  note: GeneratedNote,
+  inner: Extraction,
+): Extraction {
+  const noteEntity: ExtractedEntity = {
+    localId: NOTE_LOCAL_ID,
+    kind: NOTE_KIND,
+    label: note.title.trim().slice(0, 120) || "Note",
+    naturalKeys: { id: `note:${itemId}` },
+  };
+  // Re-namespace inner ids ("e1" → "n:e1") so they can never collide with ours;
+  // strip everything but identity — resolution will find the already-ingested
+  // canonical entities and only the note edges are new.
+  const ns = (localId: string) => `n:${localId}`;
+  const entities: ExtractedEntity[] = [
+    noteEntity,
+    ...inner.entities.map((e) => ({ localId: ns(e.localId), kind: e.kind, label: e.label, naturalKeys: e.naturalKeys })),
+  ];
+  const facts: ExtractedFact[] = inner.entities.map((e) => ({
+    subjectLocalId: NOTE_LOCAL_ID,
+    predicate: e.kind === "concept" ? "about" : "mentions",
+    cardinality: "many" as const,
+    value: { kind: "entity" as const, entityLocalId: ns(e.localId) },
+  }));
+  return { entities, facts };
 }
 
 /** The document entity's stable local id inside the composed extraction. */

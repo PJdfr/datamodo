@@ -41,7 +41,21 @@ export class AnthropicProvider implements LlmProvider {
           system: req.system,
           max_tokens: req.maxTokens ?? 2048,
           temperature: req.temperature ?? 0,
-          messages: [{ role: "user", content: req.user }],
+          // Vision: image blocks precede the text (Anthropic's recommended order).
+          messages: [
+            {
+              role: "user",
+              content: req.images?.length
+                ? [
+                    ...req.images.map((im) => ({
+                      type: "image",
+                      source: { type: "base64", media_type: im.mediaType, data: im.dataBase64 },
+                    })),
+                    { type: "text", text: req.user },
+                  ]
+                : req.user,
+            },
+          ],
         }),
       });
       if (res.status === 429 || res.status === 500 || res.status === 529) {

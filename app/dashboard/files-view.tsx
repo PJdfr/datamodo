@@ -12,7 +12,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { C, monoLabel, CountUp } from "./ui";
+import { EntityPageModal } from "./entity-page";
 import type { KnowledgeEntityView } from "@/lib/datamodo/types";
+import type { KindDef } from "@/lib/datamodo/ontology";
 
 const DOCUMENT_KIND = "document";
 
@@ -80,7 +82,7 @@ function toDocView(e: KnowledgeEntityView): DocView {
   };
 }
 
-function DocCard({ d, onFolder }: { d: DocView; onFolder: (id: string) => void }) {
+function DocCard({ d, onFolder, onOpen }: { d: DocView; onFolder: (id: string) => void; onOpen: (id: string) => void }) {
   const badge = d.indexing ? INDEX_BADGE[d.indexing] ?? null : null;
   const meta = [d.fileType ? shortType(d.fileType) : null, d.size != null ? fmtBytes(d.size) : null]
     .filter(Boolean)
@@ -88,6 +90,7 @@ function DocCard({ d, onFolder }: { d: DocView; onFolder: (id: string) => void }
   return (
     <div className="dm-card" style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 13, padding: "13px 15px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button type="button" onClick={() => onOpen(d.id)} title="Open this document's page" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, background: "transparent", border: "none", padding: 0, cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
         <span style={{ width: 34, height: 34, borderRadius: 9, background: "#FBF8F1", border: "1px solid #ECE5D8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>📄</span>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="dm-display" style={{ fontWeight: 700, fontSize: 14.5, letterSpacing: "-0.01em", color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.label}</div>
@@ -96,6 +99,7 @@ function DocCard({ d, onFolder }: { d: DocView; onFolder: (id: string) => void }
             {badge && <span style={{ background: badge.bg, color: badge.fg, borderRadius: 5, padding: "1px 6px", textTransform: "none", letterSpacing: 0 }}>{badge.label}</span>}
           </div>
         </div>
+        </button>
         {/* The original binary never leaves blob storage — this streams it back. */}
         <a
           href={`/api/documents/${d.id}`}
@@ -131,17 +135,23 @@ function DocCard({ d, onFolder }: { d: DocView; onFolder: (id: string) => void }
 
 export function FilesView() {
   const [entities, setEntities] = useState<KnowledgeEntityView[]>([]);
+  const [kinds, setKinds] = useState<KindDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [folder, setFolder] = useState<string>("all");
   const [q, setQ] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const res = await fetch("/api/knowledge/entities");
+        const [res, kres] = await Promise.all([
+          fetch("/api/knowledge/entities"),
+          fetch("/api/kinds").catch(() => null),
+        ]);
         const json = await res.json();
         if (alive) setEntities(json.entities ?? []);
+        if (alive && kres?.ok) setKinds((await kres.json()).kinds ?? []);
       } catch {
         /* leave empty */
       } finally {
@@ -236,9 +246,21 @@ export function FilesView() {
         <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Nothing matches{q.trim() ? ` “${q.trim()}”` : ""} in this folder.</div>
       ) : (
         <div className="dm-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
-          {shown.map((d) => <DocCard key={d.id} d={d} onFolder={setFolder} />)}
+          {shown.map((d) => <DocCard key={d.id} d={d} onFolder={setFolder} onOpen={setOpenId} />)}
         </div>
       )}
+
+      {openId && (() => {
+        const ent = entities.find((e) => e.id === openId);
+        return ent ? (
+          <EntityPageModal
+            e={ent}
+            kindDef={kinds.find((k) => k.kind === ent.kind)}
+            onClose={() => setOpenId(null)}
+            onOpen={setOpenId}
+          />
+        ) : null;
+      })()}
     </div>
   );
 }
