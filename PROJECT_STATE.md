@@ -12,6 +12,30 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Projections catalog continued ②: CONCEPT MAP + DOSSIER EXPORT
+  shipped** (the last two pure-query items of the designed remainder).
+  - **Concept map** — the Obsidian-style map of content, one zoom level above the
+    entity graph. Pure core [concept-map.ts](lib/datamodo/concept-map.ts)
+    (`buildConceptMap`, type-imports only → unit-testable): nodes = `concept` entities
+    sized by how much content is `about` them; links = explicit concept→concept facts
+    (`related_to`, solid) MERGED with **co-occurrence** (two concepts sharing a
+    document/note, dashed, weighted by shared count). UI
+    [concept-map-view.tsx](app/dashboard/concept-map-view.tsx): third Knowledge mode
+    (Cards · Graph · **Concepts**), deterministic bubble layout, click a concept →
+    drawer lists its content with jump-to-page; reads over ALL entities (not the
+    search subset — a half-filtered map of content misleads).
+  - **Dossier export** — "everything we know about Acme, cited", as downloadable
+    markdown. Pure renderer [dossier.ts](lib/datamodo/dossier.ts) (`buildDossier`,
+    `generatedOn` injected → deterministic tests): summary (body_md), attribute facts
+    with `[n]` citations, connections BOTH directions, the 1-hop neighborhood's facts,
+    and a numbered Sources footer (identical messages collapse to one number;
+    no-provenance case stays honest). `GET /api/knowledge/entities/[id]/dossier`
+    streams it as an `.md` attachment (`dossierFilename` slug). **"dossier ↓" on every
+    entity page footer** (documents keep "original ↓" beside it). PDF stays a later
+    add-on behind the same builder.
+  - Verified: 57/57 tests (11 new) + tsc + build green; lint == baseline (8/16);
+    SSR smoke: concept labels/dashed edges/legend/empty state render (12 checks incl.
+    the prior graph+timeline ones).
 - **2026-07-10** — **Projections catalog continued: TIMELINE + GRAPH CURATION shipped**
   (the next two items from the designed remainder).
   - **Timeline** — the chronological projection, pure query as designed. Pure core
@@ -813,10 +837,10 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
    - ~~Timeline~~ ✅ **shipped 2026-07-10** — pure chronological projection
      (messages / domain dates / changes / first sightings, Upcoming section,
      per-entity filter). See Recent changes.
-   - **Concept map** — concepts + `about`/`related_to` edges only: the Obsidian-style
-     map of content, one zoom level above the entity graph.
-   - **Dossier/report export** — an entity page + its neighborhood rendered to a
-     shareable markdown/PDF ("everything we know about Acme, cited").
+   - ~~Concept map~~ ✅ **shipped 2026-07-10** — concept bubbles sized by content,
+     explicit + co-occurrence links, drawer to the content. See Recent changes.
+   - ~~Dossier export~~ ✅ **shipped 2026-07-10** — cited markdown download on every
+     entity page ("dossier ↓"); PDF later behind the same builder. See Recent changes.
    - **Vision/OCR tier** — images + scanned PDFs become understood thick nodes (today
      they land metadata_only); pipeline upgrade behind `extraction_version` requeue.
    - **Off-template review routing** — restrained document facts currently DROP

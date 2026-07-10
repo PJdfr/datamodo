@@ -175,12 +175,15 @@ export function EntityPageModal({ e, kindDef, onClose, onOpen }: {
       maxWidth={640}
       badge={{ initial: kindDef?.icon ?? e.label.charAt(0).toUpperCase(), bg: tone }}
       footer={
-        isDoc ? (
-          <>
-            <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>The original file never leaves storage — this page is what we understood from it.</span>
-            <a href={`/api/documents/${e.id}`} className="dm-mono" style={{ fontSize: 11, color: C.ink, border: "1px solid #DDD5C5", background: "#fff", borderRadius: 8, padding: "6px 12px", textDecoration: "none", whiteSpace: "nowrap" }}>original ↓</a>
-          </>
-        ) : undefined
+        <>
+          <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>
+            {isDoc ? "The original file never leaves storage — this page is what we understood from it." : "The dossier is this page as cited markdown — every claim with its source."}
+          </span>
+          <span style={{ display: "inline-flex", gap: 8, whiteSpace: "nowrap" }}>
+            <a href={`/api/knowledge/entities/${e.id}/dossier`} title="Download everything we know about this, cited" className="dm-mono" style={{ fontSize: 11, color: C.ink, border: "1px solid #DDD5C5", background: "#fff", borderRadius: 8, padding: "6px 12px", textDecoration: "none" }}>dossier ↓</a>
+            {isDoc && <a href={`/api/documents/${e.id}`} className="dm-mono" style={{ fontSize: 11, color: C.ink, border: "1px solid #DDD5C5", background: "#fff", borderRadius: 8, padding: "6px 12px", textDecoration: "none" }}>original ↓</a>}
+          </span>
+        </>
       }
     >
       {/* Thick node: the generated body reads first, like a note. */}
