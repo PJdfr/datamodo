@@ -10,9 +10,9 @@
  * Pure projection — everything shown is derived from the entity's facts.
  */
 
-import { Fragment, type ReactNode } from "react";
-import { C, ModalShell } from "./ui";
-import type { KnowledgeEntityView, KnowledgeFactView } from "@/lib/datamodo/types";
+import { Fragment, useState, type ReactNode } from "react";
+import { C, ModalShell, SourceRow } from "./ui";
+import type { FactSourceView, KnowledgeEntityView, KnowledgeFactView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
 
 // --- Markdown-lite ------------------------------------------------------------
@@ -102,39 +102,62 @@ export function MarkdownLite({ md }: { md: string }) {
 const FALLBACK_TONE: Record<string, string> = { person: C.blue, company: C.accent, invoice: C.gold, document: C.green };
 const DOC_META_PREDICATES = new Set(["file_type", "file_size", "indexed"]);
 
-function RecordRow({ label, value, missing, refChip, onOpen, sources }: {
+function RecordRow({ label, value, missing, refChip, onOpen, sources, provenance }: {
   label: string; value: ReactNode; missing?: boolean; refChip?: { id: string; label: string }[]; onOpen?: (id: string) => void; sources?: number;
+  /** The messages behind the value — expandable evidence, right on the page. */
+  provenance?: FactSourceView[];
 }) {
+  const [open, setOpen] = useState(false);
+  const hasProv = (provenance?.length ?? 0) > 0;
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "130px 1fr auto", gap: 12, alignItems: "baseline", padding: "6px 8px", borderBottom: "1px solid #F1ECDF" }}>
-      <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
-      {missing ? (
-        <span className="dm-mono" style={{ fontSize: 11, color: "#8A6D1F", background: "#FBF3DE", border: "1px solid #EFDDAE", borderRadius: 6, padding: "1px 7px", justifySelf: "start" }}>missing</span>
-      ) : refChip ? (
-        <span style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-          {refChip.map((r) => (
-            <button key={r.id} type="button" onClick={onOpen ? () => onOpen(r.id) : undefined} className="dm-mono"
-              style={{ fontSize: 11, color: C.accent, background: "#FDF6F2", border: "1px solid #F3D6CB", borderRadius: 6, padding: "2px 8px", cursor: onOpen ? "pointer" : "default", fontFamily: "inherit" }}>
-              → {r.label}
-            </button>
-          ))}
-        </span>
-      ) : (
-        <span style={{ fontSize: 13, color: "#3A352C", overflowWrap: "anywhere" }}>{value}</span>
+    <div style={{ borderBottom: "1px solid #F1ECDF" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "130px 1fr auto", gap: 12, alignItems: "baseline", padding: "6px 8px" }}>
+        <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+        {missing ? (
+          <span className="dm-mono" style={{ fontSize: 11, color: "#8A6D1F", background: "#FBF3DE", border: "1px solid #EFDDAE", borderRadius: 6, padding: "1px 7px", justifySelf: "start" }}>missing</span>
+        ) : refChip ? (
+          <span style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {refChip.map((r) => (
+              <button key={r.id} type="button" onClick={onOpen ? () => onOpen(r.id) : undefined} className="dm-mono"
+                style={{ fontSize: 11, color: C.accent, background: "#FDF6F2", border: "1px solid #F3D6CB", borderRadius: 6, padding: "2px 8px", cursor: onOpen ? "pointer" : "default", fontFamily: "inherit" }}>
+                → {r.label}
+              </button>
+            ))}
+          </span>
+        ) : (
+          <span style={{ fontSize: 13, color: "#3A352C", overflowWrap: "anywhere" }}>{value}</span>
+        )}
+        {sources ? (
+          <button
+            type="button"
+            onClick={hasProv ? () => setOpen((o) => !o) : undefined}
+            aria-expanded={hasProv ? open : undefined}
+            title={hasProv ? "Show the messages behind this" : undefined}
+            className="dm-mono"
+            style={{ fontSize: 9.5, color: open ? C.accent : "#B7AF9F", whiteSpace: "nowrap", background: "none", border: "none", padding: 0, cursor: hasProv ? "pointer" : "default", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 3 }}
+          >
+            {sources} source{sources === 1 ? "" : "s"}
+            {hasProv && <span style={{ display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }}>›</span>}
+          </button>
+        ) : <span />}
+      </div>
+      {open && hasProv && (
+        <div style={{ display: "grid", gap: 6, padding: "0 8px 9px" }}>
+          {provenance!.map((s, i) => <SourceRow key={i} s={s} />)}
+        </div>
       )}
-      {sources ? <span className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F", whiteSpace: "nowrap" }}>{sources} source{sources === 1 ? "" : "s"}</span> : <span />}
     </div>
   );
 }
 
-export function EntityPageModal({ e, kindDef, onClose, onOpen }: {
+/** The page CONTENT in the node's natural shape — shared by the modal and the
+ *  Explorer's side panel. Everything shown derives from the entity's facts. */
+export function EntityPageBody({ e, kindDef, onOpen }: {
   e: KnowledgeEntityView;
   kindDef?: KindDef;
-  onClose: () => void;
-  /** Navigate to another entity's page (relationship chips). */
+  /** Navigate to another entity (relationship chips). */
   onOpen?: (id: string) => void;
 }) {
-  const tone = kindDef?.color ?? FALLBACK_TONE[e.kind] ?? C.ink;
   const isDoc = e.kind === "document";
 
   const attrs = e.facts.filter((f) => !f.ref);
@@ -161,31 +184,8 @@ export function EntityPageModal({ e, kindDef, onClose, onOpen }: {
     relGroups.get(f.predicate)!.push({ id: f.refId!, label: f.value });
   }
 
-  const docMeta = isDoc
-    ? [byPredicate.get("file_type")?.[0]?.value, byPredicate.get("file_size")?.[0]?.value ? `${byPredicate.get("file_size")![0].value} bytes` : null, byPredicate.get("indexed")?.[0]?.value]
-        .filter(Boolean)
-        .join(" · ")
-    : null;
-
   return (
-    <ModalShell
-      title={e.label}
-      subtitle={`${kindDef?.label ?? e.kind} · ${e.edges} link${e.edges === 1 ? "" : "s"}${docMeta ? ` · ${docMeta}` : ""}`}
-      onClose={onClose}
-      maxWidth={640}
-      badge={{ initial: kindDef?.icon ?? e.label.charAt(0).toUpperCase(), bg: tone }}
-      footer={
-        <>
-          <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>
-            {isDoc ? "The original file never leaves storage — this page is what we understood from it." : "The dossier is this page as cited markdown — every claim with its source."}
-          </span>
-          <span style={{ display: "inline-flex", gap: 8, whiteSpace: "nowrap" }}>
-            <a href={`/api/knowledge/entities/${e.id}/dossier`} title="Download everything we know about this, cited" className="dm-mono" style={{ fontSize: 11, color: C.ink, border: "1px solid #DDD5C5", background: "#fff", borderRadius: 8, padding: "6px 12px", textDecoration: "none" }}>dossier ↓</a>
-            {isDoc && <a href={`/api/documents/${e.id}`} className="dm-mono" style={{ fontSize: 11, color: C.ink, border: "1px solid #DDD5C5", background: "#fff", borderRadius: 8, padding: "6px 12px", textDecoration: "none" }}>original ↓</a>}
-          </span>
-        </>
-      }
-    >
+    <>
       {/* Thick node: the generated body reads first, like a note. */}
       {e.bodyMd && (
         <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
@@ -218,12 +218,13 @@ export function EntityPageModal({ e, kindDef, onClose, onOpen }: {
                   label={field.label}
                   value={facts.map((f) => f.value).join(" · ")}
                   sources={facts.reduce((n, f) => n + f.sources, 0)}
+                  provenance={facts.flatMap((f) => f.provenance)}
                 />
               )}
             </Fragment>
           ))}
           {extraAttrs.map((f, i) => (
-            <RecordRow key={`x${i}`} label={f.predicate.replace(/_/g, " ")} value={f.value} sources={f.sources} />
+            <RecordRow key={`x${i}`} label={f.predicate.replace(/_/g, " ")} value={f.value} sources={f.sources} provenance={f.provenance} />
           ))}
         </div>
       )}
@@ -240,6 +241,52 @@ export function EntityPageModal({ e, kindDef, onClose, onOpen }: {
       {!e.bodyMd && templateRows.length === 0 && extraAttrs.length === 0 && relGroups.size === 0 && (
         <div className="dm-mono" style={{ fontSize: 12, color: "#A39B8B", padding: "18px 4px" }}>Nothing captured about this yet.</div>
       )}
+    </>
+  );
+}
+
+export function EntityPageModal({ e, kindDef, onClose, onOpen, onExplore }: {
+  e: KnowledgeEntityView;
+  kindDef?: KindDef;
+  onClose: () => void;
+  /** Navigate to another entity's page (relationship chips). */
+  onOpen?: (id: string) => void;
+  /** Jump into the Explorer centered on this entity. */
+  onExplore?: (id: string) => void;
+}) {
+  const tone = kindDef?.color ?? FALLBACK_TONE[e.kind] ?? C.ink;
+  const isDoc = e.kind === "document";
+
+  const first = (p: string) => e.facts.find((f) => f.predicate === p && !f.ref)?.value;
+  const docMeta = isDoc
+    ? [first("file_type"), first("file_size") ? `${first("file_size")} bytes` : null, first("indexed")].filter(Boolean).join(" · ")
+    : null;
+
+  const btn = { fontSize: 11, color: C.ink, border: "1px solid #DDD5C5", background: "#fff", borderRadius: 8, padding: "6px 12px", textDecoration: "none" } as const;
+
+  return (
+    <ModalShell
+      title={e.label}
+      subtitle={`${kindDef?.label ?? e.kind} · ${e.edges} link${e.edges === 1 ? "" : "s"}${docMeta ? ` · ${docMeta}` : ""}`}
+      onClose={onClose}
+      maxWidth={640}
+      badge={{ initial: kindDef?.icon ?? e.label.charAt(0).toUpperCase(), bg: tone }}
+      footer={
+        <>
+          <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>
+            {isDoc ? "The original file never leaves storage — this page is what we understood from it." : "The dossier is this page as cited markdown — every claim with its source."}
+          </span>
+          <span style={{ display: "inline-flex", gap: 8, whiteSpace: "nowrap" }}>
+            {onExplore && (
+              <button type="button" onClick={() => onExplore(e.id)} title="Walk the graph from here" className="dm-mono" style={{ ...btn, cursor: "pointer", fontFamily: "inherit", color: C.accent, borderColor: "#F3D6CB", background: "#FDF6F2" }}>◍ Explore</button>
+            )}
+            <a href={`/api/knowledge/entities/${e.id}/dossier`} title="Download everything we know about this, cited" className="dm-mono" style={btn}>dossier ↓</a>
+            {isDoc && <a href={`/api/documents/${e.id}`} className="dm-mono" style={btn}>original ↓</a>}
+          </span>
+        </>
+      }
+    >
+      <EntityPageBody e={e} kindDef={kindDef} onOpen={onOpen} />
     </ModalShell>
   );
 }

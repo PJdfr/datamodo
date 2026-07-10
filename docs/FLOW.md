@@ -63,6 +63,7 @@ subgraph DERIVE["6 · WE DERIVE<br/>every view is a projection; nothing is a sec
   direction TB
   TAB["▦ Tables<br/><i>auto-materialized,<br/>human edits protected</i>"]
   KG["◍ Knowledge graph<br/><i>drag-to-pin persisted,<br/>kind hypernodes</i>"]
+  EXP["◎ Explorer<br/><i>walk edge to edge; edges show<br/>confidence · time · sources</i>"]
   CM["◌ Concept map<br/><i>topics + co-occurrence</i>"]
   TL["◷ Timeline<br/><i>messages · due dates ·<br/>corrections · first seen</i>"]
   EP["▤ Entity pages + dossier ↓<br/><i>cited markdown export</i>"]

@@ -19,6 +19,15 @@
 3. **Promote dev → prod** (also activates the both-envs cron tick fix, which
    only takes effect from the default branch).
 
+## Explorer track (the north star — phase 1 ✅ shipped 2026-07-10)
+- ~~Ego-graph Explorer~~ ✅ — walk edge to edge, natural-shape panel, edge
+  inspector, breadcrumbs, jump box (4th Knowledge mode + "◍ Explore" on pages).
+- **Node shapes, phase 2**: image nodes render their image (original already
+  streamable); `bookmark` builtin kind for URLs; dataset-as-node.
+- **On-demand synthesis**: "✦ Synthesize" on concept/hub pages → cited
+  cross-document note into `body_md` (never automatic — MEMORY.md north star).
+- **Audio tier**: transcription pipeline stage → player + transcript nodes.
+
 ## Next build tracks (pick after the above)
 - **Channel adapters E2E** — WhatsApp (Twilio sandbox), Slack app, Teams bot
   are code-complete but have never touched the real providers. The core pitch

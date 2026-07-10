@@ -41,6 +41,20 @@ reviewable, nothing is ever silently lost or merged.
 - Demo account `user@example.com` must stay seeded (`neon/seed.sql`, run after
   signing the user up; idempotent). Update the seed when the schema changes.
 
+## North star (decided 2026-07-10)
+- **Free graph exploration is the product's destination**: stand on a node,
+  walk edge to edge (Obsidian-style wandering), and at every hop see the node
+  in its NATURAL SHAPE — a record as a table, a document as its page, an image
+  as the image, a URL as a bookmark, audio as player+transcript (shapes grow
+  over time; a node can be anything).
+- **An edge is more than a link**: it is a fact, and the UI must expose what
+  the fact already carries — semantics (predicate), time (valid_from/to),
+  confidence, strength (corroboration count), and the exact source messages.
+- **Generation is ON-DEMAND only** — syntheses (e.g. a concept's cross-document
+  note) are produced when the user asks (a button or a question), never by a
+  background trigger. LLM spend maps 1:1 to user curiosity; no stale-synthesis
+  bookkeeping.
+
 ## Architecture decisions (and why)
 - **Neon + Prisma + Neon Auth** (migrated off Supabase 2026-07-09; zero users
   → schema-only port). Authz is app-layer `org_id` scoping; RLS is gone.

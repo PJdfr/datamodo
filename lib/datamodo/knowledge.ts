@@ -644,6 +644,8 @@ interface KFact {
   value_num: number | null;
   value_date: string | null;
   unit: string | null;
+  confidence: number | null;
+  valid_from: Date | string | null;
 }
 
 /** All of the user's entities + what we currently know about each, with a
@@ -666,6 +668,8 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
         value_num: true,
         value_date: true,
         unit: true,
+        confidence: true,
+        valid_from: true,
       },
       take: 5000,
     }),
@@ -740,7 +744,16 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
       facts: (bySubject.get(e.id) ?? []).map((f) => {
         const v = fmt(f);
         const prov = provByFact.get(f.id) ?? [];
-        return { predicate: f.predicate, value: v.value, ref: v.ref, refId: f.object_entity_id ?? null, sources: prov.length, provenance: prov };
+        return {
+          predicate: f.predicate,
+          value: v.value,
+          ref: v.ref,
+          refId: f.object_entity_id ?? null,
+          sources: prov.length,
+          provenance: prov,
+          confidence: f.confidence ?? 1,
+          validFrom: f.valid_from ? new Date(f.valid_from).toISOString() : null,
+        };
       }),
     }))
     .sort((a, b) => b.edges - a.edges);
