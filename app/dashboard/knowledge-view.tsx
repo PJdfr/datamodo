@@ -8,7 +8,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { C, monoLabel, CountUp } from "./ui";
+import { C, monoLabel, CountUp, Segmented } from "./ui";
+import { KnowledgeGraphView } from "./knowledge-graph";
 import type { KnowledgeEntityView, FactSourceView } from "@/lib/datamodo/types";
 
 const CHANNEL_META: Record<string, { emoji: string; label: string }> = {
@@ -119,6 +120,7 @@ export function KnowledgeView() {
   const [entities, setEntities] = useState<KnowledgeEntityView[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
+  const [mode, setMode] = useState<"cards" | "graph">("cards");
 
   useEffect(() => {
     let alive = true;
@@ -169,15 +171,20 @@ export function KnowledgeView() {
           <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink }}><CountUp value={entities.length} /> thing{entities.length === 1 ? "" : "s"} we know about</div>
           <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>{groups.length} kind{groups.length === 1 ? "" : "s"} · {totalFacts} fact{totalFacts === 1 ? "" : "s"} · your tables are built from these</div>
         </div>
-        <div style={{ position: "relative", marginLeft: "auto", minWidth: 220 }}>
-          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search entities & facts…" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <Segmented value={mode} onChange={setMode} options={[{ v: "cards", label: "Cards" }, { v: "graph", label: "Graph" }]} />
+          <div style={{ position: "relative", minWidth: 220 }}>
+            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search entities & facts…" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
+          </div>
         </div>
       </div>
 
       {shown.length === 0 && <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Nothing matches “{q.trim()}”.</div>}
 
-      {groups.map(([kind, list]) => (
+      {mode === "graph" && shown.length > 0 && <KnowledgeGraphView entities={shown} />}
+
+      {mode === "cards" && groups.map(([kind, list]) => (
         <div key={kind} style={{ marginBottom: 24 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 9, margin: "0 2px 11px" }}>
             <span style={{ width: 9, height: 9, borderRadius: 3, background: toneOf(kind) }} />

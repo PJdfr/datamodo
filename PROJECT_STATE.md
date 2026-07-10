@@ -12,6 +12,35 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Dashboard catch-up to the landing: knowledge GRAPH view, PR-style
+  review queue, BYOK wired live.**
+  - **Knowledge graph view** ([knowledge-graph.tsx](app/dashboard/knowledge-graph.tsx)):
+    the Data ▸ Knowledge tab gains a **Cards / Graph** toggle. Nodes = canonical
+    **entities** (kind-colored chips); edges = **relationship facts** (facts whose value
+    is another entity), labelled by predicate on hover. Attribute facts stay in the
+    click-to-pin inspector (facts + natural keys + clickable links) — they'd drown the
+    canvas as nodes. Interaction ported from the design-system KnowledgeGraph: drag to
+    rearrange (edges follow live), hover lights the neighborhood, keyboard accessible.
+    Layout is deterministic (kind clusters + a short synchronous force relaxation, seeded
+    PRNG — no jitter between visits); caps at the 60 most-connected entities (footer
+    says how many are hidden). Search filters the graph too. `KnowledgeFactView` gained
+    `refId` (edge target) in [types.ts](lib/datamodo/types.ts)/[knowledge.ts](lib/datamodo/knowledge.ts).
+    Verified: SSR render smoke test (nodes/edges/labels/bounds) + tsc + build green.
+    **NOT yet eyeballed in-browser** (needs login).
+  - **Review queue reads like a pull request** ([review-studio.tsx](app/dashboard/review-studio.tsx)),
+    matching the landing's "Review the changes. Merge when it's right." section: an
+    OPEN header with `graph:main ← inbox/new-facts` branch chips and +/~/⇄ counts,
+    grouped one-line **diff rows** (mono summary, confidence %, impact ×n, inline ✓/✕),
+    click a row to expand the full evidence card (the existing merge/conflict/extraction
+    layouts, unchanged), and a merge bar with "Approve all & merge". Same live wiring
+    (`GET /api/knowledge/reviews`, accept/reject POST; simulated preview when empty).
+  - **BYOK is now real** ([llm-for-user.ts](lib/datamodo/llm-for-user.ts)): extraction
+    (`runExtractionForItem`), entity adjudication (`adjudicateMatch`, threaded through
+    `ingestExtraction`/`resolveEntity`) and spreadsheet→graph import all resolve the
+    owner's provider: compute mode `byok` + saved key → `getLlmProvider(aiProvider, key)`
+    (their OpenRouter/OpenAI/Anthropic account); otherwise the platform env key. The
+    SettingsModal UI + `user_settings.byok_key` already existed — this connects them.
+    Fails safe: settings lookup errors fall back to the platform provider.
 - **2026-07-10** — **New landing page + Datamodo Design System imported.** The
   claude.ai/design project "Datamodo Design System" is now mirrored in the repo at
   [design/system/](design/system/) (brand guide `readme.md`, `SKILL.md`, `--dm-*` tokens,
@@ -505,6 +534,35 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
 
 ## Next steps
 
+-1. **Attachments → documents in the graph + smart folders (DESIGNED 2026-07-10, not built).**
+   The decision on "what do we do with a big PDF in a forwarded message":
+   - **Always keep the original.** Attachments are already captured as deduped,
+     ref-counted blobs (sha256 + gzip) via `lib/ingest/store.ts` → the S3-generic
+     adapter [lib/storage/blob.ts](lib/storage/blob.ts). The only blocker is
+     provisioning a bucket (Neon Object Storage is us-east-2-only preview; our DB is
+     eu-central-1 → use Cloudflare R2 or S3 until Neon Storage reaches eu). Nothing
+     about this design changes if the bucket vendor changes.
+   - **Explore it — a PDF without context is dead weight.** Pipeline: attachment →
+     text extraction (PDF text layer first; OCR is a later tier) → the SAME
+     `extractFromMessage` → `ingestExtraction`, with `fact_sources` provenance pointing
+     at the item + page snippet. Crucially, the document itself becomes an **entity**
+     (kind `document`, natural key = blob hash + filename) with relationship facts to
+     what it mentions (`attached_to` → the message's entities, `about` → invoice
+     #A-204, `belongs_to` → Acme Inc). The binary stays in blob storage; its *meaning*
+     lives in the graph — so it shows up as a node, in search, and in provenance.
+     Guardrails for big PDFs: cap extraction at the first N pages / M tokens, mark the
+     document entity `partially_indexed` beyond that, never inline the binary into
+     prompts.
+   - **Smart folders are projections, not directories** — exactly like tables are
+     projections of facts. A "folder" is a saved query over document entities'
+     relationship facts ("all documents linked to Acme Inc", "all invoices from Q3").
+     One document can live in many folders; folders assemble themselves as facts
+     arrive; nothing is ever physically moved. This is the "Files · Acme Inc" story
+     the landing page already sells.
+   Build order when picked up: ① provision R2 bucket (env only) → ② pdf-text
+   extraction worker step on `attachments` after `extract-tick` → ③ `document`
+   entity kind + `attached_to` facts → ④ a Files sub-view (folders = kind/entity
+   grouped queries) in the Data tab.
 0. ~~Import a spreadsheet → infer a graph → merge into the knowledge graph~~ ✅ **done
    2026-07-09** (see Recent changes — `infer-graph.ts`, `POST /api/knowledge/import-graph`,
    `ImportGraphModal`, onboarding CTA). Follow-ups: dedupe referenced entities across

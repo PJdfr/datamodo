@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { getLlmProvider } from "@/lib/llm";
+import { getLlmProvider, type LlmProvider } from "@/lib/llm";
 import type { KnowledgeEntityView, FactSourceView } from "./types";
 
 // Knowledge layer: turn an extraction (entities + facts pulled from one message)
@@ -126,6 +126,7 @@ export async function resolveEntity(
   orgId: string,
   ownerUserId: string | null,
   e: ExtractedEntity,
+  llm?: LlmProvider,
 ): Promise<{ id: string; created: boolean }> {
   const key = normalizeKey(e);
 
@@ -155,7 +156,7 @@ export async function resolveEntity(
   // Tier 2/3 — ambiguous: ask the model whether it's the same real-world entity,
   // with a confidence. (Only runs when blocking surfaced candidates.)
   const verdict = candidates.length
-    ? await adjudicateMatch(e, candidates)
+    ? await adjudicateMatch(e, candidates, llm)
     : { matchId: null as string | null, confidence: 0, reason: "" };
 
   // High confidence → resolve to the canonical entity now, logged for audit.
@@ -213,8 +214,8 @@ export interface MatchCandidate {
 export async function adjudicateMatch(
   e: ExtractedEntity,
   candidates: MatchCandidate[],
+  llm: LlmProvider = getLlmProvider(),
 ): Promise<{ matchId: string | null; confidence: number; reason: string }> {
-  const llm = getLlmProvider();
   const list = candidates.map((c) => `- id=${c.id} label="${c.canonical_label}"`).join("\n");
   const system =
     "You decide whether a newly-parsed entity refers to the SAME real-world thing " +
@@ -495,6 +496,7 @@ export async function ingestExtraction(
   ownerUserId: string | null,
   sourceItemId: string | null,
   extraction: Extraction,
+  llm?: LlmProvider,
 ): Promise<IngestExtractionResult> {
   const res: IngestExtractionResult = {
     entitiesResolved: 0,
@@ -507,7 +509,7 @@ export async function ingestExtraction(
   // Resolve entities first so facts can reference canonical ids.
   const idMap = new Map<string, string>();
   for (const e of extraction.entities) {
-    const { id, created } = await resolveEntity(orgId, ownerUserId, e);
+    const { id, created } = await resolveEntity(orgId, ownerUserId, e, llm);
     idMap.set(e.localId, id);
     res.entitiesResolved++;
     if (created) res.entitiesCreated++;
@@ -631,7 +633,7 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
       facts: (bySubject.get(e.id) ?? []).map((f) => {
         const v = fmt(f);
         const prov = provByFact.get(f.id) ?? [];
-        return { predicate: f.predicate, value: v.value, ref: v.ref, sources: prov.length, provenance: prov };
+        return { predicate: f.predicate, value: v.value, ref: v.ref, refId: f.object_entity_id ?? null, sources: prov.length, provenance: prov };
       }),
     }))
     .sort((a, b) => b.edges - a.edges);
