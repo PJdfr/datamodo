@@ -642,6 +642,7 @@ CREATE TABLE public.items (
     error text,
     claimed_at timestamp with time zone,
     attempts integer DEFAULT 0 NOT NULL,
+    extraction_version integer,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
