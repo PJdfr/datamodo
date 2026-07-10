@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { readBlob } from "@/lib/ingest/store";
 import type { LlmProvider } from "@/lib/llm";
-import { extractFromMessage } from "./extract";
+import { extractFromDocument } from "./extract";
 import { ingestExtraction } from "./knowledge";
 import { parseWorkbook } from "./spreadsheet";
 import { storeDocChunks } from "./chunks";
@@ -19,10 +19,11 @@ import {
 // Attachment → document pipeline (the DB/storage side of document-extraction.ts).
 // Runs inside the extraction tick, after the message body is ingested: every
 // attachment on the item becomes a `document` entity; when we can read its
-// text (PDF text layer / plain text) we run the SAME message extractor over it
-// and link the document to what it mentions. Fails safe at every step — a
-// missing blob bucket, a scanned PDF, or an LLM error degrades that document
-// to metadata-only; it never fails the item.
+// text (PDF text layer / plain text) we CLASSIFY it into the user's categories,
+// distill it to that category's template (+ concepts + a markdown summary that
+// becomes the node's body_md), and link the document to what it mentions.
+// Fails safe at every step — a missing blob bucket, a scanned PDF, or an LLM
+// error degrades that document to metadata-only; it never fails the item.
 
 export interface AttachmentProcessResult {
   attachmentId: string;
@@ -65,6 +66,7 @@ export async function processItemAttachments(
       // failure (bucket not provisioned yet, image-only PDF, bad bytes…).
       let indexing: DocumentIndexing = "metadata_only";
       let inner = null;
+      let summary: string | null = null;
       let doc: Awaited<ReturnType<typeof extractAttachmentText>> | null = null;
       const kind = attachmentTextKind(att.filename, att.content_type);
       if (kind) {
@@ -75,11 +77,13 @@ export async function processItemAttachments(
               ? sheetToText(await parseWorkbook(bytes))
               : await extractAttachmentText(bytes, kind);
           if (doc.text) {
-            const res = await extractFromMessage(
+            // Classify-first + template-restrained: the document is distilled
+            // to its category's template (+ ≤3 concepts + a markdown summary),
+            // never free-ranged like a message.
+            const res = await extractFromDocument(
               {
                 text: doc.text,
-                subject: att.filename ? `Attached document: ${att.filename}` : "Attached document",
-                sender: null,
+                filename: att.filename,
                 channel: item.channel,
                 businessContext,
                 kinds,
@@ -88,6 +92,7 @@ export async function processItemAttachments(
               llm,
             );
             inner = res.extraction;
+            summary = res.summary;
             indexing = doc.truncated ? "partial" : "full";
           }
         } catch (e) {
@@ -98,9 +103,10 @@ export async function processItemAttachments(
       const extraction = buildDocumentExtraction(meta, indexing, inner);
       const folded = await ingestExtraction(item.org_id, item.owner_user_id, item.id, extraction, llm);
 
-      // Evidence layer: keep the document's PASSAGES (facts alone lose the
-      // prose). Resolve the doc entity by its deterministic natural key, then
-      // replace its chunks. Best-effort — never fails the attachment.
+      // Evidence + body: keep the document's PASSAGES (facts alone lose the
+      // prose) and write the generated markdown summary as the node's body —
+      // the thick node's readable page. Resolve the doc entity by its
+      // deterministic natural key. Best-effort — never fails the attachment.
       if (doc?.text) {
         try {
           const docEntity = extraction.entities[0];
@@ -113,7 +119,15 @@ export async function processItemAttachments(
             },
             select: { id: true },
           });
-          if (ent) await storeDocChunks(item.org_id, ent.id, item.id, chunkDocText(doc));
+          if (ent) {
+            await storeDocChunks(item.org_id, ent.id, item.id, chunkDocText(doc));
+            if (summary) {
+              await prisma.entities.update({
+                where: { id: ent.id, org_id: item.org_id },
+                data: { body_md: summary, updated_at: new Date() },
+              });
+            }
+          }
         } catch (e) {
           console.error(`[documents] chunk store failed for attachment ${att.id}`, e);
         }

@@ -57,6 +57,9 @@ export interface KnowledgeEntityView {
   naturalKeys: Record<string, string>;
   facts: KnowledgeFactView[];
   edges: number; // facts referencing this entity (as subject or object)
+  /** Thick nodes: a generated markdown body (e.g. a document's summary),
+   *  rendered as the node's page. Null for thin nodes. */
+  bodyMd: string | null;
 }
 
 /** A row of the `datasets` table. */

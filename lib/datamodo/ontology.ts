@@ -147,6 +147,22 @@ export const DEFAULT_KINDS: KindDef[] = [
     builtin: true,
   },
   {
+    kind: "note",
+    label: "Note",
+    plural: "Notes",
+    icon: "📝",
+    color: "#8E6B4A",
+    description:
+      "A write-up WE distilled from something the user dumped — braindumps, meeting notes, plans, ideas. Generated, never hand-authored.",
+    aliases: ["memo", "braindump", "journal", "minutes"],
+    fields: [],
+    relations: [
+      { predicate: "mentions", label: "mentions", aliases: ["references"] },
+      { predicate: "about", label: "about", targetKind: "concept", aliases: ["topic"] },
+    ],
+    builtin: true,
+  },
+  {
     kind: "concept",
     label: "Concept",
     plural: "Concepts",
@@ -183,6 +199,7 @@ export function indexKinds(kinds: KindDef[]): KindIndex {
   const predicateByKind = new Map<string, Map<string, string>>();
   for (const k of kinds) {
     byName.set(slugify(k.kind), k);
+    if (k.plural) byName.set(slugify(k.plural), k);
     for (const a of k.aliases) byName.set(slugify(a), k);
     const preds = new Map<string, string>();
     for (const f of k.fields) {
@@ -228,6 +245,89 @@ export function canonicalizeExtraction(extraction: Extraction, kinds: KindDef[])
   return { entities, facts };
 }
 
+// --- Template restraint (documents) ---------------------------------------------
+
+export interface RestrictResult {
+  extraction: Extraction;
+  droppedFacts: number;
+  droppedEntities: number;
+}
+
+/**
+ * Restrain a DOCUMENT extraction to the vocabulary its templates define.
+ * Messages stay free-range (templates steer, never block), but a document's
+ * full text survives elsewhere (chunks + summary + the original blob), so
+ * dropping incidental triples here loses nothing irrecoverable — it kills the
+ * noise star-clusters at the source.
+ *
+ * Rules (expects a canonicalized extraction):
+ * - a fact whose subject's kind HAS a template must use a template field or
+ *   relation predicate; off-template facts drop. Kinds with no template pass
+ *   through untouched.
+ * - at most `maxConcepts` concept entities survive (in order of appearance);
+ *   facts touching dropped concepts drop with them.
+ * - a concept whose label just names a registry KIND ("invoice", "person")
+ *   drops: category membership is the node's `kind` column, never an edge —
+ *   otherwise every invoice would hub-link to one giant "invoice" topic node.
+ * - entities survive if they are the primary subject (first listed), a kept
+ *   concept, or touched by a kept fact.
+ */
+export function restrictExtractionToTemplates(
+  extraction: Extraction,
+  kinds: KindDef[],
+  opts: { maxConcepts?: number } = {},
+): RestrictResult {
+  const maxConcepts = opts.maxConcepts ?? 3;
+  const idx = indexKinds(kinds);
+  const byLocal = new Map(extraction.entities.map((e) => [e.localId, e]));
+  const allowedByKind = new Map<string, Set<string>>(
+    kinds.map((k) => [
+      k.kind,
+      new Set([...k.fields.map((f) => f.key), ...k.relations.map((r) => r.predicate)]),
+    ]),
+  );
+
+  const keptConcepts = new Set<string>();
+  for (const e of extraction.entities) {
+    if (e.kind !== "concept" || keptConcepts.size >= maxConcepts) continue;
+    if (idx.byName.has(slugify(e.label))) continue; // names a kind → fake hub
+    keptConcepts.add(e.localId);
+  }
+  const conceptDropped = (localId: string) => {
+    const e = byLocal.get(localId);
+    return e?.kind === "concept" && !keptConcepts.has(localId);
+  };
+
+  const facts = extraction.facts.filter((f) => {
+    const subj = byLocal.get(f.subjectLocalId);
+    if (!subj) return false;
+    if (conceptDropped(f.subjectLocalId)) return false;
+    if (f.value.kind === "entity" && conceptDropped(f.value.entityLocalId)) return false;
+    const allowed = allowedByKind.get(subj.kind);
+    return allowed ? allowed.has(f.predicate) : true;
+  });
+
+  const touched = new Set<string>();
+  for (const f of facts) {
+    touched.add(f.subjectLocalId);
+    if (f.value.kind === "entity") touched.add(f.value.entityLocalId);
+  }
+  const entities = extraction.entities.filter((e, i) => {
+    if (e.kind === "concept") return keptConcepts.has(e.localId);
+    return i === 0 || touched.has(e.localId);
+  });
+  const keptIds = new Set(entities.map((e) => e.localId));
+  const finalFacts = facts.filter(
+    (f) => keptIds.has(f.subjectLocalId) && (f.value.kind !== "entity" || keptIds.has(f.value.entityLocalId)),
+  );
+
+  return {
+    extraction: { entities, facts: finalFacts },
+    droppedFacts: extraction.facts.length - finalFacts.length,
+    droppedEntities: extraction.entities.length - entities.length,
+  };
+}
+
 // --- Prompt rendering -----------------------------------------------------------
 
 /** Render the user's categories as a compact prompt section the extractor
@@ -249,4 +349,73 @@ export function promptCategories(kinds: KindDef[]): string {
     "If nothing fits, use a sensible lowercase kind of your own.\n" +
     lines.join("\n")
   );
+}
+
+/** Render just the category MENU (no field details) — what the cheap document
+ *  classifier chooses from. */
+export function promptCategoryMenu(kinds: KindDef[]): string {
+  return kinds.map((k) => `- ${k.kind}: ${k.description ?? k.label}`).join("\n");
+}
+
+/** How much of the document the classifier reads. */
+export const CLASSIFY_EXCERPT_CHARS = 2000;
+
+/** The user prompt for the cheap document-classification call (①). */
+export function buildClassifyPrompt(args: {
+  filename?: string | null;
+  text: string;
+  kinds: KindDef[];
+}): string {
+  return [
+    `Categories:\n${promptCategoryMenu(args.kinds)}`,
+    `Document${args.filename ? ` "${args.filename}"` : ""} (beginning):\n${args.text.slice(0, CLASSIFY_EXCERPT_CHARS)}`,
+    `Which single category best describes what this document IS?`,
+  ].join("\n\n");
+}
+
+export interface DocumentPromptInput {
+  text: string;
+  filename?: string | null;
+  /** Pre-classified category (registry slug); focuses the prompt on that
+   *  kind's template. Null/unknown falls back to the full category menu. */
+  docKind?: string | null;
+  businessContext?: string | null;
+  kinds?: KindDef[];
+  concepts?: string[];
+}
+
+/** The user prompt for the focused document extraction call (②). */
+export function buildDocumentPrompt(input: DocumentPromptInput): string {
+  const parts: string[] = [];
+  const kind = input.kinds?.find((k) => k.kind === input.docKind);
+  if (kind) parts.push(promptKindTemplate(kind));
+  else if (input.kinds?.length) parts.push(promptCategories(input.kinds));
+  if (input.concepts?.length) {
+    parts.push(
+      `The user's existing CONCEPTS (topics): ${input.concepts.join(", ")}.\n` +
+        "STRONGLY prefer these exact labels; invent a new concept only when the document is clearly about something not listed.",
+    );
+  }
+  if (input.businessContext) parts.push(`About the user's work: ${input.businessContext}`);
+  if (input.filename) parts.push(`Filename: ${input.filename}`);
+  parts.push(`\nDocument text:\n${input.text}`);
+  return parts.join("\n\n");
+}
+
+/** Render ONE kind's template as the focused extraction vocabulary for a
+ *  document already classified into it. */
+export function promptKindTemplate(kind: KindDef): string {
+  const fields = kind.fields
+    .map((f) => `${f.key} (${f.type}${f.unit ? ", " + f.unit : ""}${f.required ? ", required" : ""})`)
+    .join(", ");
+  const rels = kind.relations
+    .map((r) => `${r.predicate}${r.targetKind ? " → a " + r.targetKind : ""}`)
+    .join(", ");
+  return [
+    `The document's PRIMARY SUBJECT is a ${kind.kind}${kind.description ? ` (${kind.description})` : ""}.`,
+    fields ? `Its template fields — the ONLY attribute predicates to use: ${fields}.` : null,
+    rels ? `Its relation verbs — the ONLY relationship predicates to use: ${rels}.` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
