@@ -719,6 +719,38 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
 
 ## Next steps
 
+-3. **Local / open-source single-user edition (DESIGNED 2026-07-10, not built).**
+   Self-hosted, one user, privacy-first. ~90% of code ships unchanged because the
+   seams are already provider-generic (Postgres-native schema, S3-generic blobs,
+   OpenAI-compatible LLM client).
+   - **Stack**: same Next.js app (`next start`, Docker) — the 60s cap + cron hacks
+     vanish; local Postgres 16 + pgvector/pg_trgm (schema validated on vanilla PG16);
+     `@prisma/adapter-pg` (env-switched vs adapter-neon); **filesystem blob driver**
+     (`~/.datamodo/blobs/<hash>`); **`SINGLE_USER=1`** auth bypass (bind 127.0.0.1,
+     auto-provision the one user — no Neon Auth); a standing **worker process**
+     reusing `recoverExtractionQueue`/`claimStoredItems` in a loop; LLM = Ollama via
+     the OpenAI-compatible client (BYOK-to-cloud stays the quality path); embedding
+     DIMENSION must become config (local models are 768-dim vs vector(1536)).
+     Packaging: docker-compose (app+db+worker); PGlite for a no-Docker v2.
+   - **Connectors — push→pull inversion** (a laptop has no public endpoint; every
+     connection originates OUTBOUND from the user's machine). Model: **BYOB — bring
+     your own bot**: the user owns the bot/credentials on every channel, we ship
+     wizards + blueprints ("send to your datamodo" UX preserved).
+     · Email: IMAP pull of a dedicated mailbox/label (IDLE = near-instant) — a
+       mailbox IS a user-owned bot address. Easiest, ship first.
+     · Telegram: own bot via @BotFather + long-polling `getUpdates` — pure BYOB,
+       zero infra. · Slack: own app from our manifest + **Socket Mode** (official
+       no-public-URL path). · WhatsApp/Teams (push-only providers): **user-owned
+       dead-drop relay** — a ~50-line worker deployed to the USER's free Cloudflare
+       account (deploy-button; generalizes our email worker): provider webhooks →
+       relay → their own KV/queue → local instance polls outbound w/ shared secret.
+       WhatsApp caveat: Meta Cloud API needs a separate bot phone number; Baileys
+       linked-device bridge is the unofficial no-number alternative. Teams stays
+       "relay/tunnel-supported, not first-class".
+     · Cross-channel UX: **"your self-chat / your bot is your inbox"** — capture
+       stays gesture-based (forward/label), never account-wide slurping.
+   - Effort: seams (fs blobs, pg adapter, single-user mode, worker) ~1 day; IMAP ~1
+     day; Telegram ~½; Slack ~1; WhatsApp bridge ~2-3; relay template ~1.
 -2. **Ontology layer — user-editable kind registry ("Categories") (DESIGNED 2026-07-10,
    not built).** The answer to "how do we structure the graph so we're not lost" +
    "users should define categories with templates the agent fills". Decision: the
