@@ -18,14 +18,16 @@ concurrency:
 jobs:
   drain:
     runs-on: ubuntu-latest
+    # CRON_SECRET (secret) + APP_URL (variable) live in the Production environment.
+    environment: Production
     steps:
       - name: Ping extraction consumer
         run: |
           if [ -z "${APP_URL}" ] || [ -z "${CRON_SECRET}" ]; then
-            echo "APP_URL / CRON_SECRET secrets not set — skipping."; exit 0
+            echo "APP_URL / CRON_SECRET not set — skipping."; exit 0
           fi
           curl -fsS --max-time 90 -X POST "${APP_URL%/}/api/jobs/extract-tick" \
             -H "Authorization: Bearer ${CRON_SECRET}"
         env:
-          APP_URL: ${{ secrets.APP_URL }}
+          APP_URL: ${{ vars.APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
