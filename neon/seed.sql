@@ -38,6 +38,11 @@ declare
   v_f_issued    uuid;
   v_f_jworks    uuid;
   v_f_mworks    uuid;
+  v_k_doc1      uuid;
+  v_k_doc2      uuid;
+  v_f_d1type    uuid;
+  v_f_d1m1      uuid;
+  v_f_d2m1      uuid;
 begin
   -- 1. Resolve the demo user. Neon Auth users sync into our `profiles` table on
   --    first sign-in (see requireUserOrg). If absent, the user hasn't signed up.
@@ -197,6 +202,46 @@ begin
     (v_org, v_f_issued,  v_item1, 'Issued by Brightwave, payable by Aug 31'),
     (v_org, v_f_jworks,  v_item2, 'James Porter from Brightwave'),
     (v_org, v_f_mworks,  v_item2, 'Maria Gomez who runs ops at Northwind');
+
+  -- Documents: attachments become `document` entities in the graph (the binary
+  -- stays in blob storage; its meaning lives here). Smart folders in the Files
+  -- view are projections over these `mentions` facts. Hashes are placeholders —
+  -- the demo has no blob bucket, exactly like a metadata-captured attachment.
+  insert into public.attachments (item_id, org_id, owner_user_id, filename, content_type, bytes, blob_hash) values
+    (v_item1, v_org, v_uid, 'INV-4417.pdf', 'application/pdf', 48231, 'seed-doc-inv4417'),
+    (v_item3, v_org, v_uid, 'Brightwave-MSA-2026.pdf', 'application/pdf', 812044, 'seed-doc-msa2026');
+
+  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys) values
+    (v_org, v_uid, 'document', 'INV-4417.pdf', '#doc:seed-doc-inv4417:inv-4417.pdf', '{"id":"doc:seed-doc-inv4417:inv-4417.pdf"}'::jsonb) returning id into v_k_doc1;
+  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys) values
+    (v_org, v_uid, 'document', 'Brightwave-MSA-2026.pdf', '#doc:seed-doc-msa2026:brightwave-msa-2026.pdf', '{"id":"doc:seed-doc-msa2026:brightwave-msa-2026.pdf"}'::jsonb) returning id into v_k_doc2;
+
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_text) values
+    (v_org, v_uid, v_k_doc1, 'file_type', v_k_doc1::text || '::file_type', 'one', 1.0, 'application/pdf') returning id into v_f_d1type;
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_num, unit) values
+    (v_org, v_uid, v_k_doc1, 'file_size', v_k_doc1::text || '::file_size', 'one', 1.0, 48231, 'bytes');
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_text) values
+    (v_org, v_uid, v_k_doc1, 'indexed', v_k_doc1::text || '::indexed', 'one', 1.0, 'full');
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values
+    (v_org, v_uid, v_k_doc1, 'mentions', v_k_doc1::text || '::mentions::e:' || v_k_inv1::text, 'many', 0.95, v_k_inv1) returning id into v_f_d1m1;
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values
+    (v_org, v_uid, v_k_doc1, 'mentions', v_k_doc1::text || '::mentions::e:' || v_k_bright::text, 'many', 0.95, v_k_bright);
+
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_text) values
+    (v_org, v_uid, v_k_doc2, 'file_type', v_k_doc2::text || '::file_type', 'one', 1.0, 'application/pdf');
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_num, unit) values
+    (v_org, v_uid, v_k_doc2, 'file_size', v_k_doc2::text || '::file_size', 'one', 1.0, 812044, 'bytes');
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_text) values
+    (v_org, v_uid, v_k_doc2, 'indexed', v_k_doc2::text || '::indexed', 'one', 1.0, 'partial');
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values
+    (v_org, v_uid, v_k_doc2, 'mentions', v_k_doc2::text || '::mentions::e:' || v_k_bright::text, 'many', 0.9, v_k_bright) returning id into v_f_d2m1;
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values
+    (v_org, v_uid, v_k_doc2, 'mentions', v_k_doc2::text || '::mentions::e:' || v_k_elena::text, 'many', 0.9, v_k_elena);
+
+  insert into public.fact_sources (org_id, fact_id, source_item_id, snippet) values
+    (v_org, v_f_d1type, v_item1, 'please find attached invoice INV-4417'),
+    (v_org, v_f_d1m1,   v_item1, 'invoice INV-4417 for a total of $18,500'),
+    (v_org, v_f_d2m1,   v_item3, 'remittance to follow per the master services agreement');
 end
 $$;
 

@@ -12,6 +12,34 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Attachments → documents in the graph + smart folders (built — the
+  designed Next-steps item; bucket provisioning ① still owed by a human).**
+  - **Document pipeline**: every attachment on an item now becomes a `document`
+    **entity** (natural key = blob hash + filename → the same file re-forwarded dedupes)
+    with `file_type`/`file_size`/`indexed` facts and `mentions` relationship facts to
+    whatever its text talks about. Pure core in
+    [document-extraction.ts](lib/datamodo/document-extraction.ts) (`buildDocumentExtraction`
+    composes the combined Extraction; `extractAttachmentText` reads the PDF text layer via
+    **unpdf**, or plain text/CSV/JSON, capped at 20 pages / 20k chars → `indexed: partial`);
+    orchestration in [documents.ts](lib/datamodo/documents.ts) (`processItemAttachments`:
+    readBlob → text → the SAME `extractFromMessage` → `ingestExtraction`, provenance =
+    the item). Hooked into `runExtractionForItem` best-effort: **no blob bucket / scanned
+    PDF / LLM error degrades that document to `metadata_only` — never fails the item**.
+  - **Files sub-view** ([files-view.tsx](app/dashboard/files-view.tsx)): Data tab gains a
+    4th toggle (Tables · Knowledge · Insights · **Files**). Smart folders are
+    **projections over `mentions` facts** — chips per linked entity ("every document
+    linked to Brightwave"), one doc lives in many folders, nothing is moved. Cards show
+    type/size, an indexed/partially/not-indexed badge, clickable mention chips, and the
+    message it arrived via.
+  - **Seed**: [neon/seed.sql](neon/seed.sql) now seeds 2 demo attachments + document
+    entities (INV-4417.pdf, Brightwave-MSA-2026.pdf) with mentions + provenance.
+  - Verified: 10/10 unit tests (`npm test`, new node:test setup — incl. reading a real
+    generated PDF through unpdf) + seed applied twice against a throwaway local PG16
+    (idempotent, graph correct) + tsc + `next build` green + Files view screenshotted
+    (Chromium, all-docs + folder-filtered states). **NOT yet run live end-to-end**
+    (needs the blob bucket ① and a real inbound attachment).
+  - Also hardened `NEXT_PUBLIC_SITE_URL` handling (`||` not `??` in layout/robots/sitemap
+    — an EMPTY env var crashed `next build` with `ERR_INVALID_URL`).
 - **2026-07-10** — **Fixed env split-brain: www.datamodo.dev signed users up into the
   PROD branch.** `www.datamodo.dev` serves the **dev git branch** (Vercel Preview), and
   `DATABASE_URL` was correctly scoped per environment — but `NEON_AUTH_BASE_URL` was one
@@ -559,8 +587,13 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
 
 ## Next steps
 
--1. **Attachments → documents in the graph + smart folders (DESIGNED 2026-07-10, not built).**
-   The decision on "what do we do with a big PDF in a forwarded message":
+-1. **Attachments → documents in the graph + smart folders — ✅ BUILT 2026-07-10**
+   (see Recent changes) **except step ①: provision the blob bucket** (Cloudflare R2 or
+   S3 until Neon Object Storage reaches eu; wiring is env vars only —
+   `AWS_ENDPOINT_URL_S3`/`AWS_REGION`/`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`BLOB_BUCKET`).
+   Until then documents land as `metadata_only` nodes. Follow-ups: OCR tier for scanned
+   PDFs, xlsx/docx text extraction, open/download the original from the Files card.
+   The original design decision, for the record:
    - **Always keep the original.** Attachments are already captured as deduped,
      ref-counted blobs (sha256 + gzip) via `lib/ingest/store.ts` → the S3-generic
      adapter [lib/storage/blob.ts](lib/storage/blob.ts). The only blocker is

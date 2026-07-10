@@ -71,13 +71,14 @@ import { OnboardingModal } from "./onboarding-modal";
 import { ImportGraphModal } from "./import-graph-modal";
 import { KnowledgeView } from "./knowledge-view";
 import { InsightsView } from "./insights-view";
+import { FilesView } from "./files-view";
 import { BuildFromKnowledgeModal } from "./build-from-knowledge";
 
 /* ================================================================== */
 /* Component                                                           */
 /* ================================================================== */
 type Tab = "agents" | "data" | "review" | "search";
-type DataView = "tables" | "knowledge" | "insights";
+type DataView = "tables" | "knowledge" | "insights" | "files";
 export type ControlCenterProps = {
   fullName: string;
   initial: string;
@@ -238,7 +239,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
 
   const titles: Record<Tab, { t: string; sub: string }> = {
     agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
-    data: { t: "Data", sub: dataView === "knowledge" ? "The people, companies & things we know about — your tables are built from these" : dataView === "insights" ? "The numbers behind your knowledge — totals & breakdowns, computed live" : uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · derived from your knowledge` : "No tables yet" },
+    data: { t: "Data", sub: dataView === "knowledge" ? "The people, companies & things we know about — your tables are built from these" : dataView === "insights" ? "The numbers behind your knowledge — totals & breakdowns, computed live" : dataView === "files" ? "Documents that arrived as attachments — filed by what they mention, originals kept" : uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · derived from your knowledge` : "No tables yet" },
     review: { t: "Review", sub: reviewTotal ? `${reviewTotal} to confirm — merges, conflicts & new facts` : "Confirm what we inferred — merges, conflicts & new facts" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
   };
@@ -392,7 +393,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           {tab === "data" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "knowledge", label: "Knowledge" }, { v: "insights", label: "Insights" }]} />
+                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "knowledge", label: "Knowledge" }, { v: "insights", label: "Insights" }, { v: "files", label: "Files" }]} />
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <Hov onClick={() => setImportGraphOpen(true)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
                     <span style={{ color: C.accent }}>✦</span> Spreadsheet → knowledge
@@ -406,6 +407,8 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                 <KnowledgeView />
               ) : dataView === "insights" ? (
                 <InsightsView />
+              ) : dataView === "files" ? (
+                <FilesView />
               ) : uiTables.length || createTableOpen ? (
                 <>
                   {uiTables.length > 0 && <RelationshipGraph tables={uiTables} relations={relations} datasets={datasets} onOpen={setOpenTableId} onChanged={() => router.refresh()} />}

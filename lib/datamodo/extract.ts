@@ -299,6 +299,16 @@ export async function runExtractionForItem(
       llm,
     );
     const knowledge = await ingestExtraction(row.org_id, row.owner_user_id, row.id, result.extraction, llm);
+    // Attachments → document entities in the graph (best-effort; a missing
+    // blob bucket or a scanned PDF degrades to metadata-only, never fails the
+    // item). Dynamic import: documents.ts uses extractFromMessage, so a static
+    // import here would be circular.
+    try {
+      const { processItemAttachments } = await import("./documents");
+      await processItemAttachments(row, llm, businessContext);
+    } catch (e) {
+      console.error(`[extract] attachment processing failed for item ${row.id}`, e);
+    }
     // Low-confidence extractions get surfaced for the user to confirm; confident
     // ones file silently (keeps the review queue meaningful, not a firehose).
     const EXTRACTION_REVIEW_BELOW = 0.75;
