@@ -12,6 +12,21 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Ontology phase ③ SHIPPED: AI-drafted categories + one-click
+  category → table** (feedback: the first editor was too form-heavy).
+  - **The user never writes schema now**: name the category + optional sentence →
+    "✦ Draft it" (`suggestKindTemplate` in [kinds.ts](lib/datamodo/kinds.ts),
+    `POST /api/kinds/suggest`, BYOK-aware) proposes icon/plural/description/aliases/
+    typed fields/relations; the editor shows the template as **prunable chips**
+    (type glyph, required dot, unit hint) with one-line adders (key auto-slugified
+    from the label); aliases + raw keys live under an "Advanced" disclosure.
+  - **Category → table** (`POST /api/kinds/[id]/table`): creates a dataset whose
+    columns mirror the template (fields + relation verbs; bookkeeping fields like
+    file_size skipped) and projects every entity of the kind via the existing
+    `projectEntitiesToDataset` — column key == predicate **by construction**. Name
+    collision → projects into the existing table instead. "▦ Build table" button in
+    the category editor.
+  - Verified: 27/27 tests + tsc + lint + build green + redesigned editor screenshotted.
 - **2026-07-10** — **Ontology phase ② SHIPPED: embeddings (Tier 1b) + the document
   evidence layer (chunks).** The two adoptions from the multimodal-KG research.
   - **Embeddings** ([lib/llm/embeddings.ts](lib/llm/embeddings.ts)): OpenAI-compatible
