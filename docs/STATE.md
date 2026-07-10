@@ -65,6 +65,7 @@
 | Tables: facts → dataset rows (auto-materialized, human edits protected) + full manual/import/versioning layer | `lib/datamodo/project.ts`, `lib/datamodo/datasets.ts`, `lib/datamodo/review.ts` |
 | Knowledge cards (facts, provenance drill-down, completeness cues) | `app/dashboard/knowledge-view.tsx` |
 | Knowledge graph + curation: drag-to-pin (persisted `entities.graph_pin`), kind hypernodes | `app/dashboard/knowledge-graph.tsx`, `PATCH app/api/knowledge/entities/[id]` |
+| **Explorer**: ego-graph walking (center + 2 rings, breadcrumbs, jump box), natural-shape side panel, **edge inspector** (predicate · confidence · since · corroboration · source messages) | pure `lib/datamodo/explorer.ts`, `app/dashboard/explorer-view.tsx`; fact metadata on `KnowledgeFactView` (confidence, validFrom) |
 | Concept map (bubbles by content, explicit + co-occurrence links) | pure `lib/datamodo/concept-map.ts`, `app/dashboard/concept-map-view.tsx` |
 | Timeline (messages · domain dates · corrections · first sightings; Upcoming; per-entity) | pure `lib/datamodo/timeline.ts`, `app/api/knowledge/timeline`, `app/dashboard/timeline-view.tsx` |
 | Entity pages (record table / document summary page; safe MarkdownLite) | `app/dashboard/entity-page.tsx` |

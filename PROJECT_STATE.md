@@ -12,6 +12,30 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **EXPLORER shipped (north-star phase 1): walk the graph edge to
+  edge; every edge shows its meaning.** Two durable decisions recorded in
+  docs/MEMORY.md: free exploration with natural-shape nodes is the product's
+  destination, and generation is ON-DEMAND only (no background syntheses).
+  - **Ego-graph core** (pure [explorer.ts](lib/datamodo/explorer.ts)): BFS 2 hops
+    around a center, ring caps keep the most-connected neighbors (truncation
+    counted), edges are DIRECTED and carry the whole fact behind them; concentric
+    deterministic radial layout (hop-2 fans out in its parent's sector).
+  - **Explorer view** ([explorer-view.tsx](app/dashboard/explorer-view.tsx)): 4th
+    Knowledge mode (Cards · Graph · Concepts · **Explore**) + "◍ Explore" on every
+    entity page. Click a neighbor → it becomes the center (breadcrumb trail + back);
+    "Jump to anything…" search; side panel shows the CURRENT node in its natural
+    shape (shared `EntityPageBody`); **click an edge → the edge inspector**:
+    semantics · confidence % · since (valid_from) · strength (corroboration) · the
+    exact source messages, with both endpoints walkable. Edge stroke width scales
+    with corroboration.
+  - **Fact metadata exposed**: `KnowledgeFactView` gains `confidence` + `validFrom`
+    (listKnowledge selects them) — the vault always had them; the UI now shows them.
+  - **Entity pages**: `EntityPageBody` extracted (modal + Explorer share it) and
+    per-fact **provenance drill-down on the page** (click "N sources" → the actual
+    messages); `SourceRow`/channel meta moved to shared ui.tsx.
+  - Verified: 71/71 tests (4 new on ego-graph/rings/caps/layout determinism) + tsc
+    + build green; lint == baseline; SSR smoke 18 checks (explorer canvas, hop-2
+    ring, panel record, jump box + all prior views).
 - **2026-07-10** — **Vision tier BUILT: image attachments become understood thick
   nodes** (the last projections-catalog item; scanned-PDF OCR still out — needs
   page rasterization, images-only is the v1).

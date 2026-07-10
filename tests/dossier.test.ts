@@ -17,7 +17,7 @@ const src = (over: Partial<FactSourceView> = {}): FactSourceView => ({
 });
 
 const fact = (predicate: string, value: string, over: Partial<KnowledgeFactView> = {}): KnowledgeFactView => ({
-  predicate, value, ref: false, refId: null, sources: 0, provenance: [], ...over,
+  predicate, value, ref: false, refId: null, sources: 0, provenance: [], confidence: 1, validFrom: null, ...over,
 });
 
 const ent = (id: string, kind: string, label: string, facts: KnowledgeFactView[] = [], over: Partial<KnowledgeEntityView> = {}): KnowledgeEntityView => ({

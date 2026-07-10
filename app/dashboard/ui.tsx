@@ -301,6 +301,35 @@ export function Segmented<T extends string>({ value, onChange, options }: { valu
   );
 }
 
+/* One source message behind a fact — the "where did this come from?" evidence.
+ * Shared by Knowledge cards, entity pages, and the Explorer's edge inspector. */
+export const CHANNEL_META: Record<string, { emoji: string; label: string }> = {
+  email: { emoji: "✉", label: "Email" },
+  whatsapp: { emoji: "🟢", label: "WhatsApp" },
+  slack: { emoji: "▦", label: "Slack" },
+  teams: { emoji: "◇", label: "Teams" },
+};
+export const channelMeta = (c: string) => CHANNEL_META[c] ?? { emoji: "•", label: c };
+
+export function SourceRow({ s }: { s: import("@/lib/datamodo/types").FactSourceView }) {
+  const ch = channelMeta(s.channel);
+  return (
+    <div style={{ background: "#FCFAF4", border: "1px solid #EDE7DA", borderRadius: 10, padding: "8px 10px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: s.snippet || s.preview ? 5 : 0, minWidth: 0 }}>
+        <span style={{ fontSize: 11 }}>{ch.emoji}</span>
+        <span className="dm-mono" style={{ fontSize: 9.5, color: "#8A8477", flexShrink: 0 }}>{ch.label}</span>
+        {s.sender && <span style={{ fontSize: 11.5, color: C.ink, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.sender}</span>}
+        {s.subject && <span style={{ fontSize: 11, color: "#8A8477", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>· {s.subject}</span>}
+      </div>
+      {s.snippet ? (
+        <div style={{ fontSize: 12, color: "#57534A", lineHeight: 1.45 }}>“<span style={{ fontStyle: "italic" }}>{s.snippet}</span>”</div>
+      ) : s.preview ? (
+        <div style={{ fontSize: 12, color: "#8A8477", lineHeight: 1.45, overflow: "hidden", textOverflow: "ellipsis" }}>{s.preview}</div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ModalShell({ title, subtitle, onClose, children, footer, maxWidth = 600, badge }: { title: ReactNode; subtitle?: string; onClose: () => void; children: ReactNode; footer?: ReactNode; maxWidth?: number; badge?: { initial: string; bg: string } }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 60, alignItems: "center", justifyContent: "center", padding: 24, display: "flex" }}>
