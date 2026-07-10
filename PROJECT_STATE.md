@@ -9,9 +9,29 @@
 > "Recent changes", and adjust "Next steps". Keep it tight — this is a map,
 > not a changelog. Details live in code, migrations, and `app/dashboard/README.md`.
 >
-> Last updated: 2026-07-09
+> Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **New landing page + Datamodo Design System imported.** The
+  claude.ai/design project "Datamodo Design System" is now mirrored in the repo at
+  [design/system/](design/system/) (brand guide `readme.md`, `SKILL.md`, `--dm-*` tokens,
+  8 channel logos, all 16 React components with `.d.ts` + `.prompt.md`, and the `landing/` +
+  `app/` full-page templates; `NOTES.md` lists the deliberately-skipped Design-pane infra).
+  A repo Claude skill **`.claude/skills/datamodo-design/`** makes agents load the brand
+  rules (lowercase "datamodo", cream/ink/coral, Geist Mono for data) on any UI work.
+  **The landing page was fully replaced** with a native Next.js port of the new
+  `templates/landing/` design: [app/page.tsx](app/page.tsx) +
+  [components/landing/](components/landing/) (ThreeSteps rAF timeline, SourceGraph
+  per-channel fact graphs w/ LinkedCards connectors, interactive PR-style ReviewFlow,
+  UseCases/AskAnything/Trust/CTA) + [app/landing.css](app/landing.css) (`.lp-landing`-scoped
+  tokens + `lp-*` keyframes so nothing collides with dashboard/auth styles; the dead
+  old-landing CSS was removed from globals.css — **dashboard and auth untouched**).
+  Follow-up SEO: [app/robots.ts](app/robots.ts) (disallow /dashboard, /api),
+  [app/sitemap.ts](app/sitemap.ts), OpenGraph/Twitter metadata + `metadataBase` from
+  `NEXT_PUBLIC_SITE_URL`. Verified: tsc + `next build` green; hero screenshotted
+  pixel-faithful; review widget interaction, robots.txt/sitemap.xml/og:tags checked live
+  against `next start`. **Owed by a human:** set `NEXT_PUBLIC_SITE_URL` in Vercel
+  Production (and Preview) so sitemap/OG URLs aren't the localhost fallback.
 - **2026-07-09** — **Pivoting off Supabase → Neon (dev/prod branching; leaving Supabase
   long-term).** Zero users, so no data migration — porting the **schema only**. Schema
   **ported + verified on Neon** (project `still-dew-44832149`, PG18, eu-central-1): dumped

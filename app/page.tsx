@@ -5,10 +5,25 @@ import { SourceGraph } from "@/components/landing/sources";
 import { ReviewFlow } from "@/components/landing/review";
 import { Reveal } from "@/components/landing/reveal";
 
+const TITLE = "datamodo — Forward the mess. Get back a spreadsheet.";
+const DESCRIPTION =
+  "The invoices, contacts, deal terms, files and to-dos that run your work are scattered across email, WhatsApp and Slack. Forward them to datamodo and get them back as clean tables and neatly filed folders — no assistant, no data entry, no formulas.";
+
 export const metadata = {
-  title: "datamodo — Forward the mess. Get back a spreadsheet.",
-  description:
-    "The invoices, contacts, deal terms, files and to-dos that run your work are scattered across email, WhatsApp and Slack. Forward them to datamodo and get them back as clean tables and neatly filed folders — no assistant, no data entry, no formulas.",
+  title: TITLE,
+  description: DESCRIPTION,
+  openGraph: {
+    title: TITLE,
+    description: DESCRIPTION,
+    siteName: "datamodo",
+    type: "website",
+    url: "/",
+  },
+  twitter: {
+    card: "summary",
+    title: TITLE,
+    description: DESCRIPTION,
+  },
 };
 
 export default function LandingPage() {

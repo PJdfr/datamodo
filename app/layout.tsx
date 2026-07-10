@@ -26,9 +26,10 @@ const caveat = Caveat({
 });
 
 export const metadata: Metadata = {
-  title: "Datamodo — Forward your email, get structured data back",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
+  title: "datamodo — Forward the mess. Get back a spreadsheet.",
   description:
-    "Forward any email to your Datamodo address. We turn the mess into a queryable memory and suggest structured datasets built from your inbox.",
+    "Forward any email to your datamodo address. We turn the mess into a queryable memory and suggest structured datasets built from your inbox.",
 };
 
 export default function RootLayout({
