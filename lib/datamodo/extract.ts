@@ -112,6 +112,9 @@ export interface ExtractInput {
   /** The user's kind registry — steers classification into their categories
    *  and canonicalizes the output's kinds/predicates against the templates. */
   kinds?: KindDef[];
+  /** The user's existing concept labels — the leash that keeps topics from
+   *  multiplying: prefer these, at most a few per message, never noun-soup. */
+  concepts?: string[];
 }
 
 export interface ExtractResult {
@@ -124,9 +127,20 @@ export interface ExtractResult {
 // Below this overall confidence we re-run on the escalation model.
 const ESCALATE_BELOW = 0.55;
 
+/** Bump when the prompt/pipeline changes enough that old extractions are
+ *  stale — items with a lower stamp can then be requeued selectively
+ *  (delta reprocessing) instead of everything or nothing. */
+export const EXTRACTION_VERSION = 1;
+
 function buildUserPrompt(input: ExtractInput): string {
   const parts: string[] = [];
   if (input.kinds?.length) parts.push(promptCategories(input.kinds));
+  if (input.concepts?.length) {
+    parts.push(
+      `The user's existing CONCEPTS (topics): ${input.concepts.join(", ")}.\n` +
+        "Tag content with AT MOST 3 concept entities. STRONGLY prefer these exact labels; invent a new concept only when the content is clearly about something not listed.",
+    );
+  }
   if (input.businessContext) parts.push(`About the user's work (use this to pick relevant entities, relationships, and predicate names): ${input.businessContext}`);
   if (input.agentPurpose) parts.push(`Assistant purpose: ${input.agentPurpose}`);
   if (input.channel) parts.push(`Channel: ${input.channel}`);
@@ -328,6 +342,16 @@ export async function runExtractionForItem(
     // kinds/predicates. Best-effort: extraction works without it.
     const { listKinds } = await import("./kinds");
     const kinds = await listKinds(row.org_id, row.owner_user_id).catch(() => []);
+    // Existing concepts, most-corroborated first — the leash on topic sprawl.
+    const conceptRows = await prisma.entities
+      .findMany({
+        where: { org_id: row.org_id, kind: "concept", merged_into: null },
+        select: { canonical_label: true },
+        orderBy: { support: "desc" },
+        take: 30,
+      })
+      .catch(() => []);
+    const concepts = conceptRows.map((c) => c.canonical_label);
     // BYOK: analysis runs on the owner's own provider account when they've
     // brought a key; otherwise on the platform provider from env.
     const llm = await llmForUser(row.owner_user_id);
@@ -340,6 +364,7 @@ export async function runExtractionForItem(
         agentPurpose,
         businessContext,
         kinds,
+        concepts,
       },
       llm,
     );
@@ -350,7 +375,7 @@ export async function runExtractionForItem(
     // import here would be circular.
     try {
       const { processItemAttachments } = await import("./documents");
-      await processItemAttachments(row, llm, businessContext, kinds);
+      await processItemAttachments(row, llm, businessContext, kinds, concepts);
     } catch (e) {
       console.error(`[extract] attachment processing failed for item ${row.id}`, e);
     }
@@ -365,7 +390,10 @@ export async function runExtractionForItem(
         factCount: result.extraction.facts.length,
       });
     }
-    await prisma.items.update({ where: { id: row.id }, data: { status: "analyzed" } });
+    await prisma.items.update({
+      where: { id: row.id },
+      data: { status: "analyzed", extraction_version: EXTRACTION_VERSION },
+    });
     return { ...result, knowledge };
   } catch (e) {
     await prisma.items.update({

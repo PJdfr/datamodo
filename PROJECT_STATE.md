@@ -12,6 +12,23 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Ontology phase ④ SHIPPED: leashed concepts, completeness cues,
+  extraction_version.**
+  - **Concepts, with the leash**: extraction now receives the user's existing concept
+    labels (top 30 by support) with a hard instruction — ≤3 concept tags, strongly
+    prefer existing labels. In the document pipeline, concept entities get **`about`**
+    edges from the document (the map-of-content edge) instead of generic `mentions`.
+  - **Completeness cues** ([knowledge-view.tsx](app/dashboard/knowledge-view.tsx)):
+    Knowledge cards check the entity against its category template and show an amber
+    "missing: due date" chip for unmet REQUIRED fields; kind groups now use the
+    registry's icon/color/plural.
+  - **`items.extraction_version`** (migration
+    [20260710200000](neon/migrations/20260710200000_items_extraction_version.sql),
+    applied to all 3 Neon branches): stamped on every analyzed item
+    (`EXTRACTION_VERSION = 1` in [extract.ts](lib/datamodo/extract.ts)). Bump it when
+    the prompt/pipeline changes materially, then requeue `extraction_version < N`
+    for delta reprocessing (requeue endpoint itself: future work).
+  - Verified: 27/27 tests + tsc + lint + build green.
 - **2026-07-10** — **Ontology phase ③ SHIPPED: AI-drafted categories + one-click
   category → table** (feedback: the first editor was too form-heavy).
   - **The user never writes schema now**: name the category + optional sentence →

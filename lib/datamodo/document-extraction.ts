@@ -240,11 +240,13 @@ export function buildDocumentExtraction(
           : f.value,
     });
   }
-  // The graph edges that make smart folders work: document —mentions→ entity.
+  // The graph edges that make smart folders work: document —mentions→ entity,
+  // except concepts, which get the more meaningful —about→ (the Obsidian-style
+  // "map of content" edge).
   for (const e of inner.entities) {
     facts.push({
       subjectLocalId: DOC_LOCAL_ID,
-      predicate: "mentions",
+      predicate: e.kind === "concept" ? "about" : "mentions",
       cardinality: "many",
       value: { kind: "entity", entityLocalId: ns(e.localId) },
     });
