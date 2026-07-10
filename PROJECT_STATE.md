@@ -12,6 +12,21 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Inbound email verified LIVE end-to-end + extraction no longer
+  waits for GitHub's cron.** First real forwarded emails (Gmail → Cloudflare Email
+  Routing → worker → `/api/ingest`) captured on the dev DB with the attachment blob +
+  body archived to the new **R2 bucket** (`ingest`, eu; env vars live in Vercel; worker
+  secret wired). Debugged en route: worker crashed first on missing
+  `INGEST_WEBHOOK_SECRET` (401) then on missing R2 env (500) — both fixed in Vercel by
+  the human; dev redeployed (empty commit `cb74c7e` on `dev`). Diagnosed the cron gap:
+  GitHub fires the 5-min schedule **hours** apart on a quiet repo, and the `APP_URL`
+  repo secret points at PROD only — so dev items sat `stored`. Fixes: **ingest now
+  kicks extraction itself** post-response (`after()` from next/server in
+  [app/api/ingest/route.ts](app/api/ingest/route.ts), atomic claim → race-safe with
+  the cron, which becomes the sweeper) and
+  [extract-cron.yml](.github/workflows/extract-cron.yml) ticks **both** environments
+  (`APP_URL` + www.datamodo.dev). NOTE: the scheduled workflow runs from the DEFAULT
+  branch (`prod`) — the both-env tick takes effect only once this merges through to prod.
 - **2026-07-10** — **Search now ANSWERS in plain language with citations + document
   originals downloadable + extract tick drains the backlog.**
   - **Grounded answers** ([answer.ts](lib/datamodo/answer.ts)): the Search tab's

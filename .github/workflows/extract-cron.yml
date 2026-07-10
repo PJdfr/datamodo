@@ -20,13 +20,21 @@ jobs:
     runs-on: ubuntu-latest
     # CRON_SECRET = repository secret, APP_URL = repository variable.
     steps:
-      - name: Ping extraction consumer
+      - name: Ping extraction consumer (all environments)
         run: |
-          if [ -z "${APP_URL}" ] || [ -z "${CRON_SECRET}" ]; then
-            echo "APP_URL / CRON_SECRET not set — skipping."; exit 0
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "CRON_SECRET not set — skipping."; exit 0
           fi
-          curl -fsS --max-time 90 -X POST "${APP_URL%/}/api/jobs/extract-tick" \
-            -H "Authorization: Bearer ${CRON_SECRET}"
+          # Tick BOTH environments: APP_URL (prod, secret) and the public dev
+          # domain. One failing env must not stop the other's drain.
+          fail=0
+          for url in ${APP_URL} https://www.datamodo.dev; do
+            echo "tick ${url}"
+            curl -fsS --max-time 90 -X POST "${url%/}/api/jobs/extract-tick" \
+              -H "Authorization: Bearer ${CRON_SECRET}" || fail=1
+            echo
+          done
+          exit ${fail}
         env:
           APP_URL: ${{ secrets.APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
