@@ -1,0 +1,55 @@
+/* ==========================================================================
+   Datamodo — Typography tokens
+   Display: Bricolage Grotesque · Body/UI: Geist · Data: Geist Mono
+   Logo script: Caveat (the handwritten "data" only)
+   Fonts load from Google Fonts (see fonts.css).
+   ========================================================================== */
+
+:root {
+  /* --- Families --- */
+  --dm-font-display: 'Bricolage Grotesque', sans-serif;
+  --dm-font-body: 'Geist', system-ui, -apple-system, sans-serif;
+  --dm-font-mono: 'Geist Mono', ui-monospace, monospace;
+  --dm-font-script: 'Caveat', cursive;
+
+  /* --- Weights --- */
+  --dm-weight-regular: 400;
+  --dm-weight-medium: 500;
+  --dm-weight-semibold: 600;
+  --dm-weight-bold: 700;
+  --dm-weight-extrabold: 800;
+
+  /* --- Display / heading scale (clamped, responsive) --- */
+  --dm-h1: clamp(38px, 5.6vw, 64px);   /* @kind font */
+  --dm-h2: clamp(30px, 4vw, 44px);     /* @kind font */
+  --dm-h2-tight: clamp(28px, 3.6vw, 40px); /* @kind font */
+  --dm-h3: 29px;         /* feature headings */
+  --dm-h4: 21px;         /* card titles */
+  --dm-h5: 18px;
+
+  /* --- Body scale --- */
+  --dm-text-lead: 18.5px;   /* hero sub */
+  --dm-text-lg: 16.5px;
+  --dm-text-md: 15px;       /* default body */
+  --dm-text-sm: 14px;
+  --dm-text-xs: 12.5px;
+
+  /* --- Mono / data micro-labels --- */
+  --dm-mono-md: 12.5px;
+  --dm-mono-sm: 11px;
+  --dm-mono-xs: 10px;
+
+  /* --- Letter-spacing (display type is tight) --- */
+  --dm-tracking-h1: -0.035em;
+  --dm-tracking-h2: -0.03em;
+  --dm-tracking-h3: -0.025em;
+  --dm-tracking-tight: -0.02em;
+  --dm-tracking-mono: 0.04em;      /* uppercase mono labels */
+  --dm-tracking-mono-wide: 0.08em; /* eyebrows */
+
+  /* --- Line heights --- */
+  --dm-leading-display: 1.05;
+  --dm-leading-h1: 1.02;
+  --dm-leading-body: 1.55;
+  --dm-leading-relaxed: 1.62;
+}

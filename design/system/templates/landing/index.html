@@ -1,0 +1,37 @@
+<!-- @template name="Datamodo Landing" description="Full marketing landing page — hero, watch-it-work flow, use cases, ask-anything, CTA" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Datamodo — Forward the mess. Get back a spreadsheet.</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--dm-canvas); color: var(--dm-ink); font-family: var(--dm-font-body); -webkit-font-smoothing: antialiased; line-height: 1.55; overflow-x: hidden; }
+  a { color: var(--dm-accent); text-decoration: none; } a:hover { color: var(--dm-accent-press); }
+  ::selection { background: var(--dm-selection); color: var(--dm-ink); }
+  @keyframes dm-caret{0%,49%{opacity:1}50%,100%{opacity:0}}
+  @keyframes dm-pulse{0%{box-shadow:0 0 0 0 rgba(228,89,59,.35)}70%{box-shadow:0 0 0 12px rgba(228,89,59,0)}100%{box-shadow:0 0 0 0 rgba(228,89,59,0)}}
+  /* landing-only LOOPING product-demo keyframes — prefixed so they never shadow the one-shot motion tokens shipped in tokens/motion.css */
+  @keyframes dm-loop-pop{0%{opacity:0;transform:translateY(8px) scale(.96)}10%{opacity:1;transform:none}90%{opacity:1;transform:none}97%{opacity:0;transform:translateY(-4px) scale(.98)}100%{opacity:0}}
+  @keyframes dm-dropin{0%{opacity:0;transform:translateY(-14px) scale(.9)}12%{opacity:1;transform:none}92%{opacity:1;transform:none}100%{opacity:1}}
+  @keyframes dm-fill{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+  @keyframes dm-loop-scan{0%{transform:translateY(0);opacity:0}8%{opacity:.9}50%{transform:translateY(150px);opacity:.9}60%{opacity:0}100%{opacity:0}}
+  @media (prefers-reduced-motion: reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="landing-parts1.jsx"></script>
+<script type="text/babel" src="landing-parts2.jsx"></script>
+<script type="text/babel" src="landing-sources.jsx"></script>
+<script type="text/babel" src="landing-review.jsx"></script>
+<script type="text/babel" src="landing-steps.jsx"></script>
+<script type="text/babel" src="landing.jsx"></script>
+</body>
+</html>
