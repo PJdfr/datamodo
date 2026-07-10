@@ -12,6 +12,28 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Extraction queue hardened + spreadsheets join the document
+  pipeline + `simulateAgentUpdate` deleted.**
+  - **Orphan recovery & retry** (the step-6 TODO): `items` gains `claimed_at` +
+    `attempts` (migration [neon/migrations/20260710130000_items_claim_tracking.sql](neon/migrations/20260710130000_items_claim_tracking.sql),
+    idempotent; schema.sql + Prisma schema updated). `claimStoredItems` stamps both;
+    new `recoverExtractionQueue` ([extract.ts](lib/datamodo/extract.ts)) runs at the top
+    of every tick: stale `analyzing` orphans (>10 min or null claim) and retryable
+    `failed` items requeue to `stored`, capped at 3 attempts — beyond that orphans are
+    marked failed ("extraction timed out"), poison items stay failed. Tick response now
+    reports `{requeued, abandoned}`. **⚠️ DDL not yet applied to the Neon branches**
+    (MCP calls need interactive approval this session lacks) — run the migration file
+    against **dev** now and **prod** at promote: `psql "$DATABASE_URL" -f neon/migrations/20260710130000_items_claim_tracking.sql`.
+  - **.xlsx attachments** now flow through the document pipeline:
+    `attachmentTextKind` gains `"sheet"`, parsed with the EXISTING `parseWorkbook`,
+    flattened by pure `sheetToText` (header + pipe-rows, 200-row cap → `partial`).
+  - **`simulateAgentUpdate` deleted** (Next-steps item 4 — real extraction flows):
+    removed from datasets.ts / actions.ts / a dead control-center import;
+    `proposeAgentRows` kept (sheet sync uses it).
+  - Verified: 13/13 unit tests; recovery/claim state machine exercised on a throwaway
+    local PG16 across all 8 item states (fresh/in-flight/orphan/legacy-null/out-of-
+    attempts/transient-fail/poison/analyzed — every transition correct); migration
+    idempotent against updated schema; tsc + lint + `next build` green.
 - **2026-07-10** — **Attachments → documents in the graph + smart folders (built — the
   designed Next-steps item; bucket provisioning ① still owed by a human).**
   - **Document pipeline**: every attachment on an item now becomes a `document`
@@ -504,9 +526,10 @@ the same migration SQL to `prod` — Neon branches don't git-merge DDL).
   [.github/workflows/extract-cron.yml](.github/workflows/extract-cron.yml) (every 5 min → curls the
   consumer; needs `APP_URL` + `CRON_SECRET` GitHub secrets). **Verified:** inserted a stored item →
   endpoint returned `{claimed:1,processed:1,failed:0}`, item reached `analyzed`, LLM ran, facts
-  folded via Prisma (0 from nonsense text = correct); 401 without the secret. **TODO:** orphan
-  recovery (a crashed tick leaves an item in `analyzing`; needs a `claimed_at` column + reset) and
-  failed-item retry; throughput is 3/5min (raise `EXTRACT_BATCH` / add an internal drain loop).
+  folded via Prisma (0 from nonsense text = correct); 401 without the secret. ~~TODO: orphan
+  recovery + failed-item retry~~ ✅ **done 2026-07-10** (`recoverExtractionQueue`; needs the
+  `items_claim_tracking` migration applied to the Neon branches — see Recent changes).
+  Remaining: throughput is 3/5min (raise `EXTRACT_BATCH` / add an internal drain loop).
 - 🔨 **7. Env/config + prod cutover** — **prod flipped to Neon** (PR #27 merged; Vercel
   production deploy `READY`). Fixed a Vercel build gap: added `postinstall: prisma generate`
   (Vercel does a clean install and never generated the client). Vercel Production env set
@@ -649,7 +672,7 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
      via `proposeAgentRows`. Proves the loop, ships value.
    - **Phase B (later):** persist `entities`/`facts`/`entity_mentions` as canonical
      store, move versioning there, make `dataset_rows` a projection. Additive — no rewrite.
-4. Delete `simulateAgentUpdate()` once real extraction flows.
+4. ~~Delete `simulateAgentUpdate()` once real extraction flows~~ ✅ **done 2026-07-10**.
 5. Additional channel adapters — **WhatsApp done** (Twilio, needs Connect-UI +
    live sandbox test); **Teams/Slack next** (same shared-bot + identify-once
    pattern via `ingest_sources` + `channel_link_codes`).

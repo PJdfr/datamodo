@@ -8,7 +8,9 @@ import {
   attachmentTextKind,
   buildDocumentExtraction,
   extractAttachmentText,
+  sheetToText,
   MAX_DOC_CHARS,
+  MAX_SHEET_ROWS,
   DOCUMENT_KIND,
   type AttachmentMeta,
 } from "../lib/datamodo/document-extraction.ts";
@@ -55,6 +57,12 @@ test("attachmentTextKind: plain text family", () => {
   assert.equal(attachmentTextKind(null, "application/json"), "text");
 });
 
+test("attachmentTextKind: spreadsheets route to the sheet parser", () => {
+  assert.equal(attachmentTextKind("q3.xlsx", null), "sheet");
+  assert.equal(attachmentTextKind("data.bin", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"), "sheet");
+  assert.equal(attachmentTextKind("old.xls", "application/vnd.ms-excel"), "sheet");
+});
+
 test("attachmentTextKind: binaries we can't read yet → null", () => {
   assert.equal(attachmentTextKind("scan.png", "image/png"), null);
   assert.equal(attachmentTextKind("deck.pptx", "application/vnd.ms-powerpoint"), null);
@@ -85,6 +93,31 @@ test("extractAttachmentText: reads the text layer of a real PDF", async () => {
 
 test("extractAttachmentText: unparseable PDF throws (caller degrades to metadata)", async () => {
   await assert.rejects(extractAttachmentText(new TextEncoder().encode("not a pdf"), "pdf"));
+});
+
+// --- sheetToText ----------------------------------------------------------------
+
+test("sheetToText: header + pipe-separated rows, ordered by columns", () => {
+  const out = sheetToText({
+    columns: [{ key: "client", label: "Client" }, { key: "amount", label: "Amount" }],
+    rows: [
+      { client: "Acme", amount: 1200 },
+      { client: "Globex", amount: null },
+    ],
+  });
+  assert.equal(out.text, "Client | Amount\nAcme | 1200\nGlobex |"); // trailing null cell trimmed
+  assert.equal(out.truncated, false);
+});
+
+test("sheetToText: row cap marks truncated; empty sheet yields no text", () => {
+  const rows = Array.from({ length: MAX_SHEET_ROWS + 1 }, (_, i) => ({ a: i }));
+  const out = sheetToText({ columns: [{ key: "a", label: "A" }], rows });
+  assert.equal(out.truncated, true);
+  assert.equal(out.text.split("\n").length, MAX_SHEET_ROWS + 1); // header + capped rows
+
+  const empty = sheetToText({ columns: [], rows: [] });
+  assert.equal(empty.text, "");
+  assert.equal(empty.truncated, false);
 });
 
 // --- buildDocumentExtraction ---------------------------------------------------

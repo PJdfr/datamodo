@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
-import { claimStoredItems, runExtractionForItem } from "@/lib/datamodo/extract";
+import { claimStoredItems, recoverExtractionQueue, runExtractionForItem } from "@/lib/datamodo/extract";
 
 // Extraction runs the LLM + Node built-ins.
 export const runtime = "nodejs";
@@ -24,7 +24,10 @@ async function handle(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  // Claim a batch atomically (stored → analyzing, SKIP LOCKED), then extract.
+  // Recover the queue (requeue crashed-tick orphans + retryable failures, cap
+  // poison items), then claim a batch atomically (stored → analyzing, SKIP
+  // LOCKED) and extract.
+  const recovered = await recoverExtractionQueue();
   const ids = await claimStoredItems(BATCH);
   let processed = 0;
   let failed = 0;
@@ -39,7 +42,7 @@ async function handle(req: Request) {
     }
   }
 
-  return NextResponse.json({ claimed: ids.length, processed, failed });
+  return NextResponse.json({ claimed: ids.length, processed, failed, ...recovered });
 }
 
 export const POST = handle;

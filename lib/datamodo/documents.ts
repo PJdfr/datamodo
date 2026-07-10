@@ -3,10 +3,12 @@ import { readBlob } from "@/lib/ingest/store";
 import type { LlmProvider } from "@/lib/llm";
 import { extractFromMessage } from "./extract";
 import { ingestExtraction } from "./knowledge";
+import { parseWorkbook } from "./spreadsheet";
 import {
   attachmentTextKind,
   buildDocumentExtraction,
   extractAttachmentText,
+  sheetToText,
   type DocumentIndexing,
 } from "./document-extraction";
 
@@ -61,7 +63,10 @@ export async function processItemAttachments(
       if (kind) {
         try {
           const bytes = await readBlob(item.org_id, att.blob_hash);
-          const doc = await extractAttachmentText(bytes, kind);
+          const doc =
+            kind === "sheet"
+              ? sheetToText(await parseWorkbook(bytes))
+              : await extractAttachmentText(bytes, kind);
           if (doc.text) {
             const res = await extractFromMessage(
               {

@@ -247,7 +247,7 @@ async function loadItemText(item: ItemRow): Promise<string> {
 export async function claimStoredItems(limit: number): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ id: string }[]>`
     update items
-       set status = 'analyzing'
+       set status = 'analyzing', claimed_at = now(), attempts = attempts + 1
      where id in (
        select id from items
         where status = 'stored'
@@ -257,6 +257,35 @@ export async function claimStoredItems(limit: number): Promise<string[]> {
      )
     returning id`;
   return rows.map((r) => r.id);
+}
+
+// A tick that dies mid-extraction leaves items stuck in 'analyzing'; transient
+// LLM/network errors leave them 'failed'. Both get another shot — capped, so a
+// poison item can't loop forever.
+const MAX_ATTEMPTS = 3;
+const ORPHAN_AFTER_MINUTES = 10;
+
+/**
+ * Recover the queue before claiming: stale 'analyzing' orphans and retryable
+ * 'failed' items go back to 'stored'; orphans that already burned all their
+ * attempts are marked 'failed' instead. Returns counts for observability.
+ */
+export async function recoverExtractionQueue(): Promise<{ requeued: number; abandoned: number }> {
+  const requeued = await prisma.$executeRaw`
+    update items
+       set status = 'stored', claimed_at = null
+     where (status = 'analyzing'
+            and (claimed_at is null or claimed_at < now() - make_interval(mins => ${ORPHAN_AFTER_MINUTES}))
+            and attempts < ${MAX_ATTEMPTS})
+        or (status = 'failed' and attempts < ${MAX_ATTEMPTS})`;
+  const abandoned = await prisma.$executeRaw`
+    update items
+       set status = 'failed',
+           error = coalesce(error, 'extraction timed out (tick died mid-run)')
+     where status = 'analyzing'
+       and (claimed_at is null or claimed_at < now() - make_interval(mins => ${ORPHAN_AFTER_MINUTES}))
+       and attempts >= ${MAX_ATTEMPTS}`;
+  return { requeued, abandoned };
 }
 
 export async function runExtractionForItem(

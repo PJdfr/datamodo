@@ -33,14 +33,16 @@ export interface AttachmentMeta {
   blobHash: string;
 }
 
-/** Which text-extraction path an attachment supports (OCR is a later tier). */
+/** Which text-extraction path an attachment supports (OCR is a later tier).
+ *  "sheet" is handled by the orchestrator via the existing xlsx parser. */
 export function attachmentTextKind(
   filename: string | null,
   contentType: string | null,
-): "pdf" | "text" | null {
+): "pdf" | "text" | "sheet" | null {
   const name = (filename ?? "").toLowerCase();
   const ct = (contentType ?? "").toLowerCase();
   if (ct.includes("pdf") || name.endsWith(".pdf")) return "pdf";
+  if (ct.includes("spreadsheetml") || ct.includes("ms-excel") || name.endsWith(".xlsx")) return "sheet";
   if (
     ct.startsWith("text/") ||
     ct.includes("json") ||
@@ -75,6 +77,27 @@ export async function extractAttachmentText(
   }
   const s = Buffer.from(bytes).toString("utf8").trim();
   return { text: s.slice(0, MAX_DOC_CHARS), truncated: s.length > MAX_DOC_CHARS, pages: null };
+}
+
+/** Spreadsheets: index at most this many data rows into the prompt. */
+export const MAX_SHEET_ROWS = 200;
+
+/** Flatten a parsed workbook (see lib/datamodo/spreadsheet.ts parseWorkbook)
+ *  into prompt-ready text: a header line then one pipe-separated line per row,
+ *  capped like every other document. */
+export function sheetToText(sheet: {
+  columns: { key: string; label: string }[];
+  rows: Record<string, unknown>[];
+}): ExtractedDocText {
+  if (sheet.columns.length === 0) return { text: "", truncated: false, pages: null };
+  const cell = (v: unknown) => (v === null || v === undefined ? "" : String(v));
+  const lines = [
+    sheet.columns.map((c) => c.label).join(" | "),
+    ...sheet.rows.slice(0, MAX_SHEET_ROWS).map((r) => sheet.columns.map((c) => cell(r[c.key])).join(" | ")),
+  ];
+  const joined = lines.join("\n").trim();
+  const truncated = sheet.rows.length > MAX_SHEET_ROWS || joined.length > MAX_DOC_CHARS;
+  return { text: joined.slice(0, MAX_DOC_CHARS), truncated, pages: null };
 }
 
 /** The document entity's stable local id inside the composed extraction. */

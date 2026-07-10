@@ -423,53 +423,6 @@ export async function rejectProposals(ids: string[]): Promise<void> {
   await prisma.dataset_rows.deleteMany({ where: { id: { in: ids }, status: "proposed" } });
 }
 
-/**
- * Demo helper: fabricate an incoming agent update so the review/conflict flow
- * can be seen without a live extraction pipeline. Proposes one brand-new row
- * and one change to the first existing row.
- */
-export async function simulateAgentUpdate(orgId: string, datasetId: string): Promise<void> {
-  const dsRow = await prisma.datasets.findUnique({
-    where: { id: datasetId },
-    select: { columns: true, agents: { select: { name: true } } },
-  });
-  const ds = dsRow as { columns: DatasetColumn[]; agents: { name: string } | null } | null;
-  if (!ds) throw new Error("Table not found");
-  const cols = Array.isArray(ds.columns) ? ds.columns : [];
-  const agentName = ds.agents?.name ?? "An agent";
-
-  const rowsData = await prisma.dataset_rows.findMany({
-    where: { dataset_id: datasetId, status: "accepted" },
-    select: { id: true, data: true },
-    orderBy: { created_at: "asc" },
-    take: 1,
-  });
-  const first = (rowsData ?? [])[0] as { id: string; data: Record<string, unknown> } | undefined;
-
-  // A brand-new row.
-  const addData: Record<string, unknown> = {};
-  for (const c of cols) {
-    addData[c.key] = c.type === "number" ? 1000 : c.type === "date" ? new Date().toISOString().slice(0, 10) : `New from ${agentName}`;
-  }
-
-  // A change to the first row: bump a number, else append to the first text field.
-  const updates: { targetRowId: string; data: Record<string, unknown> }[] = [];
-  if (first) {
-    const next = { ...first.data };
-    const numCol = cols.find((c) => c.type === "number");
-    const textCol = cols.find((c) => c.type !== "number" && c.type !== "date");
-    if (numCol) {
-      const cur = Number(next[numCol.key]) || 0;
-      next[numCol.key] = Math.round(cur * 1.1);
-    } else if (textCol) {
-      next[textCol.key] = `${next[textCol.key] ?? ""} (updated by ${agentName})`.trim();
-    }
-    updates.push({ targetRowId: first.id, data: next });
-  }
-
-  await proposeAgentRows(orgId, datasetId, agentName, [addData], updates);
-}
-
 /** Fetch a single dataset by id (RLS returns null when not visible). */
 export async function getDataset(datasetId: string): Promise<DatasetRecord | null> {
   const d = await prisma.datasets.findUnique({ where: { id: datasetId } });

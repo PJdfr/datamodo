@@ -45,7 +45,6 @@ import {
   restoreSnapshotAction,
   getSnapshotsAction,
   getDatasetRowsAction,
-  simulateAgentUpdateAction,
   acceptProposalAction,
   rejectProposalAction,
   acceptBatchAction,
