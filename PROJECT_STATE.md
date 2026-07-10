@@ -12,6 +12,19 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Fixed "invalid origin" on sign-in/sign-up at www.datamodo.dev.**
+  Neon Auth rejects state-changing auth calls whose browser Origin isn't in the
+  branch's `trusted_origins`. The lists were mirror-mismatched: the **prod** branch
+  endpoint (which the www.datamodo.dev deployment actually talks to) trusted
+  `https://datamodo.dev` but not `https://www.datamodo.dev`; the **dev** branch had
+  the reverse. Added the missing origin to each branch via the Neon API. **Verified
+  live**: `POST /api/auth/sign-in/email` from origin `https://www.datamodo.dev` went
+  from `403 INVALID_ORIGIN` to `401 INVALID_EMAIL_OR_PASSWORD` (credentials now being
+  checked). Notes for a human: (a) apex `datamodo.dev` has **no DNS record** — only
+  www resolves; add the apex in Vercel if it should work. (b) the deployment behind
+  www.datamodo.dev uses the **prod** Neon Auth endpoint — if datamodo.dev is meant to
+  be the dev environment, point its Vercel env's `NEON_AUTH_BASE_URL` (and
+  `DATABASE_URL`) at the dev branch instead.
 - **2026-07-10** — **Dashboard catch-up to the landing: knowledge GRAPH view, PR-style
   review queue, BYOK wired live.**
   - **Knowledge graph view** ([knowledge-graph.tsx](app/dashboard/knowledge-graph.tsx)):
