@@ -28,5 +28,5 @@ jobs:
           curl -fsS --max-time 90 -X POST "${APP_URL%/}/api/jobs/extract-tick" \
             -H "Authorization: Bearer ${CRON_SECRET}"
         env:
-          APP_URL: ${{ vars.APP_URL }}
+          APP_URL: ${{ secrets.APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
