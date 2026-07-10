@@ -379,6 +379,14 @@ function valueColumns(v: ExtractedFact["value"], resolve: (id: string) => string
 
 type FactOutcome = "new" | "deduped" | "superseded";
 
+/** Normalize a date-ish value (Prisma returns Date for @db.Date columns; the
+ *  LLM hands us "YYYY-MM-DD" strings) to a comparable YYYY-MM-DD, or null. */
+function dateOnly(v: Date | string | null): string | null {
+  if (v == null) return null;
+  const d = v instanceof Date ? v : new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+}
+
 /**
  * Upsert one fact into the canonical store. Single indexed lookup on claim_key —
  * no scan. Same slot+value → add provenance (dedup). Same slot, new value →
@@ -444,6 +452,9 @@ async function upsertFact(
         valid_from: now,
         source_item_id: sourceItemId,
         ...cols,
+        // Prisma's @db.Date needs a real Date — a bare "YYYY-MM-DD" string
+        // throws at runtime. Unparseable LLM dates degrade to null.
+        value_date: cols.value_date ? (dateOnly(cols.value_date) ? new Date(cols.value_date) : null) : null,
       },
       select: { id: true },
     });
@@ -459,7 +470,7 @@ async function upsertFact(
   const sameValue =
     (current.value_text ?? null) === cols.value_text &&
     (current.value_num == null ? null : Number(current.value_num)) === cols.value_num &&
-    (current.value_date ?? null) === cols.value_date &&
+    dateOnly(current.value_date) === dateOnly(cols.value_date) &&
     (current.object_entity_id ?? null) === cols.object_entity_id;
 
   if (sameValue) {
@@ -620,7 +631,7 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
   const fmt = (f: KFact): { value: string; ref: boolean } =>
     f.object_entity_id ? { value: label.get(f.object_entity_id) ?? "?", ref: true }
       : f.value_num != null ? { value: `${f.value_num}${f.unit ? " " + f.unit : ""}`, ref: false }
-      : f.value_date ? { value: f.value_date, ref: false }
+      : f.value_date ? { value: dateOnly(f.value_date) ?? String(f.value_date), ref: false }
       : { value: f.value_text ?? "—", ref: false };
 
   return entities
