@@ -10,10 +10,11 @@
  * Pure projection — everything shown is derived from the entity's facts.
  */
 
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { C, ModalShell } from "./ui";
 import type { KnowledgeEntityView, KnowledgeFactView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
+import type { TimelineEvent } from "@/lib/datamodo/timeline";
 
 // --- Markdown-lite ------------------------------------------------------------
 // A deliberately tiny renderer for the summaries WE generate (headings, bold,
@@ -127,6 +128,66 @@ function RecordRow({ label, value, missing, refChip, onOpen, sources }: {
   );
 }
 
+const EVENT_META: Record<string, { dot: string; label: string }> = {
+  captured: { dot: "#B7AF9F", label: "message" },
+  asserted: { dot: "#6B8E6B", label: "learned" },
+  changed: { dot: "#C9A23F", label: "changed" },
+  retracted: { dot: "#B8563E", label: "retracted" },
+};
+
+/** The bitemporal layer, visible: everything about this entity in order —
+ *  including what CHANGED (was → now) and what was retracted. Lazy-loaded. */
+function HistorySection({ entityId }: { entityId: string }) {
+  const [events, setEvents] = useState<TimelineEvent[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  // No synchronous resets here — the parent remounts this component per
+  // entity (key={entityId}), so state starts fresh for every page.
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/knowledge/timeline?entity=${encodeURIComponent(entityId)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((j) => { if (alive) setEvents(j.events ?? []); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, [entityId]);
+
+  if (failed) return null;
+  if (!events) return <div className="dm-mono" style={{ fontSize: 10.5, color: "#B7AF9F", padding: "6px 8px" }}>Loading history…</div>;
+  if (events.length === 0) return null;
+
+  const day = (at: string) => at.slice(0, 10);
+  return (
+    <div style={{ display: "grid", gap: 0 }}>
+      {events.slice(0, 40).map((ev, i) => {
+        const meta = EVENT_META[ev.type] ?? EVENT_META.asserted;
+        return (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "78px 10px 1fr", gap: 9, alignItems: "baseline", padding: "5px 8px", borderBottom: "1px solid #F1ECDF" }}>
+            <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B", whiteSpace: "nowrap" }}>{day(ev.at)}</span>
+            <span title={meta.label} style={{ width: 8, height: 8, borderRadius: 99, background: meta.dot, alignSelf: "center" }} />
+            <span style={{ fontSize: 12.5, color: "#3A352C", overflowWrap: "anywhere" }}>
+              {ev.type === "captured" ? (
+                <>via {ev.channel}{ev.sender ? ` · ${ev.sender}` : ""}{ev.subject ? <span style={{ color: "#8A8477" }}> · “{ev.subject}”</span> : null}</>
+              ) : (
+                <>
+                  <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>{ev.incoming && ev.otherLabel ? `${ev.otherLabel} · ` : ""}{(ev.predicate ?? "").replace(/_/g, " ")} </span>
+                  {ev.type === "changed" && ev.was ? (
+                    <><s style={{ color: "#A39B8B" }}>{ev.was}</s> → <strong>{ev.value}</strong></>
+                  ) : ev.type === "retracted" ? (
+                    <s style={{ color: "#8A8477" }}>{ev.value}</s>
+                  ) : (
+                    ev.incoming ? "this" : ev.value
+                  )}
+                </>
+              )}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function EntityPageModal({ e, kindDef, onClose, onOpen }: {
   e: KnowledgeEntityView;
   kindDef?: KindDef;
@@ -136,6 +197,7 @@ export function EntityPageModal({ e, kindDef, onClose, onOpen }: {
 }) {
   const tone = kindDef?.color ?? FALLBACK_TONE[e.kind] ?? C.ink;
   const isDoc = e.kind === "document";
+  const [showHistory, setShowHistory] = useState(false);
 
   const attrs = e.facts.filter((f) => !f.ref);
   const rels = e.facts.filter((f) => f.ref && f.refId);
@@ -237,6 +299,21 @@ export function EntityPageModal({ e, kindDef, onClose, onOpen }: {
       {!e.bodyMd && templateRows.length === 0 && extraAttrs.length === 0 && relGroups.size === 0 && (
         <div className="dm-mono" style={{ fontSize: 12, color: "#A39B8B", padding: "18px 4px" }}>Nothing captured about this yet.</div>
       )}
+
+      {/* The timeline projection — lazy: fetched only when unfolded. */}
+      <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, padding: "9px 8px", marginTop: 12 }}>
+        <button
+          type="button"
+          onClick={() => setShowHistory((v) => !v)}
+          aria-expanded={showHistory}
+          className="dm-mono"
+          style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", background: "transparent", border: "none", padding: "0 0 2px", cursor: "pointer", fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", fontFamily: "inherit", textAlign: "left" }}
+        >
+          <span style={{ display: "inline-block", transform: showHistory ? "rotate(90deg)" : "none", transition: "transform .12s" }}>›</span>
+          History — how this changed over time
+        </button>
+        {showHistory && <HistorySection key={e.id} entityId={e.id} />}
+      </div>
     </ModalShell>
   );
 }

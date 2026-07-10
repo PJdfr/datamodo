@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getLlmProvider, type LlmProvider } from "@/lib/llm";
 import { embedTexts, toVectorLiteral } from "@/lib/llm/embeddings";
+import { composeEntityTimeline, type TimelineEvent, type TimelineFactRow, type TimelineSourceRow } from "./timeline";
 import type { KnowledgeEntityView, FactSourceView } from "./types";
 
 // Knowledge layer: turn an extraction (entities + facts pulled from one message)
@@ -707,4 +708,126 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
       }),
     }))
     .sort((a, b) => b.edges - a.edges);
+}
+
+// --- Timeline: one entity's history, chronologically ---------------------------
+
+interface TFactRow {
+  id: string;
+  subject_entity_id: string;
+  object_entity_id: string | null;
+  predicate: string;
+  value_text: string | null;
+  value_num: number | null;
+  value_date: string | null;
+  unit: string | null;
+  valid_from: Date | string;
+  valid_to: Date | string | null;
+  superseded_by: string | null;
+}
+
+const iso = (v: Date | string): string => (v instanceof Date ? v.toISOString() : String(v));
+
+/** Everything we (have ever) known about one entity as a chronological event
+ *  stream — asserted / changed / retracted facts (INCLUDING superseded history,
+ *  the point of bitemporal storage) + the messages they arrived on. */
+export async function getEntityTimeline(orgId: string, entityId: string): Promise<TimelineEvent[]> {
+  const select = {
+    id: true,
+    subject_entity_id: true,
+    object_entity_id: true,
+    predicate: true,
+    value_text: true,
+    value_num: true,
+    value_date: true,
+    unit: true,
+    valid_from: true,
+    valid_to: true,
+    superseded_by: true,
+  };
+  const [outRaw, inRaw] = await Promise.all([
+    prisma.facts.findMany({ where: { org_id: orgId, subject_entity_id: entityId }, select, take: 500 }),
+    prisma.facts.findMany({ where: { org_id: orgId, object_entity_id: entityId }, select, take: 500 }),
+  ]);
+  const out = outRaw as unknown as TFactRow[];
+  const inc = inRaw as unknown as TFactRow[];
+
+  const refIds = [
+    ...new Set([
+      ...out.map((f) => f.object_entity_id).filter(Boolean),
+      ...inc.map((f) => f.subject_entity_id),
+    ] as string[]),
+  ];
+  const label = new Map<string, string>();
+  if (refIds.length) {
+    const ents = await prisma.entities.findMany({
+      where: { id: { in: refIds } },
+      select: { id: true, canonical_label: true },
+    });
+    for (const e of (ents as { id: string; canonical_label: string }[])) label.set(e.id, e.canonical_label);
+  }
+
+  const fmt = (f: TFactRow): string =>
+    f.object_entity_id ? label.get(f.object_entity_id) ?? "?"
+      : f.value_num != null ? `${Number(f.value_num)}${f.unit ? " " + f.unit : ""}`
+      : f.value_date ? dateOnly(f.value_date) ?? String(f.value_date)
+      : f.value_text ?? "—";
+
+  const rows: TimelineFactRow[] = [
+    ...out.map((f) => ({
+      id: f.id,
+      predicate: f.predicate,
+      value: fmt(f),
+      incoming: false,
+      otherLabel: f.object_entity_id ? label.get(f.object_entity_id) ?? null : null,
+      validFrom: iso(f.valid_from),
+      validTo: f.valid_to ? iso(f.valid_to) : null,
+      supersededBy: f.superseded_by,
+    })),
+    ...inc.map((f) => ({
+      id: f.id,
+      predicate: f.predicate,
+      value: fmt(f),
+      incoming: true,
+      otherLabel: label.get(f.subject_entity_id) ?? null,
+      validFrom: iso(f.valid_from),
+      validTo: f.valid_to ? iso(f.valid_to) : null,
+      supersededBy: f.superseded_by,
+    })),
+  ];
+
+  const factIds = rows.map((r) => r.id);
+  const sources: TimelineSourceRow[] = [];
+  if (factIds.length) {
+    const fs = await prisma.fact_sources.findMany({
+      where: { fact_id: { in: factIds } },
+      select: { fact_id: true, source_item_id: true, snippet: true },
+    });
+    const fsList = fs as { fact_id: string; source_item_id: string | null; snippet: string | null }[];
+    const itemIds = [...new Set(fsList.map((s) => s.source_item_id).filter(Boolean) as string[])];
+    const itemById = new Map<string, { channel: string; sender: string | null; subject: string | null; received_at: Date | string | null }>();
+    if (itemIds.length) {
+      const its = await prisma.items.findMany({
+        where: { id: { in: itemIds } },
+        select: { id: true, channel: true, sender: true, subject: true, received_at: true },
+      });
+      for (const it of (its as unknown as { id: string; channel: string; sender: string | null; subject: string | null; received_at: Date | string | null }[])) {
+        itemById.set(it.id, it);
+      }
+    }
+    for (const s of fsList) {
+      const it = s.source_item_id ? itemById.get(s.source_item_id) : undefined;
+      sources.push({
+        factId: s.fact_id,
+        itemId: s.source_item_id,
+        channel: it?.channel ?? "unknown",
+        sender: it?.sender ?? null,
+        subject: it?.subject ?? null,
+        receivedAt: it?.received_at ? iso(it.received_at) : null,
+        snippet: s.snippet ?? null,
+      });
+    }
+  }
+
+  return composeEntityTimeline(rows, sources);
 }

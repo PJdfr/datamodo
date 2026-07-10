@@ -139,7 +139,7 @@ export function KnowledgeView() {
   const [kinds, setKinds] = useState<KindDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
-  const [mode, setMode] = useState<"cards" | "graph">("cards");
+  const [mode, setMode] = useState<"cards" | "graph" | "map">("cards");
   const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -199,7 +199,7 @@ export function KnowledgeView() {
           <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>{groups.length} kind{groups.length === 1 ? "" : "s"} · {totalFacts} fact{totalFacts === 1 ? "" : "s"} · your tables are built from these</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <Segmented value={mode} onChange={setMode} options={[{ v: "cards", label: "Cards" }, { v: "graph", label: "Graph" }]} />
+          <Segmented value={mode} onChange={setMode} options={[{ v: "cards", label: "Cards" }, { v: "graph", label: "Graph" }, { v: "map", label: "Map" }]} />
           <div style={{ position: "relative", minWidth: 220 }}>
             <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search entities & facts…" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
@@ -210,6 +210,22 @@ export function KnowledgeView() {
       {shown.length === 0 && <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Nothing matches “{q.trim()}”.</div>}
 
       {mode === "graph" && shown.length > 0 && <KnowledgeGraphView entities={shown} onOpen={setOpenId} />}
+
+      {/* Map of content: concepts + whatever is `about` them — the zoom level
+          ABOVE the entity graph. Pure filter over the same data. */}
+      {mode === "map" && (() => {
+        const conceptIds = new Set(shown.filter((e) => e.kind === "concept").map((e) => e.id));
+        const mapEntities = shown.filter(
+          (e) => e.kind === "concept" || e.facts.some((f) => f.ref && f.refId && conceptIds.has(f.refId)),
+        );
+        return conceptIds.size === 0 ? (
+          <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "28px 4px" }}>
+            No concepts yet — as documents and notes get tagged with topics, the map of content assembles itself here.
+          </div>
+        ) : (
+          <KnowledgeGraphView entities={mapEntities} onOpen={setOpenId} />
+        );
+      })()}
 
       {mode === "cards" && groups.map(([kind, list]) => {
         const def = kindByName.get(kind);

@@ -12,6 +12,25 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Two more projections SHIPPED: entity TIMELINE + concept MAP lens.**
+  (Thick-nodes PR #33 merged to dev; branch restarted from dev.)
+  - **Timeline** ([timeline.ts](lib/datamodo/timeline.ts) pure composer +
+    `getEntityTimeline` in [knowledge.ts](lib/datamodo/knowledge.ts) +
+    `GET /api/knowledge/timeline?entity=`): the bitemporal layer made visible —
+    one entity's history as events, newest first: `captured` (the message that
+    arrived) / `asserted` / **`changed` (was → now, from supersession pairs — one
+    event, not assert+retract)** / `retracted` (closed, no successor). Includes
+    INCOMING edges (INV-4417 —issued_by→ this). UI: a lazy "History — how this
+    changed over time" fold at the bottom of every entity page (fetches only when
+    unfolded; date + colored event dot + strikethrough diffs).
+  - **Map lens** ([knowledge-view.tsx](app/dashboard/knowledge-view.tsx)): the Data ▸
+    Knowledge toggle is now **Cards / Graph / Map** — Map filters to concepts + the
+    documents/notes/entities `about` them and renders through the SAME
+    KnowledgeGraphView: the Obsidian-style map of content, one zoom level above the
+    entity graph. Pure client-side filter, no new backend.
+  - Verified: 43/43 tests (4 new on the timeline composer) + tsc + build green
+    (route present); lint == baseline (one new set-state-in-effect error introduced,
+    then fixed via key-remount); SSR smoke re-run on the modal (14/14).
 - **2026-07-10** — **Generated notes SHIPPED: a dump becomes a note WE author (the
   Obsidian move, inverted to fit the product).** Decision: users never write structured
   notes — they dump prose into any channel and the PIPELINE authors the note.
@@ -783,11 +802,9 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
    - **Graph curation** — persist per-entity x/y pins (small jsonb) so the canvas
      becomes a lived-in space; collapse a kind-cluster into one "Invoices (12)" table
      node (the hypernode); expand on click.
-   - **Timeline** — facts and items all carry time (valid_from, value_date, sent_at):
-     a chronological projection per entity ("everything about Brightwave, in order")
-     and globally. Pure query.
-   - **Concept map** — concepts + `about`/`related_to` edges only: the Obsidian-style
-     map of content, one zoom level above the entity graph.
+   - ~~Timeline~~ → **✅ shipped 2026-07-10** (per-entity History fold; a GLOBAL
+     timeline view remains future work).
+   - ~~Concept map~~ → **✅ shipped 2026-07-10** (Map lens in Knowledge view).
    - **Dossier/report export** — an entity page + its neighborhood rendered to a
      shareable markdown/PDF ("everything we know about Acme, cited").
    - **Vision/OCR tier** — images + scanned PDFs become understood thick nodes (today
