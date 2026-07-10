@@ -1,0 +1,12 @@
+/* ==========================================================================
+   Datamodo — Webfonts
+   All four families are served from Google Fonts. If you self-host, replace
+   these @import lines with @font-face rules pointing at local binaries.
+
+   - Bricolage Grotesque  → display / headings (500/600/700/800)
+   - Caveat               → the handwritten "data" in the wordmark only (700)
+   - Geist                → body / UI (400/500/600)
+   - Geist Mono           → data accents: amounts, emails, table headers (400/500)
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Caveat:wght@600;700&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap');

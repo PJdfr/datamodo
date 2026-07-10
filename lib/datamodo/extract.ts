@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { getLlmProvider } from "@/lib/llm";
+import { getLlmProvider, type LlmProvider } from "@/lib/llm";
+import { llmForUser } from "./llm-for-user";
 import { readBlob } from "@/lib/ingest/store";
 import { ingestExtraction, createExtractionReview, type Extraction, type ExtractedFact } from "@/lib/datamodo/knowledge";
 import { getOnboardingContext } from "@/lib/datamodo/settings";
@@ -169,10 +170,13 @@ function toExtraction(raw: LlmExtraction): Extraction {
 }
 
 /** Extract entities + facts from one message. Small model first; escalate if
- *  the model reports low confidence. */
-export async function extractFromMessage(input: ExtractInput): Promise<ExtractResult> {
+ *  the model reports low confidence. Pass `llm` to run on a specific provider
+ *  (e.g. the user's own BYOK account); defaults to the platform provider. */
+export async function extractFromMessage(
+  input: ExtractInput,
+  llm: LlmProvider = getLlmProvider(),
+): Promise<ExtractResult> {
   const user = buildUserPrompt(input);
-  const llm = getLlmProvider();
 
   const run = async (model: string) =>
     llm.chatJSON<LlmExtraction>({
@@ -280,15 +284,21 @@ export async function runExtractionForItem(
     const businessContext = row.owner_user_id
       ? (await getOnboardingContext(row.owner_user_id)).businessContext
       : null;
-    const result = await extractFromMessage({
-      text,
-      subject: row.subject,
-      sender: row.sender,
-      channel: row.channel,
-      agentPurpose,
-      businessContext,
-    });
-    const knowledge = await ingestExtraction(row.org_id, row.owner_user_id, row.id, result.extraction);
+    // BYOK: analysis runs on the owner's own provider account when they've
+    // brought a key; otherwise on the platform provider from env.
+    const llm = await llmForUser(row.owner_user_id);
+    const result = await extractFromMessage(
+      {
+        text,
+        subject: row.subject,
+        sender: row.sender,
+        channel: row.channel,
+        agentPurpose,
+        businessContext,
+      },
+      llm,
+    );
+    const knowledge = await ingestExtraction(row.org_id, row.owner_user_id, row.id, result.extraction, llm);
     // Low-confidence extractions get surfaced for the user to confirm; confident
     // ones file silently (keeps the review queue meaningful, not a firehose).
     const EXTRACTION_REVIEW_BELOW = 0.75;

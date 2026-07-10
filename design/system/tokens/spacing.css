@@ -1,0 +1,43 @@
+/* ==========================================================================
+   Datamodo — Spacing, radii, shadows
+   ========================================================================== */
+
+:root {
+  /* --- Spacing scale --- */
+  --dm-space-1: 4px;
+  --dm-space-2: 8px;
+  --dm-space-3: 12px;
+  --dm-space-4: 16px;
+  --dm-space-5: 20px;
+  --dm-space-6: 24px;
+  --dm-space-8: 32px;
+  --dm-space-10: 40px;
+  --dm-space-12: 48px;
+  --dm-space-16: 64px;
+  --dm-space-22: 88px;
+
+  /* --- Layout --- */
+  --dm-content-max: 1160px;   /* landing content width */
+  --dm-app-max: 1400px;       /* app shell width */
+  --dm-flow-max: 900px;       /* the "watch it work" column */
+
+  /* --- Radii --- */
+  --dm-radius-input: 11px;    /* inputs / small buttons */
+  --dm-radius-button: 13px;   /* primary CTA */
+  --dm-radius-card-sm: 14px;  /* stat cards, window chrome */
+  --dm-radius-card: 18px;     /* feature cards */
+  --dm-radius-card-lg: 22px;  /* auth / app shell */
+  --dm-radius-section: 26px;  /* dark feature card */
+  --dm-radius-pill: 999px;
+  --dm-radius-chip: 7px;      /* mono chips / sheet tabs */
+
+  /* --- Shadows --- */
+  --dm-shadow-card: 0 18px 44px -30px rgba(33, 30, 24, .35);
+  --dm-shadow-window: 0 30px 60px -28px rgba(33, 30, 24, .5), 0 6px 16px -8px rgba(33, 30, 24, .22);
+  --dm-shadow-modal: 0 24px 60px -34px rgba(33, 30, 24, .5);
+  --dm-shadow-app: 0 30px 70px -40px rgba(33, 30, 24, .55);
+  --dm-shadow-accent: 0 6px 18px rgba(228, 89, 59, .28);
+  --dm-shadow-chip: 0 4px 12px -6px rgba(33, 30, 24, .3);
+}
+
+/* Motion tokens (easings, durations) + keyframes live in tokens/motion.css */

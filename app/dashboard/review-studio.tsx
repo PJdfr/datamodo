@@ -15,7 +15,7 @@
  */
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { C, Hov, monoLabel, ghostBtn, relTime } from "./ui";
+import { C, Hov, ghostBtn, relTime } from "./ui";
 import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, ReviewEntitySide } from "@/lib/datamodo/review-types";
 
 /* --------------------------- simulated fallback --------------------------- */
@@ -245,12 +245,87 @@ function renderCard(it: ReviewItem, onResolve: Resolve) {
   return <ExtractionCard e={it} onResolve={onResolve} />;
 }
 
-function SectionHead({ title, hint, count }: { title: string; hint: string; count: number }) {
+/* ------------------------- PR-style queue pieces -------------------------- */
+/* The queue reads like a pull request against your knowledge graph: a header
+ * with the branch chips + change counts, grouped one-line diff rows you can
+ * expand for the full evidence, and a merge bar. (Same metaphor as the landing
+ * page's "Review the changes. Merge when it's right." section.) */
+
+function GitGlyph({ light }: { light?: boolean }) {
+  const s = light ? "#fff" : "currentColor";
   return (
-    <div style={{ display: "flex", alignItems: "baseline", gap: 10, margin: "26px 2px 12px" }}>
-      <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 16, letterSpacing: "-0.02em", color: C.ink, margin: 0 }}>{title}</h2>
-      <span className="dm-mono" style={{ fontSize: 11, color: "#fff", background: "#C9BCA6", borderRadius: 999, padding: "1px 8px" }}>{count}</span>
-      <span style={{ fontSize: 12.5, color: "#A39B8B" }}>{hint}</span>
+    <svg width="12" height="12" viewBox="0 0 16 16" style={{ display: "block" }}>
+      <circle cx="4" cy="4" r="2" fill="none" stroke={s} strokeWidth="1.6" />
+      <circle cx="4" cy="12" r="2" fill="none" stroke={s} strokeWidth="1.6" />
+      <circle cx="12" cy="12" r="2" fill="none" stroke={s} strokeWidth="1.6" />
+      <path d="M4 6v4M6 12h4M12 6v4" fill="none" stroke={s} strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PillBtn({ on, color, onClick, title, children }: { on?: boolean; color: string; onClick: () => void; title: string; children: string }) {
+  const [h, setH] = useState(false);
+  return (
+    <button
+      title={title}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      onMouseEnter={() => setH(true)}
+      onMouseLeave={() => setH(false)}
+      style={{
+        width: 27, height: 27, borderRadius: 7, cursor: "pointer", fontSize: 12, lineHeight: 1,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        border: "1px solid " + (on || h ? color : "#E1D9C8"),
+        background: on ? color : h ? "#FBF8F1" : "#fff",
+        color: on ? "#fff" : h ? color : "#8A8477",
+        transform: h ? "scale(1.1)" : "scale(1)",
+        transition: "all .14s ease",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** One-line diff summary per review kind: glyph + mono text + branch color. */
+function rowMeta(it: ReviewItem): { glyph: string; color: string; text: string } {
+  if (it.kind === "entity_merge") return { glyph: "⇄", color: C.gold, text: `merge  “${it.parsed.label}”  into  “${it.canonical.label}”` };
+  if (it.kind === "fact_conflict") return { glyph: "~", color: C.accent, text: `${it.subject} · ${it.field}  “${it.was}” → “${it.now}”` };
+  const who = it.entities.map((e) => e.label).join(", ") || channelOf(it.channel).label;
+  return { glyph: "+", color: C.green, text: `${it.facts.length} fact${it.facts.length === 1 ? "" : "s"} about ${who}` };
+}
+
+const GROUP_META: Record<ReviewItem["kind"], { title: string; hint: string }> = {
+  entity_merge: { title: "Duplicates", hint: "same real-world thing twice?" },
+  fact_conflict: { title: "Changed values", hint: "a newer message disagrees" },
+  extraction: { title: "New from your messages", hint: "accept to file into your data" },
+};
+
+function DiffRow({ it, expanded, onToggle, onResolve }: { it: ReviewItem; expanded: boolean; onToggle: () => void; onResolve: Resolve }) {
+  const m = rowMeta(it);
+  const [hov, setHov] = useState(false);
+  return (
+    <div style={{ borderTop: "1px solid #F1EDE4" }}>
+      <div
+        onClick={onToggle}
+        onMouseEnter={() => setHov(true)}
+        onMouseLeave={() => setHov(false)}
+        role="button"
+        aria-expanded={expanded}
+        style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px 8px 12px", cursor: "pointer", background: expanded ? "#FBF8F1" : hov ? "#FCFAF4" : "transparent", transition: "background .15s ease" }}
+      >
+        <span className="dm-mono" style={{ width: 16, textAlign: "center", fontWeight: 700, fontSize: 13, color: m.color, flexShrink: 0 }}>{m.glyph}</span>
+        <span className="dm-mono" style={{ flex: 1, fontSize: 11.5, color: "#514C43", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.text}</span>
+        {it.confidence != null && (
+          <span className="dm-mono" style={{ fontSize: 10, color: confColor(it.confidence), flexShrink: 0 }}>{Math.round(it.confidence * 100)}%</span>
+        )}
+        <span className="dm-mono" title={`touches ${it.impact} facts/edges`} style={{ fontSize: 10, color: "#A39B8B", flexShrink: 0 }}>×{it.impact}</span>
+        <span style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          <PillBtn title="Approve" color={C.green} onClick={() => onResolve(it.id, "accept")}>✓</PillBtn>
+          <PillBtn title="Reject" color="#C7362C" onClick={() => onResolve(it.id, "reject")}>✕</PillBtn>
+        </span>
+        <span style={{ color: "#B7AF9F", fontSize: 12, transform: expanded ? "rotate(90deg)" : "none", transition: "transform .12s", flexShrink: 0 }}>›</span>
+      </div>
+      {expanded && <div style={{ padding: "4px 12px 14px" }}>{renderCard(it, onResolve)}</div>}
     </div>
   );
 }
@@ -261,6 +336,8 @@ export function ReviewStudio() {
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState(false); // showing simulated fallback
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [done, setDone] = useState({ accepted: 0, rejected: 0 });
 
   useEffect(() => {
     let alive = true;
@@ -283,6 +360,8 @@ export function ReviewStudio() {
 
   const resolve: Resolve = (id, action) => {
     setItems((s) => s.filter((i) => i.id !== id));
+    setDone((d) => (action === "accept" ? { ...d, accepted: d.accepted + 1 } : { ...d, rejected: d.rejected + 1 }));
+    setExpanded((e) => (e === id ? null : e));
     if (!preview) {
       void fetch(`/api/knowledge/reviews/${id}`, {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }),
@@ -291,11 +370,12 @@ export function ReviewStudio() {
   };
 
   const live = useMemo(() => [...items].sort((a, b) => b.impact - a.impact), [items]);
-  const spotlight = live[0];
-  const rest = live.slice(1);
-  const merges = rest.filter((i): i is MergeReview => i.kind === "entity_merge");
-  const conflicts = rest.filter((i): i is ConflictReview => i.kind === "fact_conflict");
-  const extractions = rest.filter((i): i is ExtractionReview => i.kind === "extraction");
+  const groups = useMemo(() => {
+    const order: ReviewItem["kind"][] = ["extraction", "fact_conflict", "entity_merge"];
+    return order
+      .map((kind) => ({ kind, items: live.filter((i) => i.kind === kind) }))
+      .filter((g) => g.items.length > 0);
+  }, [live]);
   const counts = {
     merge: live.filter((i) => i.kind === "entity_merge").length,
     conflict: live.filter((i) => i.kind === "fact_conflict").length,
@@ -309,47 +389,71 @@ export function ReviewStudio() {
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "80px 20px" }}>
         <div style={{ width: 66, height: 66, borderRadius: 20, background: "#EAF4EC", border: "1px solid #CBE4D2", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20, fontSize: 28 }}>✓</div>
         <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 26, letterSpacing: "-0.03em", margin: "0 0 8px" }}>All caught up</h2>
-        <p style={{ fontSize: 15, color: "#57534A", maxWidth: "44ch", margin: 0, lineHeight: 1.55 }}>Every merge, conflict, and new fact we inferred has been reviewed. Tables update automatically from the facts you accept.</p>
+        <p style={{ fontSize: 15, color: "#57534A", maxWidth: "44ch", margin: 0, lineHeight: 1.55 }}>
+          Every merge, conflict, and new fact we inferred has been reviewed. Tables update automatically from the facts you accept.
+          {done.accepted + done.rejected > 0 && <span className="dm-mono" style={{ display: "block", marginTop: 10, fontSize: 11.5, color: "#A39B8B" }}>this session: {done.accepted} merged · {done.rejected} dismissed</span>}
+        </p>
       </div>
     );
   }
 
-  const pill = (n: number, label: string, tone: string) =>
-    n > 0 ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "#57534A" }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: tone }} />{n} {label}{n === 1 ? "" : "s"}</span> : null;
-
   return (
-    <div style={{ maxWidth: 960 }}>
+    <div style={{ maxWidth: 880 }}>
       {preview && (
         <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: "#6B551F", background: "#FBEFD6", border: "1px solid #E6CF92", borderRadius: 10, padding: "8px 12px", marginBottom: 12 }}>
           <span>◑</span> Preview — no real reviews yet, so this is simulated data showing how the queue looks.
         </div>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", background: "#fff", border: "1px solid #E7E0D2", borderRadius: 14, padding: "14px 18px" }}>
-        <div style={{ minWidth: 0 }}>
-          <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink }}>{live.length} thing{live.length === 1 ? "" : "s"} to look at</div>
-          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>You review the facts — your tables fill in from what you accept. Ranked by impact.</div>
+      <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, overflow: "hidden" }}>
+        {/* PR header */}
+        <div style={{ padding: "15px 18px", borderBottom: "1px solid #EFE9DC" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 9, flexWrap: "wrap" }}>
+            <span className="dm-mono" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10, fontWeight: 600, letterSpacing: ".04em", color: C.green, background: "#E4F0E8", padding: "3px 9px", borderRadius: 999 }}>
+              <GitGlyph /> OPEN
+            </span>
+            <span className="dm-display" style={{ fontWeight: 700, fontSize: 16, letterSpacing: "-0.02em", color: C.ink }}>New facts from your inbox</span>
+            <span style={{ marginLeft: "auto", fontSize: 12, color: "#8A8477" }}>{live.length} change{live.length === 1 ? "" : "s"} · ranked by impact</span>
+          </div>
+          <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#8A8477", flexWrap: "wrap" }}>
+            <span style={{ background: "#FBF8F1", border: "1px solid #E1D9C8", borderRadius: 6, padding: "2px 8px" }}>graph:main</span>
+            <span>←</span>
+            <span style={{ background: "#FBF8F1", border: "1px solid #E1D9C8", borderRadius: 6, padding: "2px 8px" }}>inbox/new-facts</span>
+            {counts.extraction > 0 && <span style={{ marginLeft: 4, color: C.green }}>+{counts.extraction}</span>}
+            {counts.conflict > 0 && <span style={{ color: C.accent }}>~{counts.conflict}</span>}
+            {counts.merge > 0 && <span style={{ color: C.gold }}>⇄{counts.merge}</span>}
+          </div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 16, flexWrap: "wrap" }}>
-          {pill(counts.merge, "duplicate", C.accent)}
-          {pill(counts.conflict, "changed value", C.gold)}
-          {pill(counts.extraction, "new message", C.blue)}
+
+        {/* grouped diff rows */}
+        {groups.map((g) => (
+          <div key={g.kind}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "9px 18px 7px", background: "#FCFAF4" }}>
+              <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>▦</span>
+              <span className="dm-mono" style={{ fontSize: 11.5, fontWeight: 600, color: C.ink }}>{GROUP_META[g.kind].title}</span>
+              <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B" }}>{g.items.length} · {GROUP_META[g.kind].hint}</span>
+            </div>
+            {g.items.map((it) => (
+              <DiffRow key={it.id} it={it} expanded={expanded === it.id} onToggle={() => setExpanded((e) => (e === it.id ? null : it.id))} onResolve={resolve} />
+            ))}
+          </div>
+        ))}
+
+        {/* merge bar */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 18px", background: "#FBF8F1", borderTop: "1px solid #EFE9DC" }}>
+          <span className="dm-mono" style={{ fontSize: 10.5, color: "#8A8477", flex: 1 }}>
+            {done.accepted} approved · {done.rejected} rejected · <b style={{ color: C.ink, fontWeight: 600 }}>{live.length} open</b>
+            <span style={{ marginLeft: 8, color: "#B7AF9F" }}>each ✓ commits straight to your graph — expand a row for the evidence</span>
+          </span>
+          <Hov
+            onClick={() => live.forEach((it, i) => setTimeout(() => resolve(it.id, "accept"), i * 90))}
+            base={{ border: "none", background: C.green, color: "#fff", borderRadius: 8, padding: "8px 14px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 7 }}
+            hover={{ background: "#357C4C" }}
+          >
+            <GitGlyph light /> Approve all &amp; merge
+          </Hov>
         </div>
       </div>
-
-      {spotlight && (
-        <div style={{ marginTop: 18 }}>
-          <div className="dm-mono" style={{ ...monoLabel, display: "flex", alignItems: "center", gap: 7, marginBottom: 8, color: C.accent }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.accent, animation: "cc-pulse 2.6s ease-in-out infinite" }} />
-            Most impactful · worth your eye first
-          </div>
-          {renderCard(spotlight, resolve)}
-        </div>
-      )}
-
-      {merges.length > 0 && (<><SectionHead title="Possible duplicates" hint="Confirm whether we spotted the same thing twice." count={merges.length} /><div style={{ display: "flex", flexDirection: "column", gap: 14 }}>{merges.map((m) => <div key={m.id}>{renderCard(m, resolve)}</div>)}</div></>)}
-      {conflicts.length > 0 && (<><SectionHead title="Values that changed" hint="A newer message disagrees with what we had." count={conflicts.length} /><div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{conflicts.map((c) => <div key={c.id}>{renderCard(c, resolve)}</div>)}</div></>)}
-      {extractions.length > 0 && (<><SectionHead title="New from your messages" hint="What we understood — accept to file it into your knowledge." count={extractions.length} /><div style={{ display: "flex", flexDirection: "column", gap: 14 }}>{extractions.map((e) => <div key={e.id}>{renderCard(e, resolve)}</div>)}</div></>)}
     </div>
   );
 }

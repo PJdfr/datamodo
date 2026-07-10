@@ -208,9 +208,12 @@ export async function importTableAsGraph(
 
   // Lazy import so the pure inference above stays free of knowledge.ts's runtime deps.
   const { ingestExtraction } = await import("./knowledge");
+  const { llmForUser } = await import("./llm-for-user");
+  // Entity adjudication during the merge runs on the user's own key when set.
+  const llm = await llmForUser(ownerUserId);
   const totals = { entitiesCreated: 0, entitiesResolved: 0, factsNew: 0, factsDeduped: 0 };
   for (const ex of inferred.extractions) {
-    const r = await ingestExtraction(orgId, ownerUserId, null, ex);
+    const r = await ingestExtraction(orgId, ownerUserId, null, ex, llm);
     totals.entitiesCreated += r.entitiesCreated;
     totals.entitiesResolved += r.entitiesResolved;
     totals.factsNew += r.factsNew;

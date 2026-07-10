@@ -1,0 +1,72 @@
+/* ==========================================================================
+   Datamodo — Color tokens
+   A warm, editorial palette: cream paper canvas, ink text, coral accent.
+   Base values first, then semantic aliases.
+   ========================================================================== */
+
+:root {
+  /* --- Canvas / surfaces (cream family) --- */
+  --dm-canvas: #F6F2E9;        /* page background */
+  --dm-canvas-alt: #EFE9DC;    /* app outer bg, alternate section */
+  --dm-surface: #FFFDF8;       /* cards on cream */
+  --dm-surface-pure: #FFFFFF;  /* inputs, email/table windows */
+  --dm-surface-sunk: #FAF6EE;  /* recessed tiles inside cards */
+  --dm-surface-main: #FBF8F1;  /* app main pane */
+
+  /* --- Ink family (dark) --- */
+  --dm-ink: #211E18;           /* primary text, dark sections, sidebar */
+  --dm-ink-surface: #2B2720;   /* cards inside dark sections */
+  --dm-ink-border: #3A352C;    /* borders inside dark sections */
+
+  /* --- Text --- */
+  --dm-text-strong: #1E1B16;   /* headings on cream */
+  --dm-text-body: #514C43;     /* paragraphs */
+  --dm-text-body-2: #57534A;   /* paragraphs, alt */
+  --dm-text-muted: #8A8477;    /* captions, mono labels */
+  --dm-text-faint: #A39B8B;    /* micro-labels, placeholder */
+  --dm-text-on-ink: #F1ECE1;   /* text on ink */
+  --dm-text-on-ink-muted: #B7AF9F; /* body text on ink */
+  --dm-text-on-ink-faint: #7C766B; /* faint text on ink */
+
+  /* --- Accent (coral) --- */
+  --dm-accent: #E4593B;        /* primary buttons, highlights, links */
+  --dm-accent-press: #CF4A2F;  /* hover / active */
+  --dm-accent-tint: #FBEAE3;   /* eyebrow pills */
+  --dm-accent-tint-2: #FDF1EC; /* highlighted rows / cards */
+  --dm-accent-tint-3: #FBE0D6; /* pill badges */
+  --dm-accent-tint-border: #F3D6CB; /* highlighted row/card borders */
+  --dm-accent-on: #FFF8F4;     /* text on accent */
+
+  /* --- Borders --- */
+  --dm-border: #E7E0D2;        /* card & general borders on cream */
+  --dm-border-2: #E1D9C8;      /* input borders */
+  --dm-border-3: #DDD5C5;      /* stronger input border */
+  --dm-border-soft: #EFE9DC;   /* subtle inner dividers */
+
+  /* --- Semantic status --- */
+  --dm-success: #3F8F5B;
+  --dm-success-bg: #E4F0E8;
+  --dm-warning: #B08A2E;
+  --dm-warning-bg: #F6ECD4;
+
+  /* --- macOS window chrome --- */
+  --dm-mac-red: #FF5F57;
+  --dm-mac-yellow: #FEBC2E;
+  --dm-mac-green: #28C840;
+
+  /* --- Selection --- */
+  --dm-selection: #F4C9BC;
+
+  /* ======================================================================
+     Semantic aliases — reference these in components
+     ====================================================================== */
+  --surface-page: var(--dm-canvas);
+  --surface-card: var(--dm-surface);
+  --surface-input: var(--dm-surface-pure);
+  --text-heading: var(--dm-text-strong);
+  --text-body: var(--dm-text-body);
+  --text-caption: var(--dm-text-muted);
+  --accent: var(--dm-accent);
+  --accent-hover: var(--dm-accent-press);
+  --border-default: var(--dm-border);
+}

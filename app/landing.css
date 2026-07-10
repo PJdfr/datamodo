@@ -1,0 +1,227 @@
+/* ==================================================================
+   Landing page (marketing) — datamodo design system
+   Tokens are scoped under .lp-landing so nothing leaks into the
+   auth/dashboard styles; keyframes are lp-* prefixed for the same
+   reason. Source of truth: design/system/ (tokens + templates).
+   ================================================================== */
+.lp-landing {
+  /* canvas / surfaces */
+  --dm-canvas: #f6f2e9;
+  --dm-canvas-alt: #efe9dc;
+  --dm-surface: #fffdf8;
+  --dm-surface-pure: #ffffff;
+  --dm-surface-sunk: #faf6ee;
+  /* ink */
+  --dm-ink: #211e18;
+  --dm-ink-surface: #2b2720;
+  --dm-ink-border: #3a352c;
+  /* text */
+  --dm-text-strong: #1e1b16;
+  --dm-text-body: #514c43;
+  --dm-text-body-2: #57534a;
+  --dm-text-muted: #8a8477;
+  --dm-text-faint: #a39b8b;
+  --dm-text-on-ink: #f1ece1;
+  --dm-text-on-ink-muted: #b7af9f;
+  --dm-text-on-ink-faint: #7c766b;
+  /* accent */
+  --dm-accent: #e4593b;
+  --dm-accent-press: #cf4a2f;
+  --dm-accent-tint: #fbeae3;
+  --dm-accent-tint-2: #fdf1ec;
+  --dm-accent-tint-3: #fbe0d6;
+  --dm-accent-tint-border: #f3d6cb;
+  --dm-accent-on: #fff8f4;
+  /* borders */
+  --dm-border: #e7e0d2;
+  --dm-border-2: #e1d9c8;
+  --dm-border-3: #ddd5c5;
+  --dm-border-soft: #efe9dc;
+  /* status */
+  --dm-success: #3f8f5b;
+  --dm-success-bg: #e4f0e8;
+  --dm-warning: #b08a2e;
+  --dm-warning-bg: #f6ecd4;
+  /* macOS chrome */
+  --dm-mac-red: #ff5f57;
+  --dm-mac-yellow: #febc2e;
+  --dm-mac-green: #28c840;
+  --dm-selection: #f4c9bc;
+  /* type (next/font variables from the root layout) */
+  --dm-font-display: var(--font-bricolage), "Bricolage Grotesque", sans-serif;
+  --dm-font-body: var(--font-geist-sans), "Geist", system-ui, sans-serif;
+  --dm-font-mono: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  --dm-font-script: var(--font-caveat), "Caveat", cursive;
+  /* shadows */
+  --dm-shadow-card: 0 18px 44px -30px rgba(33, 30, 24, 0.35);
+  --dm-shadow-window: 0 30px 60px -28px rgba(33, 30, 24, 0.5),
+    0 6px 16px -8px rgba(33, 30, 24, 0.22);
+  --dm-shadow-accent: 0 6px 18px rgba(228, 89, 59, 0.28);
+  /* motion */
+  --dm-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dm-dur: 220ms;
+  --dm-dur-slow: 420ms;
+  --dm-dur-slower: 720ms;
+  --dm-lift: -4px;
+
+  flex: 1;
+  min-height: 100%;
+  background: var(--dm-canvas);
+  color: var(--dm-ink);
+  font-family: var(--dm-font-body);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.55;
+  overflow-x: hidden;
+}
+.lp-landing ::selection {
+  background: var(--dm-selection);
+  color: var(--dm-ink);
+}
+.lp-landing a {
+  color: var(--dm-accent);
+  text-decoration: none;
+}
+.lp-landing a:hover {
+  color: var(--dm-accent-press);
+}
+.lp-landing a.lp-quiet {
+  color: inherit;
+}
+.lp-landing a.lp-quiet:hover {
+  color: var(--dm-ink);
+}
+
+/* ---- keyframes (lp-* so they never shadow app/dashboard ones) ---- */
+/* blinking query caret */
+@keyframes lp-caret {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+/* looping product-demo pop (visible most of the cycle) */
+@keyframes lp-loop-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  10% {
+    opacity: 1;
+    transform: none;
+  }
+  90% {
+    opacity: 1;
+    transform: none;
+  }
+  97% {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+/* drop in with a soft settle — ends visible (safe one-shot or loop) */
+@keyframes lp-dropin {
+  0% {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.9);
+  }
+  12% {
+    opacity: 1;
+    transform: none;
+  }
+  92% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+/* source-selector progress bar */
+@keyframes lp-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+/* gradient scan sweeping down an auto-built table (loops) */
+@keyframes lp-loop-scan {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  8% {
+    opacity: 0.9;
+  }
+  50% {
+    transform: translateY(150px);
+    opacity: 0.9;
+  }
+  60% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+/* marching dashes flowing along a LinkedCards connector */
+@keyframes lp-flow {
+  from {
+    stroke-dashoffset: 29;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+/* slow vertical bob — floating windows */
+@keyframes lp-floaty {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-landing *,
+  .lp-landing *::before,
+  .lp-landing *::after {
+    animation: none !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ---- small screens ---- */
+@media (max-width: 760px) {
+  .lp-landing .lp-nav-links {
+    display: none !important;
+  }
+  /* the source graph collapses: message card on top, facts in 2 columns */
+  .lp-landing .lp-sources-grid {
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-rows: none !important;
+    gap: 20px 14px !important;
+  }
+  .lp-landing .lp-sources-grid > :first-child {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+  }
+  .lp-landing .lp-sources-grid [data-cell] {
+    grid-column: auto !important;
+    grid-row: auto !important;
+  }
+  /* review: PR card stacks above the merged result */
+  .lp-landing .lp-review-grid {
+    grid-template-columns: 1fr !important;
+  }
+}

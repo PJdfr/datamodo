@@ -46,6 +46,7 @@ export interface KnowledgeFactView {
   predicate: string;
   value: string; // formatted (or the target entity's label when ref)
   ref: boolean; // value is a relationship to another entity
+  refId: string | null; // the target entity's id when ref (graph edge target)
   sources: number; // how many messages corroborate it (provenance)
   provenance: FactSourceView[]; // the actual messages behind it (may be empty)
 }

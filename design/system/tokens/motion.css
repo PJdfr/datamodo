@@ -1,0 +1,122 @@
+/* ==========================================================================
+   Datamodo — Motion tokens & shipped keyframes
+   Gentle, editorial, CSS-driven. Motion illustrates the pipeline; nothing
+   bounces or loops aggressively. Everything below is disabled under
+   prefers-reduced-motion: reduce.
+   ========================================================================== */
+
+:root {
+  /* --- Easings --- */
+  --dm-ease: cubic-bezier(0.4, 0, 0.2, 1); /* @kind other */
+  --dm-ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --dm-ease-in: cubic-bezier(0.4, 0, 1, 1); /* @kind other */
+  --dm-ease-spring: cubic-bezier(0.34, 1.32, 0.5, 1); /* @kind other */
+  --dm-ease-bob: cubic-bezier(0.45, 0, 0.55, 1); /* @kind other */
+
+  /* --- Durations --- */
+  --dm-dur-fast: 140ms; /* @kind other */
+  --dm-dur: 220ms; /* @kind other */
+  --dm-dur-slow: 420ms; /* @kind other */
+  --dm-dur-slower: 720ms; /* @kind other */
+  --dm-dur-float: 6000ms; /* @kind other */
+
+  /* --- Stagger step (multiply by index) --- */
+  --dm-stagger: 70ms; /* @kind other */
+
+  /* --- Hover lift --- */
+  --dm-lift: -4px; /* @kind spacing */
+}
+
+/* ==========================================================================
+   Keyframes — shipped globally, referenced by name from components.
+   Base style of an element is always the VISIBLE end-state; animations run
+   FROM hidden, so print / no-CSS / reduced-motion show finished content.
+   ========================================================================== */
+
+/* slow vertical bob — floating windows & graph */
+@keyframes dm-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-8px); }
+}
+
+/* expanding ring pulse — the "forwarded" dot, live nodes */
+@keyframes dm-pulse-ring {
+  0%   { transform: scale(0.7); opacity: 0.55; }
+  70%  { opacity: 0; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* rise + fade in — reveal on scroll, staggered lists */
+@keyframes dm-fade-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* drop in with a soft settle — extracted chips / rows */
+@keyframes dm-drop-in {
+  0%   { opacity: 0; transform: translateY(-10px) scale(0.96); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* pop in — nodes, badges */
+@keyframes dm-pop {
+  0%   { opacity: 0; transform: scale(0.4); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* coral flash that settles — a freshly-extracted table row */
+@keyframes dm-row-flash {
+  0%   { background: var(--dm-accent-tint-3, #FBE0D6); }
+  100% { background: var(--dm-accent-tint-2, #FDF1EC); }
+}
+
+/* gradient scan sweeping down an auto-built table */
+@keyframes dm-scan {
+  0%   { transform: translateY(-100%); opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translateY(1400%); opacity: 0; }
+}
+
+/* blinking query caret */
+@keyframes dm-blink {
+  0%, 49%  { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* edge draw — stroke-dashoffset from full length to 0 */
+@keyframes dm-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+/* infinite marquee — translate one full track width */
+@keyframes dm-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+/* marching dashes flowing along a connector edge (LinkedCards) —
+   pair with stroke-dasharray on the path; offset moves one gap per loop */
+@keyframes dm-flow {
+  from { stroke-dashoffset: 29; }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* shimmer sweep — skeleton / "thinking" bars */
+@keyframes dm-shimmer {
+  from { background-position: -160% 0; }
+  to   { background-position: 260% 0; }
+}
+
+/* ==========================================================================
+   Reduced motion — hard stop. Show finished state, no animation.
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
