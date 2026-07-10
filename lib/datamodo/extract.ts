@@ -4,6 +4,7 @@ import { llmForUser } from "./llm-for-user";
 import { readBlob } from "@/lib/ingest/store";
 import { ingestExtraction, createExtractionReview, type Extraction, type ExtractedFact } from "@/lib/datamodo/knowledge";
 import { getOnboardingContext } from "@/lib/datamodo/settings";
+import { canonicalizeExtraction, promptCategories, type KindDef } from "@/lib/datamodo/ontology";
 
 // LLM extraction: one message → structured entities + facts (the ⑤ step).
 // Small-model-first with a confidence-gated escalation. Produces the same
@@ -108,6 +109,9 @@ export interface ExtractInput {
   agentPurpose?: string | null;
   /** The user's business context from onboarding — steers entity/predicate choices. */
   businessContext?: string | null;
+  /** The user's kind registry — steers classification into their categories
+   *  and canonicalizes the output's kinds/predicates against the templates. */
+  kinds?: KindDef[];
 }
 
 export interface ExtractResult {
@@ -122,6 +126,7 @@ const ESCALATE_BELOW = 0.55;
 
 function buildUserPrompt(input: ExtractInput): string {
   const parts: string[] = [];
+  if (input.kinds?.length) parts.push(promptCategories(input.kinds));
   if (input.businessContext) parts.push(`About the user's work (use this to pick relevant entities, relationships, and predicate names): ${input.businessContext}`);
   if (input.agentPurpose) parts.push(`Assistant purpose: ${input.agentPurpose}`);
   if (input.channel) parts.push(`Channel: ${input.channel}`);
@@ -203,7 +208,13 @@ export async function extractFromMessage(
     escalated = true;
   }
 
-  return { extraction: toExtraction(raw), model: `${llm.name}:${model}`, overallConfidence: confidence, escalated };
+  // Canonicalize against the user's registry: kind synonyms collapse to the
+  // canonical slug, predicate synonyms to template field keys — so the same
+  // real-world fact always produces the same claim key.
+  const extraction = input.kinds?.length
+    ? canonicalizeExtraction(toExtraction(raw), input.kinds)
+    : toExtraction(raw);
+  return { extraction, model: `${llm.name}:${model}`, overallConfidence: confidence, escalated };
 }
 
 // --- Glue: item (status 'stored') → extract → knowledge layer (steps ⑤+⑥) ----
@@ -313,6 +324,10 @@ export async function runExtractionForItem(
     const businessContext = row.owner_user_id
       ? (await getOnboardingContext(row.owner_user_id)).businessContext
       : null;
+    // The user's category registry steers classification + canonicalizes
+    // kinds/predicates. Best-effort: extraction works without it.
+    const { listKinds } = await import("./kinds");
+    const kinds = await listKinds(row.org_id, row.owner_user_id).catch(() => []);
     // BYOK: analysis runs on the owner's own provider account when they've
     // brought a key; otherwise on the platform provider from env.
     const llm = await llmForUser(row.owner_user_id);
@@ -324,6 +339,7 @@ export async function runExtractionForItem(
         channel: row.channel,
         agentPurpose,
         businessContext,
+        kinds,
       },
       llm,
     );
@@ -334,7 +350,7 @@ export async function runExtractionForItem(
     // import here would be circular.
     try {
       const { processItemAttachments } = await import("./documents");
-      await processItemAttachments(row, llm, businessContext);
+      await processItemAttachments(row, llm, businessContext, kinds);
     } catch (e) {
       console.error(`[extract] attachment processing failed for item ${row.id}`, e);
     }

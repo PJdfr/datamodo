@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getLlmProvider, type LlmProvider } from "@/lib/llm";
+import { embedTexts, toVectorLiteral } from "@/lib/llm/embeddings";
 import type { KnowledgeEntityView, FactSourceView } from "./types";
 
 // Knowledge layer: turn an extraction (entities + facts pulled from one message)
@@ -141,7 +142,7 @@ export async function resolveEntity(
   }
 
   // Tier 1 — blocking: only compare against the top trigram candidates for THIS
-  // org, never the whole table. (Tier 1b: pgvector ANN when embeddings exist.)
+  // org, never the whole table.
   const candidates = await prisma.$queryRaw<MatchCandidate[]>`
     SELECT * FROM knowledge_match_entities(${orgId}::uuid, ${e.kind}, ${e.label}, 10)
   `;
@@ -151,6 +152,27 @@ export async function resolveEntity(
   if (top && top.sim >= TRGM_HIGH) {
     await bumpSupport(top.id);
     return { id: top.id, created: false };
+  }
+
+  // Tier 1b — semantic blocking: when surface text found little, recall
+  // candidates by embedding proximity (acronyms, paraphrases, translations).
+  // ANN similarity only RECALLS — resolution still goes through adjudication;
+  // cosine closeness on short labels is never trusted to auto-merge.
+  if (e.embedding && candidates.length < 5) {
+    try {
+      const vec = toVectorLiteral(e.embedding);
+      const ann = await prisma.$queryRaw<MatchCandidate[]>`
+        SELECT id, canonical_label, (1 - (embedding <=> ${vec}::vector))::real AS sim
+          FROM entities
+         WHERE org_id = ${orgId}::uuid AND kind = ${e.kind}
+           AND merged_into IS NULL AND embedding IS NOT NULL
+         ORDER BY embedding <=> ${vec}::vector
+         LIMIT 5`;
+      const seen = new Set(candidates.map((c) => c.id));
+      for (const c of ann) if (!seen.has(c.id) && c.sim >= 0.5) candidates.push(c);
+    } catch (err) {
+      console.error("[knowledge] ANN blocking failed", err);
+    }
   }
 
   // Tier 2/3 — ambiguous: ask the model whether it's the same real-world entity,
@@ -185,6 +207,12 @@ export async function resolveEntity(
     },
     select: { id: true },
   });
+  // The vector column is Unsupported in Prisma — attach the embedding raw.
+  if (e.embedding) {
+    await prisma.$executeRaw`
+      UPDATE entities SET embedding = ${toVectorLiteral(e.embedding)}::vector WHERE id = ${created.id}::uuid`
+      .catch((err) => console.error("[knowledge] embedding store failed", err));
+  }
 
   // ...and, if there's a plausible-but-uncertain match, PROPOSE a merge for the
   // user to validate (never a silent merge — a wrong merge corrupts data).
@@ -516,6 +544,17 @@ export async function ingestExtraction(
     factsDeduped: 0,
     factsSuperseded: 0,
   };
+
+  // Embed every extracted entity in ONE batch call (fail-soft: null → the
+  // trigram-only path). The vector powers semantic blocking now and stays on
+  // the entity for search later.
+  if (extraction.entities.length > 0 && !extraction.entities[0].embedding) {
+    const texts = extraction.entities.map(
+      (e) => `${e.kind}: ${e.label}${Object.values(e.naturalKeys ?? {}).length ? " (" + Object.values(e.naturalKeys ?? {}).join(", ") + ")" : ""}`,
+    );
+    const vectors = await embedTexts(texts);
+    if (vectors) extraction.entities.forEach((e, i) => { e.embedding = vectors[i]; });
+  }
 
   // Resolve entities first so facts can reference canonical ids.
   const idMap = new Map<string, string>();

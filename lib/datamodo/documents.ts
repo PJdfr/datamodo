@@ -4,12 +4,16 @@ import type { LlmProvider } from "@/lib/llm";
 import { extractFromMessage } from "./extract";
 import { ingestExtraction } from "./knowledge";
 import { parseWorkbook } from "./spreadsheet";
+import { storeDocChunks } from "./chunks";
+import { normalizeKey } from "./knowledge";
 import {
   attachmentTextKind,
   buildDocumentExtraction,
+  chunkDocText,
   extractAttachmentText,
   sheetToText,
   type DocumentIndexing,
+  DOCUMENT_KIND,
 } from "./document-extraction";
 
 // Attachment → document pipeline (the DB/storage side of document-extraction.ts).
@@ -39,6 +43,7 @@ export async function processItemAttachments(
   item: ItemForDocs,
   llm: LlmProvider,
   businessContext?: string | null,
+  kinds?: import("./ontology").KindDef[],
 ): Promise<AttachmentProcessResult[]> {
   const atts = await prisma.attachments.findMany({
     where: { item_id: item.id },
@@ -59,11 +64,12 @@ export async function processItemAttachments(
       // failure (bucket not provisioned yet, image-only PDF, bad bytes…).
       let indexing: DocumentIndexing = "metadata_only";
       let inner = null;
+      let doc: Awaited<ReturnType<typeof extractAttachmentText>> | null = null;
       const kind = attachmentTextKind(att.filename, att.content_type);
       if (kind) {
         try {
           const bytes = await readBlob(item.org_id, att.blob_hash);
-          const doc =
+          doc =
             kind === "sheet"
               ? sheetToText(await parseWorkbook(bytes))
               : await extractAttachmentText(bytes, kind);
@@ -75,6 +81,7 @@ export async function processItemAttachments(
                 sender: null,
                 channel: item.channel,
                 businessContext,
+                kinds,
               },
               llm,
             );
@@ -88,6 +95,27 @@ export async function processItemAttachments(
 
       const extraction = buildDocumentExtraction(meta, indexing, inner);
       const folded = await ingestExtraction(item.org_id, item.owner_user_id, item.id, extraction, llm);
+
+      // Evidence layer: keep the document's PASSAGES (facts alone lose the
+      // prose). Resolve the doc entity by its deterministic natural key, then
+      // replace its chunks. Best-effort — never fails the attachment.
+      if (doc?.text) {
+        try {
+          const docEntity = extraction.entities[0];
+          const ent = await prisma.entities.findFirst({
+            where: {
+              org_id: item.org_id,
+              kind: DOCUMENT_KIND,
+              normalized_key: normalizeKey(docEntity),
+              merged_into: null,
+            },
+            select: { id: true },
+          });
+          if (ent) await storeDocChunks(item.org_id, ent.id, item.id, chunkDocText(doc));
+        } catch (e) {
+          console.error(`[documents] chunk store failed for attachment ${att.id}`, e);
+        }
+      }
       results.push({
         attachmentId: att.id,
         filename: att.filename,

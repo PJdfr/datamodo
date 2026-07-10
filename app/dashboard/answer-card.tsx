@@ -48,7 +48,7 @@ export function AnswerCard({ answer, onOpenTable }: { answer: GroundedAnswer; on
             style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, color: "#57534A", background: "#fff", border: "1px solid #EBE2D2", borderRadius: 6, padding: "3px 8px", cursor: s.datasetId ? "pointer" : "default", fontFamily: "inherit" }}
           >
             <span style={{ color: C.accent, fontWeight: 600 }}>{s.n}</span>
-            {s.type === "row" ? "▤" : "◍"} {s.label}
+            {s.type === "row" ? "▤" : s.type === "passage" ? "❝" : "◍"} {s.label}
           </button>
         ))}
       </div>

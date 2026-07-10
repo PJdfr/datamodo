@@ -1,5 +1,6 @@
 import type { LlmProvider } from "@/lib/llm";
 import type { SearchHit, KnowledgeHit } from "./search";
+import type { ChunkHit } from "./chunks";
 
 // Plain-language answers with citations — the second half of the search
 // promise. We do NOT let the model roam: the keyword search (tables) and
@@ -11,8 +12,8 @@ import type { SearchHit, KnowledgeHit } from "./search";
 export interface AnswerSource {
   /** 1-based citation number used in the answer text as [n]. */
   n: number;
-  type: "row" | "entity";
-  /** Short human label for the chip ("Invoices — Acme Inc" / "INV-4417"). */
+  type: "row" | "entity" | "passage";
+  /** Short human label for the chip ("Invoices — Acme Inc" / "report.pdf · p.3"). */
   label: string;
   /** Where clicking the citation should take the user. */
   datasetId: string | null;
@@ -29,14 +30,16 @@ export interface GroundedAnswer {
 // keeps latency/cost down. Search already ranked them.
 const MAX_ROW_SOURCES = 8;
 const MAX_ENTITY_SOURCES = 6;
+const MAX_PASSAGE_SOURCES = 5;
 
 const cell = (v: string) => (v.length > 80 ? v.slice(0, 80) + "…" : v);
 
 /** Compose the numbered evidence list the model answers from, plus the source
- *  index the UI needs to resolve [n] citations back to rows/entities. */
+ *  index the UI needs to resolve [n] citations back to rows/entities/passages. */
 export function buildAnswerContext(
   hits: SearchHit[],
   entities: KnowledgeHit[],
+  passages: ChunkHit[] = [],
 ): { context: string; sources: AnswerSource[] } {
   const sources: AnswerSource[] = [];
   const lines: string[] = [];
@@ -59,6 +62,19 @@ export function buildAnswerContext(
     const first = h.cells.find((c) => c.value !== "")?.value ?? "row";
     lines.push(`[${n}] Row in table "${h.datasetName}": ${row}`);
     sources.push({ n, type: "row", label: `${h.datasetName} — ${cell(first)}`, datasetId: h.datasetId, entityId: null });
+  }
+
+  // Passages from inside documents — the evidence layer's page-cited quotes.
+  for (const p of passages.slice(0, MAX_PASSAGE_SOURCES)) {
+    const n = sources.length + 1;
+    lines.push(`[${n}] Passage from document "${p.docLabel}"${p.page ? ` (page ${p.page})` : ""}: "${p.text}"`);
+    sources.push({
+      n,
+      type: "passage",
+      label: `${p.docLabel}${p.page ? ` · p.${p.page}` : ""}`,
+      datasetId: null,
+      entityId: p.entityId,
+    });
   }
 
   return { context: lines.join("\n"), sources };
@@ -101,8 +117,9 @@ export async function answerQuestion(
   question: string,
   hits: SearchHit[],
   entities: KnowledgeHit[],
+  passages: ChunkHit[] = [],
 ): Promise<GroundedAnswer | null> {
-  const { context, sources } = buildAnswerContext(hits, entities);
+  const { context, sources } = buildAnswerContext(hits, entities, passages);
   if (!context) return null;
 
   try {
