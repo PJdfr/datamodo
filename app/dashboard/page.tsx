@@ -35,7 +35,7 @@ export default async function DashboardPage() {
   let onboarding: OnboardingContext = { businessContext: null, answers: {} };
   let notice: string | null = null;
   const SCHEMA_NOTICE =
-    "Some data couldn’t load — your database may be missing a migration. Run `supabase db push` (hosted) or `supabase db reset` (local) to apply the latest migrations.";
+    "Some data couldn’t load — your database may be missing a migration. Apply the latest schema to your Neon branch (see neon/schema.sql).";
 
   if (user) {
     try {

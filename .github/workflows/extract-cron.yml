@@ -18,11 +18,12 @@ concurrency:
 jobs:
   drain:
     runs-on: ubuntu-latest
+    # CRON_SECRET = repository secret, APP_URL = repository variable.
     steps:
       - name: Ping extraction consumer
         run: |
           if [ -z "${APP_URL}" ] || [ -z "${CRON_SECRET}" ]; then
-            echo "APP_URL / CRON_SECRET secrets not set — skipping."; exit 0
+            echo "APP_URL / CRON_SECRET not set — skipping."; exit 0
           fi
           curl -fsS --max-time 90 -X POST "${APP_URL%/}/api/jobs/extract-tick" \
             -H "Authorization: Bearer ${CRON_SECRET}"
