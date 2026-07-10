@@ -26,13 +26,17 @@ jobs:
             echo "CRON_SECRET not set — skipping."; exit 0
           fi
           # Tick BOTH environments: APP_URL (prod, secret) and the public dev
-          # domain. One failing env must not stop the other's drain.
+          # domain. Timeouts/5xx are expected under load (the function gets
+          # killed at maxDuration mid-drain; recovery requeues) — only auth
+          # errors mean real misconfiguration and should fail the run.
           fail=0
           for url in ${APP_URL} https://www.datamodo.dev; do
-            echo "tick ${url}"
-            curl -fsS --max-time 90 -X POST "${url%/}/api/jobs/extract-tick" \
-              -H "Authorization: Bearer ${CRON_SECRET}" || fail=1
-            echo
+            code=$(curl -sS -o /tmp/resp -w "%{http_code}" --max-time 90 -X POST \
+              "${url%/}/api/jobs/extract-tick" -H "Authorization: Bearer ${CRON_SECRET}") || code=000
+            echo "tick ${url} → HTTP ${code}: $(cat /tmp/resp 2>/dev/null | head -c 300)"
+            if [ "${code}" = "401" ] || [ "${code}" = "403" ]; then
+              echo "::error::CRON_SECRET rejected by ${url}"; fail=1
+            fi
           done
           exit ${fail}
         env:
