@@ -49,6 +49,10 @@ export interface KnowledgeFactView {
   refId: string | null; // the target entity's id when ref (graph edge target)
   sources: number; // how many messages corroborate it (provenance)
   provenance: FactSourceView[]; // the actual messages behind it (may be empty)
+  /** Extraction confidence 0..1 — an edge is more than a link. */
+  confidence: number;
+  /** When this fact became current (ISO) — the edge's "since". */
+  validFrom: string | null;
 }
 export interface KnowledgeEntityView {
   id: string;

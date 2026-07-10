@@ -8,40 +8,13 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { C, monoLabel, CountUp, Segmented } from "./ui";
+import { C, monoLabel, CountUp, Segmented, SourceRow } from "./ui";
 import { KnowledgeGraphView } from "./knowledge-graph";
 import { ConceptMapView } from "./concept-map-view";
+import { ExplorerView } from "./explorer-view";
 import { EntityPageModal } from "./entity-page";
-import type { KnowledgeEntityView, FactSourceView } from "@/lib/datamodo/types";
+import type { KnowledgeEntityView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
-
-const CHANNEL_META: Record<string, { emoji: string; label: string }> = {
-  email: { emoji: "✉", label: "Email" },
-  whatsapp: { emoji: "🟢", label: "WhatsApp" },
-  slack: { emoji: "▦", label: "Slack" },
-  teams: { emoji: "◇", label: "Teams" },
-};
-const channelMeta = (c: string) => CHANNEL_META[c] ?? { emoji: "•", label: c };
-
-/** One source message behind a fact — the "where did this come from?" evidence. */
-function SourceRow({ s }: { s: FactSourceView }) {
-  const ch = channelMeta(s.channel);
-  return (
-    <div style={{ background: "#FCFAF4", border: "1px solid #EDE7DA", borderRadius: 10, padding: "8px 10px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: s.snippet || s.preview ? 5 : 0, minWidth: 0 }}>
-        <span style={{ fontSize: 11 }}>{ch.emoji}</span>
-        <span className="dm-mono" style={{ fontSize: 9.5, color: "#8A8477", flexShrink: 0 }}>{ch.label}</span>
-        {s.sender && <span style={{ fontSize: 11.5, color: C.ink, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.sender}</span>}
-        {s.subject && <span style={{ fontSize: 11, color: "#8A8477", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>· {s.subject}</span>}
-      </div>
-      {s.snippet ? (
-        <div style={{ fontSize: 12, color: "#57534A", lineHeight: 1.45 }}>“<span style={{ fontStyle: "italic" }}>{s.snippet}</span>”</div>
-      ) : s.preview ? (
-        <div style={{ fontSize: 12, color: "#8A8477", lineHeight: 1.45, overflow: "hidden", textOverflow: "ellipsis" }}>{s.preview}</div>
-      ) : null}
-    </div>
-  );
-}
 
 const KIND_TONE: Record<string, string> = {
   person: C.blue,
@@ -140,8 +113,18 @@ export function KnowledgeView() {
   const [kinds, setKinds] = useState<KindDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
-  const [mode, setMode] = useState<"cards" | "graph" | "concepts">("cards");
+  const [mode, setMode] = useState<"cards" | "graph" | "concepts" | "explore">("cards");
   const [openId, setOpenId] = useState<string | null>(null);
+  // Explorer wiring: entering via "◍ Explore" recenters on that entity; the
+  // key remount resets the walk's breadcrumb trail.
+  const [exploreId, setExploreId] = useState<string | null>(null);
+  const [exploreSeed, setExploreSeed] = useState(0);
+  const explore = (id: string) => {
+    setExploreId(id);
+    setExploreSeed((s) => s + 1);
+    setOpenId(null);
+    setMode("explore");
+  };
 
   useEffect(() => {
     let alive = true;
@@ -200,7 +183,7 @@ export function KnowledgeView() {
           <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>{groups.length} kind{groups.length === 1 ? "" : "s"} · {totalFacts} fact{totalFacts === 1 ? "" : "s"} · your tables are built from these</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <Segmented value={mode} onChange={setMode} options={[{ v: "cards", label: "Cards" }, { v: "graph", label: "Graph" }, { v: "concepts", label: "Concepts" }]} />
+          <Segmented value={mode} onChange={setMode} options={[{ v: "cards", label: "Cards" }, { v: "graph", label: "Graph" }, { v: "concepts", label: "Concepts" }, { v: "explore", label: "Explore" }]} />
           <div style={{ position: "relative", minWidth: 220 }}>
             <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search entities & facts…" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
@@ -215,6 +198,18 @@ export function KnowledgeView() {
       {/* The concept map reads over ALL entities, not the search subset — a
           half-filtered map of content misleads more than it helps. */}
       {mode === "concepts" && <ConceptMapView entities={entities} onOpen={setOpenId} />}
+
+      {/* Explorer: stand on one node, walk edge to edge. Defaults to the
+          best-connected entity until a walk begins. */}
+      {mode === "explore" && entities.length > 0 && (
+        <ExplorerView
+          key={exploreSeed}
+          entities={entities}
+          initialId={exploreId ?? entities[0].id}
+          kindByName={kindByName}
+          onOpenPage={setOpenId}
+        />
+      )}
 
       {mode === "cards" && groups.map(([kind, list]) => {
         const def = kindByName.get(kind);
@@ -235,7 +230,7 @@ export function KnowledgeView() {
       {openId && (() => {
         const ent = entities.find((e) => e.id === openId);
         return ent ? (
-          <EntityPageModal e={ent} kindDef={kindByName.get(ent.kind)} onClose={() => setOpenId(null)} onOpen={setOpenId} />
+          <EntityPageModal e={ent} kindDef={kindByName.get(ent.kind)} onClose={() => setOpenId(null)} onOpen={setOpenId} onExplore={explore} />
         ) : null;
       })()}
     </div>

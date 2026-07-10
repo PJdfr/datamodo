@@ -7,7 +7,7 @@ import { buildConceptMap } from "../lib/datamodo/concept-map.ts";
 import type { KnowledgeEntityView, KnowledgeFactView } from "../lib/datamodo/types.ts";
 
 const fact = (predicate: string, refId: string, value = "?"): KnowledgeFactView => ({
-  predicate, value, ref: true, refId, sources: 1, provenance: [],
+  predicate, value, ref: true, refId, sources: 1, provenance: [], confidence: 1, validFrom: null,
 });
 
 const ent = (id: string, kind: string, label: string, facts: KnowledgeFactView[] = []): KnowledgeEntityView => ({
