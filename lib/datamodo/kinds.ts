@@ -36,12 +36,17 @@ function toDef(r: KindRow): KindDef {
   };
 }
 
-/** Seed the builtin categories once per org (no-op afterwards). */
+/** Seed the builtin categories per org. Also BACKFILLS builtins added to
+ *  DEFAULT_KINDS after an org was first seeded (e.g. `note`), so old orgs
+ *  don't drift from fresh ones. Trade-off: a deliberately deleted builtin
+ *  resurrects on next read — acceptable until deletions get tombstones. */
 export async function ensureDefaultKinds(orgId: string, ownerUserId: string | null): Promise<void> {
-  const count = await prisma.kinds.count({ where: { org_id: orgId } });
-  if (count > 0) return;
+  const existing = await prisma.kinds.findMany({ where: { org_id: orgId }, select: { kind: true } });
+  const have = new Set((existing as { kind: string }[]).map((r) => r.kind));
+  const missing = DEFAULT_KINDS.filter((k) => !have.has(k.kind));
+  if (missing.length === 0) return;
   await prisma.kinds.createMany({
-    data: DEFAULT_KINDS.map((k) => ({
+    data: missing.map((k) => ({
       org_id: orgId,
       owner_user_id: ownerUserId,
       kind: k.kind,

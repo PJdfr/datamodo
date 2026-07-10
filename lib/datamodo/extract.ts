@@ -2,7 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { getLlmProvider, type LlmProvider } from "@/lib/llm";
 import { llmForUser } from "./llm-for-user";
 import { readBlob } from "@/lib/ingest/store";
-import { ingestExtraction, createExtractionReview, type Extraction, type ExtractedFact } from "@/lib/datamodo/knowledge";
+import { ingestExtraction, createExtractionReview, normalizeKey, type Extraction, type ExtractedFact } from "@/lib/datamodo/knowledge";
+import { buildNoteExtraction, NOTE_KIND, type GeneratedNote } from "@/lib/datamodo/document-extraction";
 import { getOnboardingContext } from "@/lib/datamodo/settings";
 import {
   buildClassifyPrompt,
@@ -49,6 +50,9 @@ interface LlmExtraction {
   overallConfidence?: number;
   /** Document mode only: a compact markdown summary — the thick node's body. */
   summary?: string;
+  /** Message mode only: when the message is a substantive write-up the user
+   *  dumped (braindump, meeting notes, plan), the distilled note WE author. */
+  note?: { title?: string; body?: string } | null;
 }
 
 const RESPONSE_SCHEMA: Record<string, unknown> = {
@@ -90,6 +94,10 @@ const RESPONSE_SCHEMA: Record<string, unknown> = {
       },
     },
     overallConfidence: { type: "number" },
+    note: {
+      type: "object",
+      properties: { title: { type: "string" }, body: { type: "string" } },
+    },
   },
   required: ["entities", "facts"],
 };
@@ -114,6 +122,7 @@ Rules:
 - Put strong identifiers on the entity (email/phone/invoiceNo) so duplicates can be resolved.
 - confidence 0..1 per fact; overallConfidence 0..1 for the whole extraction.
 - If there is no useful structured data, return empty arrays.
+- MOST messages are transactional (invoices, confirmations, logistics, short replies): OMIT "note". But when the message is a substantive WRITE-UP the user dumped to keep (meeting notes, a braindump, a plan, an idea, research thoughts), ALSO return "note": {"title": "...", "body": "..."} — title ≤60 chars naming what it's about; body = the user's content distilled into clean markdown (short paragraphs/bullets, THEIR points faithfully — never invent, never pad).
 
 Respond with ONLY a JSON object (no prose, no markdown fences).
 
@@ -142,6 +151,9 @@ export interface ExtractResult {
   model: string;
   overallConfidence: number;
   escalated: boolean;
+  /** Message mode: the pipeline-authored note when the message was a
+   *  substantive dump worth keeping as a page (null otherwise). */
+  note: GeneratedNote | null;
 }
 
 // Below this overall confidence we re-run on the escalation model.
@@ -166,6 +178,11 @@ function buildUserPrompt(input: ExtractInput): string {
   if (input.channel) parts.push(`Channel: ${input.channel}`);
   if (input.sender) parts.push(`From: ${input.sender}`);
   if (input.subject) parts.push(`Subject: ${input.subject}`);
+  // The explicit gesture: a subject like "note: …" / "memo …" says the user is
+  // dumping something to KEEP — always author the note for these.
+  if (input.subject && /^(note|notes|memo)\b/i.test(input.subject.trim())) {
+    parts.push("The user explicitly marked this message as a note to keep — you MUST return the note object.");
+  }
   parts.push(`\nMessage:\n${input.text}`);
   return parts.join("\n");
 }
@@ -248,7 +265,11 @@ export async function extractFromMessage(
   const extraction = input.kinds?.length
     ? canonicalizeExtraction(toExtraction(raw), input.kinds)
     : toExtraction(raw);
-  return { extraction, model: `${llm.name}:${model}`, overallConfidence: confidence, escalated };
+  const note =
+    raw.note && typeof raw.note.title === "string" && typeof raw.note.body === "string" && raw.note.body.trim()
+      ? { title: raw.note.title.trim() || "Note", body: raw.note.body.trim() }
+      : null;
+  return { extraction, note, model: `${llm.name}:${model}`, overallConfidence: confidence, escalated };
 }
 
 // --- Documents: classify-first, template-restrained extraction ----------------
@@ -379,7 +400,7 @@ export async function extractFromDocument(
   }
 
   const summary = typeof raw.summary === "string" && raw.summary.trim() ? raw.summary.trim() : null;
-  return { extraction, summary, docKind, model: `${llm.name}:${model}`, overallConfidence: confidence, escalated };
+  return { extraction, summary, docKind, note: null, model: `${llm.name}:${model}`, overallConfidence: confidence, escalated };
 }
 
 // --- Glue: item (status 'stored') → extract → knowledge layer (steps ⑤+⑥) ----
@@ -520,6 +541,32 @@ export async function runExtractionForItem(
       llm,
     );
     const knowledge = await ingestExtraction(row.org_id, row.owner_user_id, row.id, result.extraction, llm);
+    // A substantive dump becomes a NOTE the pipeline authors: a thick node
+    // whose body is our distilled markdown, edged to what the message
+    // mentioned. Best-effort — a note failure never fails the item.
+    if (result.note) {
+      try {
+        const noteX = buildNoteExtraction(row.id, result.note, result.extraction);
+        await ingestExtraction(row.org_id, row.owner_user_id, row.id, noteX, llm);
+        const noteEnt = await prisma.entities.findFirst({
+          where: {
+            org_id: row.org_id,
+            kind: NOTE_KIND,
+            normalized_key: normalizeKey(noteX.entities[0]),
+            merged_into: null,
+          },
+          select: { id: true },
+        });
+        if (noteEnt) {
+          await prisma.entities.update({
+            where: { id: noteEnt.id, org_id: row.org_id },
+            data: { body_md: result.note.body, updated_at: new Date() },
+          });
+        }
+      } catch (e) {
+        console.error(`[extract] note authoring failed for item ${row.id}`, e);
+      }
+    }
     // Attachments → document entities in the graph (best-effort; a missing
     // blob bucket or a scanned PDF degrades to metadata-only, never fails the
     // item). Dynamic import: documents.ts uses extractFromMessage, so a static

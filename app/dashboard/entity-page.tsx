@@ -186,7 +186,7 @@ export function EntityPageModal({ e, kindDef, onClose, onOpen }: {
       {/* Thick node: the generated body reads first, like a note. */}
       {e.bodyMd && (
         <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
-          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 6 }}>Summary</div>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 6 }}>{e.kind === "note" ? "Note" : "Summary"}</div>
           <MarkdownLite md={e.bodyMd} />
         </div>
       )}

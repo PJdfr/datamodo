@@ -147,6 +147,22 @@ export const DEFAULT_KINDS: KindDef[] = [
     builtin: true,
   },
   {
+    kind: "note",
+    label: "Note",
+    plural: "Notes",
+    icon: "📝",
+    color: "#8E6B4A",
+    description:
+      "A write-up WE distilled from something the user dumped — braindumps, meeting notes, plans, ideas. Generated, never hand-authored.",
+    aliases: ["memo", "braindump", "journal", "minutes"],
+    fields: [],
+    relations: [
+      { predicate: "mentions", label: "mentions", aliases: ["references"] },
+      { predicate: "about", label: "about", targetKind: "concept", aliases: ["topic"] },
+    ],
+    builtin: true,
+  },
+  {
     kind: "concept",
     label: "Concept",
     plural: "Concepts",

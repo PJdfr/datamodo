@@ -43,6 +43,10 @@ declare
   v_f_d1type    uuid;
   v_f_d1m1      uuid;
   v_f_d2m1      uuid;
+  v_item4       uuid;
+  v_k_note1     uuid;
+  v_k_conc1     uuid;
+  v_f_n1m1      uuid;
 begin
   -- 1. Resolve the demo user. Neon Auth users sync into our `profiles` table on
   --    first sign-in (see requireUserOrg). If absent, the user hasn't signed up.
@@ -245,6 +249,33 @@ begin
     (v_org, v_f_d1type, v_item1, 'please find attached invoice INV-4417'),
     (v_org, v_f_d1m1,   v_item1, 'invoice INV-4417 for a total of $18,500'),
     (v_org, v_f_d2m1,   v_item3, 'remittance to follow per the master services agreement');
+
+  -- Generated note: the user dumped a braindump over WhatsApp and the PIPELINE
+  -- authored the note node (body_md = our distillation; edges = machine-made
+  -- wikilinks to the entities the same text mentioned).
+  insert into public.items (org_id, owner_user_id, channel, sender, subject, body_preview, status, received_at)
+  values (v_org, v_uid, 'whatsapp', '+1 (415) 555-0142', 'note: brightwave renewal thoughts',
+          'Thinking after the dinner — renew Brightwave but consolidate billing. INV-4417 should fold into the MSA schedule. Elena open to a 12-month commit discount, ~8%. Decide before Aug 31 due date.',
+          'analyzed', now())
+  returning id into v_item4;
+
+  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys, body_md) values
+    (v_org, v_uid, 'concept', 'vendor consolidation', 'vendor consolidation', '{}'::jsonb, null) returning id into v_k_conc1;
+  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys, body_md) values
+    (v_org, v_uid, 'note', 'Brightwave renewal thoughts', '#note:' || v_item4::text, jsonb_build_object('id', 'note:' || v_item4::text),
+     'Renew **Brightwave**, but consolidate billing:' || chr(10) || chr(10) || '- Fold **INV-4417** into the MSA billing schedule' || chr(10) || '- Elena is open to a **12-month commit discount (~8%)**' || chr(10) || '- Decide before the **Aug 31** due date') returning id into v_k_note1;
+
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values
+    (v_org, v_uid, v_k_note1, 'mentions', v_k_note1::text || '::mentions::e:' || v_k_bright::text, 'many', 0.95, v_k_bright) returning id into v_f_n1m1;
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values
+    (v_org, v_uid, v_k_note1, 'mentions', v_k_note1::text || '::mentions::e:' || v_k_inv1::text, 'many', 0.95, v_k_inv1);
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values
+    (v_org, v_uid, v_k_note1, 'mentions', v_k_note1::text || '::mentions::e:' || v_k_elena::text, 'many', 0.9, v_k_elena);
+  insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, object_entity_id) values
+    (v_org, v_uid, v_k_note1, 'about', v_k_note1::text || '::about::e:' || v_k_conc1::text, 'many', 0.9, v_k_conc1);
+
+  insert into public.fact_sources (org_id, fact_id, source_item_id, snippet) values
+    (v_org, v_f_n1m1, v_item4, 'renew Brightwave but consolidate billing');
 end
 $$;
 

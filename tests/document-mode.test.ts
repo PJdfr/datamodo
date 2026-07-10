@@ -12,6 +12,7 @@ import {
   promptKindTemplate,
   restrictExtractionToTemplates,
 } from "../lib/datamodo/ontology.ts";
+import { buildNoteExtraction } from "../lib/datamodo/document-extraction.ts";
 import type { Extraction } from "../lib/datamodo/knowledge.ts";
 
 const invoice = DEFAULT_KINDS.find((k) => k.kind === "invoice")!;
@@ -114,6 +115,38 @@ test("restrict: a concept merely naming a kind drops — no giant 'invoice' hub 
   const concepts = r.extraction.entities.filter((e) => e.kind === "concept").map((e) => e.label);
   assert.deepEqual(concepts, ["cloud infrastructure"]);
   assert.equal(r.extraction.facts.length, 1);
+});
+
+// --- generated notes -------------------------------------------------------------
+
+test("buildNoteExtraction: note node + edges to the message's entities, facts NOT copied", () => {
+  const inner: Extraction = {
+    entities: [
+      { localId: "e1", kind: "company", label: "Brightwave" },
+      { localId: "e2", kind: "concept", label: "vendor consolidation" },
+    ],
+    facts: [
+      // Already ingested by the message pass — must not ride along.
+      { subjectLocalId: "e1", predicate: "industry", value: { kind: "text", text: "Design" } },
+    ],
+  };
+  const x = buildNoteExtraction("item-123", { title: "Brightwave renewal thoughts", body: "- consolidate" }, inner);
+  assert.equal(x.entities[0].kind, "note");
+  assert.equal(x.entities[0].label, "Brightwave renewal thoughts");
+  assert.equal(x.entities[0].naturalKeys?.id, "note:item-123"); // idempotent per item
+  assert.deepEqual(x.entities.map((e) => e.localId), ["note", "n:e1", "n:e2"]);
+  // Only note edges: mentions for things, about for concepts. No inner facts.
+  assert.deepEqual(
+    x.facts.map((f) => `${f.predicate}→${f.value.kind === "entity" ? f.value.entityLocalId : "?"}`).sort(),
+    ["about→n:e2", "mentions→n:e1"],
+  );
+});
+
+test("buildNoteExtraction: empty title falls back, long title capped", () => {
+  const x = buildNoteExtraction("i1", { title: "  ", body: "b" }, { entities: [], facts: [] });
+  assert.equal(x.entities[0].label, "Note");
+  const y = buildNoteExtraction("i1", { title: "x".repeat(500), body: "b" }, { entities: [], facts: [] });
+  assert.equal(y.entities[0].label.length, 120);
 });
 
 // --- prompt builders -----------------------------------------------------------
