@@ -42,9 +42,9 @@
     of every tick: stale `analyzing` orphans (>10 min or null claim) and retryable
     `failed` items requeue to `stored`, capped at 3 attempts — beyond that orphans are
     marked failed ("extraction timed out"), poison items stay failed. Tick response now
-    reports `{requeued, abandoned}`. **⚠️ DDL not yet applied to the Neon branches**
-    (MCP calls need interactive approval this session lacks) — run the migration file
-    against **dev** now and **prod** at promote: `psql "$DATABASE_URL" -f neon/migrations/20260710130000_items_claim_tracking.sql`.
+    reports `{requeued, abandoned}`. **DDL applied + verified 2026-07-10** on all three
+    Neon branches (`dev`, `prod`, and the Vercel-created
+    `preview/claude/dev-branch-work-4p5wlf`) via the Neon MCP — nothing owed at promote.
   - **.xlsx attachments** now flow through the document pipeline:
     `attachmentTextKind` gains `"sheet"`, parsed with the EXISTING `parseWorkbook`,
     flattened by pure `sheetToText` (header + pipe-rows, 200-row cap → `partial`).
@@ -549,8 +549,8 @@ the same migration SQL to `prod` — Neon branches don't git-merge DDL).
   consumer; needs `APP_URL` + `CRON_SECRET` GitHub secrets). **Verified:** inserted a stored item →
   endpoint returned `{claimed:1,processed:1,failed:0}`, item reached `analyzed`, LLM ran, facts
   folded via Prisma (0 from nonsense text = correct); 401 without the secret. ~~TODO: orphan
-  recovery + failed-item retry~~ ✅ **done 2026-07-10** (`recoverExtractionQueue`; needs the
-  `items_claim_tracking` migration applied to the Neon branches — see Recent changes).
+  recovery + failed-item retry~~ ✅ **done 2026-07-10** (`recoverExtractionQueue`; the
+  `items_claim_tracking` migration is applied to all Neon branches — see Recent changes).
   Remaining: throughput is 3/5min (raise `EXTRACT_BATCH` / add an internal drain loop).
 - 🔨 **7. Env/config + prod cutover** — **prod flipped to Neon** (PR #27 merged; Vercel
   production deploy `READY`). Fixed a Vercel build gap: added `postinstall: prisma generate`
