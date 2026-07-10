@@ -76,6 +76,13 @@ reviewable, nothing is ever silently lost or merged.
 - **Modified Next.js** — APIs may differ from training data; read
   `node_modules/next/dist/docs/` before writing framework-touching code.
 
+## Product simplicity rule (decided 2026-07-10)
+The dashboard must stay SUPER CLEAR — the user must never feel lost. Prefer
+progressive disclosure over adding parallel options: before adding a toggle,
+button, or view, ask what it replaces or where it nests. Views multiply only
+when each answers a genuinely different question; controls the user rarely
+needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
+
 ## Design system (brand)
 - Brand name always lowercase **datamodo**. Cream `#F6F2E9` canvas, warm ink
   `#211E18`, ONE accent: coral `#E4593B`. Data/ids/kickers in Geist Mono;

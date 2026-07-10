@@ -22,6 +22,17 @@
 ## Explorer track (the north star — phase 1 ✅ shipped 2026-07-10)
 - ~~Ego-graph Explorer~~ ✅ — walk edge to edge, natural-shape panel, edge
   inspector, breadcrumbs, jump box (4th Knowledge mode + "◍ Explore" on pages).
+- **3D Explorer redesign — HANDED TO CLAUDE DESIGN (in progress)**: 3D/depth
+  canvas, camera movement on recenter, enter/exit animations for nodes joining/
+  leaving the neighborhood. When the design lands in `design/system/`, port it
+  onto the EXISTING pure core (`buildEgoGraph`/`radialLayout` stay the data
+  contract) — the design replaces the skin, not the feature. Must degrade to
+  the current 2D under `prefers-reduced-motion`.
+- **Dashboard clarity pass** (see MEMORY.md simplicity rule): audit every
+  toggle/button/view for "does the user need this HERE?" — e.g. Data tab now
+  has 6 sub-views + 3 top buttons; Knowledge has 4 modes. Consolidate or nest
+  (progressive disclosure), don't spread. Candidate: fold Files/Timeline into
+  Knowledge or an "Explore"-first layout; move rare actions behind a menu.
 - **Node shapes, phase 2**: image nodes render their image (original already
   streamable); `bookmark` builtin kind for URLs; dataset-as-node.
 - **On-demand synthesis**: "✦ Synthesize" on concept/hub pages → cited
