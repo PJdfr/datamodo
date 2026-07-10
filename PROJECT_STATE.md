@@ -12,6 +12,24 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Ontology layer ① SHIPPED: user-editable kind registry
+  ("Categories").** New `kinds` table (migration
+  [20260710180000_kinds_registry.sql](neon/migrations/20260710180000_kinds_registry.sql),
+  applied to all 3 Neon branches). Pure core
+  [ontology.ts](lib/datamodo/ontology.ts): `DEFAULT_KINDS` (person/company/invoice/
+  document/event/concept, each with field templates + relation verbs + aliases),
+  `canonicalizeExtraction` (kind synonyms → canonical slug, predicate synonyms →
+  template field keys — **fixes the predicate-drift fact-dedup bug**; off-template
+  vocabulary passes through slugified, never blocked), `promptCategories` (compact
+  category menu injected into the extraction prompt). DB side
+  [kinds.ts](lib/datamodo/kinds.ts) (lazy per-org seeding + CRUD), `GET/POST /api/kinds`
+  + `PATCH/DELETE /api/kinds/[id]`. Extraction (`extractFromMessage` +
+  `runExtractionForItem` + document pipeline) now loads the registry, steers on it,
+  and canonicalizes output. UI: **Categories** manager
+  ([categories-modal.tsx](app/dashboard/categories-modal.tsx)) from the Data tab —
+  list + editor (icon, description, aliases, typed fields w/ required, relation verbs
+  w/ target kinds); builtins editable, slug immutable (identity). Verified: 22/22 unit
+  tests + tsc + lint + build green + both modal views screenshotted.
 - **2026-07-10** — **Inbound email verified LIVE end-to-end + extraction no longer
   waits for GitHub's cron.** First real forwarded emails (Gmail → Cloudflare Email
   Routing → worker → `/api/ingest`) captured on the dev DB with the attachment blob +

@@ -39,6 +39,7 @@ export async function processItemAttachments(
   item: ItemForDocs,
   llm: LlmProvider,
   businessContext?: string | null,
+  kinds?: import("./ontology").KindDef[],
 ): Promise<AttachmentProcessResult[]> {
   const atts = await prisma.attachments.findMany({
     where: { item_id: item.id },
@@ -75,6 +76,7 @@ export async function processItemAttachments(
                 sender: null,
                 channel: item.channel,
                 businessContext,
+                kinds,
               },
               llm,
             );

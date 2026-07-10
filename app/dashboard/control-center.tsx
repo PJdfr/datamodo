@@ -73,6 +73,7 @@ import { KnowledgeView } from "./knowledge-view";
 import { InsightsView } from "./insights-view";
 import { FilesView } from "./files-view";
 import { AnswerCard } from "./answer-card";
+import { CategoriesModal } from "./categories-modal";
 import { BuildFromKnowledgeModal } from "./build-from-knowledge";
 
 /* ================================================================== */
@@ -179,6 +180,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [importGraphOpen, setImportGraphOpen] = useState(false);
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [contextDismissed, setContextDismissed] = useState(false);
   const onboardingTrack = Array.isArray(onboarding.answers?.track) ? (onboarding.answers.track as string[]) : [];
   const hasContext = !!onboarding.businessContext;
@@ -396,6 +398,9 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
                 <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "knowledge", label: "Knowledge" }, { v: "insights", label: "Insights" }, { v: "files", label: "Files" }]} />
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <Hov onClick={() => setCategoriesOpen(true)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
+                    <span style={{ color: C.accent }}>▣</span> Categories
+                  </Hov>
                   <Hov onClick={() => setImportGraphOpen(true)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
                     <span style={{ color: C.accent }}>✦</span> Spreadsheet → knowledge
                   </Hov>
@@ -497,6 +502,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
       {connectionsOpen && <ConnectionsModal inbox={inbox} onClose={() => setConnectionsOpen(false)} />}
       {onboardingOpen && <OnboardingModal initialContext={onboarding.businessContext} initialTrack={onboardingTrack} onClose={() => setOnboardingOpen(false)} onSaved={() => { setOnboardingOpen(false); router.refresh(); }} onImportSpreadsheet={() => { setOnboardingOpen(false); setImportGraphOpen(true); }} />}
       {importGraphOpen && <ImportGraphModal onClose={() => setImportGraphOpen(false)} onDone={() => router.refresh()} />}
+      {categoriesOpen && <CategoriesModal onClose={() => setCategoriesOpen(false)} />}
       {buildOpen && (
         <BuildFromKnowledgeModal
           datasets={datasets.map((d) => ({ id: d.id, name: d.name, columns: d.columns }))}
