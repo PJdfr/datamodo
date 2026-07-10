@@ -18,8 +18,7 @@ concurrency:
 jobs:
   drain:
     runs-on: ubuntu-latest
-    # CRON_SECRET (secret) + APP_URL (variable) live in the Production environment.
-    environment: Production
+    # CRON_SECRET = repository secret, APP_URL = repository variable.
     steps:
       - name: Ping extraction consumer
         run: |
