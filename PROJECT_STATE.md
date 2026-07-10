@@ -12,6 +12,40 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Ontology phase ⑤ SHIPPED: thick nodes — classify-first document
+  extraction + natural-shape rendering.** The design conversation's conclusion: some
+  knowledge is graph-shaped, some is document/table-shaped; nodes should open in their
+  NATURAL SHAPE, and documents should be DISTILLED (not transcribed) into the graph.
+  - **`entities.body_md`** (migration [20260710210000](neon/migrations/20260710210000_entities_body_md.sql),
+    **applied + verified on all 3 Neon branches**): an entity can carry a generated
+    markdown body — the thick node's page. Seed gives both demo documents one.
+  - **Classify-first, template-restrained document extraction**
+    ([extract.ts](lib/datamodo/extract.ts) `classifyDocumentKind` + `extractFromDocument`,
+    replacing `extractFromMessage` in the attachment pipeline): ① a cheap call classifies
+    the document into the user's categories ("this PDF IS an invoice / a paper"); ② a
+    focused prompt extracts ONLY that kind's template fields + relation verbs + ≤3
+    concepts + a markdown `summary` (stored as the doc entity's `body_md`). Post-LLM,
+    pure `restrictExtractionToTemplates` ([ontology.ts](lib/datamodo/ontology.ts))
+    backstops: off-template facts on templated kinds drop, concepts cap at 3, a concept
+    that merely names a kind ("Invoices") drops — category membership is the `kind`
+    COLUMN, never a hub node, so invoices cluster by query, not by edges to a giant
+    topic node. Un-templated kinds still pass through (steer, never block); message
+    extraction is unchanged (free-range). `indexKinds` now also indexes kind plurals.
+  - **Natural-shape entity pages** ([entity-page.tsx](app/dashboard/entity-page.tsx)):
+    every entity opens as a page — documents read as a **summary page** (safe
+    `MarkdownLite` renderer — React-text-node output, injection-inert) with connection
+    chips + "original ↓"; typed entities read as a **record table** (template fields
+    first, missing-required flagged amber, off-template attrs after, relationships as
+    clickable chips that navigate page→page). Wired from Knowledge cards ("open ›"),
+    the graph inspector ("Open page ›"), and Files cards.
+  - **`mergeEntities` gap fixed** ([knowledge.ts](lib/datamodo/knowledge.ts)): merges now
+    also repoint `doc_chunks.entity_id` + `dataset_rows.subject_entity_id` and carry
+    `body_md` to the winner — thick-node payloads were previously stranded on the
+    tombstone. (Merge moves identity only; stored content is never rewritten.)
+  - Verified: 37/37 tests (10 new on restraint/prompts) + tsc + build green; lint ==
+    baseline; SSR smoke-rendered both page shapes (14 assertions incl. XSS-inertness).
+    **Doc-mode prompts not yet run against a live LLM** (sandbox has no key) — same
+    chatJSON contract as the verified message extraction.
 - **2026-07-10** — **Ontology phase ④ SHIPPED: leashed concepts, completeness cues,
   extraction_version.**
   - **Concepts, with the leash**: extraction now receives the user's existing concept
@@ -719,6 +753,30 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
 
 ## Next steps
 
+-4. **Projections catalog (DESIGNED 2026-07-10) — every view is a derivation of the
+   knowledge vault; nothing is a second store.** Shipped today: ✅ entity pages (record
+   table / document summary page), plus the pre-existing tables, smart folders, cards,
+   graph, insights, search+answers. The designed remainder, in rough order of value:
+   - **Authored notes** — a `note` kind whose markdown body is user-written (the
+     Obsidian move): `[[wikilinks]]` resolve through entity resolution into real
+     edges, the note runs through the SAME extraction pipeline (writing a note feeds
+     the graph). Blob + body_md + chunks machinery all exists; needs an editor UI +
+     wikilink parser.
+   - **Graph curation** — persist per-entity x/y pins (small jsonb) so the canvas
+     becomes a lived-in space; collapse a kind-cluster into one "Invoices (12)" table
+     node (the hypernode); expand on click.
+   - **Timeline** — facts and items all carry time (valid_from, value_date, sent_at):
+     a chronological projection per entity ("everything about Brightwave, in order")
+     and globally. Pure query.
+   - **Concept map** — concepts + `about`/`related_to` edges only: the Obsidian-style
+     map of content, one zoom level above the entity graph.
+   - **Dossier/report export** — an entity page + its neighborhood rendered to a
+     shareable markdown/PDF ("everything we know about Acme, cited").
+   - **Vision/OCR tier** — images + scanned PDFs become understood thick nodes (today
+     they land metadata_only); pipeline upgrade behind `extraction_version` requeue.
+   - **Off-template review routing** — restrained document facts currently DROP
+     (documented in restrictExtractionToTemplates; text survives in chunks); route
+     them to the Review queue instead once volume justifies it.
 -3. **Local / open-source single-user edition (DESIGNED 2026-07-10, not built).**
    Self-hosted, one user, privacy-first. ~90% of code ships unchanged because the
    seams are already provider-generic (Postgres-native schema, S3-generic blobs,

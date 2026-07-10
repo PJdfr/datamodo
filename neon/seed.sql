@@ -211,10 +211,13 @@ begin
     (v_item1, v_org, v_uid, 'INV-4417.pdf', 'application/pdf', 48231, 'seed-doc-inv4417'),
     (v_item3, v_org, v_uid, 'Brightwave-MSA-2026.pdf', 'application/pdf', 812044, 'seed-doc-msa2026');
 
-  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys) values
-    (v_org, v_uid, 'document', 'INV-4417.pdf', '#doc:seed-doc-inv4417:inv-4417.pdf', '{"id":"doc:seed-doc-inv4417:inv-4417.pdf"}'::jsonb) returning id into v_k_doc1;
-  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys) values
-    (v_org, v_uid, 'document', 'Brightwave-MSA-2026.pdf', '#doc:seed-doc-msa2026:brightwave-msa-2026.pdf', '{"id":"doc:seed-doc-msa2026:brightwave-msa-2026.pdf"}'::jsonb) returning id into v_k_doc2;
+  -- body_md = the extraction-time markdown summary (the thick node's page body).
+  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys, body_md) values
+    (v_org, v_uid, 'document', 'INV-4417.pdf', '#doc:seed-doc-inv4417:inv-4417.pdf', '{"id":"doc:seed-doc-inv4417:inv-4417.pdf"}'::jsonb,
+     'Invoice **INV-4417** from Brightwave Studio for **$18,500**, due **Aug 31, 2026**. Covers the Q3 brand-refresh engagement:' || chr(10) || chr(10) || '- Design sprints (3× two-week cycles)' || chr(10) || '- Asset handoff and launch support' || chr(10) || chr(10) || 'Payment terms net-30; remittance details on page 2.') returning id into v_k_doc1;
+  insert into public.entities (org_id, owner_user_id, kind, canonical_label, normalized_key, natural_keys, body_md) values
+    (v_org, v_uid, 'document', 'Brightwave-MSA-2026.pdf', '#doc:seed-doc-msa2026:brightwave-msa-2026.pdf', '{"id":"doc:seed-doc-msa2026:brightwave-msa-2026.pdf"}'::jsonb,
+     'Master services agreement between **Northwind Ventures** and **Brightwave Studio**, effective 2026. Key points:' || chr(10) || chr(10) || '- Statement-of-work model; each SOW billed separately' || chr(10) || '- Net-30 payment terms, 1.5% monthly late fee' || chr(10) || '- 12-month term with auto-renewal, 60-day termination notice' || chr(10) || chr(10) || 'Signed by Elena Vasquez (Brightwave). *Only the first pages were indexed.*') returning id into v_k_doc2;
 
   insert into public.facts (org_id, owner_user_id, subject_entity_id, predicate, claim_key, cardinality, confidence, value_text) values
     (v_org, v_uid, v_k_doc1, 'file_type', v_k_doc1::text || '::file_type', 'one', 1.0, 'application/pdf') returning id into v_f_d1type;

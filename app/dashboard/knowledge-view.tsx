@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { C, monoLabel, CountUp, Segmented } from "./ui";
 import { KnowledgeGraphView } from "./knowledge-graph";
+import { EntityPageModal } from "./entity-page";
 import type { KnowledgeEntityView, FactSourceView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
 
@@ -61,7 +62,7 @@ const plural = (kind: string) => {
   return kind + "s";
 };
 
-function EntityCard({ e, kindDef }: { e: KnowledgeEntityView; kindDef?: KindDef }) {
+function EntityCard({ e, kindDef, onOpen }: { e: KnowledgeEntityView; kindDef?: KindDef; onOpen?: (id: string) => void }) {
   const tone = kindDef?.color ?? toneOf(e.kind);
   const keys = Object.entries(e.naturalKeys ?? {});
   const [openFact, setOpenFact] = useState<number | null>(null);
@@ -72,13 +73,19 @@ function EntityCard({ e, kindDef }: { e: KnowledgeEntityView; kindDef?: KindDef 
     .map((f) => f.label);
   return (
     <div className="dm-card" style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 13, padding: "13px 15px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: keys.length || e.facts.length || missing.length ? 10 : 0 }}>
+      <button
+        type="button"
+        onClick={onOpen ? () => onOpen(e.id) : undefined}
+        title="Open this entity's page"
+        style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: keys.length || e.facts.length || missing.length ? 10 : 0, width: "100%", background: "transparent", border: "none", padding: 0, cursor: onOpen ? "pointer" : "default", textAlign: "left", fontFamily: "inherit" }}
+      >
         <span style={{ width: 30, height: 30, borderRadius: 9, background: tone, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{e.label.charAt(0).toUpperCase()}</span>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em", color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.label}</div>
-          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "#A39B8B" }}>{e.kind} · {e.edges} link{e.edges === 1 ? "" : "s"}</div>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "#A39B8B" }}>{e.kind} · {e.edges} link{e.edges === 1 ? "" : "s"}{e.bodyMd ? " · 📝" : ""}</div>
         </div>
-      </div>
+        {onOpen && <span className="dm-mono" style={{ fontSize: 10.5, color: "#B7AF9F", flexShrink: 0 }}>open ›</span>}
+      </button>
       {(keys.length > 0 || missing.length > 0) && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: e.facts.length ? 10 : 0 }}>
           {keys.map(([k, v]) => (
@@ -133,6 +140,7 @@ export function KnowledgeView() {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [mode, setMode] = useState<"cards" | "graph">("cards");
+  const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -201,7 +209,7 @@ export function KnowledgeView() {
 
       {shown.length === 0 && <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Nothing matches “{q.trim()}”.</div>}
 
-      {mode === "graph" && shown.length > 0 && <KnowledgeGraphView entities={shown} />}
+      {mode === "graph" && shown.length > 0 && <KnowledgeGraphView entities={shown} onOpen={setOpenId} />}
 
       {mode === "cards" && groups.map(([kind, list]) => {
         const def = kindByName.get(kind);
@@ -213,11 +221,18 @@ export function KnowledgeView() {
               <span className="dm-mono" style={{ ...monoLabel }}>{list.length}</span>
             </div>
             <div className="dm-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
-              {list.map((e) => <EntityCard key={e.id} e={e} kindDef={def} />)}
+              {list.map((e) => <EntityCard key={e.id} e={e} kindDef={def} onOpen={setOpenId} />)}
             </div>
           </div>
         );
       })}
+
+      {openId && (() => {
+        const ent = entities.find((e) => e.id === openId);
+        return ent ? (
+          <EntityPageModal e={ent} kindDef={kindByName.get(ent.kind)} onClose={() => setOpenId(null)} onOpen={setOpenId} />
+        ) : null;
+      })()}
     </div>
   );
 }

@@ -532,6 +532,7 @@ CREATE TABLE public.entities (
     embedding public.vector(1536),
     support integer DEFAULT 0 NOT NULL,
     merged_into uuid,
+    body_md text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );

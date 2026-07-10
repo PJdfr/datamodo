@@ -4,7 +4,16 @@ import { llmForUser } from "./llm-for-user";
 import { readBlob } from "@/lib/ingest/store";
 import { ingestExtraction, createExtractionReview, type Extraction, type ExtractedFact } from "@/lib/datamodo/knowledge";
 import { getOnboardingContext } from "@/lib/datamodo/settings";
-import { canonicalizeExtraction, promptCategories, type KindDef } from "@/lib/datamodo/ontology";
+import {
+  buildClassifyPrompt,
+  buildDocumentPrompt,
+  canonicalizeExtraction,
+  promptCategories,
+  restrictExtractionToTemplates,
+  slugify,
+  type DocumentPromptInput,
+  type KindDef,
+} from "@/lib/datamodo/ontology";
 
 // LLM extraction: one message → structured entities + facts (the ⑤ step).
 // Small-model-first with a confidence-gated escalation. Produces the same
@@ -38,6 +47,8 @@ interface LlmExtraction {
   entities: LlmEntity[];
   facts: LlmFact[];
   overallConfidence?: number;
+  /** Document mode only: a compact markdown summary — the thick node's body. */
+  summary?: string;
 }
 
 const RESPONSE_SCHEMA: Record<string, unknown> = {
@@ -81,6 +92,15 @@ const RESPONSE_SCHEMA: Record<string, unknown> = {
     overallConfidence: { type: "number" },
   },
   required: ["entities", "facts"],
+};
+
+const DOC_RESPONSE_SCHEMA: Record<string, unknown> = {
+  ...RESPONSE_SCHEMA,
+  properties: {
+    ...(RESPONSE_SCHEMA.properties as Record<string, unknown>),
+    summary: { type: "string" },
+  },
+  required: ["entities", "facts", "summary"],
 };
 
 const SYSTEM = `You extract structured facts from a SINGLE communication (an email or chat message) for a personal data assistant.
@@ -229,6 +249,137 @@ export async function extractFromMessage(
     ? canonicalizeExtraction(toExtraction(raw), input.kinds)
     : toExtraction(raw);
   return { extraction, model: `${llm.name}:${model}`, overallConfidence: confidence, escalated };
+}
+
+// --- Documents: classify-first, template-restrained extraction ----------------
+//
+// A document is NOT free-ranged like a message. The pipeline is:
+//   ① classify — a cheap call decides which category the document's PRIMARY
+//     content is (invoice, research paper, contract…), from the user's registry;
+//   ② distill — extraction is focused on THAT kind's template (its fields and
+//     relation verbs only) + at most 3 concepts + a markdown SUMMARY that
+//     becomes the document node's body (entities.body_md).
+// The full text survives regardless (doc_chunks + the original blob), so the
+// graph only receives what the template says matters — no noise star-clusters.
+
+const CLASSIFY_SYSTEM = `You classify ONE DOCUMENT into the best-fitting category from a user's list.
+Respond with ONLY a JSON object: {"kind": "<category slug>", "confidence": 0..1}.
+Judge by the document's PRIMARY content — what the document IS, not what it merely mentions. If none fits, use "other".`;
+
+const CLASSIFY_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: { kind: { type: "string" }, confidence: { type: "number" } },
+  required: ["kind"],
+};
+
+export interface DocClassification {
+  /** A canonical registry slug, or null when nothing fits ("other"). */
+  kind: string | null;
+  confidence: number;
+}
+
+/** ① The cheap classify call. Returns null kind when the registry has no fit —
+ *  the caller then falls back to the generic document template. */
+export async function classifyDocumentKind(
+  args: { filename?: string | null; text: string; kinds: KindDef[] },
+  llm: LlmProvider = getLlmProvider(),
+): Promise<DocClassification> {
+  const raw = await llm.chatJSON<{ kind?: string; confidence?: number }>({
+    model: llm.models.extract,
+    system: CLASSIFY_SYSTEM,
+    user: buildClassifyPrompt(args),
+    schema: CLASSIFY_SCHEMA,
+    schemaName: "classification",
+    maxTokens: 2000,
+  });
+  const slug = slugify(raw.kind ?? "");
+  const hit = args.kinds.find((k) => k.kind === slug || k.aliases.some((a) => slugify(a) === slug));
+  return {
+    kind: hit?.kind ?? null,
+    confidence: typeof raw.confidence === "number" ? raw.confidence : 0.5,
+  };
+}
+
+const DOC_SYSTEM = `You distill ONE DOCUMENT (a file the user received) into structured knowledge for a personal data assistant.
+
+The document's full text is archived elsewhere — you are DISTILLING, not transcribing.
+
+Return:
+1. "summary": a compact markdown summary (3–8 sentences; a short bullet list where it genuinely helps). A reader should understand the document without opening it. No heading repeating the filename.
+2. entities/facts: the document's PRIMARY SUBJECT as the FIRST entity ("e1"), using the category and ONLY the template predicates given in the instructions; entities the template's relation verbs point at; plus concept tags.
+- Tag with AT MOST 3 "concept" entities for what the document is about (research area, topic, technique). STRONGLY prefer the user's existing concepts when given.
+- NEVER extract incidental entities, passing mentions, boilerplate, or facts outside the template. Fewer, correct facts beat many.
+- Fact values: valueType "number" (digits in valueNumber, plus unit like "USD"), "date" (valueDate as YYYY-MM-DD), "entity" (valueEntityLocalId), else "text" (valueText). Use snake_case predicates. Put strong identifiers (email/phone/invoiceNo) on entities.
+- confidence 0..1 per fact; overallConfidence 0..1 overall.
+
+Respond with ONLY a JSON object (no prose, no markdown fences).
+
+Example — an invoice PDF, category "invoice" with fields amount/due_date/invoice_no and relation issued_by→company:
+{"summary":"Invoice **INV-9** from Acme for **$100**, due 2026-01-02. Covers January consulting.","entities":[{"localId":"e1","kind":"invoice","label":"INV-9","invoiceNo":"INV-9"},{"localId":"e2","kind":"company","label":"Acme"}],"facts":[{"subjectLocalId":"e1","predicate":"amount","valueType":"number","valueNumber":100,"unit":"USD","confidence":0.95},{"subjectLocalId":"e1","predicate":"due_date","valueType":"date","valueDate":"2026-01-02","confidence":0.95},{"subjectLocalId":"e1","predicate":"issued_by","valueType":"entity","valueEntityLocalId":"e2","confidence":0.9}],"overallConfidence":0.95}`;
+
+export interface DocumentExtractInput extends DocumentPromptInput {
+  channel?: string | null;
+}
+
+export interface DocumentExtractResult extends ExtractResult {
+  /** The markdown summary — the document node's body (null when the model
+   *  returned none). */
+  summary: string | null;
+  /** What the document was classified as (registry slug), or null. */
+  docKind: string | null;
+}
+
+/** ①+② Extract a DOCUMENT: classify into the user's categories, then distill
+ *  to that category's template + concepts + a markdown summary. */
+export async function extractFromDocument(
+  input: DocumentExtractInput,
+  llm: LlmProvider = getLlmProvider(),
+): Promise<DocumentExtractResult> {
+  let docKind = input.docKind ?? null;
+  if (!docKind && input.kinds?.length) {
+    try {
+      docKind = (await classifyDocumentKind({ filename: input.filename, text: input.text, kinds: input.kinds }, llm)).kind;
+    } catch (e) {
+      console.error("[extract] document classification failed; using generic template", e);
+    }
+  }
+
+  const user = buildDocumentPrompt({ ...input, docKind });
+  const run = async (model: string) =>
+    llm.chatJSON<LlmExtraction>({
+      model,
+      system: DOC_SYSTEM,
+      user,
+      schema: DOC_RESPONSE_SCHEMA,
+      schemaName: "document_extraction",
+      maxTokens: 8000,
+    });
+
+  let model = llm.models.extract;
+  let raw = await run(model);
+  let confidence = typeof raw.overallConfidence === "number" ? raw.overallConfidence : 1;
+  let escalated = false;
+  if (confidence < ESCALATE_BELOW && llm.models.escalate !== llm.models.extract) {
+    model = llm.models.escalate;
+    raw = await run(model);
+    confidence = typeof raw.overallConfidence === "number" ? raw.overallConfidence : confidence;
+    escalated = true;
+  }
+
+  let extraction = toExtraction(raw);
+  if (input.kinds?.length) {
+    extraction = canonicalizeExtraction(extraction, input.kinds);
+    const restricted = restrictExtractionToTemplates(extraction, input.kinds, { maxConcepts: 3 });
+    if (restricted.droppedFacts || restricted.droppedEntities) {
+      console.log(
+        `[extract] document restraint dropped ${restricted.droppedFacts} off-template facts, ${restricted.droppedEntities} incidental entities`,
+      );
+    }
+    extraction = restricted.extraction;
+  }
+
+  const summary = typeof raw.summary === "string" && raw.summary.trim() ? raw.summary.trim() : null;
+  return { extraction, summary, docKind, model: `${llm.name}:${model}`, overallConfidence: confidence, escalated };
 }
 
 // --- Glue: item (status 'stored') → extract → knowledge layer (steps ⑤+⑥) ----

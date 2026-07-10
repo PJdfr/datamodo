@@ -367,8 +367,10 @@ async function bumpSupport(id: string): Promise<void> {
 }
 
 /**
- * Merge duplicate entity `loserId` into `winnerId`: re-point its facts, tombstone
- * it. Intended for the async compaction pass, not the hot path.
+ * Merge duplicate entity `loserId` into `winnerId`: re-point everything hanging
+ * off it (facts, document chunks, projected rows, body), tombstone it. Merge
+ * moves IDENTITY only — no stored content (blobs, chunk text, markdown) is ever
+ * rewritten. Intended for the async compaction pass, not the hot path.
  */
 export async function mergeEntities(
   orgId: string,
@@ -383,6 +385,23 @@ export async function mergeEntities(
     where: { org_id: orgId, object_entity_id: loserId },
     data: { object_entity_id: winnerId },
   });
+  // Thick-node payloads follow the identity: the loser's document passages and
+  // any table rows projected from it must not stay attached to the tombstone.
+  await prisma.doc_chunks.updateMany({
+    where: { org_id: orgId, entity_id: loserId },
+    data: { entity_id: winnerId },
+  });
+  await prisma.dataset_rows.updateMany({
+    where: { subject_entity_id: loserId },
+    data: { subject_entity_id: winnerId },
+  });
+  const [loser, winner] = await Promise.all([
+    prisma.entities.findUnique({ where: { id: loserId }, select: { body_md: true } }),
+    prisma.entities.findUnique({ where: { id: winnerId }, select: { body_md: true } }),
+  ]);
+  if (loser?.body_md && !winner?.body_md) {
+    await prisma.entities.update({ where: { id: winnerId, org_id: orgId }, data: { body_md: loser.body_md } });
+  }
   await prisma.entities.update({ where: { id: loserId, org_id: orgId }, data: { merged_into: winnerId } });
 }
 
@@ -601,7 +620,7 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
   const [ents, facts] = await Promise.all([
     prisma.entities.findMany({
       where: { org_id: orgId, merged_into: null },
-      select: { id: true, kind: true, canonical_label: true, natural_keys: true },
+      select: { id: true, kind: true, canonical_label: true, natural_keys: true, body_md: true },
     }),
     prisma.facts.findMany({
       where: { org_id: orgId, valid_to: null },
@@ -618,7 +637,7 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
       take: 5000,
     }),
   ]);
-  const entities = (ents as { id: string; kind: string; canonical_label: string; natural_keys: Record<string, string> }[] | null) ?? [];
+  const entities = (ents as { id: string; kind: string; canonical_label: string; natural_keys: Record<string, string>; body_md: string | null }[] | null) ?? [];
   const factList = (facts as unknown as KFact[] | null) ?? [];
   const label = new Map(entities.map((e) => [e.id, e.canonical_label]));
 
@@ -679,6 +698,7 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
       kind: e.kind,
       label: e.canonical_label,
       naturalKeys: e.natural_keys ?? {},
+      bodyMd: e.body_md ?? null,
       edges: edges.get(e.id) ?? 0,
       facts: (bySubject.get(e.id) ?? []).map((f) => {
         const v = fmt(f);

@@ -183,6 +183,7 @@ model entities {
   embedding                                                      Unsupported("vector")?
   support                                                        Int                    @default(0)
   merged_into                                                    String?                @db.Uuid
+  body_md                                                        String?
   created_at                                                     DateTime               @default(now()) @db.Timestamptz(6)
   updated_at                                                     DateTime               @default(now()) @db.Timestamptz(6)
   dataset_rows                                                   dataset_rows[]

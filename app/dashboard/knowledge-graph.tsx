@@ -113,7 +113,7 @@ function layout(nodes: Node[], edges: Edge[]): Record<string, Pos> {
   return pos;
 }
 
-export function KnowledgeGraphView({ entities }: { entities: KnowledgeEntityView[] }) {
+export function KnowledgeGraphView({ entities, onOpen }: { entities: KnowledgeEntityView[]; onOpen?: (id: string) => void }) {
   // Top entities by connectivity; everything else is summarized in the footer.
   const { nodes, edges, hidden } = useMemo(() => {
     const picked = [...entities].sort((a, b) => b.edges - a.edges).slice(0, MAX_NODES);
@@ -295,6 +295,16 @@ export function KnowledgeGraphView({ entities }: { entities: KnowledgeEntityView
             <button onClick={() => setSelected(null)} aria-label="Close inspector" style={{ border: "none", background: "transparent", color: "#A39B8B", cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 2 }}>×</button>
           </div>
           <div className="dm-display" style={{ fontWeight: 700, fontSize: 16.5, letterSpacing: "-0.02em", color: C.ink, lineHeight: 1.15 }}>{sel.label}</div>
+          {onOpen && (
+            <button
+              type="button"
+              onClick={() => onOpen(sel.id)}
+              className="dm-mono"
+              style={{ marginTop: 8, fontSize: 10.5, color: C.ink, background: "#FBF8F1", border: "1px solid #E1D9C8", borderRadius: 7, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}
+            >
+              Open page ›
+            </button>
+          )}
           {Object.entries(sel.entity.naturalKeys ?? {}).length > 0 && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 8 }}>
               {Object.entries(sel.entity.naturalKeys).map(([k, v]) => (
