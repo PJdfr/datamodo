@@ -33,6 +33,30 @@ export interface AttachmentMeta {
   blobHash: string;
 }
 
+/** Media types a vision model accepts; keys double as extension matches. */
+const IMAGE_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+};
+
+/** Keep well under provider per-image caps (~5 MB) with base64 overhead. */
+export const MAX_IMAGE_BYTES = 3_500_000;
+
+/** The vision tier's gate: the attachment's image media type, or null when it
+ *  isn't an image a vision model can read. */
+export function attachmentImageType(
+  filename: string | null,
+  contentType: string | null,
+): string | null {
+  const ct = (contentType ?? "").toLowerCase().split(";")[0].trim();
+  if (Object.values(IMAGE_TYPES).includes(ct)) return ct;
+  const ext = /\.([a-z0-9]+)$/.exec((filename ?? "").toLowerCase())?.[1];
+  return (ext && IMAGE_TYPES[ext]) || null;
+}
+
 /** Which text-extraction path an attachment supports (OCR is a later tier).
  *  "sheet" is handled by the orchestrator via the existing xlsx parser. */
 export function attachmentTextKind(

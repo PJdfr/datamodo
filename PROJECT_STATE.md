@@ -12,6 +12,33 @@
 > Last updated: 2026-07-10
 
 ## Recent changes
+- **2026-07-10** — **Vision tier BUILT: image attachments become understood thick
+  nodes** (the last projections-catalog item; scanned-PDF OCR still out — needs
+  page rasterization, images-only is the v1).
+  - **Provider layer sees**: `ChatJsonRequest.images` ([types.ts](lib/llm/types.ts)) —
+    OpenAI-compatible sends data-URI `image_url` parts, Anthropic sends base64 image
+    blocks; `LlmModels.vision` (env `OPENROUTER_VISION_MODEL` / `OPENAI_VISION_MODEL` /
+    `ANTHROPIC_VISION_MODEL`, defaults to the extract model). A blind model just
+    errors → the attachment degrades to `metadata_only` like any unreadable PDF.
+  - **`extractFromImage`** ([extract.ts](lib/datamodo/extract.ts)): SINGLE vision call
+    classifies AND extracts (no separate classify pass, no escalation ladder — vision
+    calls cost real money): prompt = full category menu + "the primary entity's kind
+    IS the classification" ([buildImagePrompt](lib/datamodo/ontology.ts)); output =
+    summary (transcribing load-bearing text/numbers) + template facts + ≤3 concepts.
+    Same restraint backstop + **off-template review routing** as documents (shared
+    `restrainForKinds` tail).
+  - **Pipeline** ([documents.ts](lib/datamodo/documents.ts)): image gate
+    `attachmentImageType` (png/jpeg/webp/gif via content-type or extension,
+    `MAX_IMAGE_BYTES` 3.5MB keeps base64 under provider caps); summary becomes the
+    node's `body_md` AND is chunked as its passage — image content is searchable/
+    citable. **`EXTRACTION_VERSION` bumped to 2** — after deploy, one authed
+    `POST /api/jobs/extract-requeue` re-runs old items so past image attachments
+    get understood.
+  - Verified: 67/67 tests (6 new: gate, size cap vs base64 math, prompt) + tsc +
+    build green; lint == baseline. **NOT run against a live vision model** (no key
+    in sandbox) — same chatJSON contract as verified paths. **Owed by a human:**
+    set `OPENROUTER_VISION_MODEL` (or provider equivalent) in Vercel to a
+    vision-capable model, then curl the requeue endpoint once.
 - **2026-07-10** — **Off-template review routing + delta-reprocessing endpoint**
   (closes two documented gaps: restraint drops were silent; extraction_version
   had no requeue trigger).
@@ -863,10 +890,11 @@ dataset_rows (proposed → accepted)   lib/datamodo/datasets.ts
      explicit + co-occurrence links, drawer to the content. See Recent changes.
    - ~~Dossier export~~ ✅ **shipped 2026-07-10** — cited markdown download on every
      entity page ("dossier ↓"); PDF later behind the same builder. See Recent changes.
-   - **Vision/OCR tier** — images + scanned PDFs become understood thick nodes (today
-     they land metadata_only); pipeline upgrade behind `extraction_version` requeue
-     (the requeue endpoint now exists: `POST /api/jobs/extract-requeue`). **The last
-     unbuilt catalog item — needs a vision-capable LLM + live key to verify.**
+   - ~~Vision tier (images)~~ ✅ **built 2026-07-10** — image attachments →
+     understood thick nodes via one vision call; needs `OPENROUTER_VISION_MODEL`
+     env + a live key to verify, then a requeue curl. See Recent changes.
+     **Scanned-PDF OCR remains** — needs page rasterization (canvas) before the
+     same vision call; images-only was the deliberate v1 cut.
    - ~~Off-template review routing~~ ✅ **shipped 2026-07-10** — drops become
      `off_template` reviews; accept replays them through ingest. See Recent changes.
 -3. **Local / open-source single-user edition (DESIGNED 2026-07-10, not built).**

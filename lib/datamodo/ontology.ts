@@ -471,6 +471,40 @@ export function buildDocumentPrompt(input: DocumentPromptInput): string {
   return parts.join("\n\n");
 }
 
+export interface ImagePromptInput {
+  filename?: string | null;
+  businessContext?: string | null;
+  kinds?: KindDef[];
+  concepts?: string[];
+}
+
+/** The user prompt for the single-call IMAGE extraction (vision tier). Unlike
+ *  documents there is no cheap pre-classification pass — a second vision call
+ *  costs real money — so the full category menu rides along and the model
+ *  classifies by choosing the primary entity's kind. The restraint backstop
+ *  enforces that kind's vocabulary afterwards exactly as for documents. */
+export function buildImagePrompt(input: ImagePromptInput): string {
+  const parts: string[] = [];
+  if (input.kinds?.length) {
+    parts.push(promptCategories(input.kinds));
+    parts.push(
+      "First decide which ONE category above the image's PRIMARY SUBJECT belongs to " +
+        "(a photographed receipt IS an invoice; a screenshot of a contract IS a document). " +
+        "Make the first entity that kind and use ONLY that category's template predicates for its facts.",
+    );
+  }
+  if (input.concepts?.length) {
+    parts.push(
+      `The user's existing CONCEPTS (topics): ${input.concepts.join(", ")}.\n` +
+        "STRONGLY prefer these exact labels; invent a new concept only when the image is clearly about something not listed.",
+    );
+  }
+  if (input.businessContext) parts.push(`About the user's work: ${input.businessContext}`);
+  if (input.filename) parts.push(`Filename: ${input.filename}`);
+  parts.push("The image is attached.");
+  return parts.join("\n\n");
+}
+
 /** Render ONE kind's template as the focused extraction vocabulary for a
  *  document already classified into it. */
 export function promptKindTemplate(kind: KindDef): string {

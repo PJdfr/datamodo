@@ -8,6 +8,7 @@ import { getOnboardingContext } from "@/lib/datamodo/settings";
 import {
   buildClassifyPrompt,
   buildDocumentPrompt,
+  buildImagePrompt,
   buildOffTemplateReview,
   canonicalizeExtraction,
   promptCategories,
@@ -163,8 +164,10 @@ const ESCALATE_BELOW = 0.55;
 
 /** Bump when the prompt/pipeline changes enough that old extractions are
  *  stale — items with a lower stamp can then be requeued selectively
- *  (delta reprocessing) instead of everything or nothing. */
-export const EXTRACTION_VERSION = 1;
+ *  (delta reprocessing) via POST /api/jobs/extract-requeue.
+ *  v2 (2026-07-10): vision tier — image attachments previously landed
+ *  metadata_only; requeue lets them be understood. */
+export const EXTRACTION_VERSION = 2;
 
 function buildUserPrompt(input: ExtractInput): string {
   const parts: string[] = [];
@@ -392,25 +395,93 @@ export async function extractFromDocument(
     escalated = true;
   }
 
-  let extraction = toExtraction(raw);
-  let offTemplateReview: OffTemplateReviewPayload | null = null;
-  if (input.kinds?.length) {
-    extraction = canonicalizeExtraction(extraction, input.kinds);
-    const restricted = restrictExtractionToTemplates(extraction, input.kinds, { maxConcepts: 3 });
-    if (restricted.droppedFacts || restricted.droppedEntities) {
-      console.log(
-        `[extract] document restraint dropped ${restricted.droppedFacts} off-template facts, ${restricted.droppedEntities} incidental entities`,
-      );
-    }
-    // Template drops aren't lost anymore — they become a review the user can
-    // accept ("add anyway") or reject. Built from the PRE-restriction
-    // extraction so the payload replays through ingest on its own.
-    offTemplateReview = buildOffTemplateReview(extraction, restricted.offTemplate);
-    extraction = restricted.extraction;
-  }
-
+  const { extraction, offTemplateReview } = restrainForKinds(toExtraction(raw), input.kinds, "document");
   const summary = typeof raw.summary === "string" && raw.summary.trim() ? raw.summary.trim() : null;
   return { extraction, summary, docKind, note: null, model: `${llm.name}:${model}`, overallConfidence: confidence, escalated, offTemplateReview };
+}
+
+/** Shared post-LLM tail for the document-shaped pipelines (files + images):
+ *  canonicalize, restrain to the templates, and package the drops as a
+ *  replayable off-template review (accept = "add anyway"). */
+function restrainForKinds(
+  extraction: Extraction,
+  kinds: KindDef[] | undefined,
+  what: string,
+): { extraction: Extraction; offTemplateReview: OffTemplateReviewPayload | null } {
+  if (!kinds?.length) return { extraction, offTemplateReview: null };
+  const canon = canonicalizeExtraction(extraction, kinds);
+  const restricted = restrictExtractionToTemplates(canon, kinds, { maxConcepts: 3 });
+  if (restricted.droppedFacts || restricted.droppedEntities) {
+    console.log(
+      `[extract] ${what} restraint dropped ${restricted.droppedFacts} off-template facts, ${restricted.droppedEntities} incidental entities`,
+    );
+  }
+  // Built from the PRE-restriction extraction so the payload replays through
+  // ingest on its own.
+  return { extraction: restricted.extraction, offTemplateReview: buildOffTemplateReview(canon, restricted.offTemplate) };
+}
+
+// --- Vision tier: an IMAGE attachment → understood thick node --------------------
+
+const IMG_SYSTEM = `You LOOK at ONE IMAGE the user received (a photo, screenshot, or scan) and distill it into structured knowledge for a personal data assistant.
+
+The original image is archived elsewhere — you are DISTILLING what it shows, not describing pixels.
+
+Return:
+1. "summary": a compact markdown summary (2–6 sentences) of what the image shows and says. Transcribe the load-bearing text and numbers (amounts, dates, names, ids) so a reader never has to open the image. No heading repeating the filename.
+2. entities/facts: the image's PRIMARY SUBJECT as the FIRST entity ("e1"), classified into one of the given categories and using ONLY that category's template predicates; entities its relation verbs point at; plus concept tags.
+- Tag with AT MOST 3 "concept" entities for what the image is about. STRONGLY prefer the user's existing concepts when given.
+- NEVER extract incidental entities, decorative text, or facts outside the template. Fewer, correct facts beat many.
+- Fact values: valueType "number" (digits in valueNumber, plus unit like "USD"), "date" (valueDate as YYYY-MM-DD), "entity" (valueEntityLocalId), else "text" (valueText). Use snake_case predicates. Put strong identifiers (email/phone/invoiceNo) on entities.
+- If the image is unreadable or purely decorative, return empty entities/facts and say so in the summary.
+- confidence 0..1 per fact; overallConfidence 0..1 overall.
+
+Respond with ONLY a JSON object (no prose, no markdown fences).`;
+
+export interface ImageExtractInput {
+  /** Raw image bytes, base64-encoded (no data: prefix). */
+  imageBase64: string;
+  /** image/png | image/jpeg | image/webp | image/gif */
+  mediaType: string;
+  filename?: string | null;
+  channel?: string | null;
+  businessContext?: string | null;
+  kinds?: KindDef[];
+  concepts?: string[];
+}
+
+/** Vision tier: one call classifies AND extracts (a second vision pass costs
+ *  real money, so no separate classify step and no escalation ladder —
+ *  `models.vision` is already the provider's designated seeing model). A
+ *  non-vision model simply errors and the caller degrades to metadata_only. */
+export async function extractFromImage(
+  input: ImageExtractInput,
+  llm: LlmProvider = getLlmProvider(),
+): Promise<DocumentExtractResult> {
+  const raw = await llm.chatJSON<LlmExtraction>({
+    model: llm.models.vision,
+    system: IMG_SYSTEM,
+    user: buildImagePrompt(input),
+    images: [{ mediaType: input.mediaType, dataBase64: input.imageBase64 }],
+    schema: DOC_RESPONSE_SCHEMA,
+    schemaName: "image_extraction",
+    maxTokens: 8000,
+  });
+  const confidence = typeof raw.overallConfidence === "number" ? raw.overallConfidence : 1;
+  const { extraction, offTemplateReview } = restrainForKinds(toExtraction(raw), input.kinds, "image");
+  const summary = typeof raw.summary === "string" && raw.summary.trim() ? raw.summary.trim() : null;
+  // The classification IS the primary entity's kind (single-call design).
+  const docKind = extraction.entities[0]?.kind ?? null;
+  return {
+    extraction,
+    summary,
+    docKind,
+    note: null,
+    model: `${llm.name}:${llm.models.vision}`,
+    overallConfidence: confidence,
+    escalated: false,
+    offTemplateReview,
+  };
 }
 
 // --- Glue: item (status 'stored') → extract → knowledge layer (steps ⑤+⑥) ----
