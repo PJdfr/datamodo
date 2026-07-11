@@ -2,17 +2,47 @@ import { getSessionUser } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { parseWorkbook } from "@/lib/datamodo/spreadsheet";
 import { getDataset, listDatasetRows } from "@/lib/datamodo/datasets";
-import { importTableAsGraph, type InferInput } from "@/lib/datamodo/infer-graph";
+import {
+  importTableAsGraph,
+  previewTableGraph,
+  type InferInput,
+  type InferOverrides,
+} from "@/lib/datamodo/infer-graph";
 
 // Infer a knowledge graph from a spreadsheet (or an existing table) and merge it
 // into the user's graph. Multipart form:
 //   file       — an .xlsx workbook (infer from it), OR
 //   datasetId  — graph-ify an existing table instead
 //   name       — optional table name (defaults to the file name)
+//   mode       — "preview" = dry-run: return the inferred reading (per-column
+//                roles, counts) and write NOTHING; omitted = merge for real
+//   overrides  — JSON InferOverrides (the user's corrections from the preview:
+//                entityKind, subjectColumn, per-column role/kind/skip)
 export const runtime = "nodejs";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+}
+
+function parseOverrides(raw: FormDataEntryValue | null): InferOverrides | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  try {
+    const o = JSON.parse(raw) as InferOverrides;
+    // Defensive shape-trim: only the fields the inference understands.
+    const columns: InferOverrides["columns"] = {};
+    for (const [k, v] of Object.entries(o.columns ?? {})) {
+      if (v && ["reference", "attribute", "skip"].includes(v.role)) {
+        columns[k] = { role: v.role, ...(typeof v.kind === "string" && v.kind.trim() ? { kind: v.kind } : {}) };
+      }
+    }
+    return {
+      ...(typeof o.entityKind === "string" && o.entityKind.trim() ? { entityKind: o.entityKind } : {}),
+      ...(typeof o.subjectColumn === "string" && o.subjectColumn ? { subjectColumn: o.subjectColumn } : {}),
+      ...(Object.keys(columns).length ? { columns } : {}),
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export async function POST(req: Request) {
@@ -53,8 +83,13 @@ export async function POST(req: Request) {
 
   if (input.rows.length === 0) return json({ error: "That table has no rows to import." }, 400);
 
+  const overrides = parseOverrides(form.get("overrides"));
   try {
-    const result = await importTableAsGraph(org.id, user.id, input);
+    if (form.get("mode") === "preview") {
+      const preview = await previewTableGraph(org.id, input, overrides);
+      return json({ ok: true, preview });
+    }
+    const result = await importTableAsGraph(org.id, user.id, input, overrides);
     return json({ ok: true, ...result });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "Import failed." }, 500);

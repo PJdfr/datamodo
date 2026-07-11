@@ -10,7 +10,7 @@
 
 import type { KnowledgeEntityView, KnowledgeFactView } from "./types";
 
-// Same media-type gate the ingest pipeline uses (document-extraction.ts);
+// Same media-type gates the ingest pipeline uses (document-extraction.ts);
 // duplicated as data, not imported — pure cores stay import-free so node:test
 // can strip-types-load them (MEMORY.md convention).
 const IMAGE_TYPES: Record<string, string> = {
@@ -19,6 +19,17 @@ const IMAGE_TYPES: Record<string, string> = {
   jpeg: "image/jpeg",
   webp: "image/webp",
   gif: "image/gif",
+};
+
+const AUDIO_TYPES: Record<string, string> = {
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  opus: "audio/ogg",
+  flac: "audio/flac",
+  webm: "audio/webm",
 };
 
 /** The image media type of a document node, or null when it isn't an image.
@@ -33,6 +44,22 @@ export function entityImageType(e: KnowledgeEntityView): string | null {
   if (Object.values(IMAGE_TYPES).includes(ct)) return ct;
   const ext = /\.([a-z0-9]+)$/.exec(filename.toLowerCase())?.[1];
   return (ext && IMAGE_TYPES[ext]) || null;
+}
+
+/** The audio media type of a document node, or null when it isn't audio —
+ *  same signals as entityImageType. An audio node's natural shape is a PLAYER
+ *  (the original streams inline) + the TRANSCRIPT (in body_md). */
+export function entityAudioType(e: KnowledgeEntityView): string | null {
+  if (e.kind !== "document") return null;
+  const key = e.naturalKeys?.id ?? "";
+  const filename = /^doc:[^:]+:(.+)$/.exec(key)?.[1] ?? "";
+  const contentType = e.facts.find((f) => f.predicate === "file_type" && !f.ref)?.value ?? "";
+  const ct = contentType.toLowerCase().split(";")[0].trim();
+  const ext = /\.([a-z0-9]+)$/.exec(filename.toLowerCase())?.[1];
+  if (ext && AUDIO_TYPES[ext]) return AUDIO_TYPES[ext];
+  if (Object.values(AUDIO_TYPES).includes(ct)) return ct;
+  if (ct.startsWith("audio/")) return ct;
+  return null;
 }
 
 /** The http(s) URL behind a bookmark node — from its `url` fact, falling back

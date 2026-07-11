@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getLlmProvider, type LlmProvider } from "@/lib/llm";
-import { embedTexts, toVectorLiteral } from "@/lib/llm/embeddings";
+import { embedTexts, embeddingsModel, toVectorLiteral } from "@/lib/llm/embeddings";
 import type { KnowledgeEntityView, FactSourceView } from "./types";
 
 // Knowledge layer: turn an extraction (entities + facts pulled from one message)
@@ -161,11 +161,15 @@ export async function resolveEntity(
   if (e.embedding && candidates.length < 5) {
     try {
       const vec = toVectorLiteral(e.embedding);
+      // embedding_model gate: only vectors from the CURRENT space are
+      // comparable — rows embedded under another model fall out of ANN
+      // recall (trigram already covered them) instead of poisoning it.
       const ann = await prisma.$queryRaw<MatchCandidate[]>`
         SELECT id, canonical_label, (1 - (embedding <=> ${vec}::vector))::real AS sim
           FROM entities
          WHERE org_id = ${orgId}::uuid AND kind = ${e.kind}
            AND merged_into IS NULL AND embedding IS NOT NULL
+           AND embedding_model = ${embeddingsModel()}
          ORDER BY embedding <=> ${vec}::vector
          LIMIT 5`;
       const seen = new Set(candidates.map((c) => c.id));
@@ -207,10 +211,13 @@ export async function resolveEntity(
     },
     select: { id: true },
   });
-  // The vector column is Unsupported in Prisma — attach the embedding raw.
+  // The vector column is Unsupported in Prisma — attach the embedding raw,
+  // stamped with the space that produced it.
   if (e.embedding) {
     await prisma.$executeRaw`
-      UPDATE entities SET embedding = ${toVectorLiteral(e.embedding)}::vector WHERE id = ${created.id}::uuid`
+      UPDATE entities SET embedding = ${toVectorLiteral(e.embedding)}::vector,
+                          embedding_model = ${embeddingsModel()}
+       WHERE id = ${created.id}::uuid`
       .catch((err) => console.error("[knowledge] embedding store failed", err));
   }
 
@@ -583,6 +590,18 @@ async function upsertFact(
  * Fold one message's extraction into the canonical store: resolve every entity,
  * then upsert every fact. This is the entry point the extraction pipeline calls.
  */
+/** The canonical text an entity is embedded from — ONE definition, shared by
+ *  ingest and the re-embed job so a re-embedded vector lands in exactly the
+ *  same place a fresh one would. */
+export function embedTextForEntity(
+  kind: string,
+  label: string,
+  naturalKeys?: Record<string, string> | null,
+): string {
+  const keys = Object.values(naturalKeys ?? {});
+  return `${kind}: ${label}${keys.length ? " (" + keys.join(", ") + ")" : ""}`;
+}
+
 export async function ingestExtraction(
   orgId: string,
   ownerUserId: string | null,
@@ -602,9 +621,7 @@ export async function ingestExtraction(
   // trigram-only path). The vector powers semantic blocking now and stays on
   // the entity for search later.
   if (extraction.entities.length > 0 && !extraction.entities[0].embedding) {
-    const texts = extraction.entities.map(
-      (e) => `${e.kind}: ${e.label}${Object.values(e.naturalKeys ?? {}).length ? " (" + Object.values(e.naturalKeys ?? {}).join(", ") + ")" : ""}`,
-    );
+    const texts = extraction.entities.map((e) => embedTextForEntity(e.kind, e.label, e.naturalKeys));
     const vectors = await embedTexts(texts);
     if (vectors) extraction.entities.forEach((e, i) => { e.embedding = vectors[i]; });
   }

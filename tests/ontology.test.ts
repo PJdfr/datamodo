@@ -11,6 +11,7 @@ import {
   indexKinds,
   promptCategories,
   slugify,
+  unregisteredKinds,
 } from "../lib/datamodo/ontology.ts";
 import type { Extraction } from "../lib/datamodo/knowledge.ts";
 
@@ -66,4 +67,36 @@ test("promptCategories: compact menu with fields, types and verbs", () => {
   assert.match(text, /issued_by→company/);
   assert.match(text, /- concept: /);
   assert.equal(promptCategories([]), "");
+});
+
+// --- unregisteredKinds (growth loop ⑤ trigger) ---------------------------------
+
+test("unregisteredKinds: only genuinely new vocabulary, labels deduped", () => {
+  const extraction: Extraction = {
+    entities: [
+      { localId: "e1", kind: "Org", label: "Acme", naturalKeys: {} },            // alias → registered
+      { localId: "e2", kind: "subscription", label: "Figma Org plan", naturalKeys: {} },
+      { localId: "e3", kind: "Subscription", label: "figma org plan", naturalKeys: {} }, // dupe label, case-insensitive
+      { localId: "e4", kind: "subscription", label: "Notion Team", naturalKeys: {} },
+      { localId: "e5", kind: "thing", label: "misc", naturalKeys: {} },          // generic fallback — never proposed
+      { localId: "e6", kind: "concept", label: "billing", naturalKeys: {} },     // builtin
+    ],
+    facts: [],
+  };
+  const out = unregisteredKinds(extraction, DEFAULT_KINDS);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, "subscription");
+  assert.deepEqual(out[0].labels, ["Figma Org plan", "Notion Team"]);
+});
+
+test("unregisteredKinds: empty registry proposes nothing generic, everything else", () => {
+  const extraction: Extraction = {
+    entities: [
+      { localId: "e1", kind: "shipment", label: "SHP-1", naturalKeys: {} },
+      { localId: "e2", kind: "record", label: "row", naturalKeys: {} },
+    ],
+    facts: [],
+  };
+  const out = unregisteredKinds(extraction, []);
+  assert.deepEqual(out.map((u) => u.kind), ["shipment"]);
 });

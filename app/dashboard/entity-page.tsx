@@ -13,91 +13,14 @@
 import { Fragment, useState, type ReactNode } from "react";
 import { C, ModalShell, SourceRow } from "./ui";
 import { EntityHistory } from "./timeline-view";
-import { DATASET_NODE_KIND, entityBookmarkUrl, entityImageType } from "@/lib/datamodo/node-shapes";
+import { MarkdownBody, type ResolveNode } from "./markdown";
+import { DATASET_NODE_KIND, entityAudioType, entityBookmarkUrl, entityImageType } from "@/lib/datamodo/node-shapes";
 import type { FactSourceView, KnowledgeEntityView, KnowledgeFactView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
 
-// --- Markdown-lite ------------------------------------------------------------
-// A deliberately tiny renderer for the summaries WE generate (headings, bold,
-// italic, inline code, links, lists). Everything renders as React text nodes,
-// so arbitrary model output can never inject markup.
-
-function inline(text: string, keyBase: string): ReactNode[] {
-  const out: ReactNode[] = [];
-  // Tokenize: `code`, **bold**, *italic*, [text](http(s) url)
-  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(\[[^\]]+\]\((https?:\/\/[^\s)]+)\))/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  let i = 0;
-  while ((m = re.exec(text))) {
-    if (m.index > last) out.push(text.slice(last, m.index));
-    const tok = m[0];
-    const key = `${keyBase}-${i++}`;
-    if (tok.startsWith("`")) {
-      out.push(<code key={key} className="dm-mono" style={{ fontSize: "0.92em", background: "#F3EFE6", borderRadius: 4, padding: "0 4px" }}>{tok.slice(1, -1)}</code>);
-    } else if (tok.startsWith("**")) {
-      out.push(<strong key={key}>{tok.slice(2, -2)}</strong>);
-    } else if (tok.startsWith("*")) {
-      out.push(<em key={key}>{tok.slice(1, -1)}</em>);
-    } else {
-      const label = tok.slice(1, tok.indexOf("]"));
-      out.push(<a key={key} href={m[5]} target="_blank" rel="noopener noreferrer" style={{ color: C.accent }}>{label}</a>);
-    }
-    last = m.index + tok.length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
-}
-
-export function MarkdownLite({ md }: { md: string }) {
-  const blocks: ReactNode[] = [];
-  const lines = md.split(/\r?\n/);
-  let list: { ordered: boolean; items: string[] } | null = null;
-  let para: string[] = [];
-  let key = 0;
-
-  const flushList = () => {
-    if (!list) return;
-    const Tag = list.ordered ? "ol" : "ul";
-    blocks.push(
-      <Tag key={key++} style={{ margin: "6px 0", paddingLeft: 22, display: "grid", gap: 3 }}>
-        {list.items.map((it, i) => <li key={i}>{inline(it, `li${key}-${i}`)}</li>)}
-      </Tag>,
-    );
-    list = null;
-  };
-  const flushPara = () => {
-    if (!para.length) return;
-    blocks.push(<p key={key++} style={{ margin: "6px 0" }}>{inline(para.join(" "), `p${key}`)}</p>);
-    para = [];
-  };
-
-  for (const raw of lines) {
-    const line = raw.trim();
-    const h = /^(#{1,4})\s+(.*)/.exec(line);
-    const li = /^[-*]\s+(.*)/.exec(line);
-    const ol = /^\d+[.)]\s+(.*)/.exec(line);
-    if (!line) { flushPara(); flushList(); continue; }
-    if (h) {
-      flushPara(); flushList();
-      blocks.push(
-        <div key={key++} className="dm-display" style={{ fontWeight: 700, fontSize: h[1].length <= 2 ? 14.5 : 13, letterSpacing: "-0.01em", color: C.ink, margin: "10px 0 2px" }}>
-          {inline(h[2], `h${key}`)}
-        </div>,
-      );
-    } else if (li || ol) {
-      flushPara();
-      const ordered = Boolean(ol);
-      if (!list || list.ordered !== ordered) { flushList(); list = { ordered, items: [] }; }
-      list.items.push((li ?? ol)![1]);
-    } else {
-      flushList();
-      para.push(line);
-    }
-  }
-  flushPara(); flushList();
-  return <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "#3A352C" }}>{blocks}</div>;
-}
+// Bodies render through the Obsidian-flavored MarkdownBody (./markdown.tsx):
+// tables, images, [[wikilinks]] into the graph, ![[embeds]], math, tasks —
+// still injection-proof (AST → React elements, never HTML).
 
 // --- The page -------------------------------------------------------------------
 
@@ -154,11 +77,13 @@ function RecordRow({ label, value, missing, refChip, onOpen, sources, provenance
 
 /** The page CONTENT in the node's natural shape — shared by the modal and the
  *  Explorer's side panel. Everything shown derives from the entity's facts. */
-export function EntityPageBody({ e, kindDef, onOpen, variant = "card" }: {
+export function EntityPageBody({ e, kindDef, onOpen, resolveNode, variant = "card" }: {
   e: KnowledgeEntityView;
   kindDef?: KindDef;
-  /** Navigate to another entity (relationship chips). */
+  /** Navigate to another entity (relationship chips + body wikilinks). */
   onOpen?: (id: string) => void;
+  /** Resolve a body [[wikilink]] target to a real node (label match). */
+  resolveNode?: ResolveNode;
   /** "card" boxes each section (the modal); "flat" drops the boxes for narrow
    *  quiet surfaces like the Explorer's side panel (design handoff look). */
   variant?: "card" | "flat";
@@ -195,6 +120,7 @@ export function EntityPageBody({ e, kindDef, onOpen, variant = "card" }: {
   }
 
   const imageType = entityImageType(e);
+  const audioType = entityAudioType(e);
   const bookmarkUrl = entityBookmarkUrl(e);
   const isDataset = e.kind === DATASET_NODE_KIND;
 
@@ -211,6 +137,22 @@ export function EntityPageBody({ e, kindDef, onOpen, variant = "card" }: {
             loading="lazy"
             style={{ display: "block", width: "100%", maxHeight: 340, objectFit: "contain", background: "#FBF8F1" }}
           />
+        </div>
+      )}
+
+      {/* Audio node: the node IS the recording — a player streaming the
+          original, with the transcript reading below (body_md). */}
+      {audioType && (
+        <div style={{ ...box, padding: boxPad }}>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 6 }}>Recording</div>
+          <audio
+            controls
+            preload="none"
+            src={`/api/documents/${e.id}?inline=1`}
+            style={{ display: "block", width: "100%" }}
+          >
+            <a href={`/api/documents/${e.id}`}>Download the recording</a>
+          </audio>
         </div>
       )}
 
@@ -239,7 +181,7 @@ export function EntityPageBody({ e, kindDef, onOpen, variant = "card" }: {
       {e.bodyMd && (
         <div style={{ ...box, padding: boxPad }}>
           <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 6 }}>{e.kind === "note" ? "Note" : "Summary"}</div>
-          <MarkdownLite md={e.bodyMd} />
+          <MarkdownBody md={e.bodyMd} resolveNode={resolveNode} onOpen={onOpen} />
         </div>
       )}
 
@@ -294,12 +236,14 @@ export function EntityPageBody({ e, kindDef, onOpen, variant = "card" }: {
   );
 }
 
-export function EntityPageModal({ e, kindDef, onClose, onOpen, onExplore, onSynthesize }: {
+export function EntityPageModal({ e, kindDef, onClose, onOpen, onExplore, onSynthesize, resolveNode }: {
   e: KnowledgeEntityView;
   kindDef?: KindDef;
   onClose: () => void;
   /** Navigate to another entity's page (relationship chips). */
   onOpen?: (id: string) => void;
+  /** Resolve a body [[wikilink]] target to a real node. */
+  resolveNode?: ResolveNode;
   /** Jump into the Explorer centered on this entity. */
   onExplore?: (id: string) => void;
   /** ON-DEMAND synthesis (north star: generation only when asked). Present ⇒
@@ -357,7 +301,7 @@ export function EntityPageModal({ e, kindDef, onClose, onOpen, onExplore, onSynt
         </>
       }
     >
-      <EntityPageBody e={e} kindDef={kindDef} onOpen={onOpen} />
+      <EntityPageBody e={e} kindDef={kindDef} onOpen={onOpen} resolveNode={resolveNode} />
       {/* The entity's own timeline, collapsed until asked for — virtual nodes
           (datasets) have no history in the vault. */}
       {e.kind !== DATASET_NODE_KIND && <EntityHistory entityId={e.id} onOpen={onOpen} />}

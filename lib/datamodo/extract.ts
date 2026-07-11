@@ -166,8 +166,10 @@ const ESCALATE_BELOW = 0.55;
  *  stale — items with a lower stamp can then be requeued selectively
  *  (delta reprocessing) via POST /api/jobs/extract-requeue.
  *  v2 (2026-07-10): vision tier — image attachments previously landed
- *  metadata_only; requeue lets them be understood. */
-export const EXTRACTION_VERSION = 2;
+ *  metadata_only; requeue lets them be understood.
+ *  v3 (2026-07-11): audio tier — audio attachments previously landed
+ *  metadata_only; requeue lets them be transcribed. */
+export const EXTRACTION_VERSION = 3;
 
 function buildUserPrompt(input: ExtractInput): string {
   const parts: string[] = [];
@@ -657,6 +659,15 @@ export async function runExtractionForItem(
       await processItemAttachments(row, llm, businessContext, kinds, concepts);
     } catch (e) {
       console.error(`[extract] attachment processing failed for item ${row.id}`, e);
+    }
+    // Growth loop ⑤: entities of a kind the registry doesn't know, once seen
+    // often enough, become a PROPOSED category (AI-drafted template) in the
+    // Review queue. Best-effort — a proposal failure never fails the item.
+    try {
+      const { maybeProposeCategories } = await import("./kinds");
+      await maybeProposeCategories(row.org_id, row.owner_user_id, result.extraction, kinds);
+    } catch (e) {
+      console.error(`[extract] category proposal check failed for item ${row.id}`, e);
     }
     // Low-confidence extractions get surfaced for the user to confirm; confident
     // ones file silently (keeps the review queue meaningful, not a firehose).

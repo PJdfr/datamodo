@@ -99,7 +99,7 @@ export type ControlCenterProps = {
   notice?: string | null;
 };
 
-export default function ControlCenter({ fullName, initial, inbox, agents, datasets, pendingChanges, pendingReviewCount, agentActivity, settings, onboarding, notice }: ControlCenterProps) {
+export default function ControlCenter({ fullName, initial, inbox, agents, datasets, relations, pendingChanges, pendingReviewCount, agentActivity, settings, onboarding, notice }: ControlCenterProps) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("agents");
   const [noticeOpen, setNoticeOpen] = useState(true);
@@ -439,7 +439,8 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                 <KnowledgeView
                   view={dataView === "tables" ? "schema" : "explore"}
                   onSwitch={() => setDataView("explore")}
-                  tables={uiTables.map((t) => ({ id: t.id, name: t.name }))}
+                  tables={datasets.map((d) => ({ id: d.id, name: d.name, kindId: d.kind_id }))}
+                  tableLinks={relations}
                   onOpenTable={setOpenTableId}
                   onTablesChanged={() => router.refresh()}
                 />

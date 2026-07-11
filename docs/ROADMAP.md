@@ -12,10 +12,11 @@
    `EMBEDDINGS_API_KEY`) to wake embeddings, then one authed
    `POST /api/jobs/extract-requeue` (re-runs items on pipeline v2).
 2. **Live-fire verification pass on dev** — the biggest genuine gap: grounded
-   answers, generated notes, doc classification, vision tier, and the new views
-   have never run against a live LLM / been eyeballed in a browser. One session:
-   forward a real email with a PDF + a receipt photo, watch the pipeline,
-   click through every view.
+   answers, generated notes, doc classification, vision tier, audio tier, and
+   the new views have never run against a live LLM / been eyeballed in a
+   browser. One session: forward a real email with a PDF + a receipt photo +
+   a voice memo (needs `TRANSCRIPTION_API_KEY` or `OPENAI_API_KEY`), watch the
+   pipeline, click through every view.
 3. **Promote dev → prod** (also activates the both-envs cron tick fix, which
    only takes effect from the default branch).
 
@@ -40,14 +41,54 @@
   `bookmark` builtin kind, dataset-as-node in the Explorer.
 - ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
   with ≥2 connected bodies of content → cited note into `body_md`.
-- **Audio tier**: transcription pipeline stage → player + transcript nodes.
+- ~~Audio tier~~ ✅ 2026-07-11 — audio attachments transcribe (fail-soft
+  Whisper-shaped client) → classify-first document pipeline → thick node whose
+  page is PLAYER (streams the original) + summary + transcript; passages land
+  in doc_chunks. Dormant until `TRANSCRIPTION_API_KEY`/`OPENAI_API_KEY` is set;
+  never live-fired against a real API yet.
 
 ## Next build tracks (pick after the above)
+- **THE WOW: the graph engine — REPLAY + COSMOS, one renderer, two modes**
+  (user decisions 2026-07-11: virality needs a visual that "feels like
+  superpowers / science fiction", and the strongest version is a scenaristic
+  chronological REPLAY of the vault building itself — Gource/"Wrapped"
+  energy). Design brief ready for a Claude Design project:
+  **[design/briefs/wow-graph-engine-brief.md](../design/briefs/wow-graph-engine-brief.md)**
+  (context, both modes, 5-act replay structure, LOD rules, demo fixture,
+  deliverables). Build order:
+  1. **Ring grouping in the existing walk** (independent, cheap, fixes a
+     real overload today): when a hop would draw 100 spokes, collapse the
+     long tail per kind into an expandable "+38 more invoices" pseudo-node.
+     Battle-tests the clustering logic the engine reuses.
+  2. **REPLAY** (first wow — forces the whole engine): time-ordered scenario
+     compiled from data we ALREADY store (items.received_at, entities/facts
+     created_at/valid_from, review resolutions, supersessions — the
+     bitemporal vault makes replay a query). Pure core: scenario compiler
+     (events → keyframes) + LOD clustering (degree ranking + community
+     detection), both unit-tested. Five acts ending in the Cosmos; scrubber;
+     pause-to-interact; deterministic captions; canvas/WebGL; dark "poster"
+     palette allowed. Landing hero autoplays it over demo data (no login);
+     user's own replay private + client-side export-as-video
+     (canvas + MediaRecorder) later. Cold-start: demo replay doubles as
+     onboarding; own replay unlocks after week one (retention nudge).
+  3. **COSMOS** = the replay's final frame as a standing view (named stars ∝
+     degree, zoom-expandable cluster nodes, "◍ Walk from here" dive into the
+     2-hop walk). NOT the old Map resurrected — showpiece with an escape
+     hatch into the tool.
+- **Landing page rework** (with **Claude Design**, not hand-rolled): fold in
+  the exec summary (capture → understand → vault → views → trust story) and
+  a "who it's for" section from the 2026-07-11 persona set (freelancer,
+  researcher, student, recruiter, landlord, creator — each: what they
+  forward / what builds itself / the payoff moment). Hero = the Cosmos
+  animation once it exists; ship copy first if design lands earlier.
 - **Channel adapters E2E** — WhatsApp (Twilio sandbox), Slack app, Teams bot
   are code-complete but have never touched the real providers. The core pitch
   ("forward from anywhere") ends here.
-- **Spreadsheet-import follow-ups** — pre-merge preview/confirm, column-mapping
-  overrides, dedupe referenced entities across rows before ingest.
+- ~~Spreadsheet-import follow-ups~~ ✅ 2026-07-11 — pre-merge PREVIEW/confirm
+  (dry-run shows the reading + honest counts; nothing writes until confirmed),
+  column-mapping overrides (kind, identity column, per-column link/fact/skip,
+  link target), and cross-row reference dedupe before ingest
+  (`combineExtractions` — "Acme" on 200 rows resolves once).
 - **Scanned-PDF OCR** — the vision tier's deliberate v1 cut: rasterize pages
   (canvas) → same `extractFromImage` call → thick nodes for scans.
 - **Local / open-source single-user edition** — fully designed (see
@@ -56,17 +97,16 @@
   relay for WhatsApp/Teams). ~1 week; a strategic call on timing.
 
 ## Smaller follow-ups (grab when nearby)
-- **Model unification, phase 2**: bind datasets to kinds in the DB
-  (`datasets.kind_id`) so "category = table" is structural, not a name-match
-  convention (today `datasetForKind` matches by plural name).
-- Schema view: dataset_relations (table↔table links) are no longer visualized
-  since the old RelationshipGraph was removed — draw them as dashed lines in
-  the schema diagram if missed; `lib/datamodo/relations.ts` + suggestions API
-  still exist.
+- ~~Model unification, phase 2~~ ✅ 2026-07-11 — `datasets.kind_id` binds a
+  dataset to the kind it materializes (structural; plural-name match remains
+  only as a fallback for pre-migration rows).
+- ~~Schema view: dataset_relations~~ ✅ 2026-07-11 — table↔table links draw as
+  dashed lines between the schema canvas's cards.
 - Concept-map pure core (`lib/datamodo/concept-map.ts`) is dormant (view
   removed) — resurrect as an Explore lens or delete after a quiet month.
-- Category proposals from the agent via Review ("no-fit entity → propose a new
-  kind with inferred template") — growth loop ⑤ of the ontology design.
+- ~~Category proposals via Review~~ ✅ 2026-07-11 — growth loop ⑤: ≥3 entities
+  of an unregistered kind → ONE `category_proposal` review with an AI-drafted
+  template; accept creates the category, decline never re-asks.
 - Semantic (ANN) chunk search behind the same `searchChunks` shape.
 - Dossier: PDF rendering behind the same `buildDossier`.
 - Graph: persist collapsed-kind state if users ask for it (deliberately
@@ -75,7 +115,8 @@
   seam in `analytics.ts`).
 
 ## Owed by a human (ops, not code)
-- Vercel env: `OPENROUTER_VISION_MODEL`, embeddings key, `NEXT_PUBLIC_SITE_URL`
+- Vercel env: `OPENROUTER_VISION_MODEL`, embeddings key, transcription key
+  (`TRANSCRIPTION_API_KEY` or reuse `OPENAI_API_KEY`), `NEXT_PUBLIC_SITE_URL`
   (Preview + Production).
 - GitHub Actions secrets: `CRON_SECRET` == Vercel's, `APP_URL`.
 - GitHub OAuth app creds for Neon Auth (no shared creds exist).

@@ -36,22 +36,37 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   ];
 
   const baseName = row.plural?.trim() || `${row.label}s`;
+  // Structural "category = table" binding (model unification phase 2): a
+  // dataset already bound to this kind wins over any name convention.
+  const bound = await prisma.datasets.findFirst({
+    where: { org_id: org.id, kind_id: row.id },
+    select: { id: true },
+  });
   let dataset;
-  try {
-    dataset = await createDataset(org.id, user.id, {
-      name: baseName,
-      description: `Built from the “${row.label}” category — refreshed by projecting the knowledge graph.`,
-      columns,
-    });
-  } catch {
-    // Name taken → project into the existing table of that name instead of
-    // failing; its columns stay as the user made them.
-    const existing = await prisma.datasets.findFirst({
-      where: { org_id: org.id, name: { equals: baseName, mode: "insensitive" } },
-      select: { id: true },
-    });
-    if (!existing) return NextResponse.json({ error: "could not create the table" }, { status: 400 });
-    dataset = { id: existing.id };
+  if (bound) {
+    dataset = { id: bound.id };
+  } else {
+    try {
+      dataset = await createDataset(org.id, user.id, {
+        name: baseName,
+        description: `Built from the “${row.label}” category — refreshed by projecting the knowledge graph.`,
+        columns,
+        kindId: row.id,
+      });
+    } catch {
+      // Name taken → ADOPT the existing table of that name: project into it
+      // (its columns stay as the user made them) and bind it to the kind so
+      // the link is structural from here on.
+      const existing = await prisma.datasets.findFirst({
+        where: { org_id: org.id, name: { equals: baseName, mode: "insensitive" } },
+        select: { id: true, kind_id: true },
+      });
+      if (!existing) return NextResponse.json({ error: "could not create the table" }, { status: 400 });
+      if (!existing.kind_id) {
+        await prisma.datasets.update({ where: { id: existing.id }, data: { kind_id: row.id } });
+      }
+      dataset = { id: existing.id };
+    }
   }
 
   const result = await projectEntitiesToDataset(org.id, {

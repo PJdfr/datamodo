@@ -133,6 +133,7 @@ export async function listDatasets(orgId: string): Promise<DatasetView[]> {
       id: d.id,
       org_id: d.org_id,
       agent_id: d.agent_id,
+      kind_id: d.kind_id,
       name: d.name,
       description: d.description,
       columns: Array.isArray(d.columns) ? (d.columns as unknown as DatasetColumn[]) : [],
@@ -453,6 +454,8 @@ export async function createDataset(
     description?: string | null;
     columns?: DatasetColumn[];
     agentId?: string | null;
+    /** Structural "category = table" binding (the kind this materializes). */
+    kindId?: string | null;
   },
 ): Promise<DatasetRecord> {
   const name = input.name?.trim();
@@ -463,6 +466,7 @@ export async function createDataset(
       org_id: orgId,
       created_by: createdBy,
       agent_id: input.agentId ?? null,
+      kind_id: input.kindId ?? null,
       name,
       description: input.description?.trim() || null,
       columns: (input.columns ?? []) as object,
