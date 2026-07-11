@@ -12,6 +12,31 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **AUDIO TIER shipped (last open Explorer-track item)** — a
+  voice memo/recording forwarded on any channel becomes an understood thick
+  node, mirroring the vision tier's fail-soft design:
+  - **Transcription client** ([lib/llm/transcription.ts](lib/llm/transcription.ts)):
+    OpenAI-compatible `/audio/transcriptions` (multipart), same fail-soft
+    contract as embeddings — no key/API error → null → the attachment degrades
+    to `metadata_only`, never fails the item. Env: `TRANSCRIPTION_API_KEY`
+    (falls back to `OPENAI_API_KEY`), `TRANSCRIPTION_BASE_URL`,
+    `TRANSCRIPTION_MODEL` (default `whisper-1`).
+  - **Pipeline** ([documents.ts](lib/datamodo/documents.ts)): new audio branch —
+    gate `attachmentAudioType` (mp3/m4a/wav/ogg/opus/flac/webm + any `audio/*`,
+    ≤24 MB), transcribe, then the transcript runs the SAME classify-first
+    template-restrained document pipeline; transcript passages land in
+    `doc_chunks` (search cites what was said). `EXTRACTION_VERSION` → 3 so old
+    audio items can be requeued once a key exists.
+  - **Node shape** (north star: "audio as player+transcript"): the entity page
+    renders a PLAYER streaming the original (`/api/documents/[id]?inline=1`,
+    endpoint unchanged) above the body; the body is summary + the transcript
+    under a `#### Transcript` heading (`buildTranscriptBody`, capped at 8k
+    chars with an honest truncation note; full text stays searchable).
+  - Verified: 96/96 tests (9 new in tests/audio.test.ts) + tsc + lint ==
+    baseline (7/16) + build + all 3 shoot harnesses green. NOT live-verified:
+    no transcription key in the sandbox — the tier stays dormant (fail-soft)
+    until `TRANSCRIPTION_API_KEY`/`OPENAI_API_KEY` is set and a real voice
+    memo is forwarded (add to the roadmap's live-fire pass).
 - **2026-07-11** — **dataset_relations are visualized again** — explicit
   table↔table links draw as DASHED lines between the schema canvas's kind
   cards (footer to footer; label = the relation's label, else

@@ -125,4 +125,5 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
 - OpenRouter free tier is the dev default (`cohere/north-mini-code:free`) —
   unreliable, no vision; ~$10 credit unlocks reliable paid models
   (recommendation standing since the extractor shipped).
-- Vision + embeddings are dormant until their env keys are set (fail-soft).
+- Vision + embeddings + transcription are dormant until their env keys are set
+  (fail-soft; transcription rides `TRANSCRIPTION_API_KEY` → `OPENAI_API_KEY`).

@@ -13,7 +13,7 @@
 import { Fragment, useState, type ReactNode } from "react";
 import { C, ModalShell, SourceRow } from "./ui";
 import { EntityHistory } from "./timeline-view";
-import { DATASET_NODE_KIND, entityBookmarkUrl, entityImageType } from "@/lib/datamodo/node-shapes";
+import { DATASET_NODE_KIND, entityAudioType, entityBookmarkUrl, entityImageType } from "@/lib/datamodo/node-shapes";
 import type { FactSourceView, KnowledgeEntityView, KnowledgeFactView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
 
@@ -195,6 +195,7 @@ export function EntityPageBody({ e, kindDef, onOpen, variant = "card" }: {
   }
 
   const imageType = entityImageType(e);
+  const audioType = entityAudioType(e);
   const bookmarkUrl = entityBookmarkUrl(e);
   const isDataset = e.kind === DATASET_NODE_KIND;
 
@@ -211,6 +212,22 @@ export function EntityPageBody({ e, kindDef, onOpen, variant = "card" }: {
             loading="lazy"
             style={{ display: "block", width: "100%", maxHeight: 340, objectFit: "contain", background: "#FBF8F1" }}
           />
+        </div>
+      )}
+
+      {/* Audio node: the node IS the recording — a player streaming the
+          original, with the transcript reading below (body_md). */}
+      {audioType && (
+        <div style={{ ...box, padding: boxPad }}>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 6 }}>Recording</div>
+          <audio
+            controls
+            preload="none"
+            src={`/api/documents/${e.id}?inline=1`}
+            style={{ display: "block", width: "100%" }}
+          >
+            <a href={`/api/documents/${e.id}`}>Download the recording</a>
+          </audio>
         </div>
       )}
 

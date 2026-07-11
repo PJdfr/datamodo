@@ -166,8 +166,10 @@ const ESCALATE_BELOW = 0.55;
  *  stale — items with a lower stamp can then be requeued selectively
  *  (delta reprocessing) via POST /api/jobs/extract-requeue.
  *  v2 (2026-07-10): vision tier — image attachments previously landed
- *  metadata_only; requeue lets them be understood. */
-export const EXTRACTION_VERSION = 2;
+ *  metadata_only; requeue lets them be understood.
+ *  v3 (2026-07-11): audio tier — audio attachments previously landed
+ *  metadata_only; requeue lets them be transcribed. */
+export const EXTRACTION_VERSION = 3;
 
 function buildUserPrompt(input: ExtractInput): string {
   const parts: string[] = [];

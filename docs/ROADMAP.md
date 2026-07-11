@@ -12,10 +12,11 @@
    `EMBEDDINGS_API_KEY`) to wake embeddings, then one authed
    `POST /api/jobs/extract-requeue` (re-runs items on pipeline v2).
 2. **Live-fire verification pass on dev** — the biggest genuine gap: grounded
-   answers, generated notes, doc classification, vision tier, and the new views
-   have never run against a live LLM / been eyeballed in a browser. One session:
-   forward a real email with a PDF + a receipt photo, watch the pipeline,
-   click through every view.
+   answers, generated notes, doc classification, vision tier, audio tier, and
+   the new views have never run against a live LLM / been eyeballed in a
+   browser. One session: forward a real email with a PDF + a receipt photo +
+   a voice memo (needs `TRANSCRIPTION_API_KEY` or `OPENAI_API_KEY`), watch the
+   pipeline, click through every view.
 3. **Promote dev → prod** (also activates the both-envs cron tick fix, which
    only takes effect from the default branch).
 
@@ -40,7 +41,11 @@
   `bookmark` builtin kind, dataset-as-node in the Explorer.
 - ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
   with ≥2 connected bodies of content → cited note into `body_md`.
-- **Audio tier**: transcription pipeline stage → player + transcript nodes.
+- ~~Audio tier~~ ✅ 2026-07-11 — audio attachments transcribe (fail-soft
+  Whisper-shaped client) → classify-first document pipeline → thick node whose
+  page is PLAYER (streams the original) + summary + transcript; passages land
+  in doc_chunks. Dormant until `TRANSCRIPTION_API_KEY`/`OPENAI_API_KEY` is set;
+  never live-fired against a real API yet.
 
 ## Next build tracks (pick after the above)
 - **Channel adapters E2E** — WhatsApp (Twilio sandbox), Slack app, Teams bot
@@ -73,7 +78,11 @@
   seam in `analytics.ts`).
 
 ## Owed by a human (ops, not code)
-- Vercel env: `OPENROUTER_VISION_MODEL`, embeddings key, `NEXT_PUBLIC_SITE_URL`
+- **Apply `neon/migrations/20260711100000_datasets_kind_id.sql` to Neon dev AND
+  prod** before deploying the 2026-07-11 batch (the Neon MCP couldn't get
+  approval in the agent session; the file is idempotent).
+- Vercel env: `OPENROUTER_VISION_MODEL`, embeddings key, transcription key
+  (`TRANSCRIPTION_API_KEY` or reuse `OPENAI_API_KEY`), `NEXT_PUBLIC_SITE_URL`
   (Preview + Production).
 - GitHub Actions secrets: `CRON_SECRET` == Vercel's, `APP_URL`.
 - GitHub OAuth app creds for Neon Auth (no shared creds exist).
