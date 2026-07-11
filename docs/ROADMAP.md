@@ -78,9 +78,6 @@
   seam in `analytics.ts`).
 
 ## Owed by a human (ops, not code)
-- **Apply `neon/migrations/20260711100000_datasets_kind_id.sql` to Neon dev AND
-  prod** before deploying the 2026-07-11 batch (the Neon MCP couldn't get
-  approval in the agent session; the file is idempotent).
 - Vercel env: `OPENROUTER_VISION_MODEL`, embeddings key, transcription key
   (`TRANSCRIPTION_API_KEY` or reuse `OPENAI_API_KEY`), `NEXT_PUBLIC_SITE_URL`
   (Preview + Production).

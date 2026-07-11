@@ -54,10 +54,9 @@
   pre-migration rows (a bound dataset can be freely renamed now). Migration
   `neon/migrations/20260711100000_datasets_kind_id.sql` (idempotent, includes
   the name-convention backfill); seed gained the same backfill tail.
-  ⚠️ **DDL NOT yet applied to the Neon branches** — the Neon MCP required an
-  interactive approval this session couldn't grant. Run the migration file
-  against dev AND prod (`psql "$DATABASE_URL" -f neon/migrations/20260711100000_datasets_kind_id.sql`)
-  BEFORE deploying this code — Prisma now selects the column. Verified:
+  DDL applied + verified via Neon MCP on `dev`, `prod`, AND this branch's
+  Vercel preview branch (`preview/claude/next-features-my99r6`); dev backfill
+  bound 3/5 datasets (the rest are hand-made, correctly unbound). Verified:
   96/96 tests + tsc + lint == baseline (7/16) + build green.
 - **2026-07-11** — **Data surfaces go full-width** (user: the Explorer and the
   schema canvas were mysteriously capped). Cause: a `maxWidth: 980` wrapper in
