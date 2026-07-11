@@ -29,13 +29,34 @@ export interface EgoEdge {
   toLabel: string;
 }
 
+/** The long tail of a ring, collapsed per kind into ONE expandable
+ *  pseudo-node — "+38 more invoices" instead of 38 spokes. */
+export interface EgoGroup {
+  /** Stable pseudo-node id: `group:<hop>:<kind>`. */
+  id: string;
+  hop: 1 | 2;
+  kind: string;
+  count: number;
+  /** Ranked like the rings — expansion reveals from the front. */
+  memberIds: string[];
+  /** Ring anchor: the center for hop-1 groups; for hop-2 the kept hop-1
+   *  node that introduced the most members. */
+  parentId: string;
+  /** Fallback text ("+38 more invoices") — views with a kind registry
+   *  should re-label from its plural. */
+  label: string;
+}
+
 export interface EgoGraph {
   center: EgoNode;
   /** Center first, then hop 1, then hop 2 — each ring importance-ordered. */
   nodes: EgoNode[];
   edges: EgoEdge[];
-  /** Neighbors that exist but didn't fit the caps. */
+  /** Neighbors that exist but didn't fit the caps (all of them live on in
+   *  `groups`). */
   truncated: number;
+  /** Ring overflow collapsed per (hop, kind) — biggest first. */
+  groups: EgoGroup[];
   /** Who introduced each node: hop-1 → the center, hop-2 → its first hop-1
    *  neighbor (hop-1 order). Drives layout sectors AND the 3D walk's
    *  enter-from-parent animation. */
@@ -46,6 +67,18 @@ export interface EgoOptions {
   /** Ring caps: at most this many hop-1 / hop-2 nodes. */
   maxHop1?: number;
   maxHop2?: number;
+  /** Ids force-included in their ring on top of the cap — how a view expands
+   *  a group: pin the next page of its memberIds and rebuild. */
+  pinned?: Iterable<string>;
+}
+
+/** "invoice" → "invoices", "company" → "companies", "person" → "people". */
+export function pluralizeKind(kind: string, count: number): string {
+  if (count === 1) return kind;
+  if (kind === "person") return "people";
+  if (/[^aeiou]y$/.test(kind)) return kind.slice(0, -1) + "ies";
+  if (/(s|x|z|ch|sh)$/.test(kind)) return kind + "es";
+  return kind + "s";
 }
 
 /**
@@ -80,11 +113,22 @@ export function buildEgoGraph(
   }
 
   const rank = (id: string) => byId.get(id)?.edges ?? 0;
+  const pinned = new Set(opts.pinned ?? []);
+  // Rank-ordered keep: the cap counts only unpinned nodes, so expanding a
+  // group grows the ring instead of evicting the top of it.
   const pick = (candidates: Iterable<string>, cap: number, taken: Set<string>) => {
     const list = [...candidates]
       .filter((id) => !taken.has(id))
       .sort((a, b) => rank(b) - rank(a) || (byId.get(a)?.label ?? "").localeCompare(byId.get(b)?.label ?? ""));
-    return { kept: list.slice(0, cap), dropped: list.length - Math.min(list.length, cap) };
+    const kept: string[] = [];
+    const dropped: string[] = [];
+    let unpinned = 0;
+    for (const id of list) {
+      if (pinned.has(id)) kept.push(id);
+      else if (unpinned < cap) { kept.push(id); unpinned++; }
+      else dropped.push(id);
+    }
+    return { kept, dropped };
   };
 
   const taken = new Set<string>([centerId]);
@@ -95,6 +139,47 @@ export function buildEgoGraph(
   for (const id of hop1.kept) for (const n of neighborIds.get(id) ?? []) hop2Candidates.add(n);
   const hop2 = pick(hop2Candidates, maxHop2, taken);
   hop2.kept.forEach((id) => taken.add(id));
+
+  // Ring grouping: the dropped long tail collapses per kind into expandable
+  // pseudo-nodes ("+38 more invoices"), keeping their rank order.
+  const introducerOf = (id: string) =>
+    hop1.kept.find((p) => neighborIds.get(id)?.has(p)) ?? hop1.kept[0];
+  const groupRing = (dropped: string[], hop: 1 | 2): EgoGroup[] => {
+    const byKind = new Map<string, string[]>();
+    for (const id of dropped) {
+      const kind = byId.get(id)?.kind ?? "thing";
+      if (!byKind.has(kind)) byKind.set(kind, []);
+      byKind.get(kind)!.push(id);
+    }
+    const groups = [...byKind.entries()].map(([kind, memberIds]): EgoGroup => {
+      // Anchor: hop-1 groups hang off the center; a hop-2 group sits by the
+      // kept hop-1 node that introduced most of its members (ring order
+      // breaks ties — deterministic).
+      let parentId = centerId;
+      if (hop === 2) {
+        const votes = new Map<string, number>();
+        for (const id of memberIds) {
+          const p = introducerOf(id);
+          if (p) votes.set(p, (votes.get(p) ?? 0) + 1);
+        }
+        parentId = hop1.kept.reduce(
+          (best, p) => ((votes.get(p) ?? 0) > (votes.get(best) ?? 0) ? p : best),
+          hop1.kept[0] ?? centerId,
+        );
+      }
+      return {
+        id: `group:${hop}:${kind}`,
+        hop,
+        kind,
+        count: memberIds.length,
+        memberIds,
+        parentId,
+        label: `+${memberIds.length} more ${pluralizeKind(kind, memberIds.length)}`,
+      };
+    });
+    return groups.sort((a, b) => b.count - a.count || a.kind.localeCompare(b.kind));
+  };
+  const groups = [...groupRing(hop1.dropped, 1), ...groupRing(hop2.dropped, 2)];
 
   // Introducers: hop-1 comes from the center; a hop-2 node belongs to the
   // FIRST kept hop-1 node (ring order) it neighbors — deterministic, and the
@@ -138,7 +223,14 @@ export function buildEgoGraph(
     }
   }
 
-  return { center: nodes[0], nodes, edges, truncated: hop1.dropped + hop2.dropped, parentOf };
+  return {
+    center: nodes[0],
+    nodes,
+    edges,
+    truncated: hop1.dropped.length + hop2.dropped.length,
+    groups,
+    parentOf,
+  };
 }
 
 // --- Radial layout ---------------------------------------------------------------
@@ -248,18 +340,23 @@ export function depthLayout(
     },
   };
 
-  const hop1 = graph.nodes.filter((n) => n.hop === 1);
   const hop2 = graph.nodes.filter((n) => n.hop === 2);
   const bearing = new Map<string, number>();
 
-  hop1.forEach((n, i) => {
+  // Group pseudo-nodes are ring citizens: hop-1 groups take slots at the end
+  // of the inner ring, hop-2 groups fan with their anchor's children.
+  const ring1 = [
+    ...graph.nodes.filter((n) => n.hop === 1).map((n) => n.id),
+    ...graph.groups.filter((g) => g.hop === 1).map((g) => g.id),
+  ];
+  ring1.forEach((id, i) => {
     let deg: number;
-    if (hop1.length === 1) deg = -90;
-    else if (hop1.length === 2) deg = -140 + i * 100; // gentle upper arc
-    else deg = -90 + (i * 360) / hop1.length;
-    bearing.set(n.id, deg);
+    if (ring1.length === 1) deg = -90;
+    else if (ring1.length === 2) deg = -140 + i * 100; // gentle upper arc
+    else deg = -90 + (i * 360) / ring1.length;
+    bearing.set(id, deg);
     const rad = (deg * Math.PI) / 180;
-    pos[n.id] = {
+    pos[id] = {
       x: Math.cos(rad) * r1x,
       y: Math.sin(rad) * r1y,
       z: DEPTH.hop1Z,
@@ -269,12 +366,13 @@ export function depthLayout(
 
   // hop-2 clusters around the bearing of the hop-1 node that introduced it.
   const kidsByParent = new Map<string, string[]>();
-  for (const n of hop2) {
-    const p = graph.parentOf[n.id] ?? hop1[0]?.id;
-    if (!p) continue;
+  const addKid = (id: string, p: string | undefined) => {
+    if (!p) return;
     if (!kidsByParent.has(p)) kidsByParent.set(p, []);
-    kidsByParent.get(p)!.push(n.id);
-  }
+    kidsByParent.get(p)!.push(id);
+  };
+  for (const n of hop2) addKid(n.id, graph.parentOf[n.id] ?? ring1[0]);
+  for (const g of graph.groups.filter((g) => g.hop === 2)) addKid(g.id, g.parentId);
   for (const [pid, kids] of kidsByParent) {
     const baseDeg = bearing.get(pid) ?? -90;
     kids.forEach((id, i) => {

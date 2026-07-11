@@ -12,6 +12,23 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **Ring grouping in the walk (WOW build-order #1 shipped)**:
+  the Explorer's importance-capped ring overflow no longer vanishes into a
+  dead "+N more" chip — it collapses per kind into expandable "+38 more
+  invoices" pseudo-nodes. Pure core: `buildEgoGraph` gains `groups` (stable
+  `group:<hop>:<kind>` ids, rank-ordered members, hop-2 groups anchor to the
+  hop-1 introducer with the most members) + a `pinned` option (cap counts
+  only unpinned — expansion grows the ring instead of evicting its top);
+  `depthLayout` seats groups as real ring slots; `pluralizeKind` exported.
+  View: `Group3D` dashed chips with dashed spokes, click/Enter reveals the
+  next 6 members (they bloom out of the chip), labels prefer the kind
+  registry's plural, expansion is session-local and resets on walk (per
+  ROADMAP: persist only if users ask). Verified end-to-end in a real browser
+  (Playwright + temp fixture route, since deleted): 55-neighbour hub →
+  "+41 more invoices/+8 more people/+4 more documents (hop-2)", two paged
+  expansions, keyboard expand, walk-and-back reset, reduced-motion flat
+  radial — all green, no console errors; 7 new unit tests (15 total in
+  `tests/explorer.test.ts`). Also: repo-level `.claude/skills/verify` recipe.
 - **2026-07-11** — **WOW track unified: REPLAY + COSMOS = one graph engine**
   (follow-up to the direction session below; user: "do what you think is
   best"). The stronger wow is a scenaristic chronological REPLAY of the vault

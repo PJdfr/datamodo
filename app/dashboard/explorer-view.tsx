@@ -23,7 +23,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { C } from "./ui";
-import { buildEgoGraph, depthLayout, DEPTH, type DepthPos, type EgoEdge } from "@/lib/datamodo/explorer";
+import { buildEgoGraph, depthLayout, DEPTH, pluralizeKind, type DepthPos, type EgoEdge, type EgoGroup } from "@/lib/datamodo/explorer";
 import { EntityPageBody } from "./entity-page";
 import { buildNodeResolver } from "./markdown";
 import type { FactSourceView, KnowledgeEntityView } from "@/lib/datamodo/types";
@@ -50,6 +50,8 @@ const MOTION = {
 /* Legibility caps for the depth field (the design's density; the pure core's
    defaults stay for other callers). */
 const CAPS = { maxHop1: 6, maxHop2: 8 };
+/* Expanding a "+38 more invoices" group reveals this many per click. */
+const GROUP_PAGE = 6;
 
 /* ---- Card tones ----------------------------------------------------------- */
 const TONE = {
@@ -205,6 +207,88 @@ function Node3D({ e, kindDef, pos, enterFrom, isCenter, isHover, isDim, reduced,
 }
 
 /* ===========================================================================
+   Group pseudo-node — a ring's long tail, collapsed per kind ("+38 more
+   invoices"). Click to bloom the next page of members out of the chip.
+   =========================================================================== */
+function Group3D({ g, label, kindColor, pos, enterFrom, isDim, reduced, nodeRef, onClick }: {
+  g: EgoGroup; label: string; kindColor?: string; pos: DepthPos; enterFrom: DepthPos | null;
+  isDim: boolean; reduced: boolean;
+  nodeRef: (el: HTMLDivElement | null) => void;
+  onClick: () => void;
+}) {
+  // Same enter-from-parent flip as Node3D: paint at the parent's slot, then
+  // transition to the group's own slot on the next frame.
+  const [settled, setSettled] = useState(!enterFrom);
+  useEffect(() => {
+    if (settled) return;
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() => setSettled(true));
+    });
+    return () => { cancelAnimationFrame(r1); cancelAnimationFrame(r2); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only flip
+  }, []);
+  const [hover, setHover] = useState(false);
+
+  const entering = !settled;
+  const t = entering && enterFrom ? enterFrom : pos;
+  const hop = pos.hop;
+  const blur = reduced ? 0 : hop === 2 ? 1.4 : 0;
+  const baseOpacity = hop === 2 ? 0.9 : 1;
+  const opacity = (entering ? 0 : baseOpacity) * (isDim ? 0.34 : 1);
+
+  const transition = reduced
+    ? "opacity 1ms, transform 1ms"
+    : entering
+    ? `transform ${MOTION.enter}ms ${MOTION.easeOut} ${MOTION.enterDelay + pos.ring * MOTION.enterStagger}ms, opacity ${MOTION.enter}ms ${MOTION.easeOut} ${MOTION.enterDelay}ms, filter ${MOTION.enter}ms ${MOTION.easeOut}`
+    : `transform ${MOTION.recenter}ms ${MOTION.easeOut}, opacity ${MOTION.hover}ms ${MOTION.ease}, filter ${MOTION.recenter}ms ${MOTION.easeOut}`;
+
+  const reveal = Math.min(GROUP_PAGE, g.count);
+  return (
+    <div
+      ref={nodeRef}
+      role="button"
+      tabIndex={0}
+      aria-label={`Show ${reveal} of the ${g.count} collapsed ${pluralizeKind(g.kind, g.count)}`}
+      title={`${g.count} more of this kind beyond the ring — click to reveal ${reveal}`}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setHover(true)}
+      onBlur={() => setHover(false)}
+      onClick={onClick}
+      onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); onClick(); } }}
+      style={{
+        position: "absolute", left: "50%", top: "50%",
+        transform: `translate(-50%,-50%) translate3d(${t.x}px, ${t.y}px, ${reduced ? 0 : t.z}px) scale(${(hover ? 1.05 : 1) * (entering ? 0.5 : 1)})`,
+        transformStyle: "preserve-3d",
+        opacity,
+        filter: blur ? `blur(${blur}px)` : "none",
+        transition,
+        cursor: "pointer",
+        outline: "none",
+        zIndex: hop === 1 ? 20 : 10,
+        willChange: "transform, opacity",
+      }}
+    >
+      <div className="dm-mono" style={{
+        display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap",
+        padding: hop === 1 ? "7px 13px" : "5px 11px",
+        background: "#FAF6EE",
+        border: `1px dashed ${hover ? C.accent : "#C9C0AC"}`,
+        borderRadius: 999,
+        color: hover ? C.accent : "#6E6759",
+        fontSize: hop === 1 ? 11 : 10, letterSpacing: "0.05em",
+        boxShadow: "0 10px 26px -20px rgba(33,30,24,.45)",
+        transition: `border-color ${MOTION.hover}ms ${MOTION.ease}, color ${MOTION.hover}ms ${MOTION.ease}`,
+      }}>
+        <span aria-hidden style={{ width: 6, height: 6, borderRadius: 2, background: kindColor ?? "#C9C0AC", flexShrink: 0 }} />
+        {label}
+      </div>
+    </div>
+  );
+}
+
+/* ===========================================================================
    Edge overlay — one 2D SVG, endpoints measured from the live 3D projection
    =========================================================================== */
 interface EdgeGeom { x1: number; y1: number; x2: number; y2: number; mx: number; my: number; op: number }
@@ -249,6 +333,26 @@ function EdgeLayer({ geom, edges, layout, hoverEdge, selEdge, focusNode, onHover
               </text>
             )}
           </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* Dashed spokes from a group chip to its ring anchor — decorative, under the
+   real (fact-carrying) edges. */
+function GroupEdgeLayer({ groups, geom, dimmed }: {
+  groups: EgoGroup[]; geom: Record<string, EdgeGeom>; dimmed: boolean;
+}) {
+  return (
+    <svg width="100%" height="100%" style={{ position: "absolute", inset: 0, overflow: "visible", pointerEvents: "none", zIndex: 14 }}>
+      {groups.map((g) => {
+        const geo = geom[`grp~${g.id}`];
+        if (!geo) return null;
+        return (
+          <line key={g.id} x1={geo.x1} y1={geo.y1} x2={geo.x2} y2={geo.y2}
+            stroke="#DDD5C5" strokeWidth={1.2} strokeLinecap="round" strokeDasharray="3 6"
+            style={{ opacity: geo.op * (dimmed ? 0.28 : 1), transition: `opacity ${MOTION.edgeFade}ms ${MOTION.ease}` }} />
         );
       })}
     </svg>
@@ -378,6 +482,10 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
   const [geom, setGeom] = useState<Record<string, EdgeGeom>>({});
   const [size, setSize] = useState({ w: 640, h: 560 });
   const [leaving, setLeaving] = useState<{ id: string; e: KnowledgeEntityView; last: DepthPos }[]>([]);
+  // Ring grouping (session-local, per center): ids revealed out of a "+38
+  // more" group, and where each revealed node blooms from (the chip's slot).
+  const [pinned, setPinned] = useState<Set<string>>(() => new Set());
+  const [bloomFrom, setBloomFrom] = useState<Record<string, DepthPos>>({});
 
   const sceneRef = useRef<HTMLDivElement | null>(null);
   const nodeEls = useRef(new Map<string, HTMLDivElement>());
@@ -407,7 +515,10 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
   const byId = useMemo(() => new Map(entities.map((e) => [e.id, e])), [entities]);
   // Body [[wikilinks]] in the side panel resolve against the whole world.
   const resolveNode = useMemo(() => buildNodeResolver(entities), [entities]);
-  const graph = useMemo(() => buildEgoGraph(entities, center, CAPS), [entities, center]);
+  const graph = useMemo(
+    () => buildEgoGraph(entities, center, { ...CAPS, pinned }),
+    [entities, center, pinned],
+  );
   const layout = useMemo(
     () => (graph ? depthLayout(graph, size.w, size.h, reduced) : {}),
     [graph, size.w, size.h, reduced],
@@ -446,6 +557,13 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
       const pa = borderPoint(a, b, 2), pb = borderPoint(b, a, 2);
       g[edgeKey(e)] = { x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y, mx: (pa.x + pb.x) / 2, my: (pa.y + pb.y) / 2, op: hop === 2 ? 0.5 : hop === 1 ? 0.85 : 1 };
     }
+    // Dashed spokes: group chip → its ring anchor.
+    for (const gr of graph.groups) {
+      const a = centerPt(gr.parentId), b = centerPt(gr.id);
+      if (!a || !b) continue;
+      const pa = borderPoint(a, b, 2), pb = borderPoint(b, a, 2);
+      g[`grp~${gr.id}`] = { x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y, mx: (pa.x + pb.x) / 2, my: (pa.y + pb.y) / 2, op: gr.hop === 2 ? 0.45 : 0.7 };
+    }
     setGeom(g);
   }, [graph, layout]);
 
@@ -483,13 +601,20 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
       setLeaving(gone);
       window.setTimeout(() => setLeaving([]), MOTION.exit + 60);
       gone.forEach((s) => nodeEls.current.delete(s.id));
-      setEnteringIds(new Set(next.nodes.map((n) => n.id).filter((nid) => !current.has(nid))));
+      const nextGroups = new Set(next.groups.map((g) => g.id));
+      graph.groups.forEach((g) => { if (!nextGroups.has(g.id)) nodeEls.current.delete(g.id); });
+      setEnteringIds(new Set([
+        ...next.nodes.map((n) => n.id).filter((nid) => !current.has(nid)),
+        ...next.groups.map((g) => g.id).filter((gid) => !graph.groups.some((g2) => g2.id === gid)),
+      ]));
     }
     // (The measure-loop effect re-arms the settle window when the graph flips.)
     setSelEdge(null);
     setHoverEdge(null);
     setHoverNode(null);
     setJump("");
+    setPinned(new Set());
+    setBloomFrom({});
     setTrail(nextTrail);
   };
   const goTo = (id: string) =>
@@ -499,6 +624,16 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
     if (prev) walkTo(prev, (t) => t.slice(0, -1));
   };
   const goIndex = (i: number) => walkTo(trail[i], (t) => t.slice(0, i + 1));
+
+  // Expand a "+38 more" group: pin its next page into the ring; the revealed
+  // nodes bloom out of the chip's slot (the rebuilt graph shrinks the group).
+  const expandGroup = (g: EgoGroup) => {
+    const page = g.memberIds.slice(0, GROUP_PAGE);
+    const from = layout[g.id];
+    setBloomFrom(from ? Object.fromEntries(page.map((id) => [id, from])) : {});
+    setEnteringIds(new Set(page));
+    setPinned((prev) => new Set([...prev, ...page]));
+  };
 
   const jumpMatches = useMemo(() => {
     const q = jump.trim().toLowerCase();
@@ -526,6 +661,8 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
           style={{ position: "absolute", inset: 0, perspective: reduced ? "none" : `${DEPTH.perspective}px`, perspectiveOrigin: "50% 46%" }}
         >
           <div style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d" }}>
+            <GroupEdgeLayer groups={graph.groups} geom={geom}
+              dimmed={Boolean(hoverEdge || selEdge || hoverNode)} />
             <EdgeLayer geom={geom} edges={graph.edges} layout={layout}
               hoverEdge={hoverEdge} selEdge={selEdge} focusNode={hoverNode}
               onHover={setHoverEdge} onClick={(e) => setSelEdge(edgeKey(e))} />
@@ -546,7 +683,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
                   e={n.entity}
                   kindDef={kindByName.get(n.kind)}
                   pos={p}
-                  enterFrom={entering && !reduced ? parentPos : null}
+                  enterFrom={entering && !reduced ? bloomFrom[n.id] ?? parentPos : null}
                   isCenter={isCenter}
                   isHover={hoverNode === n.id}
                   isDim={isDim}
@@ -572,26 +709,28 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
               </div>
             ))}
 
-            {/* truncation chip — the rings are importance-capped */}
-            {graph.truncated > 0 && (() => {
-              const rad = (28 * Math.PI) / 180;
-              const rx = size.w * DEPTH.r1x + 46;
-              const ry = size.h * DEPTH.r1y + 46;
+            {/* ring groups — the importance-capped long tail, one expandable
+                pseudo-node per kind ("+38 more invoices") */}
+            {graph.groups.map((g) => {
+              const p = layout[g.id];
+              if (!p) return null;
+              const kindDef = kindByName.get(g.kind);
+              const plural = kindDef?.plural && g.count !== 1 ? kindDef.plural.toLowerCase() : null;
               return (
-                <div title={`${graph.truncated} more neighbour${graph.truncated === 1 ? "" : "s"} beyond the rings — capped by importance`}
-                  className="dm-mono"
-                  style={{
-                    position: "absolute", left: "50%", top: "50%",
-                    transform: `translate(-50%,-50%) translate3d(${Math.cos(rad) * rx}px, ${Math.sin(rad) * ry}px, 0px)`,
-                    transition: reduced ? "none" : `transform ${MOTION.recenter}ms ${MOTION.easeOut}`,
-                    display: "flex", alignItems: "center", padding: "5px 10px",
-                    background: "#F6F2E9", border: "1px dashed #DDD5C5", borderRadius: 999,
-                    color: "#A39B8B", fontSize: 10, letterSpacing: "0.05em", cursor: "default", zIndex: 5,
-                  }}>
-                  +{graph.truncated} more
-                </div>
+                <Group3D
+                  key={`${center}~${g.id}`}
+                  g={g}
+                  label={plural ? `+${g.count} more ${plural}` : g.label}
+                  kindColor={kindDef?.color}
+                  pos={p}
+                  enterFrom={enteringIds.has(g.id) && !reduced ? layout[g.parentId] ?? p : null}
+                  isDim={Boolean(hoverNode && hoverNode !== g.parentId)}
+                  reduced={reduced}
+                  nodeRef={(el) => { if (el) nodeEls.current.set(g.id, el); }}
+                  onClick={() => expandGroup(g)}
+                />
               );
-            })()}
+            })}
           </div>
         </div>
 

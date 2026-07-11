@@ -56,10 +56,10 @@
   **[design/briefs/wow-graph-engine-brief.md](../design/briefs/wow-graph-engine-brief.md)**
   (context, both modes, 5-act replay structure, LOD rules, demo fixture,
   deliverables). Build order:
-  1. **Ring grouping in the existing walk** (independent, cheap, fixes a
-     real overload today): when a hop would draw 100 spokes, collapse the
-     long tail per kind into an expandable "+38 more invoices" pseudo-node.
-     Battle-tests the clustering logic the engine reuses.
+  1. ~~Ring grouping in the existing walk~~ ✅ 2026-07-11 — overflow past the
+     ring caps now collapses per kind into expandable "+38 more invoices"
+     pseudo-nodes (`groups`/`pinned` in `explorer.ts`); the per-kind long-tail
+     clustering is the same rule the engine's Cosmos LOD reuses.
   2. **REPLAY** (first wow — forces the whole engine): time-ordered scenario
      compiled from data we ALREADY store (items.received_at, entities/facts
      created_at/valid_from, review resolutions, supersessions — the
