@@ -12,6 +12,39 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **FLAT IA + Map merged into the Explorer** (user decision:
+  merge when possible, disambiguate otherwise, and ONE flat toggle — no
+  toggles inside toggles; supersedes the same-day nested shape).
+  - **Data tab = one flat toggle:** Tables · ◍ Explore · Cards · Concepts ·
+    Timeline · Files · Insights. `KnowledgeView` lost its internal mode row
+    (takes `view` + `onSwitch` props); Timeline/Files render directly from the
+    tab; per-view subtitles explain each reading.
+  - **Map merged into Explore:** the ⌂ button zooms out to the whole graph
+    (the old Map, with pins + kind hypernodes intact); every map-inspector
+    gains "◍ Walk from here" which dives back into the ego walk centered on
+    that node. The "Map"/"Graph" pill no longer exists anywhere.
+  - **Cards ↔ Tables disambiguated by a bridge:** every cards-group header
+    gets "▦ open as table" (POSTs the existing idempotent category→table
+    endpoint, then jumps to Tables) — a table is now visibly "a cards grouping
+    with a schema".
+  - **Timeline vs Review disambiguated by copy:** Review's subtitle owns
+    "pending changes to confirm" (and points to Data → Timeline for the data's
+    story); Timeline's subtitle says "your data's story, not table edits".
+    (`VersioningTab` in versioning.tsx is unmounted dead code — left in place,
+    flagged here for a future cleanup.)
+  - Verified: 87/87 tests + tsc + lint == baseline + build green; `npm run
+    shoot` green; a Chromium drive of the merge (zoom out → map inspector →
+    "◍ Walk from here" → recentered walk) 3/3 with screenshots reviewed.
+- **2026-07-11** — **Session-speed fixes** (retro on why PR #42 was slow):
+  ① CI now also triggers on `claude/**` pushes — pushes from agent sessions
+  don't fire `pull_request` events (GitHub suppresses them for those tokens),
+  which had left PRs showing stale checks and cost dead waiting + a manual
+  `workflow_dispatch`. ② The ad-hoc browser screenshot harness is now a repo
+  tool: `npm run shoot [-- explorer timeline]` (esbuild bundle → local
+  Chromium → `.shoot/<name>.png`, fails on page errors; harnesses are small
+  fixture mounts under `scripts/shoot/harnesses/`). devDeps: esbuild,
+  playwright-core. `.shoot/` is git- and eslint-ignored. Verified: both
+  harnesses shoot green; 87/87 tests, tsc, lint == baseline, build green.
 - **2026-07-11** — **Dashboard clarity pass + design polish** (user feedback on
   the Explorer v2 port: keep the design's color richness and cleaner panel;
   Timeline "10× cleaner" in the mock; too many tabs/toggles in Data).

@@ -73,6 +73,8 @@ import { OnboardingModal } from "./onboarding-modal";
 import { ImportGraphModal } from "./import-graph-modal";
 import { KnowledgeView } from "./knowledge-view";
 import { InsightsView } from "./insights-view";
+import { TimelineView } from "./timeline-view";
+import { FilesView } from "./files-view";
 import { AnswerCard } from "./answer-card";
 import { CategoriesModal } from "./categories-modal";
 import { BuildFromKnowledgeModal } from "./build-from-knowledge";
@@ -81,10 +83,10 @@ import { BuildFromKnowledgeModal } from "./build-from-knowledge";
 /* Component                                                           */
 /* ================================================================== */
 type Tab = "agents" | "data" | "review" | "search";
-// The Data tab answers ONE verb — "look at my data" — through three surfaces
-// (simplicity rule: two levels max, no sibling duplication). Knowledge,
-// Timeline and Files live INSIDE Explore as modes of one surface.
-type DataView = "tables" | "explore" | "insights";
+// The Data tab is ONE FLAT toggle (IA rule 2026-07-11: no toggles inside
+// toggles) — every reading of your data is a sibling here. The old Map merged
+// into Explore as its zoomed-out state (⌂).
+type DataView = "tables" | "explore" | "cards" | "concepts" | "timeline" | "files" | "insights";
 export type ControlCenterProps = {
   fullName: string;
   initial: string;
@@ -247,8 +249,16 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
 
   const titles: Record<Tab, { t: string; sub: string }> = {
     agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
-    data: { t: "Data", sub: dataView === "explore" ? "Everything we know, walkable — stand on a node and look around" : dataView === "insights" ? "The numbers behind your knowledge — totals & breakdowns, computed live" : uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · derived from your knowledge` : "No tables yet" },
-    review: { t: "Review", sub: reviewTotal ? `${reviewTotal} to confirm — merges, conflicts & new facts` : "Confirm what we inferred — merges, conflicts & new facts" },
+    data: { t: "Data", sub: {
+      explore: "Everything we know, walkable — ⌂ zooms out to the whole graph",
+      cards: "The things we know about, grouped by kind — open any group as a table",
+      concepts: "Your content, mapped by what it's about",
+      timeline: "What datamodo learned, in order — your data's story, not table edits",
+      files: "Documents that arrived as attachments — filed by what they mention, originals kept",
+      insights: "The numbers behind your knowledge — totals & breakdowns, computed live",
+      tables: uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · editable projections of your knowledge` : "No tables yet",
+    }[dataView] },
+    review: { t: "Review", sub: reviewTotal ? `${reviewTotal} pending changes to confirm — merges, conflicts & new facts` : "Pending changes to confirm — merges, conflicts & new facts (your data's story lives in Data → Timeline)" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
   };
 
@@ -402,7 +412,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           {tab === "data" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "explore", label: "◍ Explore" }, { v: "insights", label: "Insights" }]} />
+                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "explore", label: "◍ Explore" }, { v: "cards", label: "Cards" }, { v: "concepts", label: "Concepts" }, { v: "timeline", label: "Timeline" }, { v: "files", label: "Files" }, { v: "insights", label: "Insights" }]} />
                 {/* Rare actions live behind ONE menu, not three peers (simplicity rule). */}
                 <div style={{ position: "relative" }}>
                   <Hov onClick={() => setDataActionsOpen((o) => !o)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
@@ -428,8 +438,12 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                   )}
                 </div>
               </div>
-              {dataView === "explore" ? (
-                <KnowledgeView />
+              {dataView === "explore" || dataView === "cards" || dataView === "concepts" ? (
+                <KnowledgeView view={dataView} onSwitch={(v) => { setDataView(v); if (v === "tables") router.refresh(); }} />
+              ) : dataView === "timeline" ? (
+                <TimelineView />
+              ) : dataView === "files" ? (
+                <FilesView />
               ) : dataView === "insights" ? (
                 <InsightsView />
               ) : uiTables.length || createTableOpen ? (

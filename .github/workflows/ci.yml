@@ -2,10 +2,13 @@
 # unit tests on pure cores, tsc clean, lint == baseline, `next build` green.
 name: CI
 
+# NOTE: agent-session pushes don't fire `pull_request` events (GitHub
+# suppresses workflow events from those tokens), so `claude/**` branches run
+# on push — otherwise a PR from a session silently shows stale checks.
 on:
   pull_request:
   push:
-    branches: [dev, prod]
+    branches: [dev, prod, "claude/**"]
   workflow_dispatch: {}
 
 concurrency:

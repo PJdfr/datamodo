@@ -150,7 +150,13 @@ function layout(nodes: Node[], edges: Edge[], pins: Record<string, NormPin>): Re
   return pos;
 }
 
-export function KnowledgeGraphView({ entities, onOpen }: { entities: KnowledgeEntityView[]; onOpen?: (id: string) => void }) {
+export function KnowledgeGraphView({ entities, onOpen, onWalk }: {
+  entities: KnowledgeEntityView[];
+  onOpen?: (id: string) => void;
+  /** Dive from the overview into the ego walk, centered on this node
+   *  (the Explorer's zoomed-out mode wires this). */
+  onWalk?: (id: string) => void;
+}) {
   // Curation state. Pins merge the persisted layer (entities.graph_pin) with
   // this session's edits; collapse is session-local by design (a reading mode,
   // not data).
@@ -444,6 +450,17 @@ export function KnowledgeGraphView({ entities, onOpen }: { entities: KnowledgeEn
           </div>
           <div className="dm-display" style={{ fontWeight: 700, fontSize: 16.5, letterSpacing: "-0.02em", color: C.ink, lineHeight: 1.15 }}>{sel.label}</div>
           <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+            {onWalk && (
+              <button
+                type="button"
+                onClick={() => onWalk(sel.id)}
+                title="Zoom into the walk from this node"
+                className="dm-mono"
+                style={{ fontSize: 10.5, color: C.accent, background: "#FDF6F2", border: "1px solid #F3D6CB", borderRadius: 7, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}
+              >
+                ◍ Walk from here
+              </button>
+            )}
             {onOpen && (
               <button
                 type="button"

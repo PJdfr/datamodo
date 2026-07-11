@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { C } from "./ui";
 import { buildEgoGraph, depthLayout, DEPTH, type DepthPos, type EgoEdge } from "@/lib/datamodo/explorer";
 import { EntityPageBody } from "./entity-page";
+import { KnowledgeGraphView } from "./knowledge-graph";
 import type { FactSourceView, KnowledgeEntityView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
 
@@ -369,6 +370,9 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
     typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false,
   );
   const [trail, setTrail] = useState<string[]>([initialId]);
+  // The MAP merged in (IA pass): zoomed OUT shows the whole graph with pins
+  // and kind clusters; a node's "◍ Walk from here" zooms back into the walk.
+  const [zoomedOut, setZoomedOut] = useState(false);
   const center = trail[trail.length - 1];
   const [hoverNode, setHoverNode] = useState<string | null>(null);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
@@ -506,6 +510,26 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
       .slice(0, 6);
   }, [jump, entities, center]);
 
+  if (zoomedOut) {
+    return (
+      <div style={{ background: "#FFFDF8", border: "1px solid #E7E0D2", borderRadius: 16, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: "1px solid #EFE9DC", flexWrap: "wrap" }}>
+          <span className="dm-mono" style={{ ...micro, color: C.accent }}>⌂ overview</span>
+          <span style={{ fontSize: 12.5, color: "#8A8477" }}>Your whole graph — drag to pin, collapse kinds; pick a node to walk from it</span>
+          <button type="button" onClick={() => setZoomedOut(false)} className="dm-mono"
+            style={{ marginLeft: "auto", fontSize: 11, color: C.ink, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 999, padding: "4px 12px", cursor: "pointer", fontFamily: "inherit" }}>
+            ◍ back to the walk
+          </button>
+        </div>
+        <KnowledgeGraphView
+          entities={entities}
+          onOpen={onOpenPage}
+          onWalk={(id) => { setZoomedOut(false); if (id !== center) goTo(id); }}
+        />
+      </div>
+    );
+  }
+
   if (!graph) {
     return <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "28px 4px" }}>That node isn&apos;t in your knowledge yet.</div>;
   }
@@ -600,6 +624,10 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
 
         {/* breadcrumb + back (floating) */}
         <div style={{ position: "absolute", top: 14, left: 16, display: "flex", alignItems: "center", gap: 8, zIndex: 50, maxWidth: "62%" }}>
+          <button onClick={() => setZoomedOut(true)} aria-label="Zoom out to the whole graph" title="Zoom out — the whole graph, with your pins"
+            style={{ border: "1px solid #E7E0D2", background: "#FFFDF8", borderRadius: 999, padding: "5px 11px", fontSize: 12, fontFamily: "inherit", color: "#514C43", cursor: "pointer", boxShadow: "0 8px 22px -16px rgba(33,30,24,.4)" }}>
+            ⌂
+          </button>
           <button onClick={back} disabled={trail.length < 2} aria-label="Back"
             style={{
               display: "flex", alignItems: "center", gap: 5, border: "1px solid #E7E0D2", background: "#FFFDF8",
