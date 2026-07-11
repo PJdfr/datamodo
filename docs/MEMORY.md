@@ -82,14 +82,21 @@ progressive disclosure over adding parallel options: before adding a toggle,
 button, or view, ask what it replaces or where it nests. Views multiply only
 when each answers a genuinely different question; controls the user rarely
 needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
-- **Applied 2026-07-11, revised same day (IA shape — keep it this way):** the
-  Data tab is **ONE FLAT toggle** — Tables · ◍ Explore · Cards · Concepts ·
-  Timeline · Files · Insights. NO toggles inside toggles (user decision:
-  flat beats nested). Merge before adding a sibling: the old Map merged INTO
-  Explore as its ⌂ zoomed-out state; Cards bridge to Tables via "▦ open as
-  table". Rare build actions live behind one "✦ Build ▾" menu. Review owns
-  the words "pending changes"; Timeline owns "what we learned" — never let
-  them read as two timelines.
+- **Applied 2026-07-11, final same-day revision (IA shape — keep it this
+  way):** the Data tab is **ONE FLAT toggle** — ▦ Tables · ◍ Explore ·
+  Timeline · Files · Insights. NO toggles inside toggles.
+  - **Tables, Cards and Concepts are ONE feature and ONE object** (user
+    decision): a category IS a table IS a concept-form. The Tables surface is
+    a Supabase-style schema diagram (kind cards = columns + FK relation rows,
+    lines between them); clicking a card browses its rows as cards; creating
+    a "table" creates the category AND its dataset together (schema-view's
+    "+ new table"). Deeper model unification (`datasets.kind_id`) is a
+    roadmapped migration.
+  - **The Map is REMOVED, not merged** (user decision: useless next to the
+    walk). Explore = the ego walk only; no zoom-out. `entities.graph_pin` and
+    its PATCH endpoint remain dormant.
+  - Rare build actions live behind one "✦ Build ▾" menu. Review owns the
+    words "pending changes"; Timeline owns "what we learned".
 
 ## Design system (brand)
 - Brand name always lowercase **datamodo**. Cream `#F6F2E9` canvas, warm ink
