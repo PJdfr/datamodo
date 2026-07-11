@@ -16,7 +16,7 @@ export type { ReviewItem } from "./review-types";
 
 interface ReviewRow {
   id: string;
-  kind: "entity_merge" | "fact_conflict" | "extraction" | "off_template";
+  kind: "entity_merge" | "fact_conflict" | "extraction" | "off_template" | "category_proposal";
   status: string;
   confidence: number | null;
   impact: number;
@@ -224,6 +224,25 @@ export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
         docKind: (r.detail.docKind as string) ?? null,
         facts: display.map((d) => ({ s: d.subject, p: d.predicate, v: d.value, c: 1, ref: Boolean(d.ref) })),
       });
+    } else if (r.kind === "category_proposal") {
+      // Pre-rendered at filing time (kinds.ts maybeProposeCategories).
+      const t = (r.detail.template as {
+        icon?: string; description?: string;
+        fields?: { key: string; label: string; type: string }[];
+        relations?: { predicate: string; label: string; targetKind?: string }[];
+      }) ?? {};
+      out.push({
+        ...base,
+        kind: "category_proposal",
+        proposedKind: (r.detail.proposedKind as string) || "thing",
+        label: (r.detail.label as string) || (r.detail.proposedKind as string) || "New category",
+        count: Number(r.detail.count ?? 0),
+        sampleLabels: (r.detail.sampleLabels as string[]) ?? [],
+        fields: t.fields ?? [],
+        relations: t.relations ?? [],
+        icon: t.icon,
+        description: t.description,
+      });
     }
   }
   return out;
@@ -257,6 +276,30 @@ export async function acceptReview(orgId: string, id: string): Promise<void> {
     // (entity resolution + dedup + provenance) — off-template stops meaning
     // dropped, it means deferred to the user.
     await ingestExtraction(orgId, r.owner_user_id, r.item_id, r.detail.extraction as unknown as Extraction);
+  } else if (r.kind === "category_proposal") {
+    // Accepting CREATES the category with its drafted template — the entities
+    // that triggered the proposal already carry this kind, so they snap into
+    // the new template the moment it exists (growth loop ⑤ closes here).
+    const t = (r.detail.template as {
+      icon?: string; plural?: string; description?: string; aliases?: string[];
+      fields?: import("./ontology").KindField[]; relations?: import("./ontology").KindRelation[];
+    }) ?? {};
+    const { createKind } = await import("./kinds");
+    try {
+      await createKind(orgId, r.owner_user_id, {
+        kind: (r.detail.proposedKind as string) || undefined,
+        label: (r.detail.label as string) || (r.detail.proposedKind as string) || "New category",
+        icon: t.icon,
+        plural: t.plural,
+        description: t.description,
+        aliases: t.aliases,
+        fields: t.fields,
+        relations: t.relations,
+      });
+    } catch (e) {
+      // Already created by hand since the proposal was filed → accept is a no-op.
+      if ((e as { code?: string }).code !== "P2002") throw e;
+    }
   }
   // fact_conflict + extraction: already applied to the store — accept = confirm.
   await prisma.knowledge_reviews.update({
@@ -293,8 +336,9 @@ export async function rejectReview(orgId: string, id: string): Promise<void> {
       if (orphans.length) await prisma.facts.deleteMany({ where: { id: { in: orphans } } });
     }
   }
-  // entity_merge + off_template: nothing was applied (only proposed) — just
-  // mark rejected.
+  // entity_merge + off_template + category_proposal: nothing was applied
+  // (only proposed) — just mark rejected. A rejected category proposal is
+  // never re-filed (the filing check matches any status).
   await prisma.knowledge_reviews.update({
     where: { id },
     data: { status: "rejected", resolved_at: new Date() },

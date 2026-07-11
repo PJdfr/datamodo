@@ -4,7 +4,7 @@
 // stays clean. Each kind carries exactly the structured fields its card needs;
 // the API returns this shape and the tab's simulated data conforms to it too.
 
-export type ReviewKind = "entity_merge" | "fact_conflict" | "extraction" | "off_template";
+export type ReviewKind = "entity_merge" | "fact_conflict" | "extraction" | "off_template" | "category_proposal";
 
 export interface EntityAttr {
   k: string;
@@ -72,4 +72,19 @@ export interface OffTemplateReview extends ReviewBase {
   facts: ReviewFact[];
 }
 
-export type ReviewItem = MergeReview | ConflictReview | ExtractionReview | OffTemplateReview;
+/** "You keep capturing things no category covers — make one?" (growth loop ⑤)
+ *  Accepting CREATES the category with the drafted template; nothing else is
+ *  applied. The entities that triggered it already exist and keep their kind. */
+export interface CategoryProposalReview extends ReviewBase {
+  kind: "category_proposal";
+  proposedKind: string; // the slug those entities already carry
+  label: string;
+  count: number; // entities of this kind today
+  sampleLabels: string[];
+  fields: { key: string; label: string; type: string }[];
+  relations: { predicate: string; label: string; targetKind?: string }[];
+  icon?: string;
+  description?: string;
+}
+
+export type ReviewItem = MergeReview | ConflictReview | ExtractionReview | OffTemplateReview | CategoryProposalReview;

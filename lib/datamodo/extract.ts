@@ -660,6 +660,15 @@ export async function runExtractionForItem(
     } catch (e) {
       console.error(`[extract] attachment processing failed for item ${row.id}`, e);
     }
+    // Growth loop ⑤: entities of a kind the registry doesn't know, once seen
+    // often enough, become a PROPOSED category (AI-drafted template) in the
+    // Review queue. Best-effort — a proposal failure never fails the item.
+    try {
+      const { maybeProposeCategories } = await import("./kinds");
+      await maybeProposeCategories(row.org_id, row.owner_user_id, result.extraction, kinds);
+    } catch (e) {
+      console.error(`[extract] category proposal check failed for item ${row.id}`, e);
+    }
     // Low-confidence extractions get surfaced for the user to confirm; confident
     // ones file silently (keeps the review queue meaningful, not a firehose).
     const EXTRACTION_REVIEW_BELOW = 0.75;

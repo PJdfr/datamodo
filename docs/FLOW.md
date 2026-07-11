@@ -57,7 +57,7 @@ subgraph VAULT["5 · CANONICAL VAULT<br/>one store, per-user (org_id), Neon Post
   FACTS[("facts<br/>append-only · bitemporal ·<br/>claim-key dedup · supersession")]
   PROV[("fact_sources<br/>provenance to the exact message")]
   CHUNKS[("doc_chunks<br/>page-cited passages")]
-  REV[("knowledge_reviews<br/>merge · conflict · extraction ·<br/>off-template — impact-ranked")]
+  REV[("knowledge_reviews<br/>merge · conflict · extraction ·<br/>off-template · category proposal<br/>— impact-ranked")]
 end
 
 subgraph DERIVE["6 · WE DERIVE<br/>every view is a projection; nothing is a second store"]
