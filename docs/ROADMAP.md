@@ -4,7 +4,7 @@
 > inventory when they ship; add what the work surfaced. Ordered by value.
 > Siblings: [STATE.md](STATE.md) · [FLOW.md](FLOW.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-10
+> Last updated: 2026-07-11
 
 ## Now (unblocks everything else)
 1. **Merge PR #35 → dev**, then set env: `OPENROUTER_VISION_MODEL` (+ ~$10
@@ -62,7 +62,6 @@
 - Graph: persist collapsed-kind state if users ask for it (deliberately
   session-local today).
 - Requeue UX: surface "reprocessing N items" in the dashboard.
-- `bumpSupport` → atomic increment before concurrent per-entity extraction.
 - DuckDB / lance-graph sidecar when analytics volume demands it (documented
   seam in `analytics.ts`).
 

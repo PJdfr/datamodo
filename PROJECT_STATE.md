@@ -12,6 +12,10 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **`bumpSupport` is now atomic** (`support = support + 1` via
+  Prisma's `increment`, one round-trip): concurrent per-entity extraction can
+  no longer lose corroboration counts to a read-modify-write race. Roadmap
+  item closed. Verified: 71/71 tests, tsc clean, lint == baseline.
 - **2026-07-11** — **CI pipeline added**: `.github/workflows/ci.yml` runs the
   full verification bar (unit tests → tsc → lint==baseline → `next build`) on
   every PR and on pushes to dev/prod. The lint gate is

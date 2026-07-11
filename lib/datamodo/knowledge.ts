@@ -392,11 +392,12 @@ export async function createExtractionReview(
 }
 
 async function bumpSupport(id: string): Promise<void> {
-  // NOTE: read-modify-write; move to an atomic RPC (support = support + 1)
-  // before this runs concurrently per entity.
-  const data = await prisma.entities.findUnique({ where: { id }, select: { support: true } });
-  const next = (data?.support ?? 0) + 1;
-  await prisma.entities.update({ where: { id }, data: { support: next, updated_at: new Date() } });
+  // Atomic in the database (support = support + 1) — safe under concurrent
+  // per-entity extraction, and one round-trip instead of two.
+  await prisma.entities.update({
+    where: { id },
+    data: { support: { increment: 1 }, updated_at: new Date() },
+  });
 }
 
 /**
