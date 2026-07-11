@@ -284,3 +284,14 @@ update public.user_settings s
    set plan = 'pro', compute_mode = 'cloud'
   from public.profiles p
  where p.id = s.user_id and p.email = 'user@example.com';
+
+-- Bind seeded datasets to their kinds where the registry already exists
+-- ("category = table" is structural via datasets.kind_id; the kind registry
+-- seeds lazily on first dashboard load, so this may no-op on a brand-new org —
+-- the UI's name fallback covers that until the seed is re-run).
+update public.datasets d
+   set kind_id = k.id
+  from public.kinds k
+ where d.kind_id is null
+   and k.org_id = d.org_id
+   and lower(d.name) = lower(coalesce(nullif(trim(k.plural), ''), k.label || 's'));

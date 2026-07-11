@@ -154,6 +154,7 @@ model datasets {
   id                                                            String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   org_id                                                        String              @db.Uuid
   agent_id                                                      String?             @db.Uuid
+  kind_id                                                       String?             @db.Uuid
   name                                                          String
   description                                                   String?
   columns                                                       Json                @default("[]")
@@ -165,10 +166,12 @@ model datasets {
   dataset_rows                                                  dataset_rows[]
   dataset_snapshots                                             dataset_snapshots[]
   agents                                                        agents?             @relation(fields: [agent_id], references: [id], onUpdate: NoAction)
+  kinds                                                         kinds?              @relation(fields: [kind_id], references: [id], onUpdate: NoAction)
   organizations                                                 organizations       @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   sheet_links                                                   sheet_links?
 
   @@index([agent_id], map: "datasets_agent_idx")
+  @@index([kind_id], map: "datasets_kind_idx")
   @@index([org_id, created_at], map: "datasets_org_created_idx")
 }
 
@@ -181,6 +184,7 @@ model entities {
   normalized_key                                                 String
   natural_keys                                                   Json                   @default("{}")
   embedding                                                      Unsupported("vector")?
+  embedding_model                                                String?
   support                                                        Int                    @default(0)
   merged_into                                                    String?                @db.Uuid
   body_md                                                        String?
@@ -398,6 +402,7 @@ model doc_chunks {
   page          Int?
   text          String
   embedding     Unsupported("vector")?
+  embedding_model String?
   created_at    DateTime               @default(now()) @db.Timestamptz(6)
   organizations organizations          @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   entities      entities               @relation(fields: [entity_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -422,6 +427,7 @@ model kinds {
   builtin       Boolean       @default(false)
   created_at    DateTime      @default(now()) @db.Timestamptz(6)
   updated_at    DateTime      @default(now()) @db.Timestamptz(6)
+  datasets      datasets[]
   organizations organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([org_id, kind], map: "kinds_org_kind_uq")

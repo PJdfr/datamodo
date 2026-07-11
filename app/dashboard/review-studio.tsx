@@ -8,6 +8,7 @@
  *   • fact_conflict → "which value is right now?"   (before → after diff)
  *   • extraction   → "did we understand this?"      (message ↔ facts, editorial)
  *   • off_template → "keep what didn't fit the template?" (doc facts, opt-in)
+ *   • category_proposal → "make a category for these?"    (growth loop ⑤, opt-in)
  * Flow: triage header → impact spotlight → calmer grouped sections, ranked by impact.
  *
  * Data comes from GET /api/knowledge/reviews (typed by lib/datamodo/review-types).
@@ -17,7 +18,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { C, Hov, ghostBtn, relTime } from "./ui";
-import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, OffTemplateReview, ReviewEntitySide } from "@/lib/datamodo/review-types";
+import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, OffTemplateReview, CategoryProposalReview, ReviewEntitySide } from "@/lib/datamodo/review-types";
 
 /* --------------------------- simulated fallback --------------------------- */
 
@@ -56,6 +57,14 @@ const SIMULATED: ReviewItem[] = [
     id: "sim-o1", kind: "off_template", impact: 2, confidence: null, createdAt: ago(8),
     docLabel: "INV-4417.pdf", docKind: "invoice",
     facts: [{ s: "INV-4417", p: "purchase_order", v: "PO-2211", c: 1 }, { s: "INV-4417", p: "payment_terms", v: "net 45", c: 1 }],
+  },
+  {
+    id: "sim-k1", kind: "category_proposal", impact: 4, confidence: null, createdAt: ago(12),
+    proposedKind: "subscription", label: "Subscription", count: 4,
+    sampleLabels: ["Figma Org plan", "Notion Team", "Vercel Pro", "Linear"],
+    fields: [{ key: "plan", label: "Plan", type: "text" }, { key: "monthly_cost", label: "Monthly cost", type: "number" }, { key: "renews_on", label: "Renews on", type: "date" }],
+    relations: [{ predicate: "billed_by", label: "Billed by", targetKind: "company" }],
+    icon: "🔁", description: "A recurring service the user pays for.",
   },
 ];
 
@@ -275,10 +284,59 @@ function OffTemplateCard({ o, onResolve }: { o: OffTemplateReview; onResolve: Re
   );
 }
 
+function CategoryProposalCard({ p, onResolve }: { p: CategoryProposalReview; onResolve: Resolve }) {
+  return (
+    <div style={{ border: "1px solid #E7E0D2", borderRadius: 15, background: "#fff", overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 15px", background: "#FBF8F1", borderBottom: "1px solid #EFE9DC", flexWrap: "wrap" }}>
+        <TypeChip label="New category?" tone={C.accent} />
+        <span style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{p.icon ? `${p.icon} ` : ""}{p.label}</span>
+        <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginLeft: "auto" }}>{p.count} captured · {relTime(p.createdAt)}</span>
+      </div>
+      <div style={{ padding: "15px 16px" }}>
+        <div style={{ fontSize: 12.5, color: "#57534A", lineHeight: 1.5, marginBottom: 11 }}>
+          Your messages keep mentioning <b style={{ fontWeight: 600 }}>{p.label.toLowerCase()}s</b> and no category covers them{p.description ? <> — {p.description.replace(/\.$/, "").toLowerCase()}</> : ""}. Accept to add the category (it becomes a table shape too); the {p.count} already captured snap into it.
+        </div>
+        {p.sampleLabels.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: p.fields.length + p.relations.length > 0 ? 12 : 0 }}>
+            {p.sampleLabels.map((l) => (
+              <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "#57534A", background: "#FBF8F1", border: "1px solid #E7E0D2", borderRadius: 999, padding: "3px 9px" }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.accent }} />{l}
+              </span>
+            ))}
+          </div>
+        )}
+        {(p.fields.length > 0 || p.relations.length > 0) && (
+          <div style={{ background: "#FCFAF4", border: "1px solid #EFE9DC", borderRadius: 10, overflow: "hidden" }}>
+            <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", padding: "7px 11px 3px" }}>Drafted template — edit anytime in Categories</div>
+            {p.fields.map((f) => (
+              <div key={f.key} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "3px 11px" }}>
+                <span className="dm-mono" style={{ fontSize: 11, color: "#514C43" }}>{f.key}</span>
+                <span className="dm-mono" style={{ marginLeft: "auto", fontSize: 9.5, color: "#B7AF9F" }}>{f.type}</span>
+              </div>
+            ))}
+            {p.relations.map((r) => (
+              <div key={r.predicate} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "3px 11px", background: "#FBF6EE" }}>
+                <span className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{r.predicate}</span>
+                <span className="dm-mono" style={{ marginLeft: "auto", fontSize: 9.5, color: "#8A8477" }}>→ {r.targetKind ?? "any"}</span>
+              </div>
+            ))}
+            <div style={{ height: 6 }} />
+          </div>
+        )}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderTop: "1px solid #F1EDE4", background: "#FCFAF4" }}>
+        <span style={{ fontSize: 12, color: "#8A8477" }}>Declining never asks again for this one — those entities stay free-form.</span>
+        <div style={{ marginLeft: "auto" }}><Actions id={p.id} onResolve={onResolve} acceptLabel="Create category" rejectLabel="No thanks" /></div>
+      </div>
+    </div>
+  );
+}
+
 function renderCard(it: ReviewItem, onResolve: Resolve) {
   if (it.kind === "entity_merge") return <MergeCard m={it} onResolve={onResolve} />;
   if (it.kind === "fact_conflict") return <ConflictCard c={it} onResolve={onResolve} />;
   if (it.kind === "off_template") return <OffTemplateCard o={it} onResolve={onResolve} />;
+  if (it.kind === "category_proposal") return <CategoryProposalCard p={it} onResolve={onResolve} />;
   return <ExtractionCard e={it} onResolve={onResolve} />;
 }
 
@@ -328,6 +386,7 @@ function rowMeta(it: ReviewItem): { glyph: string; color: string; text: string }
   if (it.kind === "entity_merge") return { glyph: "⇄", color: C.gold, text: `merge  “${it.parsed.label}”  into  “${it.canonical.label}”` };
   if (it.kind === "fact_conflict") return { glyph: "~", color: C.accent, text: `${it.subject} · ${it.field}  “${it.was}” → “${it.now}”` };
   if (it.kind === "off_template") return { glyph: "±", color: C.blue, text: `${it.facts.length} off-template fact${it.facts.length === 1 ? "" : "s"} from “${it.docLabel}”` };
+  if (it.kind === "category_proposal") return { glyph: "▣", color: C.accent, text: `new category “${it.label}” — ${it.count} thing${it.count === 1 ? "" : "s"} already fit it` };
   const who = it.entities.map((e) => e.label).join(", ") || channelOf(it.channel).label;
   return { glyph: "+", color: C.green, text: `${it.facts.length} fact${it.facts.length === 1 ? "" : "s"} about ${who}` };
 }
@@ -337,6 +396,7 @@ const GROUP_META: Record<ReviewItem["kind"], { title: string; hint: string }> = 
   fact_conflict: { title: "Changed values", hint: "a newer message disagrees" },
   extraction: { title: "New from your messages", hint: "accept to file into your data" },
   off_template: { title: "Outside the template", hint: "a document said more than its category covers" },
+  category_proposal: { title: "Proposed categories", hint: "things you keep capturing that no category covers" },
 };
 
 function DiffRow({ it, expanded, onToggle, onResolve }: { it: ReviewItem; expanded: boolean; onToggle: () => void; onResolve: Resolve }) {
@@ -410,7 +470,7 @@ export function ReviewStudio() {
 
   const live = useMemo(() => [...items].sort((a, b) => b.impact - a.impact), [items]);
   const groups = useMemo(() => {
-    const order: ReviewItem["kind"][] = ["extraction", "fact_conflict", "entity_merge", "off_template"];
+    const order: ReviewItem["kind"][] = ["extraction", "fact_conflict", "entity_merge", "off_template", "category_proposal"];
     return order
       .map((kind) => ({ kind, items: live.filter((i) => i.kind === kind) }))
       .filter((g) => g.items.length > 0);
@@ -420,6 +480,7 @@ export function ReviewStudio() {
     conflict: live.filter((i) => i.kind === "fact_conflict").length,
     extraction: live.filter((i) => i.kind === "extraction").length,
     offTemplate: live.filter((i) => i.kind === "off_template").length,
+    proposals: live.filter((i) => i.kind === "category_proposal").length,
   };
 
   if (loading) return <div className="dm-mono" style={{ color: "#A39B8B", fontSize: 13, padding: "40px 4px" }}>Loading review queue…</div>;
@@ -463,6 +524,7 @@ export function ReviewStudio() {
             {counts.conflict > 0 && <span style={{ color: C.accent }}>~{counts.conflict}</span>}
             {counts.merge > 0 && <span style={{ color: C.gold }}>⇄{counts.merge}</span>}
             {counts.offTemplate > 0 && <span style={{ color: C.blue }}>±{counts.offTemplate}</span>}
+            {counts.proposals > 0 && <span style={{ color: C.accent }}>▣{counts.proposals}</span>}
           </div>
         </div>
 

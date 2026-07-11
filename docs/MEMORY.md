@@ -50,10 +50,31 @@ reviewable, nothing is ever silently lost or merged.
 - **An edge is more than a link**: it is a fact, and the UI must expose what
   the fact already carries — semantics (predicate), time (valid_from/to),
   confidence, strength (corroboration count), and the exact source messages.
+- **A node's body reads like Obsidian** (decided 2026-07-11): `body_md`
+  renders full-flavor markdown — tables, images, tasks, quotes, code, math,
+  `[[wikilinks]]` resolving to real nodes, `![[embeds]]` rendering media nodes
+  inline — but stays INJECTION-PROOF: a pure parser produces an AST the
+  renderer maps to React elements; text never becomes HTML (KaTeX's own
+  MathML is the sole, library-generated exception). Structure still lives in
+  the graph: wikilinks are a reading convenience, edges remain facts.
 - **Generation is ON-DEMAND only** — syntheses (e.g. a concept's cross-document
   note) are produced when the user asks (a button or a question), never by a
   background trigger. LLM spend maps 1:1 to user curiosity; no stale-synthesis
   bookkeeping.
+- **The WOW is the graph engine: REPLAY first, COSMOS as its final frame**
+  (decided 2026-07-11): one canvas/WebGL renderer, two modes. REPLAY = a
+  scenaristic chronological time-lapse of the vault building itself (the
+  bitemporal store makes it a query, not new infrastructure) — five acts:
+  first node · extraction bursts · the user's merge/deny decisions rendered
+  physically · nodes crystallizing into tables · settle into the Cosmos and
+  hand over the controls. COSMOS = the standing whole-vault view, scaled by
+  **level-of-detail clustering** (named stars ∝ degree; long tail collapses
+  into zoom-expandable cluster nodes — same idea de-overloads the walk's
+  rings via "+38 more" pseudo-nodes). The engine is the poster (dark mode
+  allowed); the walk stays the workbench; everything designed through Claude
+  Design (brief: design/briefs/wow-graph-engine-brief.md). Landing hero
+  autoplays the demo replay; a user's replay is private (export-as-video,
+  never public links).
 
 ## Architecture decisions (and why)
 - **Neon + Prisma + Neon Auth** (migrated off Supabase 2026-07-09; zero users
@@ -90,8 +111,9 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
     a Supabase-style schema diagram (kind cards = columns + FK relation rows,
     lines between them); clicking a card browses its rows as cards; creating
     a "table" creates the category AND its dataset together (schema-view's
-    "+ new table"). Deeper model unification (`datasets.kind_id`) is a
-    roadmapped migration.
+    "+ new table"). Since 2026-07-11 the binding is STRUCTURAL:
+    `datasets.kind_id` → `kinds.id` (plural-name match is only a fallback for
+    pre-migration rows).
   - **The Map is REMOVED, not merged** (user decision: useless next to the
     walk). Explore = the ego walk only; no zoom-out. `entities.graph_pin` and
     its PATCH endpoint remain dormant.
@@ -124,4 +146,14 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
 - OpenRouter free tier is the dev default (`cohere/north-mini-code:free`) —
   unreliable, no vision; ~$10 credit unlocks reliable paid models
   (recommendation standing since the extractor shipped).
-- Vision + embeddings are dormant until their env keys are set (fail-soft).
+- Vision + embeddings + transcription are dormant until their env keys are set
+  (fail-soft; transcription rides `TRANSCRIPTION_API_KEY` → `OPENAI_API_KEY`).
+- **Embeddings are infrastructure, not BYOK** (decided 2026-07-11): vectors are
+  STORED, and vectors from different models are incomparable even at the same
+  dimension — so there is ONE embedding space per deployment, never a per-user
+  choice. Every stored vector carries an `embedding_model` stamp; ANN recall
+  filters to the current space (stale rows degrade to trigram, never poison
+  matching); changing `EMBEDDINGS_MODEL` means running
+  `POST /api/jobs/embed-requeue` until `remaining` hits 0. The local edition
+  picks its space once at install (any OpenAI-compatible server) under the
+  same rule.

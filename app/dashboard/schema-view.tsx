@@ -28,13 +28,32 @@ const POS_KEY = "dm-schema-positions-v1";
 export interface SchemaTableRef {
   id: string;
   name: string;
+  /** Structural "category = table" binding (datasets.kind_id → kinds.id).
+   *  Null for hand-made tables and rows that predate the binding. */
+  kindId?: string | null;
 }
 
-/** The dataset a kind materializes into — same naming rule the
- *  category→table endpoint uses (plural, else label+"s"; case-insensitive). */
+/** The dataset a kind materializes into. The structural binding
+ *  (datasets.kind_id, model unification phase 2) wins; the historical naming
+ *  rule (plural, else label+"s"; case-insensitive) remains as a fallback for
+ *  datasets that predate it. */
 export function datasetForKind(def: KindDef, tables: SchemaTableRef[]): SchemaTableRef | null {
+  if (def.id) {
+    const bound = tables.find((t) => t.kindId === def.id);
+    if (bound) return bound;
+  }
   const want = (def.plural?.trim() || `${def.label}s`).toLowerCase();
-  return tables.find((t) => t.name.toLowerCase() === want) ?? null;
+  return tables.find((t) => !t.kindId && t.name.toLowerCase() === want) ?? null;
+}
+
+/** An explicit table↔table link (dataset_relations) — drawn as a DASHED line
+ *  between the two tables' cards, distinct from the coral template-FK rows. */
+export interface SchemaTableLink {
+  fromDatasetId: string;
+  fromColumn: string;
+  toDatasetId: string;
+  toColumn: string;
+  label: string | null;
 }
 
 type Pos = { x: number; y: number };
@@ -69,12 +88,14 @@ function loadSaved(): Record<string, Pos> {
   }
 }
 
-interface Line { x1: number; y1: number; x2: number; y2: number; label: string; from: string; to: string }
+interface Line { x1: number; y1: number; x2: number; y2: number; label: string; from: string; to: string; dashed?: boolean }
 
-export function SchemaView({ kinds, countByKind, tables, selectedKind, onSelectKind, onOpenTable, onMaterialized }: {
+export function SchemaView({ kinds, countByKind, tables, tableLinks = [], selectedKind, onSelectKind, onOpenTable, onMaterialized }: {
   kinds: KindDef[];
   countByKind: Map<string, number>;
   tables: SchemaTableRef[];
+  /** Explicit table↔table relationships (dataset_relations) — dashed lines. */
+  tableLinks?: SchemaTableLink[];
   /** The kind whose rows are being browsed below (cards grid). */
   selectedKind: string | null;
   onSelectKind: (kind: string | null) => void;
@@ -129,6 +150,17 @@ export function SchemaView({ kinds, countByKind, tables, selectedKind, onSelectK
     return h;
   }, [kinds, laidOut]);
 
+  // Which kind card carries each dataset (structural binding, name fallback) —
+  // dataset_relations reference datasets, but the canvas draws kind cards.
+  const kindByDataset = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const def of kinds) {
+      const ds = datasetForKind(def, tables);
+      if (ds) m.set(ds.id, def.kind);
+    }
+    return m;
+  }, [kinds, tables]);
+
   /* ---- relation lines: FK row edge → target card edge, live-measured ---- */
   const measure = useCallback(() => {
     const wrap = wrapRef.current;
@@ -151,8 +183,31 @@ export function SchemaView({ kinds, countByKind, tables, selectedKind, onSelectK
         out.push({ x1, y1, x2, y2, label: r.predicate.replace(/_/g, " "), from: k.kind, to: r.targetKind });
       }
     }
+    // Explicit table↔table links (dataset_relations) — DASHED, card footer to
+    // card footer (they belong to the tables, not to a template row).
+    for (const l of tableLinks) {
+      const fromKind = kindByDataset.get(l.fromDatasetId);
+      const toKind = kindByDataset.get(l.toDatasetId);
+      if (!fromKind || !toKind || fromKind === toKind) continue;
+      const fromEl = cardRefs.current.get(fromKind);
+      const toEl = cardRefs.current.get(toKind);
+      if (!fromEl || !toEl) continue;
+      const a = fromEl.getBoundingClientRect();
+      const b = toEl.getBoundingClientRect();
+      const fromRight = b.left + b.width / 2 >= a.left + a.width / 2;
+      out.push({
+        x1: (fromRight ? a.right : a.left) - wr.left,
+        y1: a.bottom - 19 - wr.top,
+        x2: (fromRight ? b.left : b.right) - wr.left,
+        y2: b.bottom - 19 - wr.top,
+        label: l.label?.trim() || `${l.fromColumn.replace(/_/g, " ")} → ${l.toColumn.replace(/_/g, " ")}`,
+        from: fromKind,
+        to: toKind,
+        dashed: true,
+      });
+    }
     setLines(out);
-  }, [kinds, known]);
+  }, [kinds, known, tableLinks, kindByDataset]);
 
   useEffect(() => {
     const raf = requestAnimationFrame(measure);
@@ -272,7 +327,7 @@ export function SchemaView({ kinds, countByKind, tables, selectedKind, onSelectK
               const d = `M ${l.x1} ${l.y1} C ${mx} ${l.y1}, ${mx} ${l.y2}, ${l.x2} ${l.y2}`;
               return (
                 <g key={i} style={{ opacity: (selectedKind || dragging) && !lit ? 0.25 : 1, transition: dragging ? "none" : "opacity .15s" }}>
-                  <path d={d} fill="none" stroke={lit ? C.accent : "#D3C9B5"} strokeWidth={lit ? 1.8 : 1.2} />
+                  <path d={d} fill="none" stroke={lit ? C.accent : "#D3C9B5"} strokeWidth={lit ? 1.8 : 1.2} strokeDasharray={l.dashed ? "5 4" : undefined} />
                   <circle cx={l.x2} cy={l.y2} r={2.5} fill={lit ? C.accent : "#D3C9B5"} />
                   {lit && (
                     <text x={mx} y={(l.y1 + l.y2) / 2 - 6} textAnchor="middle" className="dm-mono"

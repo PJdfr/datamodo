@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { C } from "./ui";
 import { buildEgoGraph, depthLayout, DEPTH, type DepthPos, type EgoEdge } from "@/lib/datamodo/explorer";
 import { EntityPageBody } from "./entity-page";
+import { buildNodeResolver } from "./markdown";
 import type { FactSourceView, KnowledgeEntityView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
 
@@ -404,6 +405,8 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
   }, []);
 
   const byId = useMemo(() => new Map(entities.map((e) => [e.id, e])), [entities]);
+  // Body [[wikilinks]] in the side panel resolve against the whole world.
+  const resolveNode = useMemo(() => buildNodeResolver(entities), [entities]);
   const graph = useMemo(() => buildEgoGraph(entities, center, CAPS), [entities, center]);
   const layout = useMemo(
     () => (graph ? depthLayout(graph, size.w, size.h, reduced) : {}),
@@ -684,7 +687,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
           </div>
         </div>
         <div key={center} style={{ flex: 1, overflowY: "auto", padding: "16px 18px 20px", animation: reduced ? "none" : `dm-drop-in ${MOTION.panel}ms ${MOTION.easeOut}` }}>
-          <EntityPageBody e={centerEntity} kindDef={kindByName.get(centerEntity.kind)} onOpen={goTo} variant="flat" />
+          <EntityPageBody e={centerEntity} kindDef={kindByName.get(centerEntity.kind)} onOpen={goTo} resolveNode={resolveNode} variant="flat" />
         </div>
       </aside>
     </div>

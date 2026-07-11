@@ -507,6 +507,7 @@ CREATE TABLE public.datasets (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     org_id uuid NOT NULL,
     agent_id uuid,
+    kind_id uuid,
     name text NOT NULL,
     description text,
     columns jsonb DEFAULT '[]'::jsonb NOT NULL,
@@ -530,6 +531,7 @@ CREATE TABLE public.entities (
     normalized_key text NOT NULL,
     natural_keys jsonb DEFAULT '{}'::jsonb NOT NULL,
     embedding public.vector(1536),
+    embedding_model text,
     support integer DEFAULT 0 NOT NULL,
     merged_into uuid,
     body_md text,
@@ -666,6 +668,7 @@ CREATE TABLE public.doc_chunks (
     page integer,
     text text NOT NULL,
     embedding public.vector(1536),
+    embedding_model text,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
@@ -1210,6 +1213,14 @@ CREATE INDEX datasets_agent_idx ON public.datasets USING btree (agent_id);
 
 
 --
+-- Name: datasets_kind_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX datasets_kind_idx ON public.datasets USING btree (kind_id);
+
+
+
+--
 -- Name: datasets_org_created_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1566,6 +1577,15 @@ ALTER TABLE ONLY public.dataset_snapshots
 
 ALTER TABLE ONLY public.datasets
     ADD CONSTRAINT datasets_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES public.agents(id) ON DELETE SET NULL;
+
+
+
+--
+-- Name: datasets datasets_kind_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.datasets
+    ADD CONSTRAINT datasets_kind_id_fkey FOREIGN KEY (kind_id) REFERENCES public.kinds(id) ON DELETE SET NULL;
 
 
 

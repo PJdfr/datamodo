@@ -45,6 +45,39 @@ const IMAGE_TYPES: Record<string, string> = {
 /** Keep well under provider per-image caps (~5 MB) with base64 overhead. */
 export const MAX_IMAGE_BYTES = 3_500_000;
 
+/** Media types the transcription tier accepts; keys double as extension
+ *  matches. Mirrors what Whisper-shaped APIs decode AND what a browser
+ *  <audio> element can play back (the node's player streams the original). */
+const AUDIO_TYPES: Record<string, string> = {
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  opus: "audio/ogg",
+  flac: "audio/flac",
+  webm: "audio/webm",
+};
+
+/** Whisper-shaped endpoints cap uploads at 25 MB; leave headroom. */
+export const MAX_AUDIO_BYTES = 24_000_000;
+
+/** The audio tier's gate: the attachment's audio media type, or null when it
+ *  isn't audio a transcription model can hear. */
+export function attachmentAudioType(
+  filename: string | null,
+  contentType: string | null,
+): string | null {
+  const ct = (contentType ?? "").toLowerCase().split(";")[0].trim();
+  const ext = /\.([a-z0-9]+)$/.exec((filename ?? "").toLowerCase())?.[1];
+  // Extension first: senders often ship audio as application/octet-stream,
+  // and a known extension also normalizes vague types (audio/x-m4a → audio/mp4).
+  if (ext && AUDIO_TYPES[ext]) return AUDIO_TYPES[ext];
+  if (Object.values(AUDIO_TYPES).includes(ct)) return ct;
+  if (ct.startsWith("audio/")) return ct; // uncommon container — let the transcriber try
+  return null;
+}
+
 /** The vision tier's gate: the attachment's image media type, or null when it
  *  isn't an image a vision model can read. */
 export function attachmentImageType(
@@ -190,6 +223,31 @@ export function sheetToText(sheet: {
   const joined = lines.join("\n").trim();
   const truncated = sheet.rows.length > MAX_SHEET_ROWS || joined.length > MAX_DOC_CHARS;
   return { text: joined.slice(0, MAX_DOC_CHARS), truncated, pages: null };
+}
+
+// --- Audio: player + transcript is the node's natural shape ---------------------
+// The audio tier stores the distilled summary AND the transcript in the node's
+// body (body_md) — the page IS player + transcript (north star: audio's natural
+// shape). The transcript also lands in doc_chunks, so passage search can cite
+// what was said even when the body caps it.
+
+export const TRANSCRIPT_HEADING = "#### Transcript";
+
+/** Keep the readable page bounded; the FULL transcript stays in doc_chunks. */
+export const MAX_TRANSCRIPT_BODY_CHARS = 8_000;
+
+/** Compose an audio node's body: the generated summary first, then the
+ *  transcript under a heading (capped, with an honest truncation note).
+ *  Null only when there is neither. */
+export function buildTranscriptBody(summary: string | null, transcript: string): string | null {
+  const t = transcript.trim();
+  if (!t) return summary?.trim() || null;
+  const capped =
+    t.length > MAX_TRANSCRIPT_BODY_CHARS
+      ? t.slice(0, MAX_TRANSCRIPT_BODY_CHARS).trimEnd() +
+        "\n\n*… transcript truncated here — the full text is still searchable.*"
+      : t;
+  return [summary?.trim() || null, `${TRANSCRIPT_HEADING}\n\n${capped}`].filter(Boolean).join("\n\n");
 }
 
 // --- Generated notes: a dump becomes a thick node WE author ---------------------

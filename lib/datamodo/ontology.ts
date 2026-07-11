@@ -264,6 +264,31 @@ export function canonicalizeExtraction(extraction: Extraction, kinds: KindDef[])
   return { entities, facts };
 }
 
+// --- Growth loop ⑤: propose categories from what extraction keeps seeing --------
+
+/** Fallback kinds that carry no meaning — never worth a category proposal. */
+const GENERIC_KINDS = new Set(["thing", "record", "other", "unknown", "item", "entity", "topic", "misc"]);
+
+export interface UnregisteredKind { kind: string; labels: string[] }
+
+/** Kinds an extraction used that the registry doesn't know — run AFTER
+ *  canonicalization, so synonyms are already collapsed and what's left is
+ *  genuinely new vocabulary. Each comes with the entity labels seen (deduped).
+ *  This is growth loop ⑤'s trigger: repeated no-fit entities become a PROPOSED
+ *  category (with an AI-drafted template) in the Review queue. */
+export function unregisteredKinds(extraction: Extraction, kinds: KindDef[]): UnregisteredKind[] {
+  const idx = indexKinds(kinds);
+  const out = new Map<string, string[]>();
+  for (const e of extraction.entities) {
+    const slug = slugify(e.kind || "");
+    if (!slug || GENERIC_KINDS.has(slug) || idx.byName.has(slug)) continue;
+    const labels = out.get(slug) ?? [];
+    if (!labels.some((l) => l.toLowerCase() === e.label.toLowerCase())) labels.push(e.label);
+    out.set(slug, labels);
+  }
+  return [...out.entries()].map(([kind, labels]) => ({ kind, labels }));
+}
+
 // --- Template restraint (documents) ---------------------------------------------
 
 export interface RestrictResult {

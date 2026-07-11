@@ -10,9 +10,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { C, monoLabel, CountUp, SourceRow } from "./ui";
 import { ExplorerView } from "./explorer-view";
-import { SchemaView, type SchemaTableRef } from "./schema-view";
+import { SchemaView, type SchemaTableLink, type SchemaTableRef } from "./schema-view";
 import { EntityPageModal } from "./entity-page";
 import { buildDatasetNodes, type DatasetNodeSource } from "@/lib/datamodo/node-shapes";
+import { buildNodeResolver } from "./markdown";
 import { canSynthesize } from "@/lib/datamodo/synthesis";
 import type { KnowledgeEntityView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
@@ -111,7 +112,7 @@ function EntityCard({ e, kindDef, onOpen }: { e: KnowledgeEntityView; kindDef?: 
 
 export type KnowledgeViewName = "schema" | "explore";
 
-export function KnowledgeView({ view, onSwitch, tables = [], onOpenTable, onTablesChanged }: {
+export function KnowledgeView({ view, onSwitch, tables = [], tableLinks = [], onOpenTable, onTablesChanged }: {
   /** "schema" = the unified Tables surface (schema diagram + cards drill-down);
    *  "explore" = the graph walk. One flat toggle upstairs, nothing nested. */
   view: KnowledgeViewName;
@@ -119,6 +120,8 @@ export function KnowledgeView({ view, onSwitch, tables = [], onOpenTable, onTabl
   onSwitch?: (v: "explore") => void;
   /** Materialized datasets — the schema view badges & opens them. */
   tables?: SchemaTableRef[];
+  /** Explicit table↔table links (dataset_relations) — dashed schema lines. */
+  tableLinks?: SchemaTableLink[];
   onOpenTable?: (datasetId: string) => void;
   /** A category was just materialized — parent refreshes its dataset list. */
   onTablesChanged?: () => void;
@@ -173,6 +176,9 @@ export function KnowledgeView({ view, onSwitch, tables = [], onOpenTable, onTabl
     () => entities.concat(buildDatasetNodes(datasetSources, entities)),
     [entities, datasetSources],
   );
+
+  // Body [[wikilinks]] resolve against everything the surface knows about.
+  const resolveNode = useMemo(() => buildNodeResolver(explorerEntities), [explorerEntities]);
 
   const shown = useMemo(() => {
     const inKind = selectedKind ? entities.filter((e) => e.kind === selectedKind) : entities;
@@ -244,6 +250,7 @@ export function KnowledgeView({ view, onSwitch, tables = [], onOpenTable, onTabl
             kinds={kinds}
             countByKind={countByKind}
             tables={tables}
+            tableLinks={tableLinks}
             selectedKind={selectedKind}
             onSelectKind={(k) => { setSelectedKind(k); setQ(""); }}
             onOpenTable={onOpenTable}
@@ -292,7 +299,7 @@ export function KnowledgeView({ view, onSwitch, tables = [], onOpenTable, onTabl
             }
           : undefined;
         return (
-          <EntityPageModal e={ent} kindDef={kindByName.get(ent.kind)} onClose={() => setOpenId(null)} onOpen={setOpenId} onExplore={explore} onSynthesize={synthesize} />
+          <EntityPageModal e={ent} kindDef={kindByName.get(ent.kind)} onClose={() => setOpenId(null)} onOpen={setOpenId} onExplore={explore} onSynthesize={synthesize} resolveNode={resolveNode} />
         );
       })()}
     </div>

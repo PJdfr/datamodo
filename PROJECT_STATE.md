@@ -12,6 +12,167 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **WOW track unified: REPLAY + COSMOS = one graph engine**
+  (follow-up to the direction session below; user: "do what you think is
+  best"). The stronger wow is a scenaristic chronological REPLAY of the vault
+  building itself (Gource/"Wrapped" energy) — cheap because the bitemporal
+  vault already stores every timestamp and review decision; the COSMOS is its
+  final frame. ROADMAP "THE WOW" rewritten as build order (walk ring-grouping
+  → Replay → Cosmos); MEMORY north-star updated; **Claude Design brief
+  written and committed**: design/briefs/wow-graph-engine-brief.md (context,
+  5-act replay, LOD clustering rules, demo fixture, expected deliverables —
+  paste into a Claude Design project, iterate, drop the handoff into design/
+  like Explorer v2).
+- **2026-07-11** — **Product direction session (no code): the WOW + landing
+  rework roadmapped** (both to be designed through **Claude Design**, per
+  user). MEMORY gains the Cosmos north-star bullet; ROADMAP gains the full
+  spec ("THE WOW: Cosmos view" + "Landing page rework"). Source material for
+  the landing copy, so it survives this chat:
+  - **Exec pitch**: "Your inbox becomes a database — forward anything (email,
+    voice memo, receipt photo, spreadsheet, braindump) and it comes back as
+    organized, connected, queryable data. No forms, no filing, no data
+    entry." Sections: capture anywhere · speaks your vocabulary (categories
+    are yours, AI-drafted, self-proposing) · one vault many views (tables /
+    walk / timeline / files / ask-with-citations) · trust story (every fact
+    has a receipt; suggested, sourced, reversible; private by design, BYOK).
+  - **Personas** (each: what they forward → what builds itself → payoff):
+    freelancer (invoices/receipts/call memos → Invoices+Clients tables →
+    tax season + "what did Acme pay me?"); researcher (papers/braindumps →
+    concept-tagged summaries, walkable lit map → ✦ Synthesize related work);
+    student (lectures/whiteboard photos/voice notes → linked notes with
+    equations → revision Q&A); recruiter/HR (CVs/debrief memos → Candidates
+    pipeline table → "what did X ask for?"); landlord (tenant msgs/meter
+    photos → Properties/Tenants/Expenses → renewals surfacing); creator
+    (links/idea dumps → self-building knowledge garden). Common thread:
+    nobody ever ENTERS data, and every table speaks the user's vocabulary.
+- **2026-07-11** — **ONE EMBEDDING SPACE per deployment (stamp + guard +
+  re-embed)** — user callout: embeddings are STORED, so mixing vectors from
+  different models in one column is catastrophic (silently garbage ANN
+  matches feeding wrong-merge proposals). Decisions + mechanics:
+  - **MEMORY decision**: embeddings are infrastructure, not BYOK — one space
+    per deployment, defined by `EMBEDDINGS_MODEL`. (They already ran
+    platform-key-only; now it's written down and enforced.)
+  - **Stamp**: new `embedding_model text` on `entities` AND `doc_chunks`
+    (chunks store vectors too — best-effort, unread until ANN passage search
+    ships). Written on every embed; migration
+    `20260711110000_embedding_model_stamp.sql` backfills existing vectors to
+    the only space this deployment ever used. DDL applied + verified on
+    `dev`, `prod`, and the preview branch via Neon MCP.
+  - **Guard**: the ANN recall in `resolveEntity` filters
+    `embedding_model = current` — rows from another space fall out of
+    semantic recall (trigram still covers them) instead of poisoning it.
+  - **Re-embed**: `POST /api/jobs/embed-requeue` (CRON_SECRET, `?batch=`)
+    re-embeds entities-then-chunks whose stamp differs or whose vector is
+    missing, from the SAME canonical text as ingest (`embedTextForEntity`
+    extracted so the two paths can never drift); returns `remaining` — call
+    until 0. Also serves as first-time backfill when embeddings get a key.
+  - Verified: 113/113 tests + tsc + lint == baseline + build green. Not
+    live-fired (needs an embeddings key), same as the rest of the LLM matrix.
+- **2026-07-11** — **Node bodies go full Obsidian** (user: "MarkdownLite on a
+  node could be complete Obsidian-markdown-like"). MarkdownLite is replaced by
+  a two-part renderer:
+  - **Pure parser** ([lib/datamodo/markdown.ts](lib/datamodo/markdown.ts)):
+    headings, paragraphs, nested quotes, fenced code, hr, nested lists +
+    `- [ ]` tasks, GFM tables (alignment, `\|` escapes), `$$` math blocks;
+    inline bold/italic/strike/==highlight==/code/links/images,
+    `[[wikilinks]]`+aliases, `![[embeds]]`, `$inline math$`, backslash
+    escapes. Guards where markdown bites: no intra-word `_emphasis_`
+    (snake_case predicates!), `$17,650 and $10` never parses as math, only
+    root-relative + https media sources pass (`safeMediaSrc`).
+  - **Renderer** ([app/dashboard/markdown.tsx](app/dashboard/markdown.tsx)):
+    AST → React elements (injection-proof stays structural); `[[wikilinks]]`
+    resolve against the org's real nodes via `buildNodeResolver` (label
+    match; click opens the node — unresolved links stay quiet dashed text
+    like Obsidian); `![[image.jpg]]` / `![[memo.m4a]]` render the ACTUAL
+    node's media inline; math via lazy-loaded KaTeX with **MathML output**
+    (no CSS/font imports; loads only when a body contains math; the KaTeX
+    string is the page's sole innerHTML). Wired in both body surfaces:
+    the page modal (knowledge-view) and the Explorer's side panel.
+  - New dep `katex`; new `npm run shoot -- body` harness (screenshot reviewed:
+    table alignment, task strike, wikilink chips, MathML equations, embeds).
+  - Verified: 113/113 tests (10 new in tests/markdown.test.ts) + tsc + lint ==
+    baseline + build + 5 shoot harnesses green. Found & fixed in dev: the
+    inline scanner's shared-regex recursion loop (fresh regex per call).
+- **2026-07-11** — **CATEGORY PROPOSALS via Review (growth loop ⑤ closes)** —
+  when extraction keeps producing entities of a kind the registry doesn't know
+  (post-canonicalization, generics like "thing" excluded — pure trigger
+  `unregisteredKinds` in ontology.ts), and ≥3 such entities exist org-wide,
+  `maybeProposeCategories` (kinds.ts, hooked best-effort into the extraction
+  tick) files ONE `category_proposal` review carrying an AI-drafted template
+  (`suggestKindTemplate`; a failed draft still files with an empty template).
+  Accept = `createKind` with the template (the trigger entities already carry
+  the slug, so they snap into it; P2002 = made by hand meanwhile = no-op);
+  decline marks rejected and the kind is NEVER re-proposed (the filing check
+  matches any status). New Review Studio card (sample chips + drafted template
+  rows + honest copy) + group + header chip; new `npm run shoot -- review`
+  harness (screenshot reviewed). No DDL (reviews.kind is free text).
+  Verified: 103/103 tests + tsc + lint == baseline + build + 4 shoot
+  harnesses green. NOT live-verified: template drafting needs an LLM key.
+- **2026-07-11** — **Spreadsheet-import follow-ups (all three)** — the import
+  is no longer a blind merge:
+  - **Preview/confirm**: upload now DRY-RUNS the inference
+    (`previewTableGraph`, `mode=preview` on the same endpoint — nothing
+    writes) and shows the reading: "N rows, each read as a ‹kind› keyed on
+    ‹column›", per-column role list, honest counts (links to known things ·
+    new things · facts) and sample identities. Merging happens only on
+    confirm.
+  - **Column-mapping overrides** (`InferOverrides`): the kind, the identity
+    column, per-column link/fact/skip (click a chip to cycle), and each
+    link's target kind are all editable in the preview; every change re-runs
+    the dry preview so the numbers stay true.
+  - **Cross-row reference dedupe** (`combineExtractions`): rows ingest in
+    combined batches of 200 with identical entities (kind+label+natural keys)
+    collapsed to one shared local id — "Acme" on every row resolves ONCE
+    instead of once per row; distinct natural keys never collapse.
+  - infer-graph split per convention: pure core `infer-graph-core.ts`
+    (import-free, node:test-loadable) + DB shell `infer-graph.ts`. New
+    tests/infer-graph.test.ts (5 tests: heuristics, overrides, dedupe).
+- **2026-07-11** — **AUDIO TIER shipped (last open Explorer-track item)** — a
+  voice memo/recording forwarded on any channel becomes an understood thick
+  node, mirroring the vision tier's fail-soft design:
+  - **Transcription client** ([lib/llm/transcription.ts](lib/llm/transcription.ts)):
+    OpenAI-compatible `/audio/transcriptions` (multipart), same fail-soft
+    contract as embeddings — no key/API error → null → the attachment degrades
+    to `metadata_only`, never fails the item. Env: `TRANSCRIPTION_API_KEY`
+    (falls back to `OPENAI_API_KEY`), `TRANSCRIPTION_BASE_URL`,
+    `TRANSCRIPTION_MODEL` (default `whisper-1`).
+  - **Pipeline** ([documents.ts](lib/datamodo/documents.ts)): new audio branch —
+    gate `attachmentAudioType` (mp3/m4a/wav/ogg/opus/flac/webm + any `audio/*`,
+    ≤24 MB), transcribe, then the transcript runs the SAME classify-first
+    template-restrained document pipeline; transcript passages land in
+    `doc_chunks` (search cites what was said). `EXTRACTION_VERSION` → 3 so old
+    audio items can be requeued once a key exists.
+  - **Node shape** (north star: "audio as player+transcript"): the entity page
+    renders a PLAYER streaming the original (`/api/documents/[id]?inline=1`,
+    endpoint unchanged) above the body; the body is summary + the transcript
+    under a `#### Transcript` heading (`buildTranscriptBody`, capped at 8k
+    chars with an honest truncation note; full text stays searchable).
+  - Verified: 96/96 tests (9 new in tests/audio.test.ts) + tsc + lint ==
+    baseline (7/16) + build + all 3 shoot harnesses green. NOT live-verified:
+    no transcription key in the sandbox — the tier stays dormant (fail-soft)
+    until `TRANSCRIPTION_API_KEY`/`OPENAI_API_KEY` is set and a real voice
+    memo is forwarded (add to the roadmap's live-fire pass).
+- **2026-07-11** — **dataset_relations are visualized again** — explicit
+  table↔table links draw as DASHED lines between the schema canvas's kind
+  cards (footer to footer; label = the relation's label, else
+  "from_column → to_column"; lit/dimmed with selection and drag like the coral
+  template-FK lines). Wired `relations` (already loaded by the dashboard page)
+  → `KnowledgeView.tableLinks` → `SchemaView`; a card resolves from a dataset
+  via the new structural `kind_id` (name fallback for older rows). Schema shoot
+  harness gained a link fixture; screenshot reviewed (dashed line renders,
+  lights with the selected card, distinct from solid FK lines).
+- **2026-07-11** — **Model unification phase 2: `datasets.kind_id`** — "category
+  = table" is now STRUCTURAL: new column `datasets.kind_id uuid references
+  kinds(id) on delete set null` (+ index), set by the category→table endpoint
+  on create AND on name-collision adoption; `datasetForKind` matches the
+  binding first and keeps the plural-name rule only as a fallback for
+  pre-migration rows (a bound dataset can be freely renamed now). Migration
+  `neon/migrations/20260711100000_datasets_kind_id.sql` (idempotent, includes
+  the name-convention backfill); seed gained the same backfill tail.
+  DDL applied + verified via Neon MCP on `dev`, `prod`, AND this branch's
+  Vercel preview branch (`preview/claude/next-features-my99r6`); dev backfill
+  bound 3/5 datasets (the rest are hand-made, correctly unbound). Verified:
+  96/96 tests + tsc + lint == baseline (7/16) + build green.
 - **2026-07-11** — **Data surfaces go full-width** (user: the Explorer and the
   schema canvas were mysteriously capped). Cause: a `maxWidth: 980` wrapper in
   `KnowledgeView` (plus the same cap on Files and Insights). Removed — the

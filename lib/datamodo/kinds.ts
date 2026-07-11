@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
-import { DEFAULT_KINDS, slugify, type KindDef, type KindField, type KindRelation } from "./ontology";
+import { DEFAULT_KINDS, slugify, unregisteredKinds, type KindDef, type KindField, type KindRelation } from "./ontology";
+import type { Extraction } from "./knowledge";
 
 // DB side of the ontology layer: per-org kind registry CRUD + lazy seeding.
 // The pure logic (canonicalization, prompt rendering, builtins) lives in
@@ -173,6 +174,64 @@ export interface SuggestedTemplate {
   aliases: string[];
   fields: KindField[];
   relations: KindRelation[];
+}
+
+// --- Growth loop ⑤: no-fit entities → a proposed category in Review -------------
+
+/** Propose once this many entities of an unknown kind exist — one message
+ *  isn't a pattern, three sightings are. */
+export const PROPOSE_KIND_AT = 3;
+
+/**
+ * Check an extraction for kinds the registry doesn't know and, once an unknown
+ * kind has accumulated PROPOSE_KIND_AT entities org-wide, file ONE
+ * `category_proposal` review carrying an AI-drafted template (accept = create
+ * the category). A kind is only ever proposed once — whatever the user decided
+ * stands. Best-effort by design: callers swallow errors; a failed draft still
+ * files the proposal with an empty template.
+ */
+export async function maybeProposeCategories(
+  orgId: string,
+  ownerUserId: string | null,
+  extraction: Extraction,
+  kinds: KindDef[],
+): Promise<void> {
+  for (const cand of unregisteredKinds(extraction, kinds)) {
+    const count = await prisma.entities.count({
+      where: { org_id: orgId, kind: cand.kind, merged_into: null },
+    });
+    if (count < PROPOSE_KIND_AT) continue;
+    const prior = await prisma.knowledge_reviews.findFirst({
+      where: { org_id: orgId, kind: "category_proposal", detail: { path: ["proposedKind"], equals: cand.kind } },
+      select: { id: true },
+    });
+    if (prior) continue;
+    const sampleRows = await prisma.entities.findMany({
+      where: { org_id: orgId, kind: cand.kind, merged_into: null },
+      select: { canonical_label: true },
+      orderBy: { support: "desc" },
+      take: 5,
+    });
+    const samples = sampleRows.map((r) => r.canonical_label);
+    const label = cand.kind.replace(/_/g, " ").replace(/(^|\s)\w/g, (m) => m.toUpperCase());
+    let template: SuggestedTemplate = { aliases: [], fields: [], relations: [] };
+    try {
+      template = await suggestKindTemplate(ownerUserId, label, `Seen in the user's messages as: ${samples.join(", ")}`);
+    } catch (e) {
+      console.error(`[kinds] template draft failed for proposal "${cand.kind}"`, e);
+    }
+    await prisma.knowledge_reviews.create({
+      data: {
+        org_id: orgId,
+        owner_user_id: ownerUserId,
+        kind: "category_proposal",
+        status: "pending",
+        confidence: null,
+        impact: count,
+        detail: { proposedKind: cand.kind, label, count, sampleLabels: samples, template } as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
 }
 
 /** Draft a category template from a name (+ optional hint) so the user prunes

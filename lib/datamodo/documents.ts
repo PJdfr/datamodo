@@ -6,11 +6,16 @@ import { createOffTemplateReview, ingestExtraction } from "./knowledge";
 import { parseWorkbook } from "./spreadsheet";
 import { storeDocChunks } from "./chunks";
 import { normalizeKey } from "./knowledge";
+import { transcribeAudio } from "@/lib/llm/transcription";
 import {
+  attachmentAudioType,
   attachmentImageType,
   attachmentTextKind,
   buildDocumentExtraction,
+  buildTranscriptBody,
   chunkDocText,
+  MAX_AUDIO_BYTES,
+  MAX_DOC_CHARS,
   MAX_IMAGE_BYTES,
   extractAttachmentText,
   sheetToText,
@@ -74,6 +79,7 @@ export async function processItemAttachments(
       let doc: Awaited<ReturnType<typeof extractAttachmentText>> | null = null;
       const kind = attachmentTextKind(att.filename, att.content_type);
       const imageType = kind ? null : attachmentImageType(att.filename, att.content_type);
+      const audioType = kind || imageType ? null : attachmentAudioType(att.filename, att.content_type);
       if (kind) {
         try {
           const bytes = await readBlob(item.org_id, att.blob_hash);
@@ -133,6 +139,42 @@ export async function processItemAttachments(
           if (summary) doc = { text: summary, truncated: false, pages: null };
         } catch (e) {
           console.error(`[documents] attachment ${att.id} vision extraction failed`, e);
+        }
+      } else if (audioType && meta.bytes > 0 && meta.bytes <= MAX_AUDIO_BYTES) {
+        // Audio tier: a voice memo/recording becomes an understood thick node.
+        // Transcribe (fail-soft: no key / API error → null), then the
+        // transcript runs through the SAME classify-first document pipeline.
+        // Any failure degrades to metadata_only exactly like a scanned PDF.
+        try {
+          const bytes = await readBlob(item.org_id, att.blob_hash);
+          const transcript = await transcribeAudio({ bytes, mediaType: audioType, filename: att.filename });
+          if (transcript) {
+            doc = {
+              text: transcript.slice(0, MAX_DOC_CHARS),
+              truncated: transcript.length > MAX_DOC_CHARS,
+              pages: null,
+            };
+            const res = await extractFromDocument(
+              {
+                text: doc.text,
+                filename: att.filename,
+                channel: item.channel,
+                businessContext,
+                kinds,
+                concepts,
+              },
+              llm,
+            );
+            inner = res.extraction;
+            // The node's page is player + transcript: summary first, then the
+            // transcript itself (capped; the full text lives in doc_chunks).
+            summary = buildTranscriptBody(res.summary, doc.text);
+            docKind = res.docKind;
+            offTemplate = res.offTemplateReview;
+            indexing = doc.truncated ? "partial" : "full";
+          }
+        } catch (e) {
+          console.error(`[documents] attachment ${att.id} audio extraction failed`, e);
         }
       }
 
