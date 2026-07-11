@@ -22,12 +22,15 @@
 ## Explorer track (the north star — phase 1 ✅ shipped 2026-07-10)
 - ~~Ego-graph Explorer~~ ✅ — walk edge to edge, natural-shape panel, edge
   inspector, breadcrumbs, jump box (4th Knowledge mode + "◍ Explore" on pages).
-- **3D Explorer redesign — HANDED TO CLAUDE DESIGN (in progress)**: 3D/depth
-  canvas, camera movement on recenter, enter/exit animations for nodes joining/
-  leaving the neighborhood. When the design lands in `design/system/`, port it
-  onto the EXISTING pure core (`buildEgoGraph`/`radialLayout` stay the data
-  contract) — the design replaces the skin, not the feature. Must degrade to
-  the current 2D under `prefers-reduced-motion`.
+- ~~3D Explorer redesign~~ ✅ 2026-07-11 — Explorer v2 (Claude Design project
+  "Datamodo Explorer v2") ported onto the existing pure core: depth-field
+  canvas, world-reflow walk, enter-from-parent/recede animations, floating
+  breadcrumb, redesigned edge inspector (confidence meter · pips · quoted
+  evidence). Flat 2D radial under `prefers-reduced-motion`. Remaining from
+  the same handoff, NOT implemented: Review-Studio "Approve all & merge"
+  motion + Timeline polish (`DashboardExtras.jsx`, lower priority) and the
+  **dashboard IA restructure proposal** (13 choices → 2 verbs — a product
+  decision; see the design project's `IAProposal`).
 - **Dashboard clarity pass** (see MEMORY.md simplicity rule): audit every
   toggle/button/view for "does the user need this HERE?" — e.g. Data tab now
   has 6 sub-views + 3 top buttons; Knowledge has 4 modes. Consolidate or nest

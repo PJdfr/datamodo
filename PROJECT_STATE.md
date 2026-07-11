@@ -12,6 +12,37 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **EXPLORER v2 shipped: the 3D graph walk** (Claude Design
+  handoff, project "Datamodo Explorer v2" — implemented per its
+  `ExplorerGraph3D.jsx` + `MOTION.md`, ported onto the EXISTING pure core as
+  the roadmap contract demanded).
+  - **Pure core additions** ([explorer.ts](lib/datamodo/explorer.ts)):
+    `EgoGraph.parentOf` (who introduced each node — drives sectors AND
+    enter-from-parent), `depthLayout` + `DEPTH` (the depth field: center z+150,
+    hop-1 datum, hop-2 z−230; elliptical rings scaled to the canvas; sparse
+    1–2-node rings fan the upper arc; lone hop-2 children step 14° off their
+    parent's bearing). `radialLayout` refactored onto `parentOf`; contract
+    unchanged.
+  - **The skin** ([explorer-view.tsx](app/dashboard/explorer-view.tsx), same
+    public props): DOM cards in real CSS perspective + one SVG overlay whose
+    edge endpoints are measured from the live projected cards each frame in a
+    900ms settle window; the walk = world reflow around a fixed camera (720ms
+    ease-out; new center 760ms spring; entering nodes fly from their parent
+    staggered 42ms; leavers recede 300ms); hover lights incident edges coral
+    and dims the rest; kind-toned cards (company/dataset ink, concept accent,
+    invoice sunk-mono); floating breadcrumb+Back and jump box; redesigned
+    **edge inspector** (confidence meter, amber <70% · since · corroboration
+    pips · strength label · quoted source evidence with channel tints); side
+    panel keeps our real natural shapes (`EntityPageBody`). Reduced motion →
+    flat 2D radial (no perspective/blur/fog, ~instant), honored live.
+  - Design-handoff leftovers deliberately NOT built: Review-Studio merge
+    motion + Timeline polish (lower-priority extras) and the dashboard IA
+    restructure (a product decision) — recorded in ROADMAP.
+  - Verified: 87/87 tests (4 new on parentOf/depthLayout) + tsc + lint ==
+    baseline + build green; **live Chromium drive** (esbuild harness +
+    playwright-core, 12/12 checks: render, edges + predicate labels, walk
+    recenter, inspector with quoted evidence, back, reduced-motion flattening)
+    with screenshots reviewed.
 - **2026-07-11** — **Requeue UX shipped: the extraction queue is visible.**
   New session-authed `GET /api/jobs/queue-status` (queued = `stored` +
   retryable `failed` under the attempt cap; `analyzing`; `stuck` = failed past

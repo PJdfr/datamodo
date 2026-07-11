@@ -1,82 +1,349 @@
 "use client";
 
 /**
- * EXPLORER — stand on a node and look around; walk the graph edge by edge.
- * The dream this serves: every hop shows the node in its NATURAL SHAPE (record
- * table / markdown page / note) with its sources, and every edge is MORE than
- * a link — click one to see its predicate, confidence, since-when, and the
- * exact messages behind it. Obsidian-style wandering, but the nodes are
- * anything and the edges carry meaning.
+ * EXPLORER v2 — the 3D graph walk (Claude Design handoff "Datamodo Explorer
+ * v2", ported onto the EXISTING pure core: buildEgoGraph/depthLayout are the
+ * data contract, this file is only the skin).
  *
- * Left: the ego-graph canvas (center + 2 rings, deterministic radial layout,
- * pure core in lib/datamodo/explorer.ts). Click a neighbor → it becomes the
- * center (breadcrumb trail remembers the walk). Click an edge → the inspector.
- * Right: the current node's page (shared EntityPageBody) or the edge's card.
+ * A depth-field ego-graph reading tool: the CENTER sits forward (largest,
+ * sharpest), hop-1 rings the datum plane, hop-2 sits further back — smaller,
+ * hazier, behind a cream fog. Click a neighbour and the world reflows around
+ * a fixed camera so that node glides into the center; entering nodes fly in
+ * from the parent that introduced them; leaving nodes recede and fade.
+ *
+ * Rendering: DOM cards in real CSS perspective (crisp text, no WebGL) + one
+ * 2D SVG overlay whose edge endpoints are measured from the live projected
+ * cards each frame during a settle window. Click an edge → the inspector
+ * (semantics · confidence meter · since · corroboration pips · quoted
+ * sources). Honors prefers-reduced-motion live: flattens to the 2D radial
+ * (no perspective, no blur, no fog, ~instant transitions).
+ *
+ * Motion values mirror the handoff's ExplorerGraph3D.MOTION.md.
  */
 
-import { useMemo, useState, type CSSProperties } from "react";
-import { C, SourceRow } from "./ui";
-import { buildEgoGraph, radialLayout, type EgoEdge } from "@/lib/datamodo/explorer";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { C } from "./ui";
+import { buildEgoGraph, depthLayout, DEPTH, type DepthPos, type EgoEdge } from "@/lib/datamodo/explorer";
 import { EntityPageBody } from "./entity-page";
-import type { KnowledgeEntityView } from "@/lib/datamodo/types";
+import type { FactSourceView, KnowledgeEntityView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
 
-const W = 640;
-const H = 520;
+/* ---- Motion (single source of truth — mirrors the design's MOTION.md) ---- */
+const MOTION = {
+  recenter: 720,
+  settle: 760,
+  enterDelay: 120,
+  enter: 520,
+  enterStagger: 42,
+  exit: 300,
+  edgeFade: 200,
+  hover: 160,
+  panel: 420,
+  settleWindow: 900,
+  easeOut: "cubic-bezier(0.16,1,0.3,1)",
+  easeIn: "cubic-bezier(0.4,0,1,1)",
+  spring: "cubic-bezier(0.34,1.32,0.5,1)",
+  ease: "cubic-bezier(0.4,0,0.2,1)",
+} as const;
 
-const KIND_TONE: Record<string, string> = {
-  person: C.blue, company: C.accent, org: C.accent, organization: C.accent,
-  invoice: C.gold, project: C.green, concept: C.accent, document: C.green, note: C.gold,
-  dataset: "#4A6B8E", bookmark: "#B15B6E",
+/* Legibility caps for the depth field (the design's density; the pure core's
+   defaults stay for other callers). */
+const CAPS = { maxHop1: 6, maxHop2: 8 };
+
+/* ---- Card tones ----------------------------------------------------------- */
+const TONE = {
+  accent:  { bg: C.accent, fg: "#FFF8F4", bd: "transparent", chip: "rgba(255,248,244,.72)" },
+  ink:     { bg: "#211E18", fg: "#F1ECE1", bd: "#3A352C", chip: "#9C958A" },
+  surface: { bg: "#FFFDF8", fg: "#211E18", bd: "#E7E0D2", chip: "#A39B8B" },
+  sunk:    { bg: "#FAF6EE", fg: "#514C43", bd: "#E1D9C8", chip: "#A39B8B" },
+} as const;
+type ToneName = keyof typeof TONE;
+const TONE_BY_KIND: Record<string, ToneName> = {
+  company: "ink", dataset: "ink", concept: "accent", invoice: "sunk", note: "sunk",
 };
-const toneOf = (kind: string, kindDef?: KindDef) => kindDef?.color ?? KIND_TONE[kind.toLowerCase()] ?? C.ink;
+const MONO_KINDS = new Set(["invoice", "dataset"]);
 
-const chipW = (label: string, hop: number) =>
-  Math.max(hop === 0 ? 80 : 54, Math.min(hop === 0 ? 200 : 150, label.length * (hop === 2 ? 6 : 7) + 20));
+const CHANNEL_TINT: Record<string, string> = {
+  email: "#EA4335", gmail: "#EA4335", outlook: "#0A66C2",
+  whatsapp: "#25D366", slack: "#611f69", teams: "#464EB8", telegram: "#2AABEE",
+};
 
-const kicker: CSSProperties = { fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B" };
+const micro: CSSProperties = { fontSize: 9.5, letterSpacing: "0.09em", textTransform: "uppercase", color: "#A39B8B" };
 
-function EdgeInspector({ edge, onClose, onCenter }: { edge: EgoEdge; onClose: () => void; onCenter: (id: string) => void }) {
-  const f = edge.fact;
-  const conf = Math.round((f.confidence ?? 1) * 100);
-  const since = f.validFrom ? f.validFrom.slice(0, 10) : null;
+const edgeKey = (e: EgoEdge) => `${e.from}~${e.to}~${e.predicate}`;
+const fmtSince = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", year: "numeric" }) : null;
+const fmtDay = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
+
+/* ===========================================================================
+   Node card
+   =========================================================================== */
+function NodeCard({ e, kindDef, isCenter, isHover }: {
+  e: KnowledgeEntityView; kindDef?: KindDef; isCenter: boolean; isHover: boolean;
+}) {
+  const tone = TONE[TONE_BY_KIND[e.kind] ?? "surface"];
+  const mono = MONO_KINDS.has(e.kind);
+  const sub = e.kind === "dataset"
+    ? `${e.naturalKeys.rows ?? "?"} rows · ${e.naturalKeys.columns ?? "?"} cols`
+    : `${e.edges} link${e.edges === 1 ? "" : "s"}`;
+  const shadow = isCenter
+    ? "0 30px 60px -28px rgba(33,30,24,.5), 0 6px 16px -8px rgba(33,30,24,.22)"
+    : isHover
+    ? "0 16px 34px -22px rgba(228,89,59,.5)"
+    : "0 18px 44px -30px rgba(33,30,24,.4)";
+  return (
+    <div style={{
+      background: tone.bg, color: tone.fg,
+      border: `1px solid ${isHover ? C.accent : tone.bd}`,
+      borderRadius: isCenter ? 18 : 14,
+      padding: isCenter ? "14px 16px" : "10px 12px",
+      boxShadow: shadow,
+      transition: `box-shadow ${MOTION.hover}ms ${MOTION.ease}, border-color ${MOTION.hover}ms ${MOTION.ease}`,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+        {(TONE_BY_KIND[e.kind] ?? "surface") !== "accent" && (
+          <span aria-hidden style={{ width: 6, height: 6, borderRadius: 2, background: kindDef?.color ?? tone.chip, flexShrink: 0 }} />
+        )}
+        <span className="dm-mono" style={{ fontSize: isCenter ? 9.5 : 8.5, letterSpacing: "0.1em", textTransform: "uppercase", color: tone.chip, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {kindDef?.label ?? e.kind}
+        </span>
+        {e.kind === "dataset" && (
+          <span className="dm-mono" style={{ marginLeft: "auto", fontSize: 9, color: tone.chip }}>▦</span>
+        )}
+      </div>
+      <div className={mono ? "dm-mono" : "dm-display"} style={{
+        fontWeight: mono ? 500 : 700, fontSize: isCenter ? 18 : 13.5,
+        letterSpacing: mono ? "0" : "-0.02em", lineHeight: 1.14, overflowWrap: "anywhere",
+      }}>
+        {e.label.length > 44 ? e.label.slice(0, 43) + "…" : e.label}
+      </div>
+      <div style={{ marginTop: 3, fontSize: isCenter ? 11.5 : 10, color: tone.fg, opacity: 0.62 }}>{sub}</div>
+    </div>
+  );
+}
+
+/* ===========================================================================
+   A node in the depth field
+   =========================================================================== */
+function Node3D({ e, kindDef, pos, enterFrom, isCenter, isHover, isDim, reduced, nodeRef, onEnter, onLeave, onClick }: {
+  e: KnowledgeEntityView; kindDef?: KindDef; pos: DepthPos; enterFrom: DepthPos | null;
+  isCenter: boolean; isHover: boolean; isDim: boolean; reduced: boolean;
+  nodeRef: (el: HTMLDivElement | null) => void;
+  onEnter: () => void; onLeave: () => void; onClick: () => void;
+}) {
+  // Enter-from-parent: first paint at the parent's slot (scale .5, opacity 0),
+  // then a double-rAF flip transitions to the node's own slot.
+  const [settled, setSettled] = useState(!enterFrom);
+  useEffect(() => {
+    if (settled) return;
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() => setSettled(true));
+    });
+    return () => { cancelAnimationFrame(r1); cancelAnimationFrame(r2); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only flip
+  }, []);
+
+  const entering = !settled;
+  const t = entering && enterFrom ? enterFrom : pos;
+  const hop = pos.hop;
+  const blur = reduced ? 0 : hop === 2 ? 1.4 : 0;
+  const baseOpacity = hop === 2 ? 0.9 : 1;
+  const opacity = (entering ? 0 : baseOpacity) * (isDim ? 0.34 : 1);
+  const w = isCenter ? 210 : hop === 1 ? 168 : 138;
+
+  const transition = reduced
+    ? "opacity 1ms, transform 1ms"
+    : entering
+    ? `transform ${MOTION.enter}ms ${MOTION.easeOut} ${MOTION.enterDelay + pos.ring * MOTION.enterStagger}ms, opacity ${MOTION.enter}ms ${MOTION.easeOut} ${MOTION.enterDelay}ms, filter ${MOTION.enter}ms ${MOTION.easeOut}`
+    : `transform ${isCenter ? MOTION.settle : MOTION.recenter}ms ${isCenter ? MOTION.spring : MOTION.easeOut}, opacity ${MOTION.hover}ms ${MOTION.ease}, filter ${MOTION.recenter}ms ${MOTION.easeOut}`;
+
+  return (
+    <div
+      ref={nodeRef}
+      role="button"
+      tabIndex={0}
+      aria-label={isCenter ? `${e.label} — you are here` : `Walk to ${e.label}`}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+      onFocus={onEnter}
+      onBlur={onLeave}
+      onClick={onClick}
+      onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); onClick(); } }}
+      style={{
+        position: "absolute", left: "50%", top: "50%", width: w,
+        transform: `translate(-50%,-50%) translate3d(${t.x}px, ${t.y}px, ${reduced ? 0 : t.z}px) scale(${(isHover && !isCenter ? 1.05 : 1) * (entering ? 0.5 : 1)})`,
+        transformStyle: "preserve-3d",
+        opacity,
+        filter: blur ? `blur(${blur}px)` : "none",
+        transition,
+        cursor: isCenter ? "default" : "pointer",
+        outline: "none",
+        zIndex: isCenter ? 30 : hop === 1 ? 20 : 10,
+        willChange: "transform, opacity",
+      }}
+    >
+      <NodeCard e={e} kindDef={kindDef} isCenter={isCenter} isHover={isHover} />
+    </div>
+  );
+}
+
+/* ===========================================================================
+   Edge overlay — one 2D SVG, endpoints measured from the live 3D projection
+   =========================================================================== */
+interface EdgeGeom { x1: number; y1: number; x2: number; y2: number; mx: number; my: number; op: number }
+
+function EdgeLayer({ geom, edges, layout, hoverEdge, selEdge, focusNode, onHover, onClick }: {
+  geom: Record<string, EdgeGeom>; edges: EgoEdge[]; layout: Record<string, DepthPos>;
+  hoverEdge: string | null; selEdge: string | null; focusNode: string | null;
+  onHover: (k: string | null) => void; onClick: (e: EgoEdge) => void;
+}) {
+  return (
+    <svg width="100%" height="100%" style={{ position: "absolute", inset: 0, overflow: "visible", pointerEvents: "none", zIndex: 15 }}>
+      {edges.map((e) => {
+        const k = edgeKey(e);
+        const g = geom[k];
+        if (!g) return null;
+        const hop = Math.max(layout[e.from]?.hop ?? 1, layout[e.to]?.hop ?? 1);
+        const active = hoverEdge === k || selEdge === k;
+        const incidentFocus = Boolean(focusNode && (e.from === focusNode || e.to === focusNode));
+        const lit = active || incidentFocus;
+        const dim = Boolean(hoverEdge || selEdge || focusNode) && !lit;
+        const showLabel = active || (incidentFocus && !hoverEdge && !selEdge) || (!focusNode && !hoverEdge && !selEdge && hop <= 1);
+        const dx = g.x2 - g.x1, dy = g.y2 - g.y1, len = Math.hypot(dx, dy) || 1;
+        const off = Math.min(11, len * 0.4);
+        return (
+          <g key={k} style={{ opacity: g.op * (dim ? 0.28 : 1), transition: `opacity ${MOTION.edgeFade}ms ${MOTION.ease}` }}>
+            <line x1={g.x1} y1={g.y1} x2={g.x2} y2={g.y2}
+              stroke="transparent" strokeWidth={16} style={{ pointerEvents: "stroke", cursor: "pointer" }}
+              onMouseEnter={() => onHover(k)} onMouseLeave={() => onHover(null)}
+              onClick={(ev) => { ev.stopPropagation(); onClick(e); }} />
+            <line x1={g.x1} y1={g.y1} x2={g.x2} y2={g.y2}
+              stroke={lit ? C.accent : "#DDD5C5"}
+              strokeWidth={active ? 2.4 : lit ? 1.9 : 1.2}
+              strokeLinecap="round"
+              style={{ transition: `stroke ${MOTION.hover}ms ${MOTION.ease}, stroke-width ${MOTION.hover}ms ${MOTION.ease}` }} />
+            {/* direction dot just inside the object end: subject —predicate→ object */}
+            <circle cx={g.x2 - (dx / len) * off} cy={g.y2 - (dy / len) * off} r={active ? 3 : 2.2}
+              fill={lit ? C.accent : "#DDD5C5"} style={{ transition: `fill ${MOTION.hover}ms ${MOTION.ease}` }} />
+            {showLabel && (
+              <text x={g.mx} y={g.my} textAnchor="middle" dominantBaseline="middle" className="dm-mono"
+                style={{ fontSize: 9.5, letterSpacing: "0.04em", fill: lit ? C.accent : "#8A8477", paintOrder: "stroke", stroke: "#F6F2E9", strokeWidth: 4, pointerEvents: "none" }}>
+                {e.predicate.replace(/_/g, " ")}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ===========================================================================
+   Edge inspector — "an edge is more than a link"
+   =========================================================================== */
+function ConfidenceMeter({ value }: { value: number }) {
+  const pct = Math.round(value * 100);
+  const col = value < 0.7 ? "#B08A2E" : C.accent;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+      <div style={{ flex: 1, height: 6, borderRadius: 999, background: "#FAF6EE", overflow: "hidden", border: "1px solid #EFE9DC" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: col, borderRadius: 999, transition: `width ${MOTION.panel}ms ${MOTION.easeOut}` }} />
+      </div>
+      <span className="dm-mono" style={{ fontSize: 12.5, fontWeight: 500, color: col }}>{pct}%</span>
+    </div>
+  );
+}
+
+function Pips({ n, max = 5 }: { n: number; max?: number }) {
+  return (
+    <div style={{ display: "flex", gap: 3 }}>
+      {Array.from({ length: max }).map((_, i) => (
+        <span key={i} style={{ width: 7, height: 7, borderRadius: 2, transform: "rotate(45deg)", background: i < n ? C.accent : "#E1D9C8" }} />
+      ))}
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-        <span className="dm-mono" style={{ ...kicker, color: C.accent }}>edge</span>
-        <button onClick={onClose} aria-label="Back to the node" style={{ border: "none", background: "transparent", color: "#A39B8B", cursor: "pointer", fontSize: 14, padding: 2 }}>×</button>
+      <div className="dm-mono" style={{ ...micro, marginBottom: 6 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function Quote({ s }: { s: FactSourceView }) {
+  const tint = CHANNEL_TINT[s.channel?.toLowerCase()] ?? C.accent;
+  const quote = s.snippet ?? s.preview ?? s.subject;
+  return (
+    <figure style={{ margin: 0, borderLeft: `2px solid ${tint}`, paddingLeft: 11 }}>
+      {quote && <blockquote style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "#514C43", fontStyle: "italic" }}>“{quote}”</blockquote>}
+      <figcaption className="dm-mono" style={{ marginTop: 4, display: "flex", gap: 7, alignItems: "center", fontSize: 10, color: "#A39B8B", flexWrap: "wrap" }}>
+        <span style={{ color: tint, fontWeight: 500 }}>{s.channel}</span>
+        {s.sender && <span>· {s.sender}</span>}
+        {fmtDay(s.receivedAt) && <span>· {fmtDay(s.receivedAt)}</span>}
+      </figcaption>
+    </figure>
+  );
+}
+
+const walkChip: CSSProperties = {
+  border: "1px solid #E1D9C8", background: "#FAF6EE", borderRadius: 999, padding: "4px 11px",
+  fontSize: 12.5, fontWeight: 500, color: C.ink, cursor: "pointer", fontFamily: "inherit",
+};
+
+function EdgeInspector({ edge, onClose, onGoTo }: { edge: EgoEdge; onClose: () => void; onGoTo: (id: string) => void }) {
+  const f = edge.fact;
+  const since = fmtSince(f.validFrom);
+  const strength = f.sources >= 4 ? "Well-attested" : f.sources >= 2 ? "Corroborated" : f.sources === 1 ? "Single source" : "No source recorded";
+  return (
+    <div role="dialog" aria-label="Edge fact" style={{
+      position: "absolute", left: "50%", bottom: 20, transform: "translateX(-50%)",
+      width: 440, maxWidth: "calc(100% - 40px)", maxHeight: "calc(100% - 90px)", overflowY: "auto",
+      background: "#FFFDF8", border: "1px solid #E7E0D2", borderRadius: 18,
+      boxShadow: "0 24px 60px -34px rgba(33,30,24,.5)", padding: "16px 18px 18px", zIndex: 60,
+      // NOTE: the drop-in animation cannot live here — it animates `transform`
+      // and would clobber the translateX centering. It rides an inner div.
+    }}>
+      <div style={{ animation: `dm-drop-in ${MOTION.panel}ms ${MOTION.easeOut}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 11 }}>
+        <span className="dm-mono" style={{ ...micro, color: C.accent }}>fact</span>
+        <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B" }}>edge · not just a link</span>
+        <button onClick={onClose} aria-label="Close" style={{ marginLeft: "auto", border: "none", background: "transparent", color: "#A39B8B", cursor: "pointer", fontSize: 17, lineHeight: 1 }}>×</button>
       </div>
 
-      {/* A —predicate→ B, both ends walkable */}
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 7, marginBottom: 12 }}>
-        <button type="button" onClick={() => onCenter(edge.from)} className="dm-display" style={{ fontWeight: 700, fontSize: 14, color: C.ink, background: "#FBF8F1", border: "1px solid #E1D9C8", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>{edge.fromLabel}</button>
-        <span className="dm-mono" style={{ fontSize: 11, color: C.accent }}>—{edge.predicate.replace(/_/g, " ")}→</span>
-        <button type="button" onClick={() => onCenter(edge.to)} className="dm-display" style={{ fontWeight: 700, fontSize: 14, color: C.ink, background: "#FBF8F1", border: "1px solid #E1D9C8", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>{edge.toLabel}</button>
+      <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap", marginBottom: 14 }}>
+        <button onClick={() => onGoTo(edge.from)} style={walkChip}>{edge.fromLabel}</button>
+        <span className="dm-mono" style={{ fontSize: 11.5, color: C.accent, letterSpacing: "0.02em" }}>{edge.predicate.replace(/_/g, " ")} →</span>
+        <button onClick={() => onGoTo(edge.to)} style={walkChip}>{edge.toLabel}</button>
       </div>
 
-      {/* The edge's metadata — an edge is more than a link */}
-      <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, overflow: "hidden", marginBottom: 12 }}>
-        {([
-          ["semantics", edge.predicate.replace(/_/g, " ")],
-          ["confidence", `${conf}%`],
-          ...(since ? [["since", since]] : []),
-          ["strength", `${f.sources} corroborating message${f.sources === 1 ? "" : "s"}`],
-        ] as [string, string][]).map(([k, v]) => (
-            <div key={k as string} style={{ display: "grid", gridTemplateColumns: "92px 1fr", gap: 10, padding: "6px 10px", borderBottom: "1px solid #F1ECDF", alignItems: "baseline" }}>
-              <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B" }}>{k}</span>
-              <span style={{ fontSize: 12.5, color: "#3A352C" }}>{v}</span>
-            </div>
-          ))}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "13px 20px" }}>
+        <Field label="Confidence"><ConfidenceMeter value={f.confidence ?? 1} /></Field>
+        <Field label="Since"><span style={{ fontSize: 13, color: "#514C43" }}>{since ?? "—"}</span></Field>
+        <Field label={`Corroboration · ${f.sources}×`}><Pips n={Math.min(5, f.sources)} /></Field>
+        <Field label="Strength"><span style={{ fontSize: 13, color: "#514C43" }}>{strength}</span></Field>
       </div>
 
-      <div className="dm-mono" style={{ ...kicker, marginBottom: 6 }}>{f.provenance.length ? "evidence" : "evidence — none recorded"}</div>
-      <div style={{ display: "grid", gap: 6 }}>
-        {f.provenance.map((s, i) => <SourceRow key={i} s={s} />)}
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #EFE9DC" }}>
+        <div className="dm-mono" style={{ ...micro, marginBottom: 9 }}>
+          {f.provenance.length ? `Quoted from ${f.provenance.length} source${f.provenance.length === 1 ? "" : "s"}` : "Evidence — none recorded"}
+        </div>
+        <div style={{ display: "grid", gap: 9, maxHeight: 150, overflowY: "auto" }}>
+          {f.provenance.map((s, i) => <Quote key={i} s={s} />)}
+        </div>
+      </div>
       </div>
     </div>
   );
 }
 
+/* ===========================================================================
+   ExplorerView — the orchestrator (same public contract as v1)
+   =========================================================================== */
 export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
   entities: KnowledgeEntityView[];
   initialId: string;
@@ -84,30 +351,137 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
   /** Open the full page modal for a node. */
   onOpenPage?: (id: string) => void;
 }) {
-  const [center, setCenter] = useState(initialId);
-  const [trail, setTrail] = useState<string[]>([]);
-  const [selEdge, setSelEdge] = useState<EgoEdge | null>(null);
-  const [hover, setHover] = useState<string | null>(null);
+  const [reduced, setReduced] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false,
+  );
+  const [trail, setTrail] = useState<string[]>([initialId]);
+  const center = trail[trail.length - 1];
+  const [hoverNode, setHoverNode] = useState<string | null>(null);
+  const [hoverEdge, setHoverEdge] = useState<string | null>(null);
+  const [selEdge, setSelEdge] = useState<string | null>(null);
   const [jump, setJump] = useState("");
+  const [geom, setGeom] = useState<Record<string, EdgeGeom>>({});
+  const [size, setSize] = useState({ w: 640, h: 560 });
+  const [leaving, setLeaving] = useState<{ id: string; e: KnowledgeEntityView; last: DepthPos }[]>([]);
+
+  const sceneRef = useRef<HTMLDivElement | null>(null);
+  const nodeEls = useRef(new Map<string, HTMLDivElement>());
+  const settleUntil = useRef(0);
+
+  // Live reduced-motion preference (listener callbacks are async).
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const on = () => setReduced(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+
+  // Canvas size drives the pure layout's radii.
+  useEffect(() => {
+    const el = sceneRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0]?.contentRect;
+      if (r) setSize({ w: r.width, h: r.height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const byId = useMemo(() => new Map(entities.map((e) => [e.id, e])), [entities]);
-  const graph = useMemo(() => buildEgoGraph(entities, center), [entities, center]);
-  const pos = useMemo(() => (graph ? radialLayout(graph, W, H) : {}), [graph]);
+  const graph = useMemo(() => buildEgoGraph(entities, center, CAPS), [entities, center]);
+  const layout = useMemo(
+    () => (graph ? depthLayout(graph, size.w, size.h, reduced) : {}),
+    [graph, size.w, size.h, reduced],
+  );
 
-  const recenter = (id: string) => {
-    if (id === center || !byId.has(id)) return;
-    setTrail((t) => [...t, center].slice(-12));
-    setCenter(id);
+  // Entering nodes are computed at walk time (the event handler knows both the
+  // old and the new neighborhood) — never from refs during render.
+  const [enteringIds, setEnteringIds] = useState<Set<string>>(() => new Set());
+
+  /* ---- edge geometry: measure the live projected node centers ---- */
+  const measure = useCallback(() => {
+    const scene = sceneRef.current;
+    if (!scene || !graph) return;
+    const sr = scene.getBoundingClientRect();
+    const centerPt = (id: string) => {
+      const el = nodeEls.current.get(id);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2 - sr.left, y: r.top + r.height / 2 - sr.top, hw: r.width / 2, hh: r.height / 2 };
+    };
+    type Pt = { x: number; y: number; hw: number; hh: number };
+    // Where the segment toward `o` exits `c`'s card rectangle (+pad) — lines
+    // attach at the card border, never the center.
+    const borderPoint = (c: Pt, o: Pt, pad: number) => {
+      const dx = o.x - c.x, dy = o.y - c.y;
+      const adx = Math.abs(dx), ady = Math.abs(dy);
+      if (adx < 0.001 && ady < 0.001) return { x: c.x, y: c.y };
+      const t = Math.min(adx > 0.001 ? (c.hw + pad) / adx : Infinity, ady > 0.001 ? (c.hh + pad) / ady : Infinity);
+      return { x: c.x + dx * t, y: c.y + dy * t };
+    };
+    const g: Record<string, EdgeGeom> = {};
+    for (const e of graph.edges) {
+      const a = centerPt(e.from), b = centerPt(e.to);
+      if (!a || !b) continue;
+      const hop = Math.max(layout[e.from]?.hop ?? 1, layout[e.to]?.hop ?? 1);
+      const pa = borderPoint(a, b, 2), pb = borderPoint(b, a, 2);
+      g[edgeKey(e)] = { x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y, mx: (pa.x + pb.x) / 2, my: (pa.y + pb.y) / 2, op: hop === 2 ? 0.5 : hop === 1 ? 0.85 : 1 };
+    }
+    setGeom(g);
+  }, [graph, layout]);
+
+  // rAF loop while a transition settles (setGeom happens inside rAF callbacks).
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      measure();
+      if (performance.now() < settleUntil.current) raf = requestAnimationFrame(tick);
+    };
+    settleUntil.current = performance.now() + MOTION.settleWindow;
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [measure]);
+
+  useEffect(() => {
+    const on = () => { settleUntil.current = performance.now() + 120; requestAnimationFrame(measure); };
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, [measure]);
+
+  /* ---- the walk ---- */
+  // Diff old vs new neighborhood at the moment of the walk: who leaves gets a
+  // receding snapshot, who arrives flies in from its parent. Then bump the
+  // settle window so the edge overlay tracks the whole glide.
+  const walkTo = (id: string, nextTrail: (t: string[]) => string[]) => {
+    if (id === center || !byId.has(id) || !graph) return;
+    const next = buildEgoGraph(entities, id, CAPS);
+    if (next) {
+      const staying = new Set(next.nodes.map((n) => n.id));
+      const current = new Set(graph.nodes.map((n) => n.id));
+      const gone = graph.nodes
+        .filter((n) => !staying.has(n.id) && layout[n.id])
+        .map((n) => ({ id: n.id, e: n.entity, last: layout[n.id] }));
+      setLeaving(gone);
+      window.setTimeout(() => setLeaving([]), MOTION.exit + 60);
+      gone.forEach((s) => nodeEls.current.delete(s.id));
+      setEnteringIds(new Set(next.nodes.map((n) => n.id).filter((nid) => !current.has(nid))));
+    }
+    // (The measure-loop effect re-arms the settle window when the graph flips.)
     setSelEdge(null);
-    setHover(null);
+    setHoverEdge(null);
+    setHoverNode(null);
+    setJump("");
+    setTrail(nextTrail);
   };
+  const goTo = (id: string) =>
+    walkTo(id, (t) => (t.includes(id) ? t.slice(0, t.indexOf(id) + 1) : [...t, id].slice(-14)));
   const back = () => {
-    setTrail((t) => {
-      const prev = t[t.length - 1];
-      if (prev) { setCenter(prev); setSelEdge(null); }
-      return t.slice(0, -1);
-    });
+    const prev = trail[trail.length - 2];
+    if (prev) walkTo(prev, (t) => t.slice(0, -1));
   };
+  const goIndex = (i: number) => walkTo(trail[i], (t) => t.slice(0, i + 1));
 
   const jumpMatches = useMemo(() => {
     const q = jump.trim().toLowerCase();
@@ -122,32 +496,139 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
     return <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "28px 4px" }}>That node isn&apos;t in your knowledge yet.</div>;
   }
   const centerEntity = byId.get(center)!;
+  const selectedEdge = selEdge ? graph.edges.find((e) => edgeKey(e) === selEdge) ?? null : null;
 
   return (
-    <div style={{ background: "#FFFDF8", border: "1px solid #E7E0D2", borderRadius: 16, overflow: "hidden" }}>
-      {/* trail + jump */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "10px 14px", borderBottom: "1px solid #EFE9DC" }}>
-        <button type="button" onClick={back} disabled={trail.length === 0} className="dm-mono" title="Step back"
-          style={{ fontSize: 11, color: trail.length ? C.ink : "#C9C2B2", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 7, padding: "3px 9px", cursor: trail.length ? "pointer" : "default", fontFamily: "inherit" }}>
-          ← back
-        </button>
-        {trail.slice(-4).map((id, i) => (
-          <button key={`${id}${i}`} type="button" onClick={() => recenter(id)} className="dm-mono"
-            style={{ fontSize: 10.5, color: "#8A8477", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {byId.get(id)?.label ?? "?"} ›
+    <div style={{ display: "flex", alignItems: "stretch", height: 620, background: "#F6F2E9", border: "1px solid #E7E0D2", borderRadius: 16, overflow: "hidden" }}>
+      {/* ---- CANVAS ---- */}
+      <div style={{ position: "relative", flex: 1, minWidth: 0, overflow: "hidden" }}>
+        {/* the depth field */}
+        <div
+          ref={sceneRef}
+          onClick={(e) => { if (e.target === e.currentTarget) setSelEdge(null); }}
+          style={{ position: "absolute", inset: 0, perspective: reduced ? "none" : `${DEPTH.perspective}px`, perspectiveOrigin: "50% 46%" }}
+        >
+          <div style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d" }}>
+            <EdgeLayer geom={geom} edges={graph.edges} layout={layout}
+              hoverEdge={hoverEdge} selEdge={selEdge} focusNode={hoverNode}
+              onHover={setHoverEdge} onClick={(e) => setSelEdge(edgeKey(e))} />
+
+            {graph.nodes.map((n) => {
+              const p = layout[n.id];
+              if (!p) return null;
+              const isCenter = n.hop === 0;
+              const entering = enteringIds.has(n.id) && !isCenter;
+              const parentPos = p.parent ? layout[p.parent] ?? p : p;
+              const isDim = Boolean(
+                hoverNode && hoverNode !== n.id &&
+                !graph.edges.some((e) => (e.from === hoverNode && e.to === n.id) || (e.to === hoverNode && e.from === n.id)),
+              );
+              return (
+                <Node3D
+                  key={`${center}~${n.id}`}
+                  e={n.entity}
+                  kindDef={kindByName.get(n.kind)}
+                  pos={p}
+                  enterFrom={entering && !reduced ? parentPos : null}
+                  isCenter={isCenter}
+                  isHover={hoverNode === n.id}
+                  isDim={isDim}
+                  reduced={reduced}
+                  nodeRef={(el) => { if (el) nodeEls.current.set(n.id, el); }}
+                  onEnter={() => setHoverNode(n.id)}
+                  onLeave={() => setHoverNode(null)}
+                  onClick={() => { if (!isCenter) goTo(n.id); }}
+                />
+              );
+            })}
+
+            {/* leaving nodes — recede + fade (decorative snapshots) */}
+            {leaving.map(({ id, e, last }) => (
+              <div key={`leave-${id}`} aria-hidden style={{
+                position: "absolute", left: "50%", top: "50%", width: 160,
+                transform: `translate(-50%,-50%) translate3d(${last.x}px, ${last.y}px, ${(reduced ? 0 : last.z) - 160}px) scale(0.6)`,
+                opacity: 0,
+                transition: `transform ${MOTION.exit}ms ${MOTION.easeIn}, opacity ${MOTION.exit}ms ${MOTION.easeIn}`,
+                zIndex: 4, pointerEvents: "none",
+              }}>
+                <NodeCard e={e} kindDef={kindByName.get(e.kind)} isCenter={false} isHover={false} />
+              </div>
+            ))}
+
+            {/* truncation chip — the rings are importance-capped */}
+            {graph.truncated > 0 && (() => {
+              const rad = (28 * Math.PI) / 180;
+              const rx = size.w * DEPTH.r1x + 46;
+              const ry = size.h * DEPTH.r1y + 46;
+              return (
+                <div title={`${graph.truncated} more neighbour${graph.truncated === 1 ? "" : "s"} beyond the rings — capped by importance`}
+                  className="dm-mono"
+                  style={{
+                    position: "absolute", left: "50%", top: "50%",
+                    transform: `translate(-50%,-50%) translate3d(${Math.cos(rad) * rx}px, ${Math.sin(rad) * ry}px, 0px)`,
+                    transition: reduced ? "none" : `transform ${MOTION.recenter}ms ${MOTION.easeOut}`,
+                    display: "flex", alignItems: "center", padding: "5px 10px",
+                    background: "#F6F2E9", border: "1px dashed #DDD5C5", borderRadius: 999,
+                    color: "#A39B8B", fontSize: 10, letterSpacing: "0.05em", cursor: "default", zIndex: 5,
+                  }}>
+                  +{graph.truncated} more
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+
+        {/* cream depth fog — distance reads as haze, not just scale */}
+        <div aria-hidden style={{
+          position: "absolute", inset: 0, pointerEvents: "none", zIndex: 8,
+          background: reduced ? "none" : "radial-gradient(120% 90% at 50% 42%, rgba(246,242,233,0) 40%, rgba(246,242,233,.55) 78%, rgba(239,233,220,.85) 100%)",
+        }} />
+
+        {/* breadcrumb + back (floating) */}
+        <div style={{ position: "absolute", top: 14, left: 16, display: "flex", alignItems: "center", gap: 8, zIndex: 50, maxWidth: "62%" }}>
+          <button onClick={back} disabled={trail.length < 2} aria-label="Back"
+            style={{
+              display: "flex", alignItems: "center", gap: 5, border: "1px solid #E7E0D2", background: "#FFFDF8",
+              borderRadius: 999, padding: "5px 11px 5px 9px", fontSize: 12, fontFamily: "inherit",
+              color: trail.length < 2 ? "#A39B8B" : "#514C43",
+              cursor: trail.length < 2 ? "default" : "pointer", opacity: trail.length < 2 ? 0.5 : 1,
+              boxShadow: "0 8px 22px -16px rgba(33,30,24,.4)",
+            }}>
+            ← Back
           </button>
-        ))}
-        <span className="dm-display" style={{ fontWeight: 700, fontSize: 13.5, color: C.ink, letterSpacing: "-0.01em" }}>{centerEntity.label}</span>
-        <div style={{ position: "relative", marginLeft: "auto", minWidth: 200 }}>
+          {trail.length > 1 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4, background: "#FFFDF8", border: "1px solid #E7E0D2", borderRadius: 999, padding: "4px 11px", boxShadow: "0 8px 22px -16px rgba(33,30,24,.4)", overflow: "hidden" }}>
+              {trail.slice(-4).map((id, i, shown) => {
+                const idx = trail.length - shown.length + i;
+                const last = i === shown.length - 1;
+                return (
+                  <span key={`${id}${idx}`} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    {i > 0 && <span style={{ color: "#A39B8B", fontSize: 10.5 }}>/</span>}
+                    <button onClick={() => !last && goIndex(idx)} disabled={last}
+                      style={{
+                        border: "none", background: "transparent", padding: "1px 3px", fontFamily: "inherit",
+                        cursor: last ? "default" : "pointer", fontSize: 12, fontWeight: last ? 600 : 400,
+                        whiteSpace: "nowrap", maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis",
+                        color: last ? C.accent : "#514C43",
+                      }}>{byId.get(id)?.label ?? "?"}</button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* jump box (floating, top-right) */}
+        <div style={{ position: "absolute", top: 14, right: 16, zIndex: 50, width: 210 }}>
           <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 11 }}>⌕</span>
           <input value={jump} onChange={(e) => setJump(e.target.value)} placeholder="Jump to anything…"
-            style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 8, padding: "5px 9px 5px 24px", fontFamily: "inherit", fontSize: 12, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
+            style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 999, padding: "6px 10px 6px 25px", fontFamily: "inherit", fontSize: 12, color: C.ink, background: "#FFFDF8", outline: "none", boxSizing: "border-box", boxShadow: "0 8px 22px -16px rgba(33,30,24,.4)" }} />
           {jumpMatches.length > 0 && (
-            <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 5, background: "#fff", border: "1px solid #E7E0D2", borderRadius: 10, boxShadow: "0 12px 28px rgba(33,30,24,.14)", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, right: 0, background: "#fff", border: "1px solid #E7E0D2", borderRadius: 12, boxShadow: "0 12px 28px rgba(33,30,24,.14)", overflow: "hidden" }}>
               {jumpMatches.map((m) => (
-                <button key={m.id} type="button" onClick={() => { recenter(m.id); setJump(""); }}
+                <button key={m.id} type="button" onClick={() => goTo(m.id)}
                   style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "6px 10px", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
-                  <span style={{ width: 7, height: 7, borderRadius: 2, background: toneOf(m.kind, kindByName.get(m.kind)), flexShrink: 0 }} />
+                  <span style={{ width: 7, height: 7, borderRadius: 2, background: kindByName.get(m.kind)?.color ?? "#DDD5C5", flexShrink: 0 }} />
                   <span style={{ fontSize: 12.5, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</span>
                   <span className="dm-mono" style={{ marginLeft: "auto", fontSize: 9, color: "#B7AF9F", textTransform: "uppercase" }}>{m.kind}</span>
                 </button>
@@ -155,106 +636,40 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
             </div>
           )}
         </div>
-      </div>
 
-      <div style={{ display: "flex", alignItems: "stretch" }}>
-        {/* canvas */}
-        <svg viewBox={`0 0 ${W} ${H}`} style={{ display: "block", flex: 1, minWidth: 0, fontSize: 12 }} role="img"
-          aria-label={`Neighborhood of ${centerEntity.label} — click a node to walk to it, click an edge for its evidence`}>
-          {/* rings */}
-          {[0.28, 0.46].map((r, i) => (
-            <ellipse key={i} cx={W / 2} cy={H / 2} rx={Math.min(W, H) * r} ry={Math.min(W, H) * r * 0.82} fill="none" stroke="#F0EADC" strokeWidth={1} />
-          ))}
-          {/* edges */}
-          {graph.edges.map((e, i) => {
-            const a = pos[e.from], b = pos[e.to];
-            if (!a || !b) return null;
-            const sel = selEdge === e;
-            const lit = sel || hover === e.from || hover === e.to;
-            const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-            return (
-              <g key={i} onClick={(ev) => { ev.stopPropagation(); setSelEdge(sel ? null : e); }} style={{ cursor: "pointer" }}>
-                <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={12} />
-                <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                  stroke={sel ? C.accent : lit ? "#C9A38F" : "#DDD5C5"}
-                  strokeWidth={sel ? 2.25 : 1 + Math.min(2, e.fact.sources * 0.5)}
-                  strokeLinecap="round" style={{ transition: "stroke .15s ease" }} />
-                {(sel || lit) && (
-                  <text x={mx} y={my - 6} textAnchor="middle" className="dm-mono"
-                    style={{ fontSize: 9.5, fill: sel ? C.accent : "#8A8477", letterSpacing: "0.03em", paintOrder: "stroke", stroke: "#FFFDF8", strokeWidth: 3, pointerEvents: "none" }}>
-                    {e.predicate.replace(/_/g, " ")}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-          {/* nodes */}
-          {graph.nodes.map((n) => {
-            const p = pos[n.id];
-            if (!p) return null;
-            const isCenter = n.hop === 0;
-            const w = chipW(n.label, n.hop);
-            const h = isCenter ? 36 : n.hop === 1 ? 28 : 24;
-            const tone = toneOf(n.kind, kindByName.get(n.kind));
-            const lit = hover === n.id;
-            return (
-              <g key={n.id} tabIndex={0}
-                onMouseEnter={() => setHover(n.id)} onMouseLeave={() => setHover(null)}
-                onFocus={() => setHover(n.id)} onBlur={() => setHover(null)}
-                onClick={(ev) => { ev.stopPropagation(); if (!isCenter) recenter(n.id); }}
-                onKeyDown={(ev) => { if ((ev.key === "Enter" || ev.key === " ") && !isCenter) { ev.preventDefault(); recenter(n.id); } }}
-                style={{
-                  cursor: isCenter ? "default" : "pointer", outline: "none",
-                  transform: `translate(${p.x}px, ${p.y}px) scale(${lit && !isCenter ? 1.07 : 1})`,
-                  transformBox: "fill-box", transformOrigin: "center",
-                  transition: "transform .2s cubic-bezier(0.34,1.32,0.5,1)",
-                  opacity: n.hop === 2 && !lit ? 0.82 : 1,
-                }}>
-                <title>{isCenter ? `${n.label} — you are here` : `Walk to ${n.label}`}</title>
-                {isCenter && <rect x={-w / 2 - 4} y={-h / 2 - 4} width={w + 8} height={h + 8} rx={(h + 8) / 2} fill="none" stroke={C.accent} strokeWidth={1.5} opacity={0.6} />}
-                <rect x={-w / 2} y={-h / 2} width={w} height={h} rx={h / 2}
-                  fill={isCenter ? "#FDF6F2" : "#fff"} stroke={isCenter ? C.accent : lit ? tone : "#E7E0D2"} strokeWidth={isCenter || lit ? 1.5 : 1}
-                  style={{ filter: isCenter ? "drop-shadow(0 10px 20px rgba(33,30,24,.16))" : "drop-shadow(0 4px 10px rgba(33,30,24,.08))" }} />
-                <circle cx={-w / 2 + 13} cy={0} r={n.hop === 2 ? 3.5 : 4.5} fill={tone} />
-                <text x={6} y={1} textAnchor="middle" dominantBaseline="middle"
-                  style={{ fontWeight: isCenter ? 700 : 600, fontSize: isCenter ? 13 : n.hop === 2 ? 10.5 : 12, fill: C.ink, letterSpacing: "-0.01em", pointerEvents: "none" }}>
-                  {n.label.length > 22 ? n.label.slice(0, 21) + "…" : n.label}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-
-        {/* panel: the node in its natural shape, or the selected edge */}
-        <div style={{ width: 320, flexShrink: 0, borderLeft: "1px solid #EFE9DC", background: "#FCFAF4", padding: "14px 14px 16px", overflowY: "auto", maxHeight: H }}>
-          {selEdge ? (
-            <EdgeInspector edge={selEdge} onClose={() => setSelEdge(null)} onCenter={recenter} />
-          ) : (
-            <>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-                <span className="dm-mono" style={{ ...kicker, color: toneOf(centerEntity.kind, kindByName.get(centerEntity.kind)) }}>
-                  {kindByName.get(centerEntity.kind)?.label ?? centerEntity.kind}
-                </span>
-                {onOpenPage && (
-                  <button type="button" onClick={() => onOpenPage(center)} className="dm-mono"
-                    style={{ fontSize: 10.5, color: C.ink, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 7, padding: "3px 9px", cursor: "pointer", fontFamily: "inherit" }}>
-                    Full page ›
-                  </button>
-                )}
-              </div>
-              <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink, lineHeight: 1.15, marginBottom: 12 }}>{centerEntity.label}</div>
-              <EntityPageBody e={centerEntity} kindDef={kindByName.get(centerEntity.kind)} onOpen={recenter} />
-            </>
-          )}
+        {/* hints */}
+        <div className="dm-mono" style={{ position: "absolute", left: 18, bottom: 13, ...micro, zIndex: 50, opacity: 0.8, pointerEvents: "none" }}>
+          click a neighbour to walk · click an edge to inspect the fact
         </div>
+        <div className="dm-mono" style={{ position: "absolute", right: 18, bottom: 13, ...micro, zIndex: 50, opacity: 0.7, pointerEvents: "none" }}>
+          {reduced ? "2D radial · reduced motion" : "ego neighbourhood · 2 hops"} · {graph.nodes.length} nodes · {graph.edges.length} edges
+        </div>
+
+        {selectedEdge && (
+          <EdgeInspector edge={selectedEdge} onClose={() => setSelEdge(null)} onGoTo={(id) => { setSelEdge(null); goTo(id); }} />
+        )}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", borderTop: "1px solid #EFE9DC", background: "#FBF8F1" }}>
-        <span className="dm-mono" style={kicker}>Click a node to walk to it · click an edge for its evidence</span>
-        <span className="dm-mono" style={{ marginLeft: "auto", fontSize: 9.5, color: "#A39B8B" }}>
-          {graph.nodes.length} nodes · {graph.edges.length} edges{graph.truncated > 0 ? ` · ${graph.truncated} more beyond the rings` : ""}
-        </span>
-      </div>
+      {/* ---- SIDE PANEL: the current node in its natural shape ---- */}
+      <aside style={{ width: 320, flexShrink: 0, borderLeft: "1px solid #EFE9DC", background: "#FCFAF4", display: "flex", flexDirection: "column" }}>
+        <div style={{ padding: "16px 16px 13px", borderBottom: "1px solid #EFE9DC" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
+            <span className="dm-mono" style={{ ...micro, color: kindByName.get(centerEntity.kind)?.color ?? C.accent }}>
+              {kindByName.get(centerEntity.kind)?.label ?? centerEntity.kind}
+            </span>
+            {onOpenPage && (
+              <button type="button" onClick={() => onOpenPage(center)} className="dm-mono"
+                style={{ marginLeft: "auto", fontSize: 10.5, color: C.ink, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 7, padding: "3px 9px", cursor: "pointer", fontFamily: "inherit" }}>
+                Full page ›
+              </button>
+            )}
+          </div>
+          <div className="dm-display" style={{ fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", color: C.ink, lineHeight: 1.12 }}>{centerEntity.label}</div>
+        </div>
+        <div key={center} style={{ flex: 1, overflowY: "auto", padding: "14px 14px 16px", animation: reduced ? "none" : `dm-drop-in ${MOTION.panel}ms ${MOTION.easeOut}` }}>
+          <EntityPageBody e={centerEntity} kindDef={kindByName.get(centerEntity.kind)} onOpen={goTo} />
+        </div>
+      </aside>
     </div>
   );
 }
