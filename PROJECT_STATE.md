@@ -12,6 +12,17 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **Schema view is now a real draggable canvas** (user: treat
+  categories like a Supabase instance — drag tables around, links must keep
+  making sense). Cards float free on a ruled canvas; drag by the header and
+  the FK lines re-measure every frame; a <4px press is a click (browse rows);
+  grabbing brings a card above the others; the arrangement persists in
+  localStorage (`dm-schema-positions-v1`) and survives reload; deterministic
+  auto-layout (column-packed, populated-first) seeds the first visit and any
+  newly created category. Creation moved to a toolbar ("New table (= new
+  category)…" + create — still one object). Verified in Chromium (5/5: drag
+  moves, lines follow, persistence, reload survival, click≠drag) + the full
+  bar (87/87, tsc, lint 7/16, build, shoot).
 - **2026-07-11** — **ONE OBJECT: Tables = Categories = Concepts; Map removed**
   (user decisions: "creating a concept or a table should be the same object";
   "the map feature is actually useless — keep the walk only").
