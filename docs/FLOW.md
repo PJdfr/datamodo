@@ -5,7 +5,7 @@
 > the always-current infographic: stages × features × stack in one picture.
 > Siblings: [STATE.md](STATE.md) · [ROADMAP.md](ROADMAP.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-10
+> Last updated: 2026-07-11
 
 ## The one-picture version
 

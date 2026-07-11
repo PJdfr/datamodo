@@ -12,6 +12,8 @@ import { C, monoLabel, CountUp, Segmented, SourceRow } from "./ui";
 import { KnowledgeGraphView } from "./knowledge-graph";
 import { ConceptMapView } from "./concept-map-view";
 import { ExplorerView } from "./explorer-view";
+import { TimelineView } from "./timeline-view";
+import { FilesView } from "./files-view";
 import { EntityPageModal } from "./entity-page";
 import { buildDatasetNodes, type DatasetNodeSource } from "@/lib/datamodo/node-shapes";
 import { canSynthesize } from "@/lib/datamodo/synthesis";
@@ -116,7 +118,10 @@ export function KnowledgeView() {
   const [kinds, setKinds] = useState<KindDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
-  const [mode, setMode] = useState<"cards" | "graph" | "concepts" | "explore">("cards");
+  // ONE knowledge surface, walking first (the north star): Walk is the front
+  // door; the other readings of the same vault nest here as modes instead of
+  // competing as top-level tabs (simplicity rule / IA pass 2026-07-11).
+  const [mode, setMode] = useState<"explore" | "cards" | "graph" | "concepts" | "timeline" | "files">("explore");
   const [openId, setOpenId] = useState<string | null>(null);
   // Explorer wiring: entering via "◍ Explore" recenters on that entity; the
   // key remount resets the walk's breadcrumb trail.
@@ -195,21 +200,27 @@ export function KnowledgeView() {
           <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>{groups.length} kind{groups.length === 1 ? "" : "s"} · {totalFacts} fact{totalFacts === 1 ? "" : "s"} · your tables are built from these</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <Segmented value={mode} onChange={setMode} options={[{ v: "cards", label: "Cards" }, { v: "graph", label: "Graph" }, { v: "concepts", label: "Concepts" }, { v: "explore", label: "Explore" }]} />
-          <div style={{ position: "relative", minWidth: 220 }}>
-            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search entities & facts…" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
-          </div>
+          <Segmented value={mode} onChange={setMode} options={[{ v: "explore", label: "◍ Walk" }, { v: "cards", label: "Cards" }, { v: "graph", label: "Map" }, { v: "concepts", label: "Concepts" }, { v: "timeline", label: "Timeline" }, { v: "files", label: "Files" }]} />
+          {(mode === "cards" || mode === "graph") && (
+            <div style={{ position: "relative", minWidth: 220 }}>
+              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search entities & facts…" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
+            </div>
+          )}
         </div>
       </div>
 
-      {shown.length === 0 && <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Nothing matches “{q.trim()}”.</div>}
+      {shown.length === 0 && (mode === "cards" || mode === "graph") && <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Nothing matches “{q.trim()}”.</div>}
 
       {mode === "graph" && shown.length > 0 && <KnowledgeGraphView entities={shown} onOpen={setOpenId} />}
 
       {/* The concept map reads over ALL entities, not the search subset — a
           half-filtered map of content misleads more than it helps. */}
       {mode === "concepts" && <ConceptMapView entities={entities} onOpen={setOpenId} />}
+
+      {/* Same vault, other readings — nested here, not top-level peers. */}
+      {mode === "timeline" && <TimelineView />}
+      {mode === "files" && <FilesView />}
 
       {/* Explorer: stand on one node, walk edge to edge. Defaults to the
           best-connected entity until a walk begins. */}

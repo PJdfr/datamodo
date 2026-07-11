@@ -73,8 +73,6 @@ import { OnboardingModal } from "./onboarding-modal";
 import { ImportGraphModal } from "./import-graph-modal";
 import { KnowledgeView } from "./knowledge-view";
 import { InsightsView } from "./insights-view";
-import { FilesView } from "./files-view";
-import { TimelineView } from "./timeline-view";
 import { AnswerCard } from "./answer-card";
 import { CategoriesModal } from "./categories-modal";
 import { BuildFromKnowledgeModal } from "./build-from-knowledge";
@@ -83,7 +81,10 @@ import { BuildFromKnowledgeModal } from "./build-from-knowledge";
 /* Component                                                           */
 /* ================================================================== */
 type Tab = "agents" | "data" | "review" | "search";
-type DataView = "tables" | "knowledge" | "insights" | "files" | "timeline";
+// The Data tab answers ONE verb — "look at my data" — through three surfaces
+// (simplicity rule: two levels max, no sibling duplication). Knowledge,
+// Timeline and Files live INSIDE Explore as modes of one surface.
+type DataView = "tables" | "explore" | "insights";
 export type ControlCenterProps = {
   fullName: string;
   initial: string;
@@ -189,6 +190,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const hasContext = !!onboarding.businessContext;
   const [buildOpen, setBuildOpen] = useState(false);
   const [dataView, setDataView] = useState<DataView>("tables");
+  const [dataActionsOpen, setDataActionsOpen] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
   const manageAgent = agents.find((a) => a.id === manageAgentId) ?? null;
   const openTable = datasets.find((d) => d.id === openTableId) ?? null;
@@ -245,7 +247,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
 
   const titles: Record<Tab, { t: string; sub: string }> = {
     agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
-    data: { t: "Data", sub: dataView === "knowledge" ? "The people, companies & things we know about — your tables are built from these" : dataView === "insights" ? "The numbers behind your knowledge — totals & breakdowns, computed live" : dataView === "files" ? "Documents that arrived as attachments — filed by what they mention, originals kept" : dataView === "timeline" ? "Everything in order — messages, due dates, corrections & first sightings" : uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · derived from your knowledge` : "No tables yet" },
+    data: { t: "Data", sub: dataView === "explore" ? "Everything we know, walkable — stand on a node and look around" : dataView === "insights" ? "The numbers behind your knowledge — totals & breakdowns, computed live" : uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · derived from your knowledge` : "No tables yet" },
     review: { t: "Review", sub: reviewTotal ? `${reviewTotal} to confirm — merges, conflicts & new facts` : "Confirm what we inferred — merges, conflicts & new facts" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
   };
@@ -400,27 +402,36 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           {tab === "data" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "knowledge", label: "Knowledge" }, { v: "insights", label: "Insights" }, { v: "files", label: "Files" }, { v: "timeline", label: "Timeline" }]} />
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <Hov onClick={() => setCategoriesOpen(true)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
-                    <span style={{ color: C.accent }}>▣</span> Categories
+                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "explore", label: "◍ Explore" }, { v: "insights", label: "Insights" }]} />
+                {/* Rare actions live behind ONE menu, not three peers (simplicity rule). */}
+                <div style={{ position: "relative" }}>
+                  <Hov onClick={() => setDataActionsOpen((o) => !o)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
+                    <span style={{ color: C.accent }}>✦</span> Build <span style={{ fontSize: 10, color: "#A39B8B" }}>▾</span>
                   </Hov>
-                  <Hov onClick={() => setImportGraphOpen(true)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
-                    <span style={{ color: C.accent }}>✦</span> Spreadsheet → knowledge
-                  </Hov>
-                  <Hov onClick={() => setBuildOpen(true)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
-                    <span style={{ color: C.accent }}>✦</span> Build from knowledge
-                  </Hov>
+                  {dataActionsOpen && (
+                    <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 40, background: "#fff", border: "1px solid #E7E0D2", borderRadius: 12, boxShadow: "0 14px 34px rgba(33,30,24,.16)", overflow: "hidden", minWidth: 230 }}>
+                      {([
+                        ["▣", "Categories", "Edit what kinds of things exist", () => setCategoriesOpen(true)],
+                        ["✦", "Spreadsheet → knowledge", "Import a sheet as entities & links", () => setImportGraphOpen(true)],
+                        ["✦", "Build from knowledge", "Turn a category into a table", () => setBuildOpen(true)],
+                      ] as const).map(([glyph, label, hint, act]) => (
+                        <button key={label} type="button" onClick={() => { setDataActionsOpen(false); act(); }}
+                          style={{ display: "flex", alignItems: "baseline", gap: 8, width: "100%", textAlign: "left", padding: "9px 13px", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                          <span style={{ color: C.accent, fontSize: 12 }}>{glyph}</span>
+                          <span style={{ minWidth: 0 }}>
+                            <span style={{ display: "block", fontSize: 13, color: C.ink, fontWeight: 500 }}>{label}</span>
+                            <span style={{ display: "block", fontSize: 11, color: "#8A8477", marginTop: 1 }}>{hint}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
-              {dataView === "knowledge" ? (
+              {dataView === "explore" ? (
                 <KnowledgeView />
               ) : dataView === "insights" ? (
                 <InsightsView />
-              ) : dataView === "files" ? (
-                <FilesView />
-              ) : dataView === "timeline" ? (
-                <TimelineView />
               ) : uiTables.length || createTableOpen ? (
                 <>
                   {uiTables.length > 0 && <RelationshipGraph tables={uiTables} relations={relations} datasets={datasets} onOpen={setOpenTableId} onChanged={() => router.refresh()} />}
