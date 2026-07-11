@@ -12,6 +12,29 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **NODE SHAPES PHASE 2 shipped: image nodes, bookmarks,
+  dataset-as-node** (Explorer track item — "a node can be anything").
+  - **Pure core** [node-shapes.ts](lib/datamodo/node-shapes.ts) (import-free):
+    `entityImageType` (image documents detected via `file_type` fact or the
+    filename inside the `doc:` natural key, same media gate as the vision
+    tier), `entityBookmarkUrl` (the `url` fact or a URL-shaped label; plain
+    http(s) only — anything else never becomes a link), `buildDatasetNodes`
+    (datasets → VIRTUAL `dataset` nodes with `contains` edges to the entities
+    projected into their rows; deduped, unknown ids dropped, empty tables
+    skipped — never enters the vault).
+  - **Image nodes render their image**: entity pages/Explorer panel embed the
+    original via `/api/documents/[id]?inline=1` (new inline disposition; the
+    binary still never leaves blob storage).
+  - **`bookmark` builtin kind** (required `url` field, title/site, `about`/
+    `shared_by` relations) — `ensureKinds` backfills it to existing orgs; the
+    extractor can now classify shared links. Bookmark nodes render a link card.
+  - **Dataset-as-node**: `/api/knowledge/entities` also returns each dataset's
+    row-entity ids; the Explorer's world = entities + dataset nodes, so you can
+    walk INTO a table and out through any of its rows. Panel shows a "▦ Table"
+    card (rows × columns); dossier hidden for virtual nodes.
+  - Verified: 78/78 tests (7 new) + tsc + lint == baseline + build green.
+    Image rendering not eyeballed live (no blob bucket in sandbox) — the
+    `<img>` rides the already-verified download route.
 - **2026-07-11** — **`bumpSupport` is now atomic** (`support = support + 1` via
   Prisma's `increment`, one round-trip): concurrent per-entity extraction can
   no longer lose corroboration counts to a read-modify-write race. Roadmap

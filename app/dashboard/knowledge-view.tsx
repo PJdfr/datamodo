@@ -13,6 +13,7 @@ import { KnowledgeGraphView } from "./knowledge-graph";
 import { ConceptMapView } from "./concept-map-view";
 import { ExplorerView } from "./explorer-view";
 import { EntityPageModal } from "./entity-page";
+import { buildDatasetNodes, type DatasetNodeSource } from "@/lib/datamodo/node-shapes";
 import type { KnowledgeEntityView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
 
@@ -110,6 +111,7 @@ function EntityCard({ e, kindDef, onOpen }: { e: KnowledgeEntityView; kindDef?: 
 
 export function KnowledgeView() {
   const [entities, setEntities] = useState<KnowledgeEntityView[]>([]);
+  const [datasetSources, setDatasetSources] = useState<DatasetNodeSource[]>([]);
   const [kinds, setKinds] = useState<KindDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
@@ -137,6 +139,7 @@ export function KnowledgeView() {
         ]);
         const json = await res.json();
         if (alive) setEntities(json.entities ?? []);
+        if (alive) setDatasetSources(json.datasets ?? []);
         if (alive && kres?.ok) setKinds((await kres.json()).kinds ?? []);
       } catch {
         /* leave empty */
@@ -148,6 +151,14 @@ export function KnowledgeView() {
   }, []);
 
   const kindByName = useMemo(() => new Map(kinds.map((k) => [k.kind, k])), [kinds]);
+
+  // Dataset-as-node: the Explorer's world is the entities PLUS each dataset as
+  // a virtual node linked to the entities projected into its rows (pure
+  // projection — node-shapes.ts; never enters the vault or the other views).
+  const explorerEntities = useMemo(
+    () => entities.concat(buildDatasetNodes(datasetSources, entities)),
+    [entities, datasetSources],
+  );
 
   const shown = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -204,7 +215,7 @@ export function KnowledgeView() {
       {mode === "explore" && entities.length > 0 && (
         <ExplorerView
           key={exploreSeed}
-          entities={entities}
+          entities={explorerEntities}
           initialId={exploreId ?? entities[0].id}
           kindByName={kindByName}
           onOpenPage={setOpenId}
@@ -228,7 +239,7 @@ export function KnowledgeView() {
       })}
 
       {openId && (() => {
-        const ent = entities.find((e) => e.id === openId);
+        const ent = explorerEntities.find((e) => e.id === openId);
         return ent ? (
           <EntityPageModal e={ent} kindDef={kindByName.get(ent.kind)} onClose={() => setOpenId(null)} onOpen={setOpenId} onExplore={explore} />
         ) : null;

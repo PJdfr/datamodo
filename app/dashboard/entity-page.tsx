@@ -12,6 +12,7 @@
 
 import { Fragment, useState, type ReactNode } from "react";
 import { C, ModalShell, SourceRow } from "./ui";
+import { DATASET_NODE_KIND, entityBookmarkUrl, entityImageType } from "@/lib/datamodo/node-shapes";
 import type { FactSourceView, KnowledgeEntityView, KnowledgeFactView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
 
@@ -184,8 +185,47 @@ export function EntityPageBody({ e, kindDef, onOpen }: {
     relGroups.get(f.predicate)!.push({ id: f.refId!, label: f.value });
   }
 
+  const imageType = entityImageType(e);
+  const bookmarkUrl = entityBookmarkUrl(e);
+  const isDataset = e.kind === DATASET_NODE_KIND;
+
   return (
     <>
+      {/* Image node: the node IS the picture — show it, not a metadata card.
+          The original streams from blob storage; nothing is duplicated. */}
+      {imageType && (
+        <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, overflow: "hidden", marginBottom: 16 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element -- blob-backed, size unknown at build */}
+          <img
+            src={`/api/documents/${e.id}?inline=1`}
+            alt={e.label}
+            loading="lazy"
+            style={{ display: "block", width: "100%", maxHeight: 340, objectFit: "contain", background: "#FBF8F1" }}
+          />
+        </div>
+      )}
+
+      {/* Bookmark node: a link card — the URL is the payload. */}
+      {bookmarkUrl && (
+        <a href={bookmarkUrl} target="_blank" rel="noopener noreferrer"
+          style={{ display: "block", background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, padding: "12px 16px", marginBottom: 16, textDecoration: "none" }}>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 4 }}>Bookmark</div>
+          <div style={{ fontSize: 13.5, fontWeight: 600, color: C.accent, marginBottom: 3, overflowWrap: "anywhere" }}>{e.label} ↗</div>
+          <div className="dm-mono" style={{ fontSize: 10.5, color: "#8A8477", overflowWrap: "anywhere" }}>{bookmarkUrl}</div>
+        </a>
+      )}
+
+      {/* Dataset node (virtual, Explorer-only): the table's shape at a glance —
+          its rows are the Connections below, each one walkable. */}
+      {isDataset && (
+        <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 4 }}>▦ Table</div>
+          <div style={{ fontSize: 13, color: "#3A352C" }}>
+            {e.naturalKeys.rows ?? "?"} row{e.naturalKeys.rows === "1" ? "" : "s"} · {e.naturalKeys.columns ?? "?"} column{e.naturalKeys.columns === "1" ? "" : "s"} — every row is an entity; the connections below walk into them.
+          </div>
+        </div>
+      )}
+
       {/* Thick node: the generated body reads first, like a note. */}
       {e.bodyMd && (
         <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
@@ -194,7 +234,7 @@ export function EntityPageBody({ e, kindDef, onOpen }: {
         </div>
       )}
 
-      {Object.keys(e.naturalKeys ?? {}).length > 0 && (
+      {!isDataset && Object.keys(e.naturalKeys ?? {}).length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
           {Object.entries(e.naturalKeys).map(([k, v]) => (
             <span key={k} className="dm-mono" style={{ fontSize: 10.5, color: "#57534A", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 6, padding: "2px 7px" }}>{k.replace(/_/g, " ")}: {v}</span>
@@ -280,7 +320,9 @@ export function EntityPageModal({ e, kindDef, onClose, onOpen, onExplore }: {
             {onExplore && (
               <button type="button" onClick={() => onExplore(e.id)} title="Walk the graph from here" className="dm-mono" style={{ ...btn, cursor: "pointer", fontFamily: "inherit", color: C.accent, borderColor: "#F3D6CB", background: "#FDF6F2" }}>◍ Explore</button>
             )}
-            <a href={`/api/knowledge/entities/${e.id}/dossier`} title="Download everything we know about this, cited" className="dm-mono" style={btn}>dossier ↓</a>
+            {e.kind !== DATASET_NODE_KIND && (
+              <a href={`/api/knowledge/entities/${e.id}/dossier`} title="Download everything we know about this, cited" className="dm-mono" style={btn}>dossier ↓</a>
+            )}
             {isDoc && <a href={`/api/documents/${e.id}`} className="dm-mono" style={btn}>original ↓</a>}
           </span>
         </>
