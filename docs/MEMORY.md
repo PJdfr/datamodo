@@ -50,6 +50,13 @@ reviewable, nothing is ever silently lost or merged.
 - **An edge is more than a link**: it is a fact, and the UI must expose what
   the fact already carries — semantics (predicate), time (valid_from/to),
   confidence, strength (corroboration count), and the exact source messages.
+- **A node's body reads like Obsidian** (decided 2026-07-11): `body_md`
+  renders full-flavor markdown — tables, images, tasks, quotes, code, math,
+  `[[wikilinks]]` resolving to real nodes, `![[embeds]]` rendering media nodes
+  inline — but stays INJECTION-PROOF: a pure parser produces an AST the
+  renderer maps to React elements; text never becomes HTML (KaTeX's own
+  MathML is the sole, library-generated exception). Structure still lives in
+  the graph: wikilinks are a reading convenience, edges remain facts.
 - **Generation is ON-DEMAND only** — syntheses (e.g. a concept's cross-document
   note) are produced when the user asks (a button or a question), never by a
   background trigger. LLM spend maps 1:1 to user curiosity; no stale-synthesis

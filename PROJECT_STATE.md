@@ -12,6 +12,31 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **Node bodies go full Obsidian** (user: "MarkdownLite on a
+  node could be complete Obsidian-markdown-like"). MarkdownLite is replaced by
+  a two-part renderer:
+  - **Pure parser** ([lib/datamodo/markdown.ts](lib/datamodo/markdown.ts)):
+    headings, paragraphs, nested quotes, fenced code, hr, nested lists +
+    `- [ ]` tasks, GFM tables (alignment, `\|` escapes), `$$` math blocks;
+    inline bold/italic/strike/==highlight==/code/links/images,
+    `[[wikilinks]]`+aliases, `![[embeds]]`, `$inline math$`, backslash
+    escapes. Guards where markdown bites: no intra-word `_emphasis_`
+    (snake_case predicates!), `$17,650 and $10` never parses as math, only
+    root-relative + https media sources pass (`safeMediaSrc`).
+  - **Renderer** ([app/dashboard/markdown.tsx](app/dashboard/markdown.tsx)):
+    AST → React elements (injection-proof stays structural); `[[wikilinks]]`
+    resolve against the org's real nodes via `buildNodeResolver` (label
+    match; click opens the node — unresolved links stay quiet dashed text
+    like Obsidian); `![[image.jpg]]` / `![[memo.m4a]]` render the ACTUAL
+    node's media inline; math via lazy-loaded KaTeX with **MathML output**
+    (no CSS/font imports; loads only when a body contains math; the KaTeX
+    string is the page's sole innerHTML). Wired in both body surfaces:
+    the page modal (knowledge-view) and the Explorer's side panel.
+  - New dep `katex`; new `npm run shoot -- body` harness (screenshot reviewed:
+    table alignment, task strike, wikilink chips, MathML equations, embeds).
+  - Verified: 113/113 tests (10 new in tests/markdown.test.ts) + tsc + lint ==
+    baseline + build + 5 shoot harnesses green. Found & fixed in dev: the
+    inline scanner's shared-regex recursion loop (fresh regex per call).
 - **2026-07-11** — **CATEGORY PROPOSALS via Review (growth loop ⑤ closes)** —
   when extraction keeps producing entities of a kind the registry doesn't know
   (post-canonicalization, generics like "thing" excluded — pure trigger

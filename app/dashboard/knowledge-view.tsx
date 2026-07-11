@@ -13,6 +13,7 @@ import { ExplorerView } from "./explorer-view";
 import { SchemaView, type SchemaTableLink, type SchemaTableRef } from "./schema-view";
 import { EntityPageModal } from "./entity-page";
 import { buildDatasetNodes, type DatasetNodeSource } from "@/lib/datamodo/node-shapes";
+import { buildNodeResolver } from "./markdown";
 import { canSynthesize } from "@/lib/datamodo/synthesis";
 import type { KnowledgeEntityView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
@@ -176,6 +177,9 @@ export function KnowledgeView({ view, onSwitch, tables = [], tableLinks = [], on
     [entities, datasetSources],
   );
 
+  // Body [[wikilinks]] resolve against everything the surface knows about.
+  const resolveNode = useMemo(() => buildNodeResolver(explorerEntities), [explorerEntities]);
+
   const shown = useMemo(() => {
     const inKind = selectedKind ? entities.filter((e) => e.kind === selectedKind) : entities;
     const t = q.trim().toLowerCase();
@@ -295,7 +299,7 @@ export function KnowledgeView({ view, onSwitch, tables = [], tableLinks = [], on
             }
           : undefined;
         return (
-          <EntityPageModal e={ent} kindDef={kindByName.get(ent.kind)} onClose={() => setOpenId(null)} onOpen={setOpenId} onExplore={explore} onSynthesize={synthesize} />
+          <EntityPageModal e={ent} kindDef={kindByName.get(ent.kind)} onClose={() => setOpenId(null)} onOpen={setOpenId} onExplore={explore} onSynthesize={synthesize} resolveNode={resolveNode} />
         );
       })()}
     </div>
