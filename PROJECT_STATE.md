@@ -12,6 +12,30 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **Dashboard clarity pass + design polish** (user feedback on
+  the Explorer v2 port: keep the design's color richness and cleaner panel;
+  Timeline "10× cleaner" in the mock; too many tabs/toggles in Data).
+  - **IA consolidation (durable — see MEMORY simplicity rule):** Data tab goes
+    from 5 views + 3 buttons to **Tables · ◍ Explore · Insights** + one
+    "✦ Build ▾" menu (Categories / Spreadsheet→knowledge / Build from
+    knowledge). Explore is THE knowledge surface: **Walk (3D explorer) is the
+    default**, with Cards / Map (was "Graph") / Concepts / **Timeline** /
+    **Files** as modes — the old Data→Knowledge→Explore double-toggle is gone
+    (walking is zero clicks), and Timeline/Files stop competing as top-level
+    peers.
+  - **Explorer polish:** node cards are tinted from the kind REGISTRY color
+    (paper-warm `color-mix` wash + colored border/kicker) so every kind reads
+    as its color; the side panel got the design's quieter look — bigger title,
+    connections/facts sub-line, and a new `variant="flat"` on `EntityPageBody`
+    that drops the boxed cards (modal keeps `card`).
+  - **Timeline reskin per the handoff** (`DashboardExtras.TimelineView`):
+    vertical rail with coral day dots (gold for Upcoming), white cards rising
+    in with a 55ms stagger (reduced-motion settles instantly), channel tints,
+    entity chips; header becomes "What datamodo learned". Clock toggle and
+    entity filter kept.
+  - Verified: 87/87 tests + tsc + lint == baseline + build green; Chromium
+    screenshots of the colored Explorer and the reskinned Timeline reviewed
+    (no page errors).
 - **2026-07-11** — **EXPLORER v2 shipped: the 3D graph walk** (Claude Design
   handoff, project "Datamodo Explorer v2" — implemented per its
   `ExplorerGraph3D.jsx` + `MOTION.md`, ported onto the EXISTING pure core as

@@ -5,7 +5,7 @@
 > how we work, what we decided and why. Siblings: [STATE.md](STATE.md) ·
 > [FLOW.md](FLOW.md) · [ROADMAP.md](ROADMAP.md).
 >
-> Last updated: 2026-07-10
+> Last updated: 2026-07-11
 
 ## What datamodo is (the aim)
 Turn unstructured personal communications into **structured, reviewable,
@@ -82,6 +82,11 @@ progressive disclosure over adding parallel options: before adding a toggle,
 button, or view, ask what it replaces or where it nests. Views multiply only
 when each answers a genuinely different question; controls the user rarely
 needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
+- **Applied 2026-07-11 (IA shape, keep it this way):** the Data tab is three
+  surfaces — **Tables · ◍ Explore · Insights**. Explore is THE knowledge
+  surface (Walk is its default; Cards/Map/Concepts/Timeline/Files are modes of
+  it, never top-level peers again); rare build actions live behind one
+  "✦ Build ▾" menu. Don't re-add siblings — nest or cut.
 
 ## Design system (brand)
 - Brand name always lowercase **datamodo**. Cream `#F6F2E9` canvas, warm ink

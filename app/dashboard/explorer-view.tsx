@@ -82,7 +82,21 @@ const fmtDay = (iso: string | null) =>
 function NodeCard({ e, kindDef, isCenter, isHover }: {
   e: KnowledgeEntityView; kindDef?: KindDef; isCenter: boolean; isHover: boolean;
 }) {
-  const tone = TONE[TONE_BY_KIND[e.kind] ?? "surface"];
+  // Card tone: the designed tones for the special kinds, otherwise a paper-warm
+  // wash of the kind's REGISTRY color — every kind reads as its color without
+  // leaving the cream world.
+  const named = TONE_BY_KIND[e.kind];
+  const kindColor = kindDef?.color;
+  const tone = named
+    ? TONE[named]
+    : kindColor
+    ? {
+        bg: `color-mix(in srgb, ${kindColor} 10%, #FFFDF8)`,
+        fg: C.ink,
+        bd: `color-mix(in srgb, ${kindColor} 42%, #E7E0D2)`,
+        chip: kindColor,
+      }
+    : TONE.surface;
   const mono = MONO_KINDS.has(e.kind);
   const sub = e.kind === "dataset"
     ? `${e.naturalKeys.rows ?? "?"} rows · ${e.naturalKeys.columns ?? "?"} cols`
@@ -664,10 +678,13 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
               </button>
             )}
           </div>
-          <div className="dm-display" style={{ fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", color: C.ink, lineHeight: 1.12 }}>{centerEntity.label}</div>
+          <div className="dm-display" style={{ fontWeight: 700, fontSize: 21, letterSpacing: "-0.02em", color: C.ink, lineHeight: 1.1 }}>{centerEntity.label}</div>
+          <div style={{ marginTop: 4, fontSize: 12.5, color: "#8A8477" }}>
+            {centerEntity.edges} connection{centerEntity.edges === 1 ? "" : "s"}{centerEntity.facts.filter((f) => !f.ref).length > 0 ? ` · ${centerEntity.facts.filter((f) => !f.ref).length} fact${centerEntity.facts.filter((f) => !f.ref).length === 1 ? "" : "s"}` : ""}
+          </div>
         </div>
-        <div key={center} style={{ flex: 1, overflowY: "auto", padding: "14px 14px 16px", animation: reduced ? "none" : `dm-drop-in ${MOTION.panel}ms ${MOTION.easeOut}` }}>
-          <EntityPageBody e={centerEntity} kindDef={kindByName.get(centerEntity.kind)} onOpen={goTo} />
+        <div key={center} style={{ flex: 1, overflowY: "auto", padding: "16px 18px 20px", animation: reduced ? "none" : `dm-drop-in ${MOTION.panel}ms ${MOTION.easeOut}` }}>
+          <EntityPageBody e={centerEntity} kindDef={kindByName.get(centerEntity.kind)} onOpen={goTo} variant="flat" />
         </div>
       </aside>
     </div>

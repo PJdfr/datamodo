@@ -31,11 +31,11 @@
   motion + Timeline polish (`DashboardExtras.jsx`, lower priority) and the
   **dashboard IA restructure proposal** (13 choices → 2 verbs — a product
   decision; see the design project's `IAProposal`).
-- **Dashboard clarity pass** (see MEMORY.md simplicity rule): audit every
-  toggle/button/view for "does the user need this HERE?" — e.g. Data tab now
-  has 6 sub-views + 3 top buttons; Knowledge has 4 modes. Consolidate or nest
-  (progressive disclosure), don't spread. Candidate: fold Files/Timeline into
-  Knowledge or an "Explore"-first layout; move rare actions behind a menu.
+- ~~Dashboard clarity pass~~ ✅ 2026-07-11 — Data tab: 5 views + 3 buttons →
+  **Tables · ◍ Explore · Insights** + one "✦ Build ▾" menu; Timeline/Files
+  nest as modes of the ONE knowledge surface (Walk is its front door).
+  Still open from the design's IA proposal, deliberately not taken: Search/Ask
+  as global ⌘K, exports as row actions — revisit if the rail grows again.
 - ~~Node shapes, phase 2~~ ✅ 2026-07-11 — image nodes render their image,
   `bookmark` builtin kind, dataset-as-node in the Explorer.
 - ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
