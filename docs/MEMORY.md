@@ -90,8 +90,9 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
     a Supabase-style schema diagram (kind cards = columns + FK relation rows,
     lines between them); clicking a card browses its rows as cards; creating
     a "table" creates the category AND its dataset together (schema-view's
-    "+ new table"). Deeper model unification (`datasets.kind_id`) is a
-    roadmapped migration.
+    "+ new table"). Since 2026-07-11 the binding is STRUCTURAL:
+    `datasets.kind_id` → `kinds.id` (plural-name match is only a fallback for
+    pre-migration rows).
   - **The Map is REMOVED, not merged** (user decision: useless next to the
     walk). Explore = the ego walk only; no zoom-out. `entities.graph_pin` and
     its PATCH endpoint remain dormant.

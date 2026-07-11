@@ -74,6 +74,9 @@ export interface DatasetRecord {
   id: string;
   org_id: string;
   agent_id: string | null;
+  /** The kind this dataset materializes ("category = table", structural since
+   *  the 2026-07-11 migration). Null for hand-made tables. */
+  kind_id: string | null;
   name: string;
   description: string | null;
   columns: DatasetColumn[];

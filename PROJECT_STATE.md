@@ -12,6 +12,28 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **dataset_relations are visualized again** — explicit
+  table↔table links draw as DASHED lines between the schema canvas's kind
+  cards (footer to footer; label = the relation's label, else
+  "from_column → to_column"; lit/dimmed with selection and drag like the coral
+  template-FK lines). Wired `relations` (already loaded by the dashboard page)
+  → `KnowledgeView.tableLinks` → `SchemaView`; a card resolves from a dataset
+  via the new structural `kind_id` (name fallback for older rows). Schema shoot
+  harness gained a link fixture; screenshot reviewed (dashed line renders,
+  lights with the selected card, distinct from solid FK lines).
+- **2026-07-11** — **Model unification phase 2: `datasets.kind_id`** — "category
+  = table" is now STRUCTURAL: new column `datasets.kind_id uuid references
+  kinds(id) on delete set null` (+ index), set by the category→table endpoint
+  on create AND on name-collision adoption; `datasetForKind` matches the
+  binding first and keeps the plural-name rule only as a fallback for
+  pre-migration rows (a bound dataset can be freely renamed now). Migration
+  `neon/migrations/20260711100000_datasets_kind_id.sql` (idempotent, includes
+  the name-convention backfill); seed gained the same backfill tail.
+  ⚠️ **DDL NOT yet applied to the Neon branches** — the Neon MCP required an
+  interactive approval this session couldn't grant. Run the migration file
+  against dev AND prod (`psql "$DATABASE_URL" -f neon/migrations/20260711100000_datasets_kind_id.sql`)
+  BEFORE deploying this code — Prisma now selects the column. Verified:
+  96/96 tests + tsc + lint == baseline (7/16) + build green.
 - **2026-07-11** — **Data surfaces go full-width** (user: the Explorer and the
   schema canvas were mysteriously capped). Cause: a `maxWidth: 980` wrapper in
   `KnowledgeView` (plus the same cap on Files and Insights). Removed — the

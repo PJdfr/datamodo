@@ -56,13 +56,11 @@
   relay for WhatsApp/Teams). ~1 week; a strategic call on timing.
 
 ## Smaller follow-ups (grab when nearby)
-- **Model unification, phase 2**: bind datasets to kinds in the DB
-  (`datasets.kind_id`) so "category = table" is structural, not a name-match
-  convention (today `datasetForKind` matches by plural name).
-- Schema view: dataset_relations (table↔table links) are no longer visualized
-  since the old RelationshipGraph was removed — draw them as dashed lines in
-  the schema diagram if missed; `lib/datamodo/relations.ts` + suggestions API
-  still exist.
+- ~~Model unification, phase 2~~ ✅ 2026-07-11 — `datasets.kind_id` binds a
+  dataset to the kind it materializes (structural; plural-name match remains
+  only as a fallback for pre-migration rows).
+- ~~Schema view: dataset_relations~~ ✅ 2026-07-11 — table↔table links draw as
+  dashed lines between the schema canvas's cards.
 - Concept-map pure core (`lib/datamodo/concept-map.ts`) is dormant (view
   removed) — resurrect as an Explore lens or delete after a quiet month.
 - Category proposals from the agent via Review ("no-fit entity → propose a new

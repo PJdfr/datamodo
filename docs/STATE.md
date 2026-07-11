@@ -47,7 +47,7 @@
 | Spreadsheet attachments (.xlsx → text → same pipeline) | `sheetToText` in `document-extraction.ts`, `lib/datamodo/spreadsheet.ts` |
 | Generated notes: substantive prose dump → note node WE author (`note:`/`memo` forces) | `buildNoteExtraction` in `document-extraction.ts`, note logic in `extract.ts` |
 | Ontology/categories: user-editable kind registry, prompt steering, canonicalization (fixes predicate drift), template restraint | pure `lib/datamodo/ontology.ts`; DB `lib/datamodo/kinds.ts`; API `app/api/kinds*`; UI `app/dashboard/categories-modal.tsx` |
-| AI-drafted category templates + one-click category→table | `suggestKindTemplate` in `kinds.ts`, `app/api/kinds/suggest`, `app/api/kinds/[id]/table` |
+| AI-drafted category templates + one-click category→table (**structural binding**: `datasets.kind_id` → `kinds.id`, set on create/adopt; plural-name match is only a pre-migration fallback) | `suggestKindTemplate` in `kinds.ts`, `app/api/kinds/suggest`, `app/api/kinds/[id]/table`, `datasetForKind` in `app/dashboard/schema-view.tsx`, `neon/migrations/20260711100000_datasets_kind_id.sql` |
 | Off-template review routing (drops become reviews; accept = replay through ingest) | `restrictExtractionToTemplates`/`buildOffTemplateReview` in `ontology.ts`, `createOffTemplateReview` in `knowledge.ts`, accept in `reviews.ts` |
 | `extraction_version` stamp + delta requeue endpoint | `EXTRACTION_VERSION` in `extract.ts`, `app/api/jobs/extract-requeue/route.ts` |
 
@@ -80,7 +80,7 @@
 | Search: tables + knowledge + document passages, grounded answers with citations | `lib/datamodo/search.ts`, `lib/datamodo/answer.ts`, `app/api/search`, `app/dashboard/answer-card.tsx` |
 | Review Studio (PR-metaphor queue) | `app/dashboard/review-studio.tsx` |
 | Spreadsheet → knowledge graph import (infer + merge) | `lib/datamodo/infer-graph.ts`, `app/api/knowledge/import-graph`, `app/dashboard/import-graph-modal.tsx` |
-| Auto-link suggestions between tables | `lib/datamodo/relations.ts`, `app/api/relations/suggestions` |
+| Auto-link suggestions between tables; explicit dataset_relations draw as **dashed lines** between schema-canvas cards | `lib/datamodo/relations.ts`, `app/api/relations/suggestions`, `SchemaTableLink` in `app/dashboard/schema-view.tsx` |
 | Queue pill: "⟳ processing N items" in the topbar (hidden when idle; fast-polls while draining; stuck items surface) | `app/dashboard/queue-pill.tsx`, `GET app/api/jobs/queue-status` |
 | Onboarding / business context (steers extraction) | `app/dashboard/onboarding-modal.tsx`, `lib/datamodo/settings.ts` |
 | BYOK (user's own OpenRouter/OpenAI/Anthropic key) | `lib/datamodo/llm-for-user.ts`, SettingsModal in `app/dashboard/ui.tsx` |
