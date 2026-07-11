@@ -12,6 +12,17 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **WOW track unified: REPLAY + COSMOS = one graph engine**
+  (follow-up to the direction session below; user: "do what you think is
+  best"). The stronger wow is a scenaristic chronological REPLAY of the vault
+  building itself (Gource/"Wrapped" energy) — cheap because the bitemporal
+  vault already stores every timestamp and review decision; the COSMOS is its
+  final frame. ROADMAP "THE WOW" rewritten as build order (walk ring-grouping
+  → Replay → Cosmos); MEMORY north-star updated; **Claude Design brief
+  written and committed**: design/briefs/wow-graph-engine-brief.md (context,
+  5-act replay, LOD clustering rules, demo fixture, expected deliverables —
+  paste into a Claude Design project, iterate, drop the handoff into design/
+  like Explorer v2).
 - **2026-07-11** — **Product direction session (no code): the WOW + landing
   rework roadmapped** (both to be designed through **Claude Design**, per
   user). MEMORY gains the Cosmos north-star bullet; ROADMAP gains the full

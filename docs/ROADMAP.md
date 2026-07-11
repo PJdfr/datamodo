@@ -48,32 +48,33 @@
   never live-fired against a real API yet.
 
 ## Next build tracks (pick after the above)
-- **THE WOW: Cosmos view — the whole vault as one living graph** (user
-  decision 2026-07-11: virality needs a visual that "feels like superpowers /
-  science fiction"; Obsidian's shareable moment is its big graph, and nothing
-  we have does that — the walk deliberately stops at 2 hops). NOT the old Map
-  resurrected (that was removed for being useless as a *tool*) — this is a
-  SHOWPIECE with a real scaling idea underneath:
-  - **Level-of-detail clustering** (the core mechanic, also fixes the
-    100-companies-on-one-hub overload): high-degree entities render as
-    individual named stars (size/glow ∝ connections); the long tail collapses
-    into CLUSTER nodes ("47 other companies", one per kind or community) that
-    semantically expand on zoom. Community detection + degree ranking =
-    pure core (`lib/datamodo/cosmos.ts`, unit-tested, like explorer.ts).
-  - **Rendering**: canvas/WebGL, not DOM — cap visible nodes (~150) via
-    clustering, ambient drift, settle-in animation on load, hover ripples,
-    zoom-into-cluster transitions. A deliberate DARK mode moment (ink canvas,
-    coral/gold glow) is allowed to break the cream canvas — it's the poster,
-    not the workbench. Design through **Claude Design** (same handoff flow as
-    Explorer v2).
-  - **Wow → utility handoff**: click any star → "◍ Walk from here" dives into
-    the existing 2-hop Explorer. Cosmos impresses; the walk works.
-  - **Same clustering inside the walk** (independent, do first — it's the
-    user-reported overload today): ego rings group the long tail per kind
-    into an expandable "+38 more invoices" pseudo-node instead of drawing
-    100 spokes.
-  - **Landing hero**: an animated Cosmos over demo data, playing without
-    login — the shareable clip IS the growth asset.
+- **THE WOW: the graph engine — REPLAY + COSMOS, one renderer, two modes**
+  (user decisions 2026-07-11: virality needs a visual that "feels like
+  superpowers / science fiction", and the strongest version is a scenaristic
+  chronological REPLAY of the vault building itself — Gource/"Wrapped"
+  energy). Design brief ready for a Claude Design project:
+  **[design/briefs/wow-graph-engine-brief.md](../design/briefs/wow-graph-engine-brief.md)**
+  (context, both modes, 5-act replay structure, LOD rules, demo fixture,
+  deliverables). Build order:
+  1. **Ring grouping in the existing walk** (independent, cheap, fixes a
+     real overload today): when a hop would draw 100 spokes, collapse the
+     long tail per kind into an expandable "+38 more invoices" pseudo-node.
+     Battle-tests the clustering logic the engine reuses.
+  2. **REPLAY** (first wow — forces the whole engine): time-ordered scenario
+     compiled from data we ALREADY store (items.received_at, entities/facts
+     created_at/valid_from, review resolutions, supersessions — the
+     bitemporal vault makes replay a query). Pure core: scenario compiler
+     (events → keyframes) + LOD clustering (degree ranking + community
+     detection), both unit-tested. Five acts ending in the Cosmos; scrubber;
+     pause-to-interact; deterministic captions; canvas/WebGL; dark "poster"
+     palette allowed. Landing hero autoplays it over demo data (no login);
+     user's own replay private + client-side export-as-video
+     (canvas + MediaRecorder) later. Cold-start: demo replay doubles as
+     onboarding; own replay unlocks after week one (retention nudge).
+  3. **COSMOS** = the replay's final frame as a standing view (named stars ∝
+     degree, zoom-expandable cluster nodes, "◍ Walk from here" dive into the
+     2-hop walk). NOT the old Map resurrected — showpiece with an escape
+     hatch into the tool.
 - **Landing page rework** (with **Claude Design**, not hand-rolled): fold in
   the exec summary (capture → understand → vault → views → trust story) and
   a "who it's for" section from the 2026-07-11 persona set (freelancer,
