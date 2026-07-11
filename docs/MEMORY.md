@@ -134,3 +134,12 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
   (recommendation standing since the extractor shipped).
 - Vision + embeddings + transcription are dormant until their env keys are set
   (fail-soft; transcription rides `TRANSCRIPTION_API_KEY` → `OPENAI_API_KEY`).
+- **Embeddings are infrastructure, not BYOK** (decided 2026-07-11): vectors are
+  STORED, and vectors from different models are incomparable even at the same
+  dimension — so there is ONE embedding space per deployment, never a per-user
+  choice. Every stored vector carries an `embedding_model` stamp; ANN recall
+  filters to the current space (stale rows degrade to trigram, never poison
+  matching); changing `EMBEDDINGS_MODEL` means running
+  `POST /api/jobs/embed-requeue` until `remaining` hits 0. The local edition
+  picks its space once at install (any OpenAI-compatible server) under the
+  same rule.

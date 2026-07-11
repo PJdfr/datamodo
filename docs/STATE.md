@@ -57,7 +57,7 @@
 |---|---|
 | Entity resolution: exact key → trigram blocking → ANN (embeddings) recall → LLM adjudication w/ confidence policy (auto ≥.85, propose ≥.55) | `resolveEntity`/`adjudicateMatch` in `lib/datamodo/knowledge.ts` |
 | Facts: append-only, bitemporal, claim-key dedup, contradiction → supersession | `upsertFact`/`ingestExtraction` in `knowledge.ts` (tables `entities`, `facts`, `fact_sources`) |
-| Embeddings (fail-soft, 1536-dim, stored on entity) | `lib/llm/embeddings.ts` |
+| Embeddings (fail-soft, 1536-dim, stored on entities + doc_chunks) — **one space per deployment**: every vector stamped with `embedding_model`, ANN recall filters to the current space, `POST /api/jobs/embed-requeue` (CRON_SECRET) re-embeds stale/missing rows after a model change | `lib/llm/embeddings.ts` (`embeddingsModel`), stamp+gate in `knowledge.ts`/`chunks.ts`, `app/api/jobs/embed-requeue`, migration `20260711110000` |
 | Document evidence layer: page-lineage chunks + keyword passage search | `chunkDocText` in `document-extraction.ts`, `lib/datamodo/chunks.ts` (table `doc_chunks`) |
 | Entity merge (repoints facts/chunks/rows/body, tombstones) | `mergeEntities` in `knowledge.ts` |
 | Review queue: merges, conflicts, low-confidence extractions, off-template, **category proposals (growth loop ⑤: ≥3 entities of an unknown kind → proposed category with AI-drafted template; accept creates it, decline never re-asks)** — impact-ranked, accept/reject with real side-effects | `lib/datamodo/reviews.ts`, `lib/datamodo/review-types.ts`, `app/api/knowledge/reviews*`; trigger `unregisteredKinds` in `ontology.ts` + `maybeProposeCategories` in `kinds.ts` |
@@ -93,7 +93,7 @@
 
 **LLM (extraction, answers, adjudication):** `LLM_PROVIDER` (`openrouter`|`openai`|`anthropic`, default openrouter) + per provider: `OPENROUTER_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`; model overrides `*_EXTRACT_MODEL`, `*_ESCALATE_MODEL`, `*_VISION_MODEL` (vision REQUIRED on OpenRouter — free default can't see); `OPENROUTER_BASE_URL`/`OPENAI_BASE_URL`, `OPENROUTER_APP_URL`.
 
-**Embeddings (optional, fail-soft):** `EMBEDDINGS_API_KEY` (falls back to `OPENAI_API_KEY`), `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_MODEL`.
+**Embeddings (optional, fail-soft):** `EMBEDDINGS_API_KEY` (falls back to `OPENAI_API_KEY`), `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_MODEL` — ⚠️ the model defines the deployment's ONE embedding space (never BYOK); changing it requires `POST /api/jobs/embed-requeue` until `remaining` is 0.
 
 **Transcription (optional, fail-soft — the audio tier is dormant without it):** `TRANSCRIPTION_API_KEY` (falls back to `OPENAI_API_KEY`), `TRANSCRIPTION_BASE_URL` (default `https://api.openai.com/v1`), `TRANSCRIPTION_MODEL` (default `whisper-1`).
 

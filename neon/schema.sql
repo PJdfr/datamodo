@@ -531,6 +531,7 @@ CREATE TABLE public.entities (
     normalized_key text NOT NULL,
     natural_keys jsonb DEFAULT '{}'::jsonb NOT NULL,
     embedding public.vector(1536),
+    embedding_model text,
     support integer DEFAULT 0 NOT NULL,
     merged_into uuid,
     body_md text,
@@ -667,6 +668,7 @@ CREATE TABLE public.doc_chunks (
     page integer,
     text text NOT NULL,
     embedding public.vector(1536),
+    embedding_model text,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 

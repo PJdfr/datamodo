@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { embedTexts, toVectorLiteral } from "@/lib/llm/embeddings";
+import { embedTexts, embeddingsModel, toVectorLiteral } from "@/lib/llm/embeddings";
 import type { DocChunk } from "./document-extraction";
 
 // Evidence layer, DB side: persist a document's chunks (with best-effort
@@ -36,7 +36,8 @@ export async function storeDocChunks(
   if (vectors) {
     for (const c of chunks) {
       await prisma.$executeRaw`
-        UPDATE doc_chunks SET embedding = ${toVectorLiteral(vectors[c.seq])}::vector
+        UPDATE doc_chunks SET embedding = ${toVectorLiteral(vectors[c.seq])}::vector,
+                              embedding_model = ${embeddingsModel()}
          WHERE org_id = ${orgId}::uuid AND entity_id = ${entityId}::uuid AND seq = ${c.seq}`
         .catch((e) => console.error("[chunks] embedding store failed", e));
     }

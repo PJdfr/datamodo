@@ -16,6 +16,16 @@ export function embeddingsConfigured(): boolean {
   return API_KEY().length > 0;
 }
 
+/** The deployment's embedding SPACE id (the model name). Vectors from
+ *  different models are not comparable even at the same dimension, so every
+ *  stored vector is stamped with this and ANN queries filter to it — one
+ *  space per deployment (MEMORY decision, 2026-07-11). Change the model and
+ *  stale rows fall out of semantic recall until
+ *  POST /api/jobs/embed-requeue re-embeds them. */
+export function embeddingsModel(): string {
+  return MODEL();
+}
+
 /** Embed a batch of texts. Returns null (never throws) when unconfigured or
  *  on any API failure — callers always have a non-semantic fallback. */
 export async function embedTexts(texts: string[]): Promise<number[][] | null> {

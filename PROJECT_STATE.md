@@ -12,6 +12,29 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **ONE EMBEDDING SPACE per deployment (stamp + guard +
+  re-embed)** — user callout: embeddings are STORED, so mixing vectors from
+  different models in one column is catastrophic (silently garbage ANN
+  matches feeding wrong-merge proposals). Decisions + mechanics:
+  - **MEMORY decision**: embeddings are infrastructure, not BYOK — one space
+    per deployment, defined by `EMBEDDINGS_MODEL`. (They already ran
+    platform-key-only; now it's written down and enforced.)
+  - **Stamp**: new `embedding_model text` on `entities` AND `doc_chunks`
+    (chunks store vectors too — best-effort, unread until ANN passage search
+    ships). Written on every embed; migration
+    `20260711110000_embedding_model_stamp.sql` backfills existing vectors to
+    the only space this deployment ever used. DDL applied + verified on
+    `dev`, `prod`, and the preview branch via Neon MCP.
+  - **Guard**: the ANN recall in `resolveEntity` filters
+    `embedding_model = current` — rows from another space fall out of
+    semantic recall (trigram still covers them) instead of poisoning it.
+  - **Re-embed**: `POST /api/jobs/embed-requeue` (CRON_SECRET, `?batch=`)
+    re-embeds entities-then-chunks whose stamp differs or whose vector is
+    missing, from the SAME canonical text as ingest (`embedTextForEntity`
+    extracted so the two paths can never drift); returns `remaining` — call
+    until 0. Also serves as first-time backfill when embeddings get a key.
+  - Verified: 113/113 tests + tsc + lint == baseline + build green. Not
+    live-fired (needs an embeddings key), same as the rest of the LLM matrix.
 - **2026-07-11** — **Node bodies go full Obsidian** (user: "MarkdownLite on a
   node could be complete Obsidian-markdown-like"). MarkdownLite is replaced by
   a two-part renderer:
