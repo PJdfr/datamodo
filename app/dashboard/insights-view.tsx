@@ -149,7 +149,7 @@ export function InsightsView() {
   }
 
   return (
-    <div className="dm-stagger" style={{ maxWidth: 980, display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="dm-stagger" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div>
         <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink }}>The numbers behind your knowledge</div>
         <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Computed live from your facts — not a separate spreadsheet to keep in sync.</div>

@@ -205,7 +205,7 @@ export function FilesView() {
   const activeFolder = folder === "all" ? null : folders.find((f) => f.id === folder) ?? null;
 
   return (
-    <div style={{ maxWidth: 980 }}>
+    <div>
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
         <div>
           <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink }}><CountUp value={docs.length} /> document{docs.length === 1 ? "" : "s"}</div>
