@@ -35,8 +35,8 @@
   Knowledge or an "Explore"-first layout; move rare actions behind a menu.
 - ~~Node shapes, phase 2~~ ✅ 2026-07-11 — image nodes render their image,
   `bookmark` builtin kind, dataset-as-node in the Explorer.
-- **On-demand synthesis**: "✦ Synthesize" on concept/hub pages → cited
-  cross-document note into `body_md` (never automatic — MEMORY.md north star).
+- ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
+  with ≥2 connected bodies of content → cited note into `body_md`.
 - **Audio tier**: transcription pipeline stage → player + transcript nodes.
 
 ## Next build tracks (pick after the above)

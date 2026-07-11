@@ -72,6 +72,7 @@
 | Timeline (messages · domain dates · corrections · first sightings; Upcoming; per-entity; sent-vs-arrived clock toggle; collapsed "◷ History" on every entity page) | pure `lib/datamodo/timeline.ts` (`timeBasis`), `app/api/knowledge/timeline` (`?basis=sent`), `app/dashboard/timeline-view.tsx` (`EntityHistory`) |
 | Entity pages (record table / document summary page; safe MarkdownLite) | `app/dashboard/entity-page.tsx` |
 | Dossier export (cited markdown download) | pure `lib/datamodo/dossier.ts`, `app/api/knowledge/entities/[id]/dossier` |
+| **On-demand synthesis**: "✦ Synthesize" on entity pages (≥2 connected content bodies) → cited cross-document note stored as `body_md`; never automatic | pure `lib/datamodo/synthesis.ts`; `POST app/api/knowledge/entities/[id]/synthesize`; button in `entity-page.tsx`, wiring in `knowledge-view.tsx` |
 | Files view (smart folders = projections over `mentions`) + original download | `app/dashboard/files-view.tsx`, `app/api/documents/[id]` |
 | Insights (any measure × any axis, live aggregation) | `lib/datamodo/analytics.ts`, `app/dashboard/insights-view.tsx` |
 | Search: tables + knowledge + document passages, grounded answers with citations | `lib/datamodo/search.ts`, `lib/datamodo/answer.ts`, `app/api/search`, `app/dashboard/answer-card.tsx` |

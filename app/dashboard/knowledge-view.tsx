@@ -14,6 +14,7 @@ import { ConceptMapView } from "./concept-map-view";
 import { ExplorerView } from "./explorer-view";
 import { EntityPageModal } from "./entity-page";
 import { buildDatasetNodes, type DatasetNodeSource } from "@/lib/datamodo/node-shapes";
+import { canSynthesize } from "@/lib/datamodo/synthesis";
 import type { KnowledgeEntityView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
 
@@ -240,9 +241,26 @@ export function KnowledgeView() {
 
       {openId && (() => {
         const ent = explorerEntities.find((e) => e.id === openId);
-        return ent ? (
-          <EntityPageModal e={ent} kindDef={kindByName.get(ent.kind)} onClose={() => setOpenId(null)} onOpen={setOpenId} onExplore={explore} />
-        ) : null;
+        if (!ent) return null;
+        // ✦ Synthesize (on-demand only — north star): offered when the entity
+        // has ≥2 connected bodies of content; the fresh note patches state so
+        // the open page updates in place.
+        const synthesize = canSynthesize(ent, entities)
+          ? async () => {
+              try {
+                const res = await fetch(`/api/knowledge/entities/${ent.id}/synthesize`, { method: "POST" });
+                const json = await res.json().catch(() => ({}));
+                if (!res.ok) return String(json.error ?? "synthesis failed");
+                setEntities((prev) => prev.map((e) => (e.id === ent.id ? { ...e, bodyMd: json.bodyMd ?? e.bodyMd } : e)));
+                return null;
+              } catch {
+                return "network error — try again";
+              }
+            }
+          : undefined;
+        return (
+          <EntityPageModal e={ent} kindDef={kindByName.get(ent.kind)} onClose={() => setOpenId(null)} onOpen={setOpenId} onExplore={explore} onSynthesize={synthesize} />
+        );
       })()}
     </div>
   );

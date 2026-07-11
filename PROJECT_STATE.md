@@ -12,6 +12,25 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **ON-DEMAND SYNTHESIS shipped: "✦ Synthesize" writes a cited
+  cross-document note** (north-star item; generation ONLY when the user asks —
+  the button is the only trigger, there is no background path).
+  - **Pure core** [synthesis.ts](lib/datamodo/synthesis.ts):
+    `collectSynthesisSources` (content entities with a `bodyMd` linked to the
+    subject in EITHER direction; best-connected first; ≤8 sources, ≤1500 chars
+    each), `buildSynthesisPrompt` (numbered sources + the same grounding
+    contract as answers: sources only, cite [n]), `renderSynthesisBody` (the
+    model's note + OUR deterministic `#### Sources` footer + an honest
+    "Synthesized on … because you asked" stamp), `canSynthesize` (≥2 sources).
+  - **`POST /api/knowledge/entities/[id]/synthesize`**: org-scoped; uses the
+    ESCALATE model via `llmForUser` (BYOK respected); writes the note to
+    `entities.body_md`; fails soft (friendly 502 on no-key/flaky model).
+  - **UI**: "✦ Synthesize" in the entity-page footer whenever the entity has
+    ≥2 connected bodies of content (concepts, hub people/companies, notes);
+    busy state, inline error, and the open page updates in place.
+  - Verified: 83/83 tests (5 new) + tsc + lint == baseline + build green.
+    **NOT run against a live LLM** (no key in sandbox) — same chatJSON
+    contract as the verified extraction paths.
 - **2026-07-11** — **Timeline follow-ups shipped: sent-vs-arrived clock +
   per-entity history on entity pages** (both roadmap items).
   - **`timeBasis` option** on the pure `buildTimeline`: `"sent"` puts message

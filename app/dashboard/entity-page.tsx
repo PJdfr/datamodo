@@ -286,7 +286,7 @@ export function EntityPageBody({ e, kindDef, onOpen }: {
   );
 }
 
-export function EntityPageModal({ e, kindDef, onClose, onOpen, onExplore }: {
+export function EntityPageModal({ e, kindDef, onClose, onOpen, onExplore, onSynthesize }: {
   e: KnowledgeEntityView;
   kindDef?: KindDef;
   onClose: () => void;
@@ -294,9 +294,21 @@ export function EntityPageModal({ e, kindDef, onClose, onOpen, onExplore }: {
   onOpen?: (id: string) => void;
   /** Jump into the Explorer centered on this entity. */
   onExplore?: (id: string) => void;
+  /** ON-DEMAND synthesis (north star: generation only when asked). Present ⇒
+   *  the "✦ Synthesize" button shows; resolves with an error string or null. */
+  onSynthesize?: () => Promise<string | null>;
 }) {
   const tone = kindDef?.color ?? FALLBACK_TONE[e.kind] ?? C.ink;
   const isDoc = e.kind === "document";
+  const [synthBusy, setSynthBusy] = useState(false);
+  const [synthError, setSynthError] = useState<string | null>(null);
+  const synthesize = async () => {
+    if (!onSynthesize || synthBusy) return;
+    setSynthBusy(true);
+    setSynthError(null);
+    setSynthError(await onSynthesize());
+    setSynthBusy(false);
+  };
 
   const first = (p: string) => e.facts.find((f) => f.predicate === p && !f.ref)?.value;
   const docMeta = isDoc
@@ -317,7 +329,15 @@ export function EntityPageModal({ e, kindDef, onClose, onOpen, onExplore }: {
           <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>
             {isDoc ? "The original file never leaves storage — this page is what we understood from it." : "The dossier is this page as cited markdown — every claim with its source."}
           </span>
-          <span style={{ display: "inline-flex", gap: 8, whiteSpace: "nowrap" }}>
+          <span style={{ display: "inline-flex", gap: 8, whiteSpace: "nowrap", alignItems: "center" }}>
+            {synthError && <span className="dm-mono" style={{ fontSize: 10, color: "#A0522D", whiteSpace: "normal", maxWidth: 180 }}>{synthError}</span>}
+            {onSynthesize && (
+              <button type="button" onClick={synthesize} disabled={synthBusy}
+                title={e.bodyMd ? "Rewrite the note from this entity's connected content" : "Write a cited note from this entity's connected content"}
+                className="dm-mono" style={{ ...btn, cursor: synthBusy ? "default" : "pointer", fontFamily: "inherit", opacity: synthBusy ? 0.6 : 1 }}>
+                {synthBusy ? "✦ Synthesizing…" : "✦ Synthesize"}
+              </button>
+            )}
             {onExplore && (
               <button type="button" onClick={() => onExplore(e.id)} title="Walk the graph from here" className="dm-mono" style={{ ...btn, cursor: "pointer", fontFamily: "inherit", color: C.accent, borderColor: "#F3D6CB", background: "#FDF6F2" }}>◍ Explore</button>
             )}
