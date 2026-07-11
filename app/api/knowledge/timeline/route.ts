@@ -52,7 +52,7 @@ async function listTimeline(orgId: string, opts: BuildTimelineOptions): Promise<
     }),
     prisma.items.findMany({
       where: { org_id: orgId },
-      select: { id: true, channel: true, sender: true, subject: true, body_preview: true, received_at: true },
+      select: { id: true, channel: true, sender: true, subject: true, body_preview: true, received_at: true, sent_at: true },
       orderBy: { received_at: "desc" },
       take: 500,
     }),
@@ -85,6 +85,7 @@ async function listTimeline(orgId: string, opts: BuildTimelineOptions): Promise<
     subject: it.subject,
     preview: it.body_preview,
     receivedAt: iso(it.received_at)!,
+    sentAt: iso(it.sent_at),
   }));
 
   return buildTimeline(entityInputs, factInputs, itemInputs, opts);
@@ -97,6 +98,9 @@ export async function GET(req: Request) {
   if (!org) return NextResponse.json({ events: [] });
   const url = new URL(req.url);
   const entityId = url.searchParams.get("entity");
-  const events = await listTimeline(org.id, { entityId: entityId || null });
+  // ?basis=sent puts messages at the moment they were SENT (forwarded email
+  // carries the original date) instead of when they reached the inbox.
+  const timeBasis = url.searchParams.get("basis") === "sent" ? ("sent" as const) : ("received" as const);
+  const events = await listTimeline(org.id, { entityId: entityId || null, timeBasis });
   return NextResponse.json({ events });
 }

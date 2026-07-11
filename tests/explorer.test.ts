@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildEgoGraph, radialLayout } from "../lib/datamodo/explorer.ts";
+import { buildEgoGraph, radialLayout, depthLayout, DEPTH } from "../lib/datamodo/explorer.ts";
 import type { KnowledgeEntityView, KnowledgeFactView } from "../lib/datamodo/types.ts";
 
 const rel = (predicate: string, refId: string, over: Partial<KnowledgeFactView> = {}): KnowledgeFactView => ({
@@ -70,4 +70,48 @@ test("radialLayout: deterministic rings — center mid, hop2 in its parent's sec
   // po fans out near inv1's angle, not across the canvas from it.
   const angle = (id: string) => Math.atan2((a[id].y - 300) / 0.82, a[id].x - 450);
   assert.ok(Math.abs(angle("po") - angle("inv1")) < 0.6);
+});
+
+test("buildEgoGraph: parentOf records who introduced each node", () => {
+  const g = buildEgoGraph(WORLD, "acme")!;
+  assert.equal(g.parentOf["inv1"], "acme");
+  assert.equal(g.parentOf["bob"], "acme");
+  assert.equal(g.parentOf["po"], "inv1"); // hop-2 belongs to the hop-1 that pulled it in
+  assert.equal(g.parentOf["acme"], undefined); // the center has no introducer
+});
+
+test("depthLayout: center forward, rings at their planes, hop-2 near its parent", () => {
+  const g = buildEgoGraph(WORLD, "acme")!;
+  const pos = depthLayout(g, 800, 600);
+  assert.deepEqual({ x: pos["acme"].x, y: pos["acme"].y, z: pos["acme"].z }, { x: 0, y: 0, z: DEPTH.centerZ });
+  for (const n of g.nodes.filter((n) => n.hop === 1)) {
+    assert.equal(pos[n.id].z, DEPTH.hop1Z);
+    assert.equal(pos[n.id].parent, "acme");
+  }
+  const po = pos["po"];
+  assert.equal(po.z, DEPTH.hop2Z);
+  assert.equal(po.parent, "inv1");
+  // hop-2 sits within the spread of its parent's bearing
+  assert.ok(Math.abs(po.angleDeg - pos["inv1"].angleDeg) <= DEPTH.hop2SpreadDeg + 0.001);
+  // deterministic
+  assert.deepEqual(pos, depthLayout(g, 800, 600));
+});
+
+test("depthLayout: reduced motion flattens every z to the plane", () => {
+  const g = buildEgoGraph(WORLD, "acme")!;
+  const pos = depthLayout(g, 800, 600, true);
+  assert.ok(Object.values(pos).every((p) => p.z === 0));
+});
+
+test("depthLayout: a sparse ring fans across the upper arc", () => {
+  const sparse = [
+    ent("hub", "company", "Hub", [], 2),
+    ent("a", "person", "A", [rel("knows", "hub")], 1),
+    ent("b", "invoice", "B", [rel("billed_to", "hub")], 1),
+  ];
+  const g = buildEgoGraph(sparse, "hub")!;
+  const pos = depthLayout(g, 800, 600);
+  const ring = g.nodes.filter((n) => n.hop === 1).map((n) => pos[n.id]);
+  assert.equal(ring.length, 2);
+  for (const p of ring) assert.ok(p.y < 0, "sparse neighbors sit in the upper arc");
 });

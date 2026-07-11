@@ -1127,6 +1127,12 @@ code {
   transform: translateY(1px);
 }
 
+/* Steady rotation for "working on it" glyphs (queue pill). */
+@keyframes dm-spin {
+  to { transform: rotate(360deg); }
+}
+.dm-spin { animation: dm-spin 1.6s linear infinite; }
+
 /* Slow, calm float for small decorative marks. */
 @keyframes dm-bob {
   0%, 100% { transform: translateY(0); }
@@ -1142,6 +1148,12 @@ code {
 .dm-modal-in { animation: dm-modal-in 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 @keyframes dm-fade-in { from { opacity: 0; } to { opacity: 1; } }
 .dm-fade-in { animation: dm-fade-in 0.2s ease both; }
+
+/* Panels/inspectors drop in softly (Explorer v2 handoff). */
+@keyframes dm-drop-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
 
 /* Respect reduced-motion: kill the hover transforms/entrances too (the
    .dm-app animation guard above only covers @keyframes animations). */

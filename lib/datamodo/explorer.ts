@@ -36,6 +36,10 @@ export interface EgoGraph {
   edges: EgoEdge[];
   /** Neighbors that exist but didn't fit the caps. */
   truncated: number;
+  /** Who introduced each node: hop-1 → the center, hop-2 → its first hop-1
+   *  neighbor (hop-1 order). Drives layout sectors AND the 3D walk's
+   *  enter-from-parent animation. */
+  parentOf: Record<string, string>;
 }
 
 export interface EgoOptions {
@@ -92,6 +96,16 @@ export function buildEgoGraph(
   const hop2 = pick(hop2Candidates, maxHop2, taken);
   hop2.kept.forEach((id) => taken.add(id));
 
+  // Introducers: hop-1 comes from the center; a hop-2 node belongs to the
+  // FIRST kept hop-1 node (ring order) it neighbors — deterministic, and the
+  // same rule the layout uses for sector placement.
+  const parentOf: Record<string, string> = {};
+  for (const id of hop1.kept) parentOf[id] = centerId;
+  for (const id of hop2.kept) {
+    const parent = hop1.kept.find((p) => neighborIds.get(id)?.has(p)) ?? hop1.kept[0];
+    if (parent) parentOf[id] = parent;
+  }
+
   const mkNode = (id: string, hop: 0 | 1 | 2): EgoNode => {
     const e = byId.get(id)!;
     return { id, kind: e.kind, label: e.label, hop, entity: e };
@@ -124,7 +138,7 @@ export function buildEgoGraph(
     }
   }
 
-  return { center: nodes[0], nodes, edges, truncated: hop1.dropped + hop2.dropped };
+  return { center: nodes[0], nodes, edges, truncated: hop1.dropped + hop2.dropped, parentOf };
 }
 
 // --- Radial layout ---------------------------------------------------------------
@@ -156,18 +170,11 @@ export function radialLayout(graph: EgoGraph, width: number, height: number): Re
     pos[n.id] = { x: cx + Math.cos(a) * r1, y: cy + Math.sin(a) * r1 * 0.82 };
   });
 
-  // Every hop-2 node sits in the angular sector of its first hop-1 neighbor.
-  const adjacency = new Map<string, string[]>();
-  for (const e of graph.edges) {
-    if (!adjacency.has(e.from)) adjacency.set(e.from, []);
-    if (!adjacency.has(e.to)) adjacency.set(e.to, []);
-    adjacency.get(e.from)!.push(e.to);
-    adjacency.get(e.to)!.push(e.from);
-  }
-  const hop1Ids = new Set(hop1.map((n) => n.id));
+  // Every hop-2 node sits in the angular sector of the hop-1 node that
+  // introduced it (graph.parentOf — computed by buildEgoGraph).
   const bySector = new Map<string, string[]>();
   for (const n of hop2) {
-    const parent = (adjacency.get(n.id) ?? []).find((id) => hop1Ids.has(id)) ?? hop1[0]?.id;
+    const parent = graph.parentOf[n.id] ?? hop1[0]?.id;
     if (!parent) continue;
     if (!bySector.has(parent)) bySector.set(parent, []);
     bySector.get(parent)!.push(n.id);
@@ -179,6 +186,109 @@ export function radialLayout(graph: EgoGraph, width: number, height: number): Re
       const spread = Math.min(0.5, 0.16 * ids.length);
       const a = base + (ids.length === 1 ? 0 : -spread + (i / (ids.length - 1)) * spread * 2);
       pos[id] = { x: cx + Math.cos(a) * r2, y: cy + Math.sin(a) * r2 * 0.82 };
+    });
+  }
+  return pos;
+}
+
+// --- Depth layout (Explorer v2 — the 3D graph walk) --------------------------
+// Design handoff "Datamodo Explorer v2": the neighborhood lives in a CSS
+// perspective depth field — center forward, hop-1 on the datum plane, hop-2
+// pushed back (smaller, hazier). This is the pure math for it; the view only
+// applies the transforms. Deterministic, unit-tested; `reduced` flattens all
+// z to 0 (the prefers-reduced-motion 2D radial).
+
+export const DEPTH = {
+  perspective: 1250,
+  centerZ: 150,
+  hop1Z: 0,
+  hop2Z: -230,
+  /** hop-2 fans ± this many degrees around its parent's bearing. */
+  hop2SpreadDeg: 34,
+  /** Elliptical ring radii — x as a fraction of the canvas WIDTH, y of its
+   *  HEIGHT (cards are wide, canvases are short; each axis fills its room). */
+  r1x: 0.34,
+  r1y: 0.34,
+  r2x: 0.52,
+  r2y: 0.46,
+} as const;
+
+export interface DepthPos {
+  x: number;
+  y: number;
+  z: number;
+  hop: 0 | 1 | 2;
+  /** Who introduced this node (enter-from-parent flies in from here). */
+  parent: string | null;
+  /** Bearing on the ring, degrees (-90 = straight up). */
+  angleDeg: number;
+  /** Index within its ring/cluster — drives the enter stagger. */
+  ring: number;
+}
+
+/**
+ * Positions for the depth field, scaled to the canvas. Offsets are from the
+ * canvas CENTER (the view translates them). Sparse hop-1 rings (1–2 nodes)
+ * fan across the upper arc instead of leaving a lonely dot — per the design.
+ */
+export function depthLayout(
+  graph: EgoGraph,
+  width: number,
+  height: number,
+  reduced = false,
+): Record<string, DepthPos> {
+  const r1x = width * DEPTH.r1x;
+  const r1y = height * DEPTH.r1y;
+  const r2x = width * DEPTH.r2x;
+  const r2y = height * DEPTH.r2y;
+
+  const pos: Record<string, DepthPos> = {
+    [graph.center.id]: {
+      x: 0, y: 0, z: reduced ? 0 : DEPTH.centerZ, hop: 0, parent: null, angleDeg: 0, ring: 0,
+    },
+  };
+
+  const hop1 = graph.nodes.filter((n) => n.hop === 1);
+  const hop2 = graph.nodes.filter((n) => n.hop === 2);
+  const bearing = new Map<string, number>();
+
+  hop1.forEach((n, i) => {
+    let deg: number;
+    if (hop1.length === 1) deg = -90;
+    else if (hop1.length === 2) deg = -140 + i * 100; // gentle upper arc
+    else deg = -90 + (i * 360) / hop1.length;
+    bearing.set(n.id, deg);
+    const rad = (deg * Math.PI) / 180;
+    pos[n.id] = {
+      x: Math.cos(rad) * r1x,
+      y: Math.sin(rad) * r1y,
+      z: DEPTH.hop1Z,
+      hop: 1, parent: graph.center.id, angleDeg: deg, ring: i,
+    };
+  });
+
+  // hop-2 clusters around the bearing of the hop-1 node that introduced it.
+  const kidsByParent = new Map<string, string[]>();
+  for (const n of hop2) {
+    const p = graph.parentOf[n.id] ?? hop1[0]?.id;
+    if (!p) continue;
+    if (!kidsByParent.has(p)) kidsByParent.set(p, []);
+    kidsByParent.get(p)!.push(n.id);
+  }
+  for (const [pid, kids] of kidsByParent) {
+    const baseDeg = bearing.get(pid) ?? -90;
+    kids.forEach((id, i) => {
+      // A lone child steps 14° aside so it peeks out from behind its parent
+      // instead of hiding exactly on its bearing.
+      const spread = kids.length === 1 ? 14 : ((i / (kids.length - 1)) - 0.5) * 2 * DEPTH.hop2SpreadDeg;
+      const deg = baseDeg + spread;
+      const rad = (deg * Math.PI) / 180;
+      pos[id] = {
+        x: Math.cos(rad) * r2x,
+        y: Math.sin(rad) * r2y,
+        z: reduced ? 0 : DEPTH.hop2Z,
+        hop: 2, parent: pid, angleDeg: deg, ring: i,
+      };
     });
   }
   return pos;

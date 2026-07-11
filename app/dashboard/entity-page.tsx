@@ -12,6 +12,8 @@
 
 import { Fragment, useState, type ReactNode } from "react";
 import { C, ModalShell, SourceRow } from "./ui";
+import { EntityHistory } from "./timeline-view";
+import { DATASET_NODE_KIND, entityBookmarkUrl, entityImageType } from "@/lib/datamodo/node-shapes";
 import type { FactSourceView, KnowledgeEntityView, KnowledgeFactView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
 
@@ -152,13 +154,21 @@ function RecordRow({ label, value, missing, refChip, onOpen, sources, provenance
 
 /** The page CONTENT in the node's natural shape — shared by the modal and the
  *  Explorer's side panel. Everything shown derives from the entity's facts. */
-export function EntityPageBody({ e, kindDef, onOpen }: {
+export function EntityPageBody({ e, kindDef, onOpen, variant = "card" }: {
   e: KnowledgeEntityView;
   kindDef?: KindDef;
   /** Navigate to another entity (relationship chips). */
   onOpen?: (id: string) => void;
+  /** "card" boxes each section (the modal); "flat" drops the boxes for narrow
+   *  quiet surfaces like the Explorer's side panel (design handoff look). */
+  variant?: "card" | "flat";
 }) {
   const isDoc = e.kind === "document";
+  const flat = variant === "flat";
+  const box: React.CSSProperties = flat
+    ? { background: "transparent", border: "none", borderRadius: 0, marginBottom: 14 }
+    : { background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, marginBottom: 16 };
+  const boxPad = flat ? "0 0" : "12px 16px";
 
   const attrs = e.facts.filter((f) => !f.ref);
   const rels = e.facts.filter((f) => f.ref && f.refId);
@@ -184,17 +194,56 @@ export function EntityPageBody({ e, kindDef, onOpen }: {
     relGroups.get(f.predicate)!.push({ id: f.refId!, label: f.value });
   }
 
+  const imageType = entityImageType(e);
+  const bookmarkUrl = entityBookmarkUrl(e);
+  const isDataset = e.kind === DATASET_NODE_KIND;
+
   return (
     <>
+      {/* Image node: the node IS the picture — show it, not a metadata card.
+          The original streams from blob storage; nothing is duplicated. */}
+      {imageType && (
+        <div style={{ ...box, borderRadius: 12, overflow: "hidden" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element -- blob-backed, size unknown at build */}
+          <img
+            src={`/api/documents/${e.id}?inline=1`}
+            alt={e.label}
+            loading="lazy"
+            style={{ display: "block", width: "100%", maxHeight: 340, objectFit: "contain", background: "#FBF8F1" }}
+          />
+        </div>
+      )}
+
+      {/* Bookmark node: a link card — the URL is the payload. */}
+      {bookmarkUrl && (
+        <a href={bookmarkUrl} target="_blank" rel="noopener noreferrer"
+          style={{ display: "block", background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, padding: "12px 16px", marginBottom: 16, textDecoration: "none" }}>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 4 }}>Bookmark</div>
+          <div style={{ fontSize: 13.5, fontWeight: 600, color: C.accent, marginBottom: 3, overflowWrap: "anywhere" }}>{e.label} ↗</div>
+          <div className="dm-mono" style={{ fontSize: 10.5, color: "#8A8477", overflowWrap: "anywhere" }}>{bookmarkUrl}</div>
+        </a>
+      )}
+
+      {/* Dataset node (virtual, Explorer-only): the table's shape at a glance —
+          its rows are the Connections below, each one walkable. */}
+      {isDataset && (
+        <div style={{ ...box, padding: boxPad }}>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 4 }}>▦ Table</div>
+          <div style={{ fontSize: 13, color: "#3A352C" }}>
+            {e.naturalKeys.rows ?? "?"} row{e.naturalKeys.rows === "1" ? "" : "s"} · {e.naturalKeys.columns ?? "?"} column{e.naturalKeys.columns === "1" ? "" : "s"} — every row is an entity; the connections below walk into them.
+          </div>
+        </div>
+      )}
+
       {/* Thick node: the generated body reads first, like a note. */}
       {e.bodyMd && (
-        <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
+        <div style={{ ...box, padding: boxPad }}>
           <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 6 }}>{e.kind === "note" ? "Note" : "Summary"}</div>
           <MarkdownLite md={e.bodyMd} />
         </div>
       )}
 
-      {Object.keys(e.naturalKeys ?? {}).length > 0 && (
+      {!isDataset && Object.keys(e.naturalKeys ?? {}).length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
           {Object.entries(e.naturalKeys).map(([k, v]) => (
             <span key={k} className="dm-mono" style={{ fontSize: 10.5, color: "#57534A", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 6, padding: "2px 7px" }}>{k.replace(/_/g, " ")}: {v}</span>
@@ -205,8 +254,8 @@ export function EntityPageBody({ e, kindDef, onOpen }: {
       {/* Thin node: the record table — table-shaped knowledge renders as a table,
           never as a star of attribute edges. */}
       {(templateRows.length > 0 || extraAttrs.length > 0) && (
-        <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, overflow: "hidden", marginBottom: 16 }}>
-          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", padding: "9px 8px 3px" }}>
+        <div style={{ ...box, overflow: "hidden" }}>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", padding: flat ? "0 8px 3px 0" : "9px 8px 3px" }}>
             {kindDef ? `${kindDef.label} record` : "Facts"}
           </div>
           {templateRows.map(({ field, facts }) => (
@@ -230,7 +279,7 @@ export function EntityPageBody({ e, kindDef, onOpen }: {
       )}
 
       {relGroups.size > 0 && (
-        <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, padding: "9px 8px 12px", marginBottom: 4 }}>
+        <div style={{ ...box, padding: flat ? 0 : "9px 8px 12px", marginBottom: 4 }}>
           <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 2 }}>Connections</div>
           {[...relGroups.entries()].map(([pred, targets]) => (
             <RecordRow key={pred} label={pred.replace(/_/g, " ")} value={null} refChip={targets} onOpen={onOpen} />
@@ -245,7 +294,7 @@ export function EntityPageBody({ e, kindDef, onOpen }: {
   );
 }
 
-export function EntityPageModal({ e, kindDef, onClose, onOpen, onExplore }: {
+export function EntityPageModal({ e, kindDef, onClose, onOpen, onExplore, onSynthesize }: {
   e: KnowledgeEntityView;
   kindDef?: KindDef;
   onClose: () => void;
@@ -253,9 +302,21 @@ export function EntityPageModal({ e, kindDef, onClose, onOpen, onExplore }: {
   onOpen?: (id: string) => void;
   /** Jump into the Explorer centered on this entity. */
   onExplore?: (id: string) => void;
+  /** ON-DEMAND synthesis (north star: generation only when asked). Present ⇒
+   *  the "✦ Synthesize" button shows; resolves with an error string or null. */
+  onSynthesize?: () => Promise<string | null>;
 }) {
   const tone = kindDef?.color ?? FALLBACK_TONE[e.kind] ?? C.ink;
   const isDoc = e.kind === "document";
+  const [synthBusy, setSynthBusy] = useState(false);
+  const [synthError, setSynthError] = useState<string | null>(null);
+  const synthesize = async () => {
+    if (!onSynthesize || synthBusy) return;
+    setSynthBusy(true);
+    setSynthError(null);
+    setSynthError(await onSynthesize());
+    setSynthBusy(false);
+  };
 
   const first = (p: string) => e.facts.find((f) => f.predicate === p && !f.ref)?.value;
   const docMeta = isDoc
@@ -276,17 +337,30 @@ export function EntityPageModal({ e, kindDef, onClose, onOpen, onExplore }: {
           <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>
             {isDoc ? "The original file never leaves storage — this page is what we understood from it." : "The dossier is this page as cited markdown — every claim with its source."}
           </span>
-          <span style={{ display: "inline-flex", gap: 8, whiteSpace: "nowrap" }}>
+          <span style={{ display: "inline-flex", gap: 8, whiteSpace: "nowrap", alignItems: "center" }}>
+            {synthError && <span className="dm-mono" style={{ fontSize: 10, color: "#A0522D", whiteSpace: "normal", maxWidth: 180 }}>{synthError}</span>}
+            {onSynthesize && (
+              <button type="button" onClick={synthesize} disabled={synthBusy}
+                title={e.bodyMd ? "Rewrite the note from this entity's connected content" : "Write a cited note from this entity's connected content"}
+                className="dm-mono" style={{ ...btn, cursor: synthBusy ? "default" : "pointer", fontFamily: "inherit", opacity: synthBusy ? 0.6 : 1 }}>
+                {synthBusy ? "✦ Synthesizing…" : "✦ Synthesize"}
+              </button>
+            )}
             {onExplore && (
               <button type="button" onClick={() => onExplore(e.id)} title="Walk the graph from here" className="dm-mono" style={{ ...btn, cursor: "pointer", fontFamily: "inherit", color: C.accent, borderColor: "#F3D6CB", background: "#FDF6F2" }}>◍ Explore</button>
             )}
-            <a href={`/api/knowledge/entities/${e.id}/dossier`} title="Download everything we know about this, cited" className="dm-mono" style={btn}>dossier ↓</a>
+            {e.kind !== DATASET_NODE_KIND && (
+              <a href={`/api/knowledge/entities/${e.id}/dossier`} title="Download everything we know about this, cited" className="dm-mono" style={btn}>dossier ↓</a>
+            )}
             {isDoc && <a href={`/api/documents/${e.id}`} className="dm-mono" style={btn}>original ↓</a>}
           </span>
         </>
       }
     >
       <EntityPageBody e={e} kindDef={kindDef} onOpen={onOpen} />
+      {/* The entity's own timeline, collapsed until asked for — virtual nodes
+          (datasets) have no history in the vault. */}
+      {e.kind !== DATASET_NODE_KIND && <EntityHistory entityId={e.id} onOpen={onOpen} />}
     </ModalShell>
   );
 }

@@ -9,9 +9,211 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-10
+> Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **Schema view is now a real draggable canvas** (user: treat
+  categories like a Supabase instance — drag tables around, links must keep
+  making sense). Cards float free on a ruled canvas; drag by the header and
+  the FK lines re-measure every frame; a <4px press is a click (browse rows);
+  grabbing brings a card above the others; the arrangement persists in
+  localStorage (`dm-schema-positions-v1`) and survives reload; deterministic
+  auto-layout (column-packed, populated-first) seeds the first visit and any
+  newly created category. Creation moved to a toolbar ("New table (= new
+  category)…" + create — still one object). Verified in Chromium (5/5: drag
+  moves, lines follow, persistence, reload survival, click≠drag) + the full
+  bar (87/87, tsc, lint 7/16, build, shoot).
+- **2026-07-11** — **ONE OBJECT: Tables = Categories = Concepts; Map removed**
+  (user decisions: "creating a concept or a table should be the same object";
+  "the map feature is actually useless — keep the walk only").
+  - **Unified Tables surface** ([schema-view.tsx](app/dashboard/schema-view.tsx)):
+    a Supabase-style schema diagram — every kind renders as a table card
+    (template fields as column rows with types, relations as coral FK rows,
+    one SVG overlay draws the relation lines card-to-card, selected card
+    lights its edges). Click a card → its rows browse as entity cards below
+    (cards = a display of tabular data, not a separate feature). "▦ open
+    table"/"▦ make table" per card; **"+ new table" creates the category AND
+    its materialized dataset in one act** (POST /api/kinds → /api/kinds/[id]/
+    table). Data pills are now ▦ Tables · ◍ Explore · Timeline · Files ·
+    Insights.
+  - **Map deleted**: `knowledge-graph.tsx` and the Explorer's ⌂ overview are
+    gone (walk only); `concept-map-view.tsx` deleted too (a concept is just a
+    kind card in the schema). Pure `concept-map.ts` core kept dormant;
+    `entities.graph_pin` + PATCH endpoint dormant. Dead `RelationshipGraph`
+    removed from control-center (dataset_relations no longer visualized —
+    roadmapped).
+  - **Lint baseline improved** 8→7 errors (deleted files carried one) —
+    `check-lint-baseline.mjs` lowered accordingly.
+  - Deeper model unification (`datasets.kind_id` instead of the plural-name
+    match) recorded in ROADMAP as a proper migration.
+  - Verified: 87/87 tests + tsc + lint == new baseline (7/16) + build green;
+    `npm run shoot` green incl. a NEW `schema` harness (diagram screenshot
+    reviewed: columns, FK rows, relation lines, create card all render).
+- **2026-07-11** — **FLAT IA + Map merged into the Explorer** (user decision:
+  merge when possible, disambiguate otherwise, and ONE flat toggle — no
+  toggles inside toggles; supersedes the same-day nested shape).
+  - **Data tab = one flat toggle:** Tables · ◍ Explore · Cards · Concepts ·
+    Timeline · Files · Insights. `KnowledgeView` lost its internal mode row
+    (takes `view` + `onSwitch` props); Timeline/Files render directly from the
+    tab; per-view subtitles explain each reading.
+  - **Map merged into Explore:** the ⌂ button zooms out to the whole graph
+    (the old Map, with pins + kind hypernodes intact); every map-inspector
+    gains "◍ Walk from here" which dives back into the ego walk centered on
+    that node. The "Map"/"Graph" pill no longer exists anywhere.
+  - **Cards ↔ Tables disambiguated by a bridge:** every cards-group header
+    gets "▦ open as table" (POSTs the existing idempotent category→table
+    endpoint, then jumps to Tables) — a table is now visibly "a cards grouping
+    with a schema".
+  - **Timeline vs Review disambiguated by copy:** Review's subtitle owns
+    "pending changes to confirm" (and points to Data → Timeline for the data's
+    story); Timeline's subtitle says "your data's story, not table edits".
+    (`VersioningTab` in versioning.tsx is unmounted dead code — left in place,
+    flagged here for a future cleanup.)
+  - Verified: 87/87 tests + tsc + lint == baseline + build green; `npm run
+    shoot` green; a Chromium drive of the merge (zoom out → map inspector →
+    "◍ Walk from here" → recentered walk) 3/3 with screenshots reviewed.
+- **2026-07-11** — **Session-speed fixes** (retro on why PR #42 was slow):
+  ① CI now also triggers on `claude/**` pushes — pushes from agent sessions
+  don't fire `pull_request` events (GitHub suppresses them for those tokens),
+  which had left PRs showing stale checks and cost dead waiting + a manual
+  `workflow_dispatch`. ② The ad-hoc browser screenshot harness is now a repo
+  tool: `npm run shoot [-- explorer timeline]` (esbuild bundle → local
+  Chromium → `.shoot/<name>.png`, fails on page errors; harnesses are small
+  fixture mounts under `scripts/shoot/harnesses/`). devDeps: esbuild,
+  playwright-core. `.shoot/` is git- and eslint-ignored. Verified: both
+  harnesses shoot green; 87/87 tests, tsc, lint == baseline, build green.
+- **2026-07-11** — **Dashboard clarity pass + design polish** (user feedback on
+  the Explorer v2 port: keep the design's color richness and cleaner panel;
+  Timeline "10× cleaner" in the mock; too many tabs/toggles in Data).
+  - **IA consolidation (durable — see MEMORY simplicity rule):** Data tab goes
+    from 5 views + 3 buttons to **Tables · ◍ Explore · Insights** + one
+    "✦ Build ▾" menu (Categories / Spreadsheet→knowledge / Build from
+    knowledge). Explore is THE knowledge surface: **Walk (3D explorer) is the
+    default**, with Cards / Map (was "Graph") / Concepts / **Timeline** /
+    **Files** as modes — the old Data→Knowledge→Explore double-toggle is gone
+    (walking is zero clicks), and Timeline/Files stop competing as top-level
+    peers.
+  - **Explorer polish:** node cards are tinted from the kind REGISTRY color
+    (paper-warm `color-mix` wash + colored border/kicker) so every kind reads
+    as its color; the side panel got the design's quieter look — bigger title,
+    connections/facts sub-line, and a new `variant="flat"` on `EntityPageBody`
+    that drops the boxed cards (modal keeps `card`).
+  - **Timeline reskin per the handoff** (`DashboardExtras.TimelineView`):
+    vertical rail with coral day dots (gold for Upcoming), white cards rising
+    in with a 55ms stagger (reduced-motion settles instantly), channel tints,
+    entity chips; header becomes "What datamodo learned". Clock toggle and
+    entity filter kept.
+  - Verified: 87/87 tests + tsc + lint == baseline + build green; Chromium
+    screenshots of the colored Explorer and the reskinned Timeline reviewed
+    (no page errors).
+- **2026-07-11** — **EXPLORER v2 shipped: the 3D graph walk** (Claude Design
+  handoff, project "Datamodo Explorer v2" — implemented per its
+  `ExplorerGraph3D.jsx` + `MOTION.md`, ported onto the EXISTING pure core as
+  the roadmap contract demanded).
+  - **Pure core additions** ([explorer.ts](lib/datamodo/explorer.ts)):
+    `EgoGraph.parentOf` (who introduced each node — drives sectors AND
+    enter-from-parent), `depthLayout` + `DEPTH` (the depth field: center z+150,
+    hop-1 datum, hop-2 z−230; elliptical rings scaled to the canvas; sparse
+    1–2-node rings fan the upper arc; lone hop-2 children step 14° off their
+    parent's bearing). `radialLayout` refactored onto `parentOf`; contract
+    unchanged.
+  - **The skin** ([explorer-view.tsx](app/dashboard/explorer-view.tsx), same
+    public props): DOM cards in real CSS perspective + one SVG overlay whose
+    edge endpoints are measured from the live projected cards each frame in a
+    900ms settle window; the walk = world reflow around a fixed camera (720ms
+    ease-out; new center 760ms spring; entering nodes fly from their parent
+    staggered 42ms; leavers recede 300ms); hover lights incident edges coral
+    and dims the rest; kind-toned cards (company/dataset ink, concept accent,
+    invoice sunk-mono); floating breadcrumb+Back and jump box; redesigned
+    **edge inspector** (confidence meter, amber <70% · since · corroboration
+    pips · strength label · quoted source evidence with channel tints); side
+    panel keeps our real natural shapes (`EntityPageBody`). Reduced motion →
+    flat 2D radial (no perspective/blur/fog, ~instant), honored live.
+  - Design-handoff leftovers deliberately NOT built: Review-Studio merge
+    motion + Timeline polish (lower-priority extras) and the dashboard IA
+    restructure (a product decision) — recorded in ROADMAP.
+  - Verified: 87/87 tests (4 new on parentOf/depthLayout) + tsc + lint ==
+    baseline + build green; **live Chromium drive** (esbuild harness +
+    playwright-core, 12/12 checks: render, edges + predicate labels, walk
+    recenter, inspector with quoted evidence, back, reduced-motion flattening)
+    with screenshots reviewed.
+- **2026-07-11** — **Requeue UX shipped: the extraction queue is visible.**
+  New session-authed `GET /api/jobs/queue-status` (queued = `stored` +
+  retryable `failed` under the attempt cap; `analyzing`; `stuck` = failed past
+  retries) and a topbar **QueuePill** ("⟳ processing N items"): invisible when
+  idle (simplicity rule — no new chrome in the common case), polls every 8s
+  while draining / 60s idle, pauses when the tab is hidden, and shows "⚠ N
+  stuck" honestly when items exhausted their retries. New `dm-spin` keyframe
+  (covered by the existing reduced-motion guard). Roadmap item closed.
+  Verified: 83/83 tests + tsc + lint == baseline + build green.
+- **2026-07-11** — **ON-DEMAND SYNTHESIS shipped: "✦ Synthesize" writes a cited
+  cross-document note** (north-star item; generation ONLY when the user asks —
+  the button is the only trigger, there is no background path).
+  - **Pure core** [synthesis.ts](lib/datamodo/synthesis.ts):
+    `collectSynthesisSources` (content entities with a `bodyMd` linked to the
+    subject in EITHER direction; best-connected first; ≤8 sources, ≤1500 chars
+    each), `buildSynthesisPrompt` (numbered sources + the same grounding
+    contract as answers: sources only, cite [n]), `renderSynthesisBody` (the
+    model's note + OUR deterministic `#### Sources` footer + an honest
+    "Synthesized on … because you asked" stamp), `canSynthesize` (≥2 sources).
+  - **`POST /api/knowledge/entities/[id]/synthesize`**: org-scoped; uses the
+    ESCALATE model via `llmForUser` (BYOK respected); writes the note to
+    `entities.body_md`; fails soft (friendly 502 on no-key/flaky model).
+  - **UI**: "✦ Synthesize" in the entity-page footer whenever the entity has
+    ≥2 connected bodies of content (concepts, hub people/companies, notes);
+    busy state, inline error, and the open page updates in place.
+  - Verified: 83/83 tests (5 new) + tsc + lint == baseline + build green.
+    **NOT run against a live LLM** (no key in sandbox) — same chatJSON
+    contract as the verified extraction paths.
+- **2026-07-11** — **Timeline follow-ups shipped: sent-vs-arrived clock +
+  per-entity history on entity pages** (both roadmap items).
+  - **`timeBasis` option** on the pure `buildTimeline`: `"sent"` puts message
+    events at the sender's send time (`items.sent_at`, falls back to
+    received_at when the channel doesn't know) — forwarded email keeps its
+    original date. API: `?basis=sent`; UI: a "clock: arrived ⇄" pill in the
+    Timeline header toggles it.
+  - **`EntityHistory`** ([timeline-view.tsx](app/dashboard/timeline-view.tsx)):
+    every entity page ends with a COLLAPSED "◷ History" disclosure — fetched
+    only when opened (progressive disclosure per the simplicity rule), renders
+    the same event rows narrowed to that entity, chips navigate to other
+    entities' pages. Hidden for virtual dataset nodes (no vault history).
+  - Verified: 78/78 tests (1 new on sent-basis + fallback) + tsc + lint ==
+    baseline + build green.
+- **2026-07-11** — **NODE SHAPES PHASE 2 shipped: image nodes, bookmarks,
+  dataset-as-node** (Explorer track item — "a node can be anything").
+  - **Pure core** [node-shapes.ts](lib/datamodo/node-shapes.ts) (import-free):
+    `entityImageType` (image documents detected via `file_type` fact or the
+    filename inside the `doc:` natural key, same media gate as the vision
+    tier), `entityBookmarkUrl` (the `url` fact or a URL-shaped label; plain
+    http(s) only — anything else never becomes a link), `buildDatasetNodes`
+    (datasets → VIRTUAL `dataset` nodes with `contains` edges to the entities
+    projected into their rows; deduped, unknown ids dropped, empty tables
+    skipped — never enters the vault).
+  - **Image nodes render their image**: entity pages/Explorer panel embed the
+    original via `/api/documents/[id]?inline=1` (new inline disposition; the
+    binary still never leaves blob storage).
+  - **`bookmark` builtin kind** (required `url` field, title/site, `about`/
+    `shared_by` relations) — `ensureKinds` backfills it to existing orgs; the
+    extractor can now classify shared links. Bookmark nodes render a link card.
+  - **Dataset-as-node**: `/api/knowledge/entities` also returns each dataset's
+    row-entity ids; the Explorer's world = entities + dataset nodes, so you can
+    walk INTO a table and out through any of its rows. Panel shows a "▦ Table"
+    card (rows × columns); dossier hidden for virtual nodes.
+  - Verified: 77/77 tests (6 new) + tsc + lint == baseline + build green.
+    Image rendering not eyeballed live (no blob bucket in sandbox) — the
+    `<img>` rides the already-verified download route.
+- **2026-07-11** — **`bumpSupport` is now atomic** (`support = support + 1` via
+  Prisma's `increment`, one round-trip): concurrent per-entity extraction can
+  no longer lose corroboration counts to a read-modify-write race. Roadmap
+  item closed. Verified: 71/71 tests, tsc clean, lint == baseline.
+- **2026-07-11** — **CI pipeline added**: `.github/workflows/ci.yml` runs the
+  full verification bar (unit tests → tsc → lint==baseline → `next build`) on
+  every PR and on pushes to dev/prod. The lint gate is
+  `scripts/check-lint-baseline.mjs` (fails only on NEW problems vs the
+  documented 8-error/16-warning baseline; shrink the constants as old ones get
+  fixed). Build runs with dummy auth/DB env (module-scope reads only; nothing
+  connects). Verified locally: 71/71 tests, tsc clean, baseline check green,
+  build green.
 - **2026-07-10** — **EXPLORER shipped (north-star phase 1): walk the graph edge to
   edge; every edge shows its meaning.** Two durable decisions recorded in
   docs/MEMORY.md: free exploration with natural-shape nodes is the product's

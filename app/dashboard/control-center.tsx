@@ -30,6 +30,7 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { signout } from "@/app/auth/actions";
+import { QueuePill } from "./queue-pill";
 import {
   createAgentAction,
   updateAgentAction,
@@ -49,8 +50,6 @@ import {
   rejectProposalAction,
   acceptBatchAction,
   rejectBatchAction,
-  createRelationAction,
-  deleteRelationAction,
   updateComputeSettingsAction,
 } from "./actions";
 import type { AgentActivityEntry, AgentRecord, ChangeChunk, DatasetColumn, DatasetRelation, DatasetRowRecord, DatasetView, Proposal, ReviewItem, SnapshotFull } from "@/lib/datamodo/types";
@@ -58,7 +57,6 @@ import type { UserSettings, OnboardingContext } from "@/lib/datamodo/settings";
 import type { SearchResult, SearchHit, KnowledgeHit } from "@/lib/datamodo/search";
 import type { GroundedAnswer } from "@/lib/datamodo/answer";
 import type { ChunkHit } from "@/lib/datamodo/chunks";
-import type { RelationSuggestion } from "@/lib/datamodo/relations";
 import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
 import {
   Hov, C, LOGO, CH_NAMES, navStyle, modeCard, radioDot, bar, toggleTrack, toggleKnob,
@@ -72,8 +70,8 @@ import { OnboardingModal } from "./onboarding-modal";
 import { ImportGraphModal } from "./import-graph-modal";
 import { KnowledgeView } from "./knowledge-view";
 import { InsightsView } from "./insights-view";
-import { FilesView } from "./files-view";
 import { TimelineView } from "./timeline-view";
+import { FilesView } from "./files-view";
 import { AnswerCard } from "./answer-card";
 import { CategoriesModal } from "./categories-modal";
 import { BuildFromKnowledgeModal } from "./build-from-knowledge";
@@ -82,7 +80,10 @@ import { BuildFromKnowledgeModal } from "./build-from-knowledge";
 /* Component                                                           */
 /* ================================================================== */
 type Tab = "agents" | "data" | "review" | "search";
-type DataView = "tables" | "knowledge" | "insights" | "files" | "timeline";
+// The Data tab is ONE FLAT toggle (IA rule 2026-07-11: no toggles inside
+// toggles). Tables/Cards/Concepts unified into the Tables surface (schema
+// diagram + cards drill-down); the Map was removed outright — walk only.
+type DataView = "tables" | "explore" | "timeline" | "files" | "insights";
 export type ControlCenterProps = {
   fullName: string;
   initial: string;
@@ -98,7 +99,7 @@ export type ControlCenterProps = {
   notice?: string | null;
 };
 
-export default function ControlCenter({ fullName, initial, inbox, agents, datasets, relations, pendingChanges, pendingReviewCount, agentActivity, settings, onboarding, notice }: ControlCenterProps) {
+export default function ControlCenter({ fullName, initial, inbox, agents, datasets, pendingChanges, pendingReviewCount, agentActivity, settings, onboarding, notice }: ControlCenterProps) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("agents");
   const [noticeOpen, setNoticeOpen] = useState(true);
@@ -188,6 +189,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const hasContext = !!onboarding.businessContext;
   const [buildOpen, setBuildOpen] = useState(false);
   const [dataView, setDataView] = useState<DataView>("tables");
+  const [dataActionsOpen, setDataActionsOpen] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
   const manageAgent = agents.find((a) => a.id === manageAgentId) ?? null;
   const openTable = datasets.find((d) => d.id === openTableId) ?? null;
@@ -244,8 +246,14 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
 
   const titles: Record<Tab, { t: string; sub: string }> = {
     agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
-    data: { t: "Data", sub: dataView === "knowledge" ? "The people, companies & things we know about — your tables are built from these" : dataView === "insights" ? "The numbers behind your knowledge — totals & breakdowns, computed live" : dataView === "files" ? "Documents that arrived as attachments — filed by what they mention, originals kept" : dataView === "timeline" ? "Everything in order — messages, due dates, corrections & first sightings" : uiTables.length ? `${uiTables.length} ${uiTables.length === 1 ? "table" : "tables"} · derived from your knowledge` : "No tables yet" },
-    review: { t: "Review", sub: reviewTotal ? `${reviewTotal} to confirm — merges, conflicts & new facts` : "Confirm what we inferred — merges, conflicts & new facts" },
+    data: { t: "Data", sub: {
+      explore: "Everything we know, walkable — stand on a node and look around",
+      timeline: "What datamodo learned, in order — your data's story, not table edits",
+      files: "Documents that arrived as attachments — filed by what they mention, originals kept",
+      insights: "The numbers behind your knowledge — totals & breakdowns, computed live",
+      tables: "Your data as a database — every category is a table, connected like a schema; click one to browse its records",
+    }[dataView] },
+    review: { t: "Review", sub: reviewTotal ? `${reviewTotal} pending changes to confirm — merges, conflicts & new facts` : "Pending changes to confirm — merges, conflicts & new facts (your data's story lives in Data → Timeline)" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
   };
 
@@ -368,6 +376,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
             <div style={{ fontSize: 13, color: "#8A8477", marginTop: 2 }}>{titles[tab].sub}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: "auto" }}>
+            <QueuePill />
             <Hov onClick={() => setOnboardingOpen(true)} title={hasContext ? "Edit your business context" : "Tell your agents what matters"} base={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 500, color: "#3A352C", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px", cursor: "pointer", fontFamily: "inherit" }} hover={{ background: "#FBF8F1" }}>
               <span style={{ color: C.accent }}>✦</span>
               Context{hasContext && <span style={{ color: C.green, fontSize: 13, lineHeight: 1 }}>✓</span>}
@@ -398,33 +407,51 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           {tab === "data" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "knowledge", label: "Knowledge" }, { v: "insights", label: "Insights" }, { v: "files", label: "Files" }, { v: "timeline", label: "Timeline" }]} />
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <Hov onClick={() => setCategoriesOpen(true)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
-                    <span style={{ color: C.accent }}>▣</span> Categories
+                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "▦ Tables" }, { v: "explore", label: "◍ Explore" }, { v: "timeline", label: "Timeline" }, { v: "files", label: "Files" }, { v: "insights", label: "Insights" }]} />
+                {/* Rare actions live behind ONE menu, not three peers (simplicity rule). */}
+                <div style={{ position: "relative" }}>
+                  <Hov onClick={() => setDataActionsOpen((o) => !o)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
+                    <span style={{ color: C.accent }}>✦</span> Build <span style={{ fontSize: 10, color: "#A39B8B" }}>▾</span>
                   </Hov>
-                  <Hov onClick={() => setImportGraphOpen(true)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
-                    <span style={{ color: C.accent }}>✦</span> Spreadsheet → knowledge
-                  </Hov>
-                  <Hov onClick={() => setBuildOpen(true)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
-                    <span style={{ color: C.accent }}>✦</span> Build from knowledge
-                  </Hov>
+                  {dataActionsOpen && (
+                    <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 40, background: "#fff", border: "1px solid #E7E0D2", borderRadius: 12, boxShadow: "0 14px 34px rgba(33,30,24,.16)", overflow: "hidden", minWidth: 230 }}>
+                      {([
+                        ["▣", "Categories", "Edit what kinds of things exist", () => setCategoriesOpen(true)],
+                        ["✦", "Spreadsheet → knowledge", "Import a sheet as entities & links", () => setImportGraphOpen(true)],
+                        ["✦", "Build from knowledge", "Turn a category into a table", () => setBuildOpen(true)],
+                      ] as const).map(([glyph, label, hint, act]) => (
+                        <button key={label} type="button" onClick={() => { setDataActionsOpen(false); act(); }}
+                          style={{ display: "flex", alignItems: "baseline", gap: 8, width: "100%", textAlign: "left", padding: "9px 13px", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                          <span style={{ color: C.accent, fontSize: 12 }}>{glyph}</span>
+                          <span style={{ minWidth: 0 }}>
+                            <span style={{ display: "block", fontSize: 13, color: C.ink, fontWeight: 500 }}>{label}</span>
+                            <span style={{ display: "block", fontSize: 11, color: "#8A8477", marginTop: 1 }}>{hint}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
-              {dataView === "knowledge" ? (
-                <KnowledgeView />
-              ) : dataView === "insights" ? (
-                <InsightsView />
-              ) : dataView === "files" ? (
-                <FilesView />
-              ) : dataView === "timeline" ? (
-                <TimelineView />
-              ) : uiTables.length || createTableOpen ? (
-                <>
-                  {uiTables.length > 0 && <RelationshipGraph tables={uiTables} relations={relations} datasets={datasets} onOpen={setOpenTableId} onChanged={() => router.refresh()} />}
+              {/* ONE KnowledgeView instance across Tables/Explore — same slot,
+                  so the walk's breadcrumb trail survives pill switches. */}
+              {(dataView === "tables" || dataView === "explore") && (
+                <KnowledgeView
+                  view={dataView === "tables" ? "schema" : "explore"}
+                  onSwitch={() => setDataView("explore")}
+                  tables={uiTables.map((t) => ({ id: t.id, name: t.name }))}
+                  onOpenTable={setOpenTableId}
+                  onTablesChanged={() => router.refresh()}
+                />
+              )}
+              {dataView === "timeline" && <TimelineView />}
+              {dataView === "files" && <FilesView />}
+              {dataView === "insights" && <InsightsView />}
+              {dataView === "tables" && (uiTables.length || createTableOpen ? (
+                <div style={{ marginTop: 24 }}>
                   <DataFull tables={uiTables} onOpen={setOpenTableId} onCreate={() => setCreateTableOpen(true)} onImported={() => router.refresh()} selected={selectedTables} toggleSelect={(id) => setSelectedTables((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])} />
-                </>
-              ) : <DataEmpty openModal={() => setCreateTableOpen(true)} />}
+                </div>
+              ) : <DataEmpty openModal={() => setCreateTableOpen(true)} />)}
             </>
           )}
           {tab === "review" && <ReviewStudio />}
@@ -1904,152 +1931,3 @@ function SettingsModal({ settings, onClose, onSaved }: { settings: UserSettings;
   );
 }
 
-/* ================================================================== */
-/* DATA — relationship graph between tables (explicit FK-like links).   */
-/* ================================================================== */
-function RelationshipGraph({ tables, relations, datasets, onOpen, onChanged }: {
-  tables: TableInfo[];
-  relations: DatasetRelation[];
-  datasets: DatasetView[];
-  onOpen: (id: string) => void;
-  onChanged: () => void;
-}) {
-  const { pending, error, run } = useAction();
-  const [adding, setAdding] = useState(false);
-  const [fromDs, setFromDs] = useState("");
-  const [fromCol, setFromCol] = useState("");
-  const [toDs, setToDs] = useState("");
-  const [toCol, setToCol] = useState("");
-  const [label, setLabel] = useState("");
-
-  // Auto-link suggestions: table pairs that share values but aren't linked yet.
-  const [suggestions, setSuggestions] = useState<RelationSuggestion[]>([]);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const sugKey = (s: RelationSuggestion) => `${s.fromDatasetId}:${s.fromColumn}|${s.toDatasetId}:${s.toColumn}`;
-  const loadSuggestions = () => {
-    void fetch("/api/relations/suggestions").then((r) => r.json()).then((j) => setSuggestions(j.suggestions ?? [])).catch(() => {});
-  };
-  useEffect(loadSuggestions, [relations.length]);
-  const shownSuggestions = suggestions.filter((s) => !dismissed.has(sugKey(s)));
-
-  // Deterministic circular layout so the graph is stable across renders.
-  const pos = useMemo(() => {
-    const m = new Map<string, { x: number; y: number }>();
-    const n = tables.length;
-    tables.forEach((t, i) => {
-      if (n === 1) { m.set(t.id, { x: 50, y: 50 }); return; }
-      const a = (i / n) * Math.PI * 2 - Math.PI / 2;
-      m.set(t.id, { x: 50 + Math.cos(a) * 38, y: 50 + Math.sin(a) * 33 });
-    });
-    return m;
-  }, [tables]);
-
-  const colsOf = (id: string) => datasets.find((d) => d.id === id)?.columns ?? [];
-  const edges = relations.filter((r) => pos.has(r.fromDatasetId) && pos.has(r.toDatasetId));
-
-  const submit = () => run(
-    () => createRelationAction({ fromDatasetId: fromDs, fromColumn: fromCol, toDatasetId: toDs, toColumn: toCol, label: label || null }),
-    () => { setAdding(false); setFromDs(""); setFromCol(""); setToDs(""); setToCol(""); setLabel(""); onChanged(); },
-  );
-
-  return (
-    <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, padding: "16px 18px", marginBottom: 20 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
-        <div>
-          <span className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink }}>How your tables connect</span>
-          <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginLeft: 10 }}>{edges.length} {edges.length === 1 ? "relationship" : "relationships"}</span>
-        </div>
-        <Hov onClick={() => setAdding((v) => !v)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 6 }} hover={{ background: "#FBF8F1" }}>
-          <span style={{ fontSize: 14, lineHeight: 1 }}>+</span> Add relationship
-        </Hov>
-      </div>
-
-      {adding && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 14, padding: "12px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
-          <select value={fromDs} onChange={(e) => { setFromDs(e.target.value); setFromCol(""); }} style={{ ...fieldInput, width: 150, flex: "0 0 150px" }}>
-            <option value="">From table…</option>
-            {datasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-          <select value={fromCol} onChange={(e) => setFromCol(e.target.value)} disabled={!fromDs} style={{ ...fieldInput, width: 130, flex: "0 0 130px" }}>
-            <option value="">column…</option>
-            {colsOf(fromDs).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-          </select>
-          <span style={{ color: "#A39B8B", fontSize: 16 }}>→</span>
-          <select value={toDs} onChange={(e) => { setToDs(e.target.value); setToCol(""); }} style={{ ...fieldInput, width: 150, flex: "0 0 150px" }}>
-            <option value="">To table…</option>
-            {datasets.filter((d) => d.id !== fromDs).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-          <select value={toCol} onChange={(e) => setToCol(e.target.value)} disabled={!toDs} style={{ ...fieldInput, width: 130, flex: "0 0 130px" }}>
-            <option value="">column…</option>
-            {colsOf(toDs).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-          </select>
-          <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="label (optional)" style={{ ...fieldInput, flex: "1 1 120px", width: "auto" }} />
-          <Hov onClick={pending || !fromDs || !fromCol || !toDs || !toCol ? undefined : submit} base={{ ...primaryBtn(pending || !fromDs || !fromCol || !toDs || !toCol), padding: "8px 16px", fontSize: 13, boxShadow: "none" }} hover={{ background: C.accentPress }}>Link</Hov>
-          {error && <span className="dm-mono" style={{ fontSize: 11, color: C.accent, flexBasis: "100%" }}>{error}</span>}
-        </div>
-      )}
-
-      {/* Auto-link suggestions */}
-      {shownSuggestions.length > 0 && (
-        <div style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-          <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", display: "flex", alignItems: "center", gap: 7 }}>
-            <span style={{ color: C.accent }}>✦</span> Suggested links · these tables share values
-          </div>
-          {shownSuggestions.map((s) => (
-            <div key={sugKey(s)} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#FDF9F2", border: "1px solid #EFE1D2", borderRadius: 11, padding: "9px 12px" }}>
-              <span style={{ fontSize: 13, color: C.ink }}>
-                <b style={{ fontWeight: 600 }}>{s.fromDatasetName}</b> <span className="dm-mono" style={{ fontSize: 11.5, color: "#8A8477" }}>{s.fromColumnLabel}</span>
-                <span style={{ color: "#C9BCA6", margin: "0 7px" }}>→</span>
-                <b style={{ fontWeight: 600 }}>{s.toDatasetName}</b> <span className="dm-mono" style={{ fontSize: 11.5, color: "#8A8477" }}>{s.toColumnLabel}</span>
-              </span>
-              <span style={{ fontSize: 11.5, color: "#8A8477" }}>shares {s.sample.slice(0, 2).join(", ")}{s.overlap > 2 ? ` +${s.overlap - 2}` : ""}</span>
-              <div style={{ marginLeft: "auto", display: "flex", gap: 7 }}>
-                <Hov onClick={pending ? undefined : () => run(
-                  () => createRelationAction({ fromDatasetId: s.fromDatasetId, fromColumn: s.fromColumn, toDatasetId: s.toDatasetId, toColumn: s.toColumn, label: null }),
-                  () => { setDismissed((d) => new Set(d).add(sugKey(s))); onChanged(); loadSuggestions(); },
-                )} base={{ ...primaryBtn(pending), padding: "6px 14px", fontSize: 12.5, boxShadow: "none" }} hover={{ background: C.accentPress }}>Link</Hov>
-                <Hov onClick={() => setDismissed((d) => new Set(d).add(sugKey(s)))} base={{ ...ghostBtn, padding: "6px 11px", fontSize: 12.5 }} hover={{ background: "#FBF8F1" }}>Dismiss</Hov>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Graph */}
-      <div style={{ position: "relative", height: 240, borderRadius: 12, background: "linear-gradient(#FCFAF4,#FBF8F1)", border: "1px solid #F1EDE4", overflow: "hidden" }}>
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
-          {edges.map((e) => {
-            const a = pos.get(e.fromDatasetId)!;
-            const b = pos.get(e.toDatasetId)!;
-            return <line key={e.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#D8CFBD" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />;
-          })}
-        </svg>
-        {edges.map((e) => {
-          const a = pos.get(e.fromDatasetId)!;
-          const b = pos.get(e.toDatasetId)!;
-          const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-          const text = e.label || `${e.fromColumn} → ${e.toColumn}`;
-          return (
-            <span key={`l-${e.id}`} className="dm-mono" style={{ position: "absolute", left: `${mx}%`, top: `${my}%`, transform: "translate(-50%,-50%)", fontSize: 9.5, color: "#8A8477", background: "#FCFAF4", border: "1px solid #ECE5D8", borderRadius: 6, padding: "1px 6px", display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" }}>
-              {text}
-              <button type="button" title="Delete relationship" onClick={() => { if (confirm(`Delete relationship “${text}”?`)) run(() => deleteRelationAction(e.id), onChanged); }} style={{ border: "none", background: "none", color: "#C0B7A5", cursor: "pointer", fontSize: 11, lineHeight: 1, padding: 0 }}>×</button>
-            </span>
-          );
-        })}
-        {tables.map((t) => {
-          const p = pos.get(t.id)!;
-          return (
-            <button key={t.id} type="button" onClick={() => onOpen(t.id)} title={`Open ${t.name}`}
-              style={{ position: "absolute", left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-50%)", display: "inline-flex", alignItems: "center", gap: 7, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 999, padding: "7px 13px", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 6px 16px -10px rgba(33,30,24,.4)", whiteSpace: "nowrap" }}>
-              <span style={{ width: 18, height: 18, borderRadius: 5, background: t.agentBg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{t.name.charAt(0).toUpperCase()}</span>
-              <span className="dm-display" style={{ fontSize: 13, fontWeight: 700, letterSpacing: "-0.01em", color: C.ink }}>{t.name}</span>
-            </button>
-          );
-        })}
-        {edges.length === 0 && (
-          <span className="dm-mono" style={{ position: "absolute", left: "50%", bottom: 12, transform: "translateX(-50%)", fontSize: 10.5, color: "#B7AF9F" }}>No relationships yet — “Add relationship” to link a column to another table.</span>
-        )}
-      </div>
-    </div>
-  );
-}

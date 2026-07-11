@@ -5,7 +5,7 @@
 > infographic), [ROADMAP.md](ROADMAP.md) (what's next), [MEMORY.md](MEMORY.md)
 > (durable context). Dated history stays in [../PROJECT_STATE.md](../PROJECT_STATE.md).
 >
-> Last updated: 2026-07-10
+> Last updated: 2026-07-11
 
 ## Stack at a glance
 
@@ -21,6 +21,8 @@
 | Jobs | GitHub Actions cron → `extract-tick` (+ `after()` self-kick on ingest) | `.github/workflows/extract-cron.yml`, `app/api/jobs/*` |
 | Hosting | Vercel (Production=prod branch, Preview=dev branch) | — |
 | Tests | `node:test` over pure cores (`npm test`) | `tests/*.test.ts` |
+| CI | GitHub Actions: tests, tsc, lint==baseline, build — on every PR, dev/prod push, AND `claude/**` pushes (agent-session pushes don't fire `pull_request` events) | `.github/workflows/ci.yml`, `scripts/check-lint-baseline.mjs` |
+| Screenshot harness | `npm run shoot [-- explorer timeline]` — bundles a fixture harness (esbuild), renders it in local Chromium (playwright-core), writes `.shoot/<name>.png`, fails on page errors. No DB/login needed | `scripts/shoot/run.mjs`, `scripts/shoot/harnesses/*.tsx` |
 | Design | datamodo design system (cream/ink/coral, Geist Mono data) | `design/system/`, skill `.claude/skills/datamodo-design/` |
 
 ## Feature inventory (shipped)
@@ -64,18 +66,22 @@
 |---|---|
 | Tables: facts → dataset rows (auto-materialized, human edits protected) + full manual/import/versioning layer | `lib/datamodo/project.ts`, `lib/datamodo/datasets.ts`, `lib/datamodo/review.ts` |
 | Knowledge cards (facts, provenance drill-down, completeness cues) | `app/dashboard/knowledge-view.tsx` |
-| Knowledge graph + curation: drag-to-pin (persisted `entities.graph_pin`), kind hypernodes | `app/dashboard/knowledge-graph.tsx`, `PATCH app/api/knowledge/entities/[id]` |
-| **Explorer**: ego-graph walking (center + 2 rings, breadcrumbs, jump box), natural-shape side panel, **edge inspector** (predicate · confidence · since · corroboration · source messages) | pure `lib/datamodo/explorer.ts`, `app/dashboard/explorer-view.tsx`; fact metadata on `KnowledgeFactView` (confidence, validFrom) |
-| Concept map (bubbles by content, explicit + co-occurrence links) | pure `lib/datamodo/concept-map.ts`, `app/dashboard/concept-map-view.tsx` |
-| Timeline (messages · domain dates · corrections · first sightings; Upcoming; per-entity) | pure `lib/datamodo/timeline.ts`, `app/api/knowledge/timeline`, `app/dashboard/timeline-view.tsx` |
+| ~~Knowledge graph (Map)~~ REMOVED 2026-07-11 (user: redundant next to the walk) — `entities.graph_pin` + its PATCH endpoint remain dormant | (view deleted; endpoint `PATCH app/api/knowledge/entities/[id]` kept) |
+| **Explorer v2 — the 3D graph walk**: depth-field ego graph (center forward, hop-1 ring, hop-2 hazy behind cream fog), world-reflow walk with enter-from-parent/recede animations, floating breadcrumb + jump box, edge inspector (confidence meter · since · corroboration pips · quoted evidence), natural-shape side panel; flat 2D radial under `prefers-reduced-motion` | pure `lib/datamodo/explorer.ts` (`buildEgoGraph` + `parentOf`, `depthLayout`, `DEPTH`), `app/dashboard/explorer-view.tsx`; design source: Claude Design project "Datamodo Explorer v2" |
+| **Node shapes phase 2**: image documents render the original inline (`?inline=1` streaming), `bookmark` builtin kind renders a link card, datasets appear as walkable virtual nodes in the Explorer (`contains` edges to row entities) | pure `lib/datamodo/node-shapes.ts`; `app/dashboard/entity-page.tsx`, `knowledge-view.tsx`, `app/api/knowledge/entities`, `app/api/documents/[id]` |
+| ~~Concept map view~~ REMOVED 2026-07-11 (concepts are just a kind — they live in the schema/tables surface); pure core kept dormant | pure `lib/datamodo/concept-map.ts` (+tests) |
+| Timeline (messages · domain dates · corrections · first sightings; Upcoming; per-entity; sent-vs-arrived clock toggle; collapsed "◷ History" on every entity page) — design skin: vertical rail, coral day dots, rising cards, channel tints | pure `lib/datamodo/timeline.ts` (`timeBasis`), `app/api/knowledge/timeline` (`?basis=sent`), `app/dashboard/timeline-view.tsx` (`EntityHistory`) |
+| **Data tab IA** (flat + unified, 2026-07-11): ONE toggle — ▦ Tables · ◍ Explore · Timeline · Files · Insights. **Tables = the unified surface**: a Supabase-style schema CANVAS — kind cards (columns + FK relation rows) are DRAGGABLE, relation lines follow live, bring-to-front on grab, arrangement persists (localStorage `dm-schema-positions-v1`), auto-layout seeds first visit; click a header (no drag) → browse rows as entity cards; "▦ open/make table" per card; "+ new table" in the toolbar creates category + dataset as ONE object; dataset list below | `app/dashboard/schema-view.tsx`, `knowledge-view.tsx` (`view: "schema"\|"explore"`), `control-center.tsx` (`DataView`) |
 | Entity pages (record table / document summary page; safe MarkdownLite) | `app/dashboard/entity-page.tsx` |
 | Dossier export (cited markdown download) | pure `lib/datamodo/dossier.ts`, `app/api/knowledge/entities/[id]/dossier` |
+| **On-demand synthesis**: "✦ Synthesize" on entity pages (≥2 connected content bodies) → cited cross-document note stored as `body_md`; never automatic | pure `lib/datamodo/synthesis.ts`; `POST app/api/knowledge/entities/[id]/synthesize`; button in `entity-page.tsx`, wiring in `knowledge-view.tsx` |
 | Files view (smart folders = projections over `mentions`) + original download | `app/dashboard/files-view.tsx`, `app/api/documents/[id]` |
 | Insights (any measure × any axis, live aggregation) | `lib/datamodo/analytics.ts`, `app/dashboard/insights-view.tsx` |
 | Search: tables + knowledge + document passages, grounded answers with citations | `lib/datamodo/search.ts`, `lib/datamodo/answer.ts`, `app/api/search`, `app/dashboard/answer-card.tsx` |
 | Review Studio (PR-metaphor queue) | `app/dashboard/review-studio.tsx` |
 | Spreadsheet → knowledge graph import (infer + merge) | `lib/datamodo/infer-graph.ts`, `app/api/knowledge/import-graph`, `app/dashboard/import-graph-modal.tsx` |
 | Auto-link suggestions between tables | `lib/datamodo/relations.ts`, `app/api/relations/suggestions` |
+| Queue pill: "⟳ processing N items" in the topbar (hidden when idle; fast-polls while draining; stuck items surface) | `app/dashboard/queue-pill.tsx`, `GET app/api/jobs/queue-status` |
 | Onboarding / business context (steers extraction) | `app/dashboard/onboarding-modal.tsx`, `lib/datamodo/settings.ts` |
 | BYOK (user's own OpenRouter/OpenAI/Anthropic key) | `lib/datamodo/llm-for-user.ts`, SettingsModal in `app/dashboard/ui.tsx` |
 | Landing page + SEO | `app/page.tsx`, `components/landing/`, `app/landing.css`, `app/robots.ts`, `app/sitemap.ts` |

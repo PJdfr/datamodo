@@ -8,11 +8,12 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { C, monoLabel, CountUp, Segmented, SourceRow } from "./ui";
-import { KnowledgeGraphView } from "./knowledge-graph";
-import { ConceptMapView } from "./concept-map-view";
+import { C, monoLabel, CountUp, SourceRow } from "./ui";
 import { ExplorerView } from "./explorer-view";
+import { SchemaView, type SchemaTableRef } from "./schema-view";
 import { EntityPageModal } from "./entity-page";
+import { buildDatasetNodes, type DatasetNodeSource } from "@/lib/datamodo/node-shapes";
+import { canSynthesize } from "@/lib/datamodo/synthesis";
 import type { KnowledgeEntityView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
 
@@ -108,13 +109,28 @@ function EntityCard({ e, kindDef, onOpen }: { e: KnowledgeEntityView; kindDef?: 
   );
 }
 
-export function KnowledgeView() {
+export type KnowledgeViewName = "schema" | "explore";
+
+export function KnowledgeView({ view, onSwitch, tables = [], onOpenTable, onTablesChanged }: {
+  /** "schema" = the unified Tables surface (schema diagram + cards drill-down);
+   *  "explore" = the graph walk. One flat toggle upstairs, nothing nested. */
+  view: KnowledgeViewName;
+  /** Flip the flat toggle to Explore ("◍ Explore" from a page modal). */
+  onSwitch?: (v: "explore") => void;
+  /** Materialized datasets — the schema view badges & opens them. */
+  tables?: SchemaTableRef[];
+  onOpenTable?: (datasetId: string) => void;
+  /** A category was just materialized — parent refreshes its dataset list. */
+  onTablesChanged?: () => void;
+}) {
   const [entities, setEntities] = useState<KnowledgeEntityView[]>([]);
+  const [datasetSources, setDatasetSources] = useState<DatasetNodeSource[]>([]);
   const [kinds, setKinds] = useState<KindDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
-  const [mode, setMode] = useState<"cards" | "graph" | "concepts" | "explore">("cards");
   const [openId, setOpenId] = useState<string | null>(null);
+  // Schema drill-down: the kind whose rows are browsed as cards below the diagram.
+  const [selectedKind, setSelectedKind] = useState<string | null>(null);
   // Explorer wiring: entering via "◍ Explore" recenters on that entity; the
   // key remount resets the walk's breadcrumb trail.
   const [exploreId, setExploreId] = useState<string | null>(null);
@@ -123,7 +139,7 @@ export function KnowledgeView() {
     setExploreId(id);
     setExploreSeed((s) => s + 1);
     setOpenId(null);
-    setMode("explore");
+    onSwitch?.("explore");
   };
 
   useEffect(() => {
@@ -137,6 +153,7 @@ export function KnowledgeView() {
         ]);
         const json = await res.json();
         if (alive) setEntities(json.entities ?? []);
+        if (alive) setDatasetSources(json.datasets ?? []);
         if (alive && kres?.ok) setKinds((await kres.json()).kinds ?? []);
       } catch {
         /* leave empty */
@@ -149,11 +166,20 @@ export function KnowledgeView() {
 
   const kindByName = useMemo(() => new Map(kinds.map((k) => [k.kind, k])), [kinds]);
 
+  // Dataset-as-node: the Explorer's world is the entities PLUS each dataset as
+  // a virtual node linked to the entities projected into its rows (pure
+  // projection — node-shapes.ts; never enters the vault or the other views).
+  const explorerEntities = useMemo(
+    () => entities.concat(buildDatasetNodes(datasetSources, entities)),
+    [entities, datasetSources],
+  );
+
   const shown = useMemo(() => {
+    const inKind = selectedKind ? entities.filter((e) => e.kind === selectedKind) : entities;
     const t = q.trim().toLowerCase();
-    if (!t) return entities;
-    return entities.filter((e) => `${e.label} ${e.kind} ${e.facts.map((f) => f.value).join(" ")}`.toLowerCase().includes(t));
-  }, [entities, q]);
+    if (!t) return inKind;
+    return inKind.filter((e) => `${e.label} ${e.kind} ${e.facts.map((f) => f.value).join(" ")}`.toLowerCase().includes(t));
+  }, [entities, q, selectedKind]);
 
   const groups = useMemo(() => {
     const m = new Map<string, KnowledgeEntityView[]>();
@@ -162,6 +188,11 @@ export function KnowledgeView() {
   }, [shown]);
 
   const totalFacts = useMemo(() => entities.reduce((n, e) => n + e.facts.length, 0), [entities]);
+  const countByKind = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of entities) m.set(e.kind, (m.get(e.kind) ?? 0) + 1);
+    return m;
+  }, [entities]);
 
   if (loading) return <div className="dm-mono" style={{ color: "#A39B8B", fontSize: 13, padding: "40px 4px" }}>Loading your knowledge…</div>;
 
@@ -183,55 +214,84 @@ export function KnowledgeView() {
           <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>{groups.length} kind{groups.length === 1 ? "" : "s"} · {totalFacts} fact{totalFacts === 1 ? "" : "s"} · your tables are built from these</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <Segmented value={mode} onChange={setMode} options={[{ v: "cards", label: "Cards" }, { v: "graph", label: "Graph" }, { v: "concepts", label: "Concepts" }, { v: "explore", label: "Explore" }]} />
-          <div style={{ position: "relative", minWidth: 220 }}>
-            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search entities & facts…" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
-          </div>
+          {view === "schema" && selectedKind && (
+            <div style={{ position: "relative", minWidth: 220 }}>
+              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search entities & facts…" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
+            </div>
+          )}
         </div>
       </div>
 
-      {shown.length === 0 && <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Nothing matches “{q.trim()}”.</div>}
-
-      {mode === "graph" && shown.length > 0 && <KnowledgeGraphView entities={shown} onOpen={setOpenId} />}
-
-      {/* The concept map reads over ALL entities, not the search subset — a
-          half-filtered map of content misleads more than it helps. */}
-      {mode === "concepts" && <ConceptMapView entities={entities} onOpen={setOpenId} />}
 
       {/* Explorer: stand on one node, walk edge to edge. Defaults to the
           best-connected entity until a walk begins. */}
-      {mode === "explore" && entities.length > 0 && (
+      {view === "explore" && entities.length > 0 && (
         <ExplorerView
           key={exploreSeed}
-          entities={entities}
+          entities={explorerEntities}
           initialId={exploreId ?? entities[0].id}
           kindByName={kindByName}
           onOpenPage={setOpenId}
         />
       )}
 
-      {mode === "cards" && groups.map(([kind, list]) => {
-        const def = kindByName.get(kind);
-        return (
-          <div key={kind} style={{ marginBottom: 24 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 9, margin: "0 2px 11px" }}>
-              {def?.icon ? <span style={{ fontSize: 13 }}>{def.icon}</span> : <span style={{ width: 9, height: 9, borderRadius: 3, background: def?.color ?? toneOf(kind) }} />}
-              <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink, margin: 0 }}>{def?.plural ?? titleCase(plural(kind))}</h2>
-              <span className="dm-mono" style={{ ...monoLabel }}>{list.length}</span>
-            </div>
-            <div className="dm-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
-              {list.map((e) => <EntityCard key={e.id} e={e} kindDef={def} onOpen={setOpenId} />)}
-            </div>
-          </div>
-        );
-      })}
+      {view === "schema" && (
+        <>
+          <SchemaView
+            kinds={kinds}
+            countByKind={countByKind}
+            tables={tables}
+            selectedKind={selectedKind}
+            onSelectKind={(k) => { setSelectedKind(k); setQ(""); }}
+            onOpenTable={onOpenTable}
+            onMaterialized={onTablesChanged}
+          />
+          {selectedKind && (() => {
+            const def = kindByName.get(selectedKind);
+            return (
+              <div style={{ marginTop: 22 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 9, margin: "0 2px 11px" }}>
+                  <span style={{ width: 9, height: 9, borderRadius: 3, background: def?.color ?? toneOf(selectedKind) }} />
+                  <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink, margin: 0 }}>{def?.plural ?? titleCase(plural(selectedKind))}</h2>
+                  <span className="dm-mono" style={{ ...monoLabel }}>{shown.length}</span>
+                  <button type="button" onClick={() => setSelectedKind(null)} className="dm-mono"
+                    style={{ marginLeft: "auto", fontSize: 10.5, color: "#8A8477", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                    close ×
+                  </button>
+                </div>
+                {shown.length === 0 && <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "8px 0 16px" }}>{q.trim() ? `Nothing matches “${q.trim()}”.` : "Nothing captured in this category yet."}</div>}
+                <div className="dm-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+                  {shown.map((e) => <EntityCard key={e.id} e={e} kindDef={def} onOpen={setOpenId} />)}
+                </div>
+              </div>
+            );
+          })()}
+        </>
+      )}
 
       {openId && (() => {
-        const ent = entities.find((e) => e.id === openId);
-        return ent ? (
-          <EntityPageModal e={ent} kindDef={kindByName.get(ent.kind)} onClose={() => setOpenId(null)} onOpen={setOpenId} onExplore={explore} />
-        ) : null;
+        const ent = explorerEntities.find((e) => e.id === openId);
+        if (!ent) return null;
+        // ✦ Synthesize (on-demand only — north star): offered when the entity
+        // has ≥2 connected bodies of content; the fresh note patches state so
+        // the open page updates in place.
+        const synthesize = canSynthesize(ent, entities)
+          ? async () => {
+              try {
+                const res = await fetch(`/api/knowledge/entities/${ent.id}/synthesize`, { method: "POST" });
+                const json = await res.json().catch(() => ({}));
+                if (!res.ok) return String(json.error ?? "synthesis failed");
+                setEntities((prev) => prev.map((e) => (e.id === ent.id ? { ...e, bodyMd: json.bodyMd ?? e.bodyMd } : e)));
+                return null;
+              } catch {
+                return "network error — try again";
+              }
+            }
+          : undefined;
+        return (
+          <EntityPageModal e={ent} kindDef={kindByName.get(ent.kind)} onClose={() => setOpenId(null)} onOpen={setOpenId} onExplore={explore} onSynthesize={synthesize} />
+        );
       })()}
     </div>
   );

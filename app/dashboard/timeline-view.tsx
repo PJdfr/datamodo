@@ -19,6 +19,11 @@ const TYPE_META: Record<TimelineEvent["type"], { glyph: string; tone: string; la
   seen: { glyph: "◍", tone: C.green, label: "first seen" },
 };
 
+const CHANNEL_TINT: Record<string, string> = {
+  email: "#EA4335", gmail: "#EA4335", outlook: "#0A66C2",
+  whatsapp: "#25D366", slack: "#611f69", teams: "#464EB8", telegram: "#2AABEE",
+};
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -78,6 +83,18 @@ export function TimelineView() {
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<TimelineEntityRef | null>(null);
+  // Message events can sit at arrival time (default) or at the sender's send
+  // time — forwarded email often carries a much older date.
+  const [basis, setBasis] = useState<"received" | "sent">("received");
+  // Cards rise in with a gentle stagger on first paint; reduced motion (or
+  // SSR) starts settled.
+  const [mounted, setMounted] = useState(() =>
+    typeof window === "undefined" || (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? true),
+  );
+  useEffect(() => {
+    const r = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(r);
+  }, []);
 
   // On a filter change the previous events stay visible until the new fetch
   // lands (no flash); `loading` only gates the very first paint.
@@ -85,7 +102,11 @@ export function TimelineView() {
     let alive = true;
     (async () => {
       try {
-        const res = await fetch(`/api/knowledge/timeline${filter ? `?entity=${encodeURIComponent(filter.id)}` : ""}`);
+        const params = new URLSearchParams();
+        if (filter) params.set("entity", filter.id);
+        if (basis === "sent") params.set("basis", "sent");
+        const qs = params.toString();
+        const res = await fetch(`/api/knowledge/timeline${qs ? `?${qs}` : ""}`);
         const json = await res.json();
         if (alive) setEvents(json.events ?? []);
       } catch {
@@ -95,7 +116,7 @@ export function TimelineView() {
       }
     })();
     return () => { alive = false; };
-  }, [filter]);
+  }, [filter, basis]);
 
   // Group into day sections, newest first; future days pool under "Upcoming"
   // (a due date next week belongs above the past, not lost inside it).
@@ -136,31 +157,78 @@ export function TimelineView() {
     );
   }
 
-  const section = (title: string, list: TimelineEvent[], key: string, accent = false) => (
-    <div key={key} style={{ marginBottom: 18 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 9, margin: "0 2px 6px" }}>
-        <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 13.5, letterSpacing: "-0.01em", color: accent ? C.accent : C.ink, margin: 0 }}>{title}</h2>
-        <span className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F" }}>{list.length}</span>
-      </div>
-      <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 13, padding: "6px 10px", display: "grid" }}>
-        {list.map((ev, i) => (
-          <div key={i} style={{ borderTop: i === 0 ? "none" : "1px solid #F4EFE4" }}>
-            <EventRow ev={ev} onFilter={setFilter} />
+  // Design skin ("Datamodo Explorer v2" handoff, TimelineView): one vertical
+  // rail, a coral dot per day, white cards that rise in with a gentle stagger.
+  let cardIdx = 0;
+  const card = (ev: TimelineEvent, i: number) => {
+    const meta = TYPE_META[ev.type];
+    const tint = ev.channel ? CHANNEL_TINT[ev.channel.toLowerCase()] : null;
+    const d = Math.min(cardIdx++, 14) * 55;
+    return (
+      <div key={i} style={{
+        background: "#FFFDF8", border: "1px solid #E7E0D2", borderRadius: 14,
+        padding: "12px 15px", boxShadow: "0 18px 44px -34px rgba(33,30,24,.35)",
+        opacity: mounted ? 1 : 0, transform: mounted ? "none" : "translateY(14px)",
+        transition: `opacity 420ms cubic-bezier(0.16,1,0.3,1) ${d}ms, transform 420ms cubic-bezier(0.16,1,0.3,1) ${d}ms`,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span title={meta.label} style={{ color: meta.tone, fontSize: 13, lineHeight: 1 }}>{meta.glyph}</span>
+          <span style={{ fontSize: 13.5, color: C.ink, fontWeight: ev.type === "message" ? 600 : 500, lineHeight: 1.35, overflowWrap: "anywhere", minWidth: 0 }}>{ev.title}</span>
+          <span className="dm-mono" style={{ marginLeft: "auto", fontSize: 10, color: "#B7AF9F", whiteSpace: "nowrap" }}>{timeLabel(ev)}</span>
+        </div>
+        {(ev.detail || ev.channel) && (
+          <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 9, fontSize: 12.5, color: "#57534A", flexWrap: "wrap" }}>
+            {ev.channel && <span className="dm-mono" style={{ fontSize: 10.5, color: tint ?? "#8A8477", fontWeight: 500 }}>{ev.channel}</span>}
+            {ev.channel && ev.detail && <span style={{ color: "#A39B8B" }}>·</span>}
+            {ev.detail && <span className={ev.type === "change" ? "dm-mono" : undefined} style={{ fontSize: ev.type === "change" ? 11.5 : 12.5, color: ev.type === "change" ? C.accent : "#57534A", overflowWrap: "anywhere" }}>{ev.detail}</span>}
           </div>
-        ))}
+        )}
+        {ev.entities.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 7 }}>
+            {ev.entities.map((r) => (
+              <button key={r.id} type="button" onClick={() => setFilter(r)} title={`Only events about ${r.label}`}
+                style={{ border: "1px solid #E1D9C8", background: "#FAF6EE", borderRadius: 999, padding: "2px 9px", fontSize: 11, color: "#514C43", cursor: "pointer", fontFamily: "inherit" }}>
+                {r.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const section = (title: string, list: TimelineEvent[], key: string, accent = false) => (
+    <div key={key} style={{ marginBottom: 8 }}>
+      <div style={{ position: "relative", margin: "18px 0 12px" }}>
+        <div style={{ position: "absolute", left: -26, top: 1, width: 14, height: 14, borderRadius: "50%", background: accent ? C.gold : C.accent, border: "3px solid #F6F2E9", transform: "translateX(-1px)", boxSizing: "border-box" }} />
+        <span className="dm-mono" style={{ fontSize: 12, letterSpacing: "0.04em", color: accent ? "#8A6D1F" : "#8A8477" }}>{title}</span>
+        <span className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F", marginLeft: 8 }}>{list.length}</span>
+      </div>
+      <div style={{ display: "grid", gap: 10 }}>
+        {list.map((ev, i) => card(ev, i))}
       </div>
     </div>
   );
 
   return (
-    <div style={{ maxWidth: 780 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
+    <div style={{ maxWidth: 720 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 22 }}>
         <div>
-          <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink }}>
-            {filter ? <>Everything about {filter.label}, in order</> : <><CountUp value={events.length} /> moment{events.length === 1 ? "" : "s"}, in order</>}
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.09em", color: "#A39B8B", marginBottom: 5 }}>most recent first</div>
+          <div className="dm-display" style={{ fontWeight: 700, fontSize: 22, letterSpacing: "-0.025em", color: C.ink }}>
+            {filter ? <>Everything about {filter.label}, in order</> : <>What datamodo learned</>}
           </div>
-          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Messages, due dates, corrections & first sightings — derived live from your knowledge</div>
+          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 3 }}><CountUp value={events.length} /> moment{events.length === 1 ? "" : "s"} — messages, due dates, corrections & first sightings, derived live</div>
         </div>
+        <button
+          type="button"
+          onClick={() => setBasis((b) => (b === "received" ? "sent" : "received"))}
+          title="Where messages sit on the axis: when they arrived here, or when the sender sent them (forwarded email keeps its original date)"
+          className="dm-mono"
+          style={{ marginLeft: filter ? 0 : "auto", fontSize: 10.5, color: "#57534A", background: "#fff", border: "1px solid #DDD5C5", borderRadius: 999, padding: "4px 11px", cursor: "pointer", fontFamily: "inherit" }}
+        >
+          clock: {basis === "received" ? "arrived" : "sent"} ⇄
+        </button>
         {filter && (
           <button
             type="button"
@@ -173,8 +241,80 @@ export function TimelineView() {
         )}
       </div>
 
-      {upcoming.length > 0 && section("Upcoming", upcoming, "upcoming", true)}
-      {days.map(([dayKey, list]) => section(dayLabel(dayKey, todayYear), list, dayKey))}
+      <div style={{ position: "relative", paddingLeft: 26 }}>
+        {/* the rail */}
+        <div style={{ position: "absolute", left: 6, top: 6, bottom: 6, width: 2, background: "#E7E0D2" }} />
+        {upcoming.length > 0 && section("Upcoming", upcoming, "upcoming", true)}
+        {days.map(([dayKey, list]) => section(dayLabel(dayKey, todayYear), list, dayKey))}
+        <div style={{ position: "relative", marginTop: 20 }}>
+          <div style={{ position: "absolute", left: -24, top: 3, width: 10, height: 10, borderRadius: "50%", border: "2px solid #DDD5C5", background: "#F6F2E9", boxSizing: "border-box" }} />
+          <span className="dm-mono" style={{ fontSize: 9.5, letterSpacing: "0.09em", textTransform: "uppercase", color: "#A39B8B" }}>derived live from your knowledge — nothing stored</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The per-entity timeline, embedded on an entity page as a collapsed
+ * disclosure ("◷ History") — progressive disclosure, fetched only when opened.
+ * Same projection as the Timeline view, narrowed to one entity.
+ */
+export function EntityHistory({ entityId, onOpen }: {
+  entityId: string;
+  /** Navigate to another entity's page (event chips). */
+  onOpen?: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [events, setEvents] = useState<TimelineEvent[] | null>(null);
+
+  useEffect(() => {
+    if (!open || events !== null) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/knowledge/timeline?entity=${encodeURIComponent(entityId)}`);
+        const json = await res.json();
+        if (alive) setEvents(json.events ?? []);
+      } catch {
+        if (alive) setEvents([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [open, events, entityId]);
+
+  const todayYear = new Date().getFullYear();
+  const shown = (events ?? []).slice(0, 30);
+
+  return (
+    <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, overflow: "hidden", marginTop: 16 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="dm-mono"
+        style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", textAlign: "left", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", padding: "10px 12px" }}
+      >
+        ◷ History — everything about this, in order
+        <span style={{ marginLeft: "auto", display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }}>›</span>
+      </button>
+      {open && (
+        <div style={{ padding: "0 10px 8px" }}>
+          {events === null && <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", padding: "4px 4px 8px" }}>Assembling…</div>}
+          {events !== null && shown.length === 0 && (
+            <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", padding: "4px 4px 8px" }}>No dated events yet.</div>
+          )}
+          {shown.map((ev, i) => (
+            <div key={i} style={{ borderTop: i === 0 ? "none" : "1px solid #F4EFE4" }}>
+              <div className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F", padding: "6px 4px 0" }}>{dayLabel(ev.ts.slice(0, 10), todayYear)}</div>
+              <EventRow ev={ev} onFilter={onOpen ? (r) => onOpen(r.id) : () => {}} />
+            </div>
+          ))}
+          {events !== null && events.length > shown.length && (
+            <div className="dm-mono" style={{ fontSize: 10, color: "#B7AF9F", padding: "6px 4px" }}>{events.length - shown.length} older moments in the Timeline view</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

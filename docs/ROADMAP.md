@@ -4,7 +4,7 @@
 > inventory when they ship; add what the work surfaced. Ordered by value.
 > Siblings: [STATE.md](STATE.md) · [FLOW.md](FLOW.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-10
+> Last updated: 2026-07-11
 
 ## Now (unblocks everything else)
 1. **Merge PR #35 → dev**, then set env: `OPENROUTER_VISION_MODEL` (+ ~$10
@@ -22,21 +22,24 @@
 ## Explorer track (the north star — phase 1 ✅ shipped 2026-07-10)
 - ~~Ego-graph Explorer~~ ✅ — walk edge to edge, natural-shape panel, edge
   inspector, breadcrumbs, jump box (4th Knowledge mode + "◍ Explore" on pages).
-- **3D Explorer redesign — HANDED TO CLAUDE DESIGN (in progress)**: 3D/depth
-  canvas, camera movement on recenter, enter/exit animations for nodes joining/
-  leaving the neighborhood. When the design lands in `design/system/`, port it
-  onto the EXISTING pure core (`buildEgoGraph`/`radialLayout` stay the data
-  contract) — the design replaces the skin, not the feature. Must degrade to
-  the current 2D under `prefers-reduced-motion`.
-- **Dashboard clarity pass** (see MEMORY.md simplicity rule): audit every
-  toggle/button/view for "does the user need this HERE?" — e.g. Data tab now
-  has 6 sub-views + 3 top buttons; Knowledge has 4 modes. Consolidate or nest
-  (progressive disclosure), don't spread. Candidate: fold Files/Timeline into
-  Knowledge or an "Explore"-first layout; move rare actions behind a menu.
-- **Node shapes, phase 2**: image nodes render their image (original already
-  streamable); `bookmark` builtin kind for URLs; dataset-as-node.
-- **On-demand synthesis**: "✦ Synthesize" on concept/hub pages → cited
-  cross-document note into `body_md` (never automatic — MEMORY.md north star).
+- ~~3D Explorer redesign~~ ✅ 2026-07-11 — Explorer v2 (Claude Design project
+  "Datamodo Explorer v2") ported onto the existing pure core: depth-field
+  canvas, world-reflow walk, enter-from-parent/recede animations, floating
+  breadcrumb, redesigned edge inspector (confidence meter · pips · quoted
+  evidence). Flat 2D radial under `prefers-reduced-motion`. Remaining from
+  the same handoff, NOT implemented: Review-Studio "Approve all & merge"
+  motion + Timeline polish (`DashboardExtras.jsx`, lower priority) and the
+  **dashboard IA restructure proposal** (13 choices → 2 verbs — a product
+  decision; see the design project's `IAProposal`).
+- ~~Dashboard clarity pass~~ ✅ 2026-07-11 — Data tab: 5 views + 3 buttons →
+  **Tables · ◍ Explore · Insights** + one "✦ Build ▾" menu; Timeline/Files
+  nest as modes of the ONE knowledge surface (Walk is its front door).
+  Still open from the design's IA proposal, deliberately not taken: Search/Ask
+  as global ⌘K, exports as row actions — revisit if the rail grows again.
+- ~~Node shapes, phase 2~~ ✅ 2026-07-11 — image nodes render their image,
+  `bookmark` builtin kind, dataset-as-node in the Explorer.
+- ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
+  with ≥2 connected bodies of content → cited note into `body_md`.
 - **Audio tier**: transcription pipeline stage → player + transcript nodes.
 
 ## Next build tracks (pick after the above)
@@ -53,16 +56,21 @@
   relay for WhatsApp/Teams). ~1 week; a strategic call on timing.
 
 ## Smaller follow-ups (grab when nearby)
+- **Model unification, phase 2**: bind datasets to kinds in the DB
+  (`datasets.kind_id`) so "category = table" is structural, not a name-match
+  convention (today `datasetForKind` matches by plural name).
+- Schema view: dataset_relations (table↔table links) are no longer visualized
+  since the old RelationshipGraph was removed — draw them as dashed lines in
+  the schema diagram if missed; `lib/datamodo/relations.ts` + suggestions API
+  still exist.
+- Concept-map pure core (`lib/datamodo/concept-map.ts`) is dormant (view
+  removed) — resurrect as an Explore lens or delete after a quiet month.
 - Category proposals from the agent via Review ("no-fit entity → propose a new
   kind with inferred template") — growth loop ⑤ of the ontology design.
 - Semantic (ANN) chunk search behind the same `searchChunks` shape.
-- Timeline: `sent_at` vs `received_at` preference; per-entity timeline embedded
-  on entity pages.
 - Dossier: PDF rendering behind the same `buildDossier`.
 - Graph: persist collapsed-kind state if users ask for it (deliberately
   session-local today).
-- Requeue UX: surface "reprocessing N items" in the dashboard.
-- `bumpSupport` → atomic increment before concurrent per-entity extraction.
 - DuckDB / lance-graph sidecar when analytics volume demands it (documented
   seam in `analytics.ts`).
 

@@ -10,7 +10,7 @@ import { readBlob } from "@/lib/ingest/store";
 // org-scoped at every step. 503 when the blob bucket isn't provisioned yet.
 export const runtime = "nodejs";
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -43,8 +43,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       headers: {
         "Content-Type": contentType,
         "Content-Length": String(bytes.length),
-        // ASCII-sanitized fallback name + RFC 5987 encoding for the real one.
-        "Content-Disposition": `attachment; filename="${filename.replace(/[^\x20-\x7e]/g, "_").replace(/"/g, "'")}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        // `?inline=1` renders in place (image nodes embed the original);
+        // default stays a download. ASCII-sanitized fallback name + RFC 5987
+        // encoding for the real one.
+        "Content-Disposition": `${new URL(req.url).searchParams.has("inline") ? "inline" : "attachment"}; filename="${filename.replace(/[^\x20-\x7e]/g, "_").replace(/"/g, "'")}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
         "Cache-Control": "private, max-age=0",
       },
     });

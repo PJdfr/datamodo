@@ -1,0 +1,42 @@
+# CI — the project's verification bar (docs/STATE.md), enforced on every PR:
+# unit tests on pure cores, tsc clean, lint == baseline, `next build` green.
+name: CI
+
+# NOTE: agent-session pushes don't fire `pull_request` events (GitHub
+# suppresses workflow events from those tokens), so `claude/**` branches run
+# on push — otherwise a PR from a session silently shows stale checks.
+on:
+  pull_request:
+  push:
+    branches: [dev, prod, "claude/**"]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      # Dummy values so `next build` can collect page data (auth/prisma read
+      # these at module scope). Nothing connects during a build.
+      DATABASE_URL: postgresql://user:pass@localhost:5432/db
+      NEON_AUTH_BASE_URL: https://example.neon.auth
+      NEON_AUTH_COOKIE_SECRET: dummy-secret-for-ci-0123456789abcdef
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Lint (== baseline)
+        run: node scripts/check-lint-baseline.mjs
+      - name: Build
+        run: npm run build
