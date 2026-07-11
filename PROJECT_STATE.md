@@ -12,6 +12,28 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **Product direction session (no code): the WOW + landing
+  rework roadmapped** (both to be designed through **Claude Design**, per
+  user). MEMORY gains the Cosmos north-star bullet; ROADMAP gains the full
+  spec ("THE WOW: Cosmos view" + "Landing page rework"). Source material for
+  the landing copy, so it survives this chat:
+  - **Exec pitch**: "Your inbox becomes a database — forward anything (email,
+    voice memo, receipt photo, spreadsheet, braindump) and it comes back as
+    organized, connected, queryable data. No forms, no filing, no data
+    entry." Sections: capture anywhere · speaks your vocabulary (categories
+    are yours, AI-drafted, self-proposing) · one vault many views (tables /
+    walk / timeline / files / ask-with-citations) · trust story (every fact
+    has a receipt; suggested, sourced, reversible; private by design, BYOK).
+  - **Personas** (each: what they forward → what builds itself → payoff):
+    freelancer (invoices/receipts/call memos → Invoices+Clients tables →
+    tax season + "what did Acme pay me?"); researcher (papers/braindumps →
+    concept-tagged summaries, walkable lit map → ✦ Synthesize related work);
+    student (lectures/whiteboard photos/voice notes → linked notes with
+    equations → revision Q&A); recruiter/HR (CVs/debrief memos → Candidates
+    pipeline table → "what did X ask for?"); landlord (tenant msgs/meter
+    photos → Properties/Tenants/Expenses → renewals surfacing); creator
+    (links/idea dumps → self-building knowledge garden). Common thread:
+    nobody ever ENTERS data, and every table speaks the user's vocabulary.
 - **2026-07-11** — **ONE EMBEDDING SPACE per deployment (stamp + guard +
   re-embed)** — user callout: embeddings are STORED, so mixing vectors from
   different models in one column is catastrophic (silently garbage ANN

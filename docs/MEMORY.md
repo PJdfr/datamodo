@@ -61,6 +61,15 @@ reviewable, nothing is ever silently lost or merged.
   note) are produced when the user asks (a button or a question), never by a
   background trigger. LLM spend maps 1:1 to user curiosity; no stale-synthesis
   bookkeeping.
+- **The WOW is the whole-graph Cosmos** (decided 2026-07-11): virality needs a
+  visual that feels like superpowers — the vault as one living, animated graph
+  (Obsidian's shareable big-graph moment). Scaling answer =
+  **level-of-detail clustering**: high-degree entities as named stars, the
+  long tail collapsed into zoom-expandable cluster nodes ("47 other
+  companies", by kind/community) — the same idea also de-overloads the 2-hop
+  walk's rings ("+38 more invoices" pseudo-node). Cosmos is the poster (dark
+  mode allowed), the walk stays the workbench; both designed through Claude
+  Design. Spec in ROADMAP → "THE WOW".
 
 ## Architecture decisions (and why)
 - **Neon + Prisma + Neon Auth** (migrated off Supabase 2026-07-09; zero users
