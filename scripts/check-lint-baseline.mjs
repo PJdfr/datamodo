@@ -4,7 +4,7 @@
 // must not add to it. Shrink the baseline here whenever problems are fixed.
 import { execFileSync } from "node:child_process";
 
-const BASELINE = { errors: 8, warnings: 16 };
+const BASELINE = { errors: 7, warnings: 16 };
 
 let raw;
 try {
