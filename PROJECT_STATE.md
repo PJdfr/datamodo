@@ -12,6 +12,40 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **CATEGORY PROPOSALS via Review (growth loop ⑤ closes)** —
+  when extraction keeps producing entities of a kind the registry doesn't know
+  (post-canonicalization, generics like "thing" excluded — pure trigger
+  `unregisteredKinds` in ontology.ts), and ≥3 such entities exist org-wide,
+  `maybeProposeCategories` (kinds.ts, hooked best-effort into the extraction
+  tick) files ONE `category_proposal` review carrying an AI-drafted template
+  (`suggestKindTemplate`; a failed draft still files with an empty template).
+  Accept = `createKind` with the template (the trigger entities already carry
+  the slug, so they snap into it; P2002 = made by hand meanwhile = no-op);
+  decline marks rejected and the kind is NEVER re-proposed (the filing check
+  matches any status). New Review Studio card (sample chips + drafted template
+  rows + honest copy) + group + header chip; new `npm run shoot -- review`
+  harness (screenshot reviewed). No DDL (reviews.kind is free text).
+  Verified: 103/103 tests + tsc + lint == baseline + build + 4 shoot
+  harnesses green. NOT live-verified: template drafting needs an LLM key.
+- **2026-07-11** — **Spreadsheet-import follow-ups (all three)** — the import
+  is no longer a blind merge:
+  - **Preview/confirm**: upload now DRY-RUNS the inference
+    (`previewTableGraph`, `mode=preview` on the same endpoint — nothing
+    writes) and shows the reading: "N rows, each read as a ‹kind› keyed on
+    ‹column›", per-column role list, honest counts (links to known things ·
+    new things · facts) and sample identities. Merging happens only on
+    confirm.
+  - **Column-mapping overrides** (`InferOverrides`): the kind, the identity
+    column, per-column link/fact/skip (click a chip to cycle), and each
+    link's target kind are all editable in the preview; every change re-runs
+    the dry preview so the numbers stay true.
+  - **Cross-row reference dedupe** (`combineExtractions`): rows ingest in
+    combined batches of 200 with identical entities (kind+label+natural keys)
+    collapsed to one shared local id — "Acme" on every row resolves ONCE
+    instead of once per row; distinct natural keys never collapse.
+  - infer-graph split per convention: pure core `infer-graph-core.ts`
+    (import-free, node:test-loadable) + DB shell `infer-graph.ts`. New
+    tests/infer-graph.test.ts (5 tests: heuristics, overrides, dedupe).
 - **2026-07-11** — **AUDIO TIER shipped (last open Explorer-track item)** — a
   voice memo/recording forwarded on any channel becomes an understood thick
   node, mirroring the vision tier's fail-soft design:

@@ -51,8 +51,11 @@
 - **Channel adapters E2E** — WhatsApp (Twilio sandbox), Slack app, Teams bot
   are code-complete but have never touched the real providers. The core pitch
   ("forward from anywhere") ends here.
-- **Spreadsheet-import follow-ups** — pre-merge preview/confirm, column-mapping
-  overrides, dedupe referenced entities across rows before ingest.
+- ~~Spreadsheet-import follow-ups~~ ✅ 2026-07-11 — pre-merge PREVIEW/confirm
+  (dry-run shows the reading + honest counts; nothing writes until confirmed),
+  column-mapping overrides (kind, identity column, per-column link/fact/skip,
+  link target), and cross-row reference dedupe before ingest
+  (`combineExtractions` — "Acme" on 200 rows resolves once).
 - **Scanned-PDF OCR** — the vision tier's deliberate v1 cut: rasterize pages
   (canvas) → same `extractFromImage` call → thick nodes for scans.
 - **Local / open-source single-user edition** — fully designed (see
@@ -68,8 +71,9 @@
   dashed lines between the schema canvas's cards.
 - Concept-map pure core (`lib/datamodo/concept-map.ts`) is dormant (view
   removed) — resurrect as an Explore lens or delete after a quiet month.
-- Category proposals from the agent via Review ("no-fit entity → propose a new
-  kind with inferred template") — growth loop ⑤ of the ontology design.
+- ~~Category proposals via Review~~ ✅ 2026-07-11 — growth loop ⑤: ≥3 entities
+  of an unregistered kind → ONE `category_proposal` review with an AI-drafted
+  template; accept creates the category, decline never re-asks.
 - Semantic (ANN) chunk search behind the same `searchChunks` shape.
 - Dossier: PDF rendering behind the same `buildDossier`.
 - Graph: persist collapsed-kind state if users ask for it (deliberately

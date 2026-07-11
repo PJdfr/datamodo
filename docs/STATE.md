@@ -22,7 +22,7 @@
 | Hosting | Vercel (Production=prod branch, Preview=dev branch) | — |
 | Tests | `node:test` over pure cores (`npm test`) | `tests/*.test.ts` |
 | CI | GitHub Actions: tests, tsc, lint==baseline, build — on every PR, dev/prod push, AND `claude/**` pushes (agent-session pushes don't fire `pull_request` events) | `.github/workflows/ci.yml`, `scripts/check-lint-baseline.mjs` |
-| Screenshot harness | `npm run shoot [-- explorer timeline]` — bundles a fixture harness (esbuild), renders it in local Chromium (playwright-core), writes `.shoot/<name>.png`, fails on page errors. No DB/login needed | `scripts/shoot/run.mjs`, `scripts/shoot/harnesses/*.tsx` |
+| Screenshot harness | `npm run shoot [-- explorer schema timeline review]` — bundles a fixture harness (esbuild), renders it in local Chromium (playwright-core), writes `.shoot/<name>.png`, fails on page errors. No DB/login needed | `scripts/shoot/run.mjs`, `scripts/shoot/harnesses/*.tsx` |
 | Design | datamodo design system (cream/ink/coral, Geist Mono data) | `design/system/`, skill `.claude/skills/datamodo-design/` |
 
 ## Feature inventory (shipped)
@@ -60,7 +60,7 @@
 | Embeddings (fail-soft, 1536-dim, stored on entity) | `lib/llm/embeddings.ts` |
 | Document evidence layer: page-lineage chunks + keyword passage search | `chunkDocText` in `document-extraction.ts`, `lib/datamodo/chunks.ts` (table `doc_chunks`) |
 | Entity merge (repoints facts/chunks/rows/body, tombstones) | `mergeEntities` in `knowledge.ts` |
-| Review queue: merges, conflicts, low-confidence extractions, off-template — impact-ranked, accept/reject with real side-effects | `lib/datamodo/reviews.ts`, `lib/datamodo/review-types.ts`, `app/api/knowledge/reviews*` |
+| Review queue: merges, conflicts, low-confidence extractions, off-template, **category proposals (growth loop ⑤: ≥3 entities of an unknown kind → proposed category with AI-drafted template; accept creates it, decline never re-asks)** — impact-ranked, accept/reject with real side-effects | `lib/datamodo/reviews.ts`, `lib/datamodo/review-types.ts`, `app/api/knowledge/reviews*`; trigger `unregisteredKinds` in `ontology.ts` + `maybeProposeCategories` in `kinds.ts` |
 
 ### Projections (every view derives from the vault; nothing is a second store)
 | Feature | Code |
@@ -80,7 +80,7 @@
 | Insights (any measure × any axis, live aggregation) | `lib/datamodo/analytics.ts`, `app/dashboard/insights-view.tsx` |
 | Search: tables + knowledge + document passages, grounded answers with citations | `lib/datamodo/search.ts`, `lib/datamodo/answer.ts`, `app/api/search`, `app/dashboard/answer-card.tsx` |
 | Review Studio (PR-metaphor queue) | `app/dashboard/review-studio.tsx` |
-| Spreadsheet → knowledge graph import (infer + merge) | `lib/datamodo/infer-graph.ts`, `app/api/knowledge/import-graph`, `app/dashboard/import-graph-modal.tsx` |
+| Spreadsheet → knowledge graph import: **preview/confirm** (dry-run reading with per-column roles + honest counts; nothing writes unconfirmed), **column-mapping overrides** (kind · identity column · link/fact/skip · link target), **cross-row reference dedupe** (`combineExtractions`, batched ingest) | pure `lib/datamodo/infer-graph-core.ts`; shell `infer-graph.ts` (`previewTableGraph`), `app/api/knowledge/import-graph` (`mode=preview`, `overrides`), `app/dashboard/import-graph-modal.tsx` |
 | Auto-link suggestions between tables; explicit dataset_relations draw as **dashed lines** between schema-canvas cards | `lib/datamodo/relations.ts`, `app/api/relations/suggestions`, `SchemaTableLink` in `app/dashboard/schema-view.tsx` |
 | Queue pill: "⟳ processing N items" in the topbar (hidden when idle; fast-polls while draining; stuck items surface) | `app/dashboard/queue-pill.tsx`, `GET app/api/jobs/queue-status` |
 | Onboarding / business context (steers extraction) | `app/dashboard/onboarding-modal.tsx`, `lib/datamodo/settings.ts` |
