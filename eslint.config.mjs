@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Design reference bundle (HTML/JS prototypes, not app code).
     "design/**",
+    // Screenshot-harness build output (npm run shoot).
+    ".shoot/**",
   ]),
 ]);
 

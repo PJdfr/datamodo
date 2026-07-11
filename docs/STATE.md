@@ -21,7 +21,8 @@
 | Jobs | GitHub Actions cron → `extract-tick` (+ `after()` self-kick on ingest) | `.github/workflows/extract-cron.yml`, `app/api/jobs/*` |
 | Hosting | Vercel (Production=prod branch, Preview=dev branch) | — |
 | Tests | `node:test` over pure cores (`npm test`) | `tests/*.test.ts` |
-| CI | GitHub Actions on every PR + dev/prod push: tests, tsc, lint==baseline, build | `.github/workflows/ci.yml`, `scripts/check-lint-baseline.mjs` |
+| CI | GitHub Actions: tests, tsc, lint==baseline, build — on every PR, dev/prod push, AND `claude/**` pushes (agent-session pushes don't fire `pull_request` events) | `.github/workflows/ci.yml`, `scripts/check-lint-baseline.mjs` |
+| Screenshot harness | `npm run shoot [-- explorer timeline]` — bundles a fixture harness (esbuild), renders it in local Chromium (playwright-core), writes `.shoot/<name>.png`, fails on page errors. No DB/login needed | `scripts/shoot/run.mjs`, `scripts/shoot/harnesses/*.tsx` |
 | Design | datamodo design system (cream/ink/coral, Geist Mono data) | `design/system/`, skill `.claude/skills/datamodo-design/` |
 
 ## Feature inventory (shipped)

@@ -12,6 +12,16 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **Session-speed fixes** (retro on why PR #42 was slow):
+  ① CI now also triggers on `claude/**` pushes — pushes from agent sessions
+  don't fire `pull_request` events (GitHub suppresses them for those tokens),
+  which had left PRs showing stale checks and cost dead waiting + a manual
+  `workflow_dispatch`. ② The ad-hoc browser screenshot harness is now a repo
+  tool: `npm run shoot [-- explorer timeline]` (esbuild bundle → local
+  Chromium → `.shoot/<name>.png`, fails on page errors; harnesses are small
+  fixture mounts under `scripts/shoot/harnesses/`). devDeps: esbuild,
+  playwright-core. `.shoot/` is git- and eslint-ignored. Verified: both
+  harnesses shoot green; 87/87 tests, tsc, lint == baseline, build green.
 - **2026-07-11** — **Dashboard clarity pass + design polish** (user feedback on
   the Explorer v2 port: keep the design's color richness and cleaner panel;
   Timeline "10× cleaner" in the mock; too many tabs/toggles in Data).
