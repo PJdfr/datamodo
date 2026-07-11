@@ -206,8 +206,10 @@ export function KnowledgeView({ view, onSwitch, tables = [], onOpenTable, onTabl
     );
   }
 
+  // Full-bleed: the schema canvas and the walk want every pixel the
+  // dashboard gives them (user call 2026-07-11) — no max-width cap.
   return (
-    <div style={{ maxWidth: 980 }}>
+    <div>
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
         <div>
           <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink }}><CountUp value={entities.length} /> thing{entities.length === 1 ? "" : "s"} we know about</div>

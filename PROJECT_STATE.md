@@ -12,6 +12,12 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **Data surfaces go full-width** (user: the Explorer and the
+  schema canvas were mysteriously capped). Cause: a `maxWidth: 980` wrapper in
+  `KnowledgeView` (plus the same cap on Files and Insights). Removed — the
+  walk, the schema canvas, Files and Insights now stretch to the dashboard's
+  full width; Timeline deliberately keeps its 720px reading column. Verified:
+  full bar + shoot green.
 - **2026-07-11** — **Schema view is now a real draggable canvas** (user: treat
   categories like a Supabase instance — drag tables around, links must keep
   making sense). Cards float free on a ruled canvas; drag by the header and
