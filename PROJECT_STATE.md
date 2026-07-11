@@ -12,6 +12,15 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **Requeue UX shipped: the extraction queue is visible.**
+  New session-authed `GET /api/jobs/queue-status` (queued = `stored` +
+  retryable `failed` under the attempt cap; `analyzing`; `stuck` = failed past
+  retries) and a topbar **QueuePill** ("⟳ processing N items"): invisible when
+  idle (simplicity rule — no new chrome in the common case), polls every 8s
+  while draining / 60s idle, pauses when the tab is hidden, and shows "⚠ N
+  stuck" honestly when items exhausted their retries. New `dm-spin` keyframe
+  (covered by the existing reduced-motion guard). Roadmap item closed.
+  Verified: 83/83 tests + tsc + lint == baseline + build green.
 - **2026-07-11** — **ON-DEMAND SYNTHESIS shipped: "✦ Synthesize" writes a cited
   cross-document note** (north-star item; generation ONLY when the user asks —
   the button is the only trigger, there is no background path).

@@ -79,6 +79,7 @@
 | Review Studio (PR-metaphor queue) | `app/dashboard/review-studio.tsx` |
 | Spreadsheet → knowledge graph import (infer + merge) | `lib/datamodo/infer-graph.ts`, `app/api/knowledge/import-graph`, `app/dashboard/import-graph-modal.tsx` |
 | Auto-link suggestions between tables | `lib/datamodo/relations.ts`, `app/api/relations/suggestions` |
+| Queue pill: "⟳ processing N items" in the topbar (hidden when idle; fast-polls while draining; stuck items surface) | `app/dashboard/queue-pill.tsx`, `GET app/api/jobs/queue-status` |
 | Onboarding / business context (steers extraction) | `app/dashboard/onboarding-modal.tsx`, `lib/datamodo/settings.ts` |
 | BYOK (user's own OpenRouter/OpenAI/Anthropic key) | `lib/datamodo/llm-for-user.ts`, SettingsModal in `app/dashboard/ui.tsx` |
 | Landing page + SEO | `app/page.tsx`, `components/landing/`, `app/landing.css`, `app/robots.ts`, `app/sitemap.ts` |

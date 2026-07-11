@@ -59,7 +59,6 @@
 - Dossier: PDF rendering behind the same `buildDossier`.
 - Graph: persist collapsed-kind state if users ask for it (deliberately
   session-local today).
-- Requeue UX: surface "reprocessing N items" in the dashboard.
 - DuckDB / lance-graph sidecar when analytics volume demands it (documented
   seam in `analytics.ts`).
 
