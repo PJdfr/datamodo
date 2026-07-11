@@ -5,7 +5,7 @@
 > infographic), [ROADMAP.md](ROADMAP.md) (what's next), [MEMORY.md](MEMORY.md)
 > (durable context). Dated history stays in [../PROJECT_STATE.md](../PROJECT_STATE.md).
 >
-> Last updated: 2026-07-10
+> Last updated: 2026-07-11
 
 ## Stack at a glance
 
@@ -21,6 +21,7 @@
 | Jobs | GitHub Actions cron → `extract-tick` (+ `after()` self-kick on ingest) | `.github/workflows/extract-cron.yml`, `app/api/jobs/*` |
 | Hosting | Vercel (Production=prod branch, Preview=dev branch) | — |
 | Tests | `node:test` over pure cores (`npm test`) | `tests/*.test.ts` |
+| CI | GitHub Actions on every PR + dev/prod push: tests, tsc, lint==baseline, build | `.github/workflows/ci.yml`, `scripts/check-lint-baseline.mjs` |
 | Design | datamodo design system (cream/ink/coral, Geist Mono data) | `design/system/`, skill `.claude/skills/datamodo-design/` |
 
 ## Feature inventory (shipped)

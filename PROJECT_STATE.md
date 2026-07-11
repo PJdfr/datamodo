@@ -9,9 +9,17 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-10
+> Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **CI pipeline added**: `.github/workflows/ci.yml` runs the
+  full verification bar (unit tests → tsc → lint==baseline → `next build`) on
+  every PR and on pushes to dev/prod. The lint gate is
+  `scripts/check-lint-baseline.mjs` (fails only on NEW problems vs the
+  documented 8-error/16-warning baseline; shrink the constants as old ones get
+  fixed). Build runs with dummy auth/DB env (module-scope reads only; nothing
+  connects). Verified locally: 71/71 tests, tsc clean, baseline check green,
+  build green.
 - **2026-07-10** — **EXPLORER shipped (north-star phase 1): walk the graph edge to
   edge; every edge shows its meaning.** Two durable decisions recorded in
   docs/MEMORY.md: free exploration with natural-shape nodes is the product's
