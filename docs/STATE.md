@@ -69,7 +69,7 @@
 | **Explorer**: ego-graph walking (center + 2 rings, breadcrumbs, jump box), natural-shape side panel, **edge inspector** (predicate · confidence · since · corroboration · source messages) | pure `lib/datamodo/explorer.ts`, `app/dashboard/explorer-view.tsx`; fact metadata on `KnowledgeFactView` (confidence, validFrom) |
 | **Node shapes phase 2**: image documents render the original inline (`?inline=1` streaming), `bookmark` builtin kind renders a link card, datasets appear as walkable virtual nodes in the Explorer (`contains` edges to row entities) | pure `lib/datamodo/node-shapes.ts`; `app/dashboard/entity-page.tsx`, `knowledge-view.tsx`, `app/api/knowledge/entities`, `app/api/documents/[id]` |
 | Concept map (bubbles by content, explicit + co-occurrence links) | pure `lib/datamodo/concept-map.ts`, `app/dashboard/concept-map-view.tsx` |
-| Timeline (messages · domain dates · corrections · first sightings; Upcoming; per-entity) | pure `lib/datamodo/timeline.ts`, `app/api/knowledge/timeline`, `app/dashboard/timeline-view.tsx` |
+| Timeline (messages · domain dates · corrections · first sightings; Upcoming; per-entity; sent-vs-arrived clock toggle; collapsed "◷ History" on every entity page) | pure `lib/datamodo/timeline.ts` (`timeBasis`), `app/api/knowledge/timeline` (`?basis=sent`), `app/dashboard/timeline-view.tsx` (`EntityHistory`) |
 | Entity pages (record table / document summary page; safe MarkdownLite) | `app/dashboard/entity-page.tsx` |
 | Dossier export (cited markdown download) | pure `lib/datamodo/dossier.ts`, `app/api/knowledge/entities/[id]/dossier` |
 | Files view (smart folders = projections over `mentions`) + original download | `app/dashboard/files-view.tsx`, `app/api/documents/[id]` |

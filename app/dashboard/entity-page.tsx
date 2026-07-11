@@ -12,6 +12,7 @@
 
 import { Fragment, useState, type ReactNode } from "react";
 import { C, ModalShell, SourceRow } from "./ui";
+import { EntityHistory } from "./timeline-view";
 import { DATASET_NODE_KIND, entityBookmarkUrl, entityImageType } from "@/lib/datamodo/node-shapes";
 import type { FactSourceView, KnowledgeEntityView, KnowledgeFactView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
@@ -329,6 +330,9 @@ export function EntityPageModal({ e, kindDef, onClose, onOpen, onExplore }: {
       }
     >
       <EntityPageBody e={e} kindDef={kindDef} onOpen={onOpen} />
+      {/* The entity's own timeline, collapsed until asked for — virtual nodes
+          (datasets) have no history in the vault. */}
+      {e.kind !== DATASET_NODE_KIND && <EntityHistory entityId={e.id} onOpen={onOpen} />}
     </ModalShell>
   );
 }

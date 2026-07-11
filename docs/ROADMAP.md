@@ -56,8 +56,6 @@
 - Category proposals from the agent via Review ("no-fit entity → propose a new
   kind with inferred template") — growth loop ⑤ of the ontology design.
 - Semantic (ANN) chunk search behind the same `searchChunks` shape.
-- Timeline: `sent_at` vs `received_at` preference; per-entity timeline embedded
-  on entity pages.
 - Dossier: PDF rendering behind the same `buildDossier`.
 - Graph: persist collapsed-kind state if users ask for it (deliberately
   session-local today).

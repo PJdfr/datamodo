@@ -12,6 +12,20 @@
 > Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **Timeline follow-ups shipped: sent-vs-arrived clock +
+  per-entity history on entity pages** (both roadmap items).
+  - **`timeBasis` option** on the pure `buildTimeline`: `"sent"` puts message
+    events at the sender's send time (`items.sent_at`, falls back to
+    received_at when the channel doesn't know) — forwarded email keeps its
+    original date. API: `?basis=sent`; UI: a "clock: arrived ⇄" pill in the
+    Timeline header toggles it.
+  - **`EntityHistory`** ([timeline-view.tsx](app/dashboard/timeline-view.tsx)):
+    every entity page ends with a COLLAPSED "◷ History" disclosure — fetched
+    only when opened (progressive disclosure per the simplicity rule), renders
+    the same event rows narrowed to that entity, chips navigate to other
+    entities' pages. Hidden for virtual dataset nodes (no vault history).
+  - Verified: 78/78 tests (1 new on sent-basis + fallback) + tsc + lint ==
+    baseline + build green.
 - **2026-07-11** — **NODE SHAPES PHASE 2 shipped: image nodes, bookmarks,
   dataset-as-node** (Explorer track item — "a node can be anything").
   - **Pure core** [node-shapes.ts](lib/datamodo/node-shapes.ts) (import-free):
@@ -32,7 +46,7 @@
     row-entity ids; the Explorer's world = entities + dataset nodes, so you can
     walk INTO a table and out through any of its rows. Panel shows a "▦ Table"
     card (rows × columns); dossier hidden for virtual nodes.
-  - Verified: 78/78 tests (7 new) + tsc + lint == baseline + build green.
+  - Verified: 77/77 tests (6 new) + tsc + lint == baseline + build green.
     Image rendering not eyeballed live (no blob bucket in sandbox) — the
     `<img>` rides the already-verified download route.
 - **2026-07-11** — **`bumpSupport` is now atomic** (`support = support + 1` via
