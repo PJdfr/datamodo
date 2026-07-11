@@ -82,11 +82,14 @@ progressive disclosure over adding parallel options: before adding a toggle,
 button, or view, ask what it replaces or where it nests. Views multiply only
 when each answers a genuinely different question; controls the user rarely
 needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
-- **Applied 2026-07-11 (IA shape, keep it this way):** the Data tab is three
-  surfaces — **Tables · ◍ Explore · Insights**. Explore is THE knowledge
-  surface (Walk is its default; Cards/Map/Concepts/Timeline/Files are modes of
-  it, never top-level peers again); rare build actions live behind one
-  "✦ Build ▾" menu. Don't re-add siblings — nest or cut.
+- **Applied 2026-07-11, revised same day (IA shape — keep it this way):** the
+  Data tab is **ONE FLAT toggle** — Tables · ◍ Explore · Cards · Concepts ·
+  Timeline · Files · Insights. NO toggles inside toggles (user decision:
+  flat beats nested). Merge before adding a sibling: the old Map merged INTO
+  Explore as its ⌂ zoomed-out state; Cards bridge to Tables via "▦ open as
+  table". Rare build actions live behind one "✦ Build ▾" menu. Review owns
+  the words "pending changes"; Timeline owns "what we learned" — never let
+  them read as two timelines.
 
 ## Design system (brand)
 - Brand name always lowercase **datamodo**. Cream `#F6F2E9` canvas, warm ink

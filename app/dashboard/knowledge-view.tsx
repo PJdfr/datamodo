@@ -8,12 +8,9 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { C, monoLabel, CountUp, Segmented, SourceRow } from "./ui";
-import { KnowledgeGraphView } from "./knowledge-graph";
+import { C, monoLabel, CountUp, SourceRow } from "./ui";
 import { ConceptMapView } from "./concept-map-view";
 import { ExplorerView } from "./explorer-view";
-import { TimelineView } from "./timeline-view";
-import { FilesView } from "./files-view";
 import { EntityPageModal } from "./entity-page";
 import { buildDatasetNodes, type DatasetNodeSource } from "@/lib/datamodo/node-shapes";
 import { canSynthesize } from "@/lib/datamodo/synthesis";
@@ -112,16 +109,51 @@ function EntityCard({ e, kindDef, onOpen }: { e: KnowledgeEntityView; kindDef?: 
   );
 }
 
-export function KnowledgeView() {
+/** A table IS a cards grouping with a schema — this button makes that real:
+ *  one click projects the category into a dataset (idempotent server-side)
+ *  and jumps to Tables. */
+function OpenAsTableButton({ kindId, onDone }: { kindId: string; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const run = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(false);
+    try {
+      const res = await fetch(`/api/kinds/${kindId}/table`, { method: "POST" });
+      if (!res.ok) throw new Error();
+      onDone();
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button type="button" onClick={run} disabled={busy}
+      title="Project this category into an editable table (creates it if needed)"
+      className="dm-mono"
+      style={{ marginLeft: 4, fontSize: 10, color: error ? "#A0522D" : "#8A8477", background: "transparent", border: "1px solid #E1D9C8", borderRadius: 6, padding: "2px 8px", cursor: busy ? "default" : "pointer", fontFamily: "inherit", opacity: busy ? 0.6 : 1 }}>
+      {busy ? "▦ building…" : error ? "▦ failed — retry" : "▦ open as table"}
+    </button>
+  );
+}
+
+export type KnowledgeViewName = "explore" | "cards" | "concepts";
+
+export function KnowledgeView({ view, onSwitch }: {
+  /** Which reading of the vault to show — chosen by the Data tab's ONE flat
+   *  toggle (IA rule: no toggles inside toggles). */
+  view: KnowledgeViewName;
+  /** Ask the parent to switch the flat toggle ("◍ Explore" from a page modal,
+   *  "▦ open as table" from a cards group). */
+  onSwitch?: (v: "explore" | "tables") => void;
+}) {
   const [entities, setEntities] = useState<KnowledgeEntityView[]>([]);
   const [datasetSources, setDatasetSources] = useState<DatasetNodeSource[]>([]);
   const [kinds, setKinds] = useState<KindDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
-  // ONE knowledge surface, walking first (the north star): Walk is the front
-  // door; the other readings of the same vault nest here as modes instead of
-  // competing as top-level tabs (simplicity rule / IA pass 2026-07-11).
-  const [mode, setMode] = useState<"explore" | "cards" | "graph" | "concepts" | "timeline" | "files">("explore");
   const [openId, setOpenId] = useState<string | null>(null);
   // Explorer wiring: entering via "◍ Explore" recenters on that entity; the
   // key remount resets the walk's breadcrumb trail.
@@ -131,7 +163,7 @@ export function KnowledgeView() {
     setExploreId(id);
     setExploreSeed((s) => s + 1);
     setOpenId(null);
-    setMode("explore");
+    onSwitch?.("explore");
   };
 
   useEffect(() => {
@@ -200,8 +232,7 @@ export function KnowledgeView() {
           <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>{groups.length} kind{groups.length === 1 ? "" : "s"} · {totalFacts} fact{totalFacts === 1 ? "" : "s"} · your tables are built from these</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <Segmented value={mode} onChange={setMode} options={[{ v: "explore", label: "◍ Walk" }, { v: "cards", label: "Cards" }, { v: "graph", label: "Map" }, { v: "concepts", label: "Concepts" }, { v: "timeline", label: "Timeline" }, { v: "files", label: "Files" }]} />
-          {(mode === "cards" || mode === "graph") && (
+          {view === "cards" && (
             <div style={{ position: "relative", minWidth: 220 }}>
               <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search entities & facts…" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
@@ -210,21 +241,16 @@ export function KnowledgeView() {
         </div>
       </div>
 
-      {shown.length === 0 && (mode === "cards" || mode === "graph") && <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Nothing matches “{q.trim()}”.</div>}
+      {shown.length === 0 && view === "cards" && <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Nothing matches “{q.trim()}”.</div>}
 
-      {mode === "graph" && shown.length > 0 && <KnowledgeGraphView entities={shown} onOpen={setOpenId} />}
-
-      {/* The concept map reads over ALL entities, not the search subset — a
+            {/* The concept map reads over ALL entities, not the search subset — a
           half-filtered map of content misleads more than it helps. */}
-      {mode === "concepts" && <ConceptMapView entities={entities} onOpen={setOpenId} />}
+      {view === "concepts" && <ConceptMapView entities={entities} onOpen={setOpenId} />}
 
-      {/* Same vault, other readings — nested here, not top-level peers. */}
-      {mode === "timeline" && <TimelineView />}
-      {mode === "files" && <FilesView />}
 
       {/* Explorer: stand on one node, walk edge to edge. Defaults to the
           best-connected entity until a walk begins. */}
-      {mode === "explore" && entities.length > 0 && (
+      {view === "explore" && entities.length > 0 && (
         <ExplorerView
           key={exploreSeed}
           entities={explorerEntities}
@@ -234,7 +260,7 @@ export function KnowledgeView() {
         />
       )}
 
-      {mode === "cards" && groups.map(([kind, list]) => {
+      {view === "cards" && groups.map(([kind, list]) => {
         const def = kindByName.get(kind);
         return (
           <div key={kind} style={{ marginBottom: 24 }}>
@@ -242,6 +268,7 @@ export function KnowledgeView() {
               {def?.icon ? <span style={{ fontSize: 13 }}>{def.icon}</span> : <span style={{ width: 9, height: 9, borderRadius: 3, background: def?.color ?? toneOf(kind) }} />}
               <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink, margin: 0 }}>{def?.plural ?? titleCase(plural(kind))}</h2>
               <span className="dm-mono" style={{ ...monoLabel }}>{list.length}</span>
+              {def?.id && onSwitch && <OpenAsTableButton kindId={def.id} onDone={() => onSwitch("tables")} />}
             </div>
             <div className="dm-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
               {list.map((e) => <EntityCard key={e.id} e={e} kindDef={def} onOpen={setOpenId} />)}
