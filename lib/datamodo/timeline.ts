@@ -38,6 +38,9 @@ export interface TimelineItemInput {
   subject: string | null;
   preview: string | null;
   receivedAt: string; // ISO
+  /** When the sender actually sent it (email Date header etc.) — often earlier
+   *  than receivedAt for forwarded mail. Null when the channel doesn't know. */
+  sentAt?: string | null;
 }
 
 // --- Output ------------------------------------------------------------------
@@ -92,6 +95,10 @@ export interface BuildTimelineOptions {
   entityId?: string | null;
   /** Cap the result (after sorting, newest first). Default 200. */
   limit?: number;
+  /** Where message events sit on the axis: when they arrived here (default)
+   *  or when the sender sent them (falls back to receivedAt when unknown) —
+   *  forwarded email often carries a much older sent date. */
+  timeBasis?: "received" | "sent";
 }
 
 /**
@@ -107,6 +114,7 @@ export function buildTimeline(
 ): TimelineEvent[] {
   const limit = opts.limit ?? 200;
   const entityId = opts.entityId ?? null;
+  const timeBasis = opts.timeBasis ?? "received";
   const byId = new Map(entities.map((e) => [e.id, e]));
   const labelOf = (id: string) => byId.get(id)?.label ?? "?";
   const refOf = (id: string): TimelineEntityRef | null => {
@@ -142,7 +150,7 @@ export function buildTimeline(
       f.objectEntityId ? [f.subjectEntityId, f.objectEntityId] : [f.subjectEntityId],
     );
     events.push({
-      ts: it.receivedAt,
+      ts: timeBasis === "sent" ? (it.sentAt ?? it.receivedAt) : it.receivedAt,
       dateOnly: false,
       type: "message",
       title: it.subject || it.preview || "Message received",

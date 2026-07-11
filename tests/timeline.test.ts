@@ -140,3 +140,22 @@ test("formatFactValue: entity refs use labels; numbers carry units", () => {
   assert.equal(formatFactValue({ objectEntityId: null, valueText: null, valueNum: null, valueDate: "2026-07-20", unit: null }, labelOf), "2026-07-20");
   assert.equal(formatFactValue({ objectEntityId: null, valueText: "net 30", valueNum: null, valueDate: null, unit: null }, labelOf), "net 30");
 });
+
+test("buildTimeline: timeBasis 'sent' uses sentAt with receivedAt fallback", () => {
+  const facts = [F({ id: "f1", subjectEntityId: "inv", predicate: "amount", valueNum: 1, sourceItemId: "m1" }),
+                 F({ id: "f2", subjectEntityId: "inv", predicate: "status", valueText: "open", sourceItemId: "m2" })];
+  const items = [
+    // Forwarded mail: sent long before it reached the inbox.
+    I("m1", "2026-07-02T09:00:00.000Z", { sentAt: "2026-06-01T08:00:00.000Z" }),
+    // Channel without a send date.
+    I("m2", "2026-07-03T09:00:00.000Z", { subject: "No send date", sentAt: null }),
+  ];
+
+  const received = buildTimeline(ENTITIES, facts, items).filter((e) => e.type === "message");
+  assert.deepEqual(received.map((e) => e.ts), ["2026-07-03T09:00:00.000Z", "2026-07-02T09:00:00.000Z"]);
+
+  const sent = buildTimeline(ENTITIES, facts, items, { timeBasis: "sent" }).filter((e) => e.type === "message");
+  const byId = new Map(sent.map((e) => [e.itemId, e.ts]));
+  assert.equal(byId.get("m1"), "2026-06-01T08:00:00.000Z"); // sender's clock
+  assert.equal(byId.get("m2"), "2026-07-03T09:00:00.000Z"); // fallback
+});

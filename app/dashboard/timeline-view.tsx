@@ -78,6 +78,9 @@ export function TimelineView() {
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<TimelineEntityRef | null>(null);
+  // Message events can sit at arrival time (default) or at the sender's send
+  // time — forwarded email often carries a much older date.
+  const [basis, setBasis] = useState<"received" | "sent">("received");
 
   // On a filter change the previous events stay visible until the new fetch
   // lands (no flash); `loading` only gates the very first paint.
@@ -85,7 +88,11 @@ export function TimelineView() {
     let alive = true;
     (async () => {
       try {
-        const res = await fetch(`/api/knowledge/timeline${filter ? `?entity=${encodeURIComponent(filter.id)}` : ""}`);
+        const params = new URLSearchParams();
+        if (filter) params.set("entity", filter.id);
+        if (basis === "sent") params.set("basis", "sent");
+        const qs = params.toString();
+        const res = await fetch(`/api/knowledge/timeline${qs ? `?${qs}` : ""}`);
         const json = await res.json();
         if (alive) setEvents(json.events ?? []);
       } catch {
@@ -95,7 +102,7 @@ export function TimelineView() {
       }
     })();
     return () => { alive = false; };
-  }, [filter]);
+  }, [filter, basis]);
 
   // Group into day sections, newest first; future days pool under "Upcoming"
   // (a due date next week belongs above the past, not lost inside it).
@@ -161,6 +168,15 @@ export function TimelineView() {
           </div>
           <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Messages, due dates, corrections & first sightings — derived live from your knowledge</div>
         </div>
+        <button
+          type="button"
+          onClick={() => setBasis((b) => (b === "received" ? "sent" : "received"))}
+          title="Where messages sit on the axis: when they arrived here, or when the sender sent them (forwarded email keeps its original date)"
+          className="dm-mono"
+          style={{ marginLeft: filter ? 0 : "auto", fontSize: 10.5, color: "#57534A", background: "#fff", border: "1px solid #DDD5C5", borderRadius: 999, padding: "4px 11px", cursor: "pointer", fontFamily: "inherit" }}
+        >
+          clock: {basis === "received" ? "arrived" : "sent"} ⇄
+        </button>
         {filter && (
           <button
             type="button"
@@ -175,6 +191,70 @@ export function TimelineView() {
 
       {upcoming.length > 0 && section("Upcoming", upcoming, "upcoming", true)}
       {days.map(([dayKey, list]) => section(dayLabel(dayKey, todayYear), list, dayKey))}
+    </div>
+  );
+}
+
+/**
+ * The per-entity timeline, embedded on an entity page as a collapsed
+ * disclosure ("◷ History") — progressive disclosure, fetched only when opened.
+ * Same projection as the Timeline view, narrowed to one entity.
+ */
+export function EntityHistory({ entityId, onOpen }: {
+  entityId: string;
+  /** Navigate to another entity's page (event chips). */
+  onOpen?: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [events, setEvents] = useState<TimelineEvent[] | null>(null);
+
+  useEffect(() => {
+    if (!open || events !== null) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/knowledge/timeline?entity=${encodeURIComponent(entityId)}`);
+        const json = await res.json();
+        if (alive) setEvents(json.events ?? []);
+      } catch {
+        if (alive) setEvents([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [open, events, entityId]);
+
+  const todayYear = new Date().getFullYear();
+  const shown = (events ?? []).slice(0, 30);
+
+  return (
+    <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, overflow: "hidden", marginTop: 16 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="dm-mono"
+        style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", textAlign: "left", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", padding: "10px 12px" }}
+      >
+        ◷ History — everything about this, in order
+        <span style={{ marginLeft: "auto", display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }}>›</span>
+      </button>
+      {open && (
+        <div style={{ padding: "0 10px 8px" }}>
+          {events === null && <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", padding: "4px 4px 8px" }}>Assembling…</div>}
+          {events !== null && shown.length === 0 && (
+            <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", padding: "4px 4px 8px" }}>No dated events yet.</div>
+          )}
+          {shown.map((ev, i) => (
+            <div key={i} style={{ borderTop: i === 0 ? "none" : "1px solid #F4EFE4" }}>
+              <div className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F", padding: "6px 4px 0" }}>{dayLabel(ev.ts.slice(0, 10), todayYear)}</div>
+              <EventRow ev={ev} onFilter={onOpen ? (r) => onOpen(r.id) : () => {}} />
+            </div>
+          ))}
+          {events !== null && events.length > shown.length && (
+            <div className="dm-mono" style={{ fontSize: 10, color: "#B7AF9F", padding: "6px 4px" }}>{events.length - shown.length} older moments in the Timeline view</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

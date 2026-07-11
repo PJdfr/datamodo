@@ -30,6 +30,7 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { signout } from "@/app/auth/actions";
+import { QueuePill } from "./queue-pill";
 import {
   createAgentAction,
   updateAgentAction,
@@ -368,6 +369,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
             <div style={{ fontSize: 13, color: "#8A8477", marginTop: 2 }}>{titles[tab].sub}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: "auto" }}>
+            <QueuePill />
             <Hov onClick={() => setOnboardingOpen(true)} title={hasContext ? "Edit your business context" : "Tell your agents what matters"} base={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 500, color: "#3A352C", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px", cursor: "pointer", fontFamily: "inherit" }} hover={{ background: "#FBF8F1" }}>
               <span style={{ color: C.accent }}>✦</span>
               Context{hasContext && <span style={{ color: C.green, fontSize: 13, lineHeight: 1 }}>✓</span>}

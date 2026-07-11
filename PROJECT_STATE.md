@@ -9,9 +9,86 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-10
+> Last updated: 2026-07-11
 
 ## Recent changes
+- **2026-07-11** — **Requeue UX shipped: the extraction queue is visible.**
+  New session-authed `GET /api/jobs/queue-status` (queued = `stored` +
+  retryable `failed` under the attempt cap; `analyzing`; `stuck` = failed past
+  retries) and a topbar **QueuePill** ("⟳ processing N items"): invisible when
+  idle (simplicity rule — no new chrome in the common case), polls every 8s
+  while draining / 60s idle, pauses when the tab is hidden, and shows "⚠ N
+  stuck" honestly when items exhausted their retries. New `dm-spin` keyframe
+  (covered by the existing reduced-motion guard). Roadmap item closed.
+  Verified: 83/83 tests + tsc + lint == baseline + build green.
+- **2026-07-11** — **ON-DEMAND SYNTHESIS shipped: "✦ Synthesize" writes a cited
+  cross-document note** (north-star item; generation ONLY when the user asks —
+  the button is the only trigger, there is no background path).
+  - **Pure core** [synthesis.ts](lib/datamodo/synthesis.ts):
+    `collectSynthesisSources` (content entities with a `bodyMd` linked to the
+    subject in EITHER direction; best-connected first; ≤8 sources, ≤1500 chars
+    each), `buildSynthesisPrompt` (numbered sources + the same grounding
+    contract as answers: sources only, cite [n]), `renderSynthesisBody` (the
+    model's note + OUR deterministic `#### Sources` footer + an honest
+    "Synthesized on … because you asked" stamp), `canSynthesize` (≥2 sources).
+  - **`POST /api/knowledge/entities/[id]/synthesize`**: org-scoped; uses the
+    ESCALATE model via `llmForUser` (BYOK respected); writes the note to
+    `entities.body_md`; fails soft (friendly 502 on no-key/flaky model).
+  - **UI**: "✦ Synthesize" in the entity-page footer whenever the entity has
+    ≥2 connected bodies of content (concepts, hub people/companies, notes);
+    busy state, inline error, and the open page updates in place.
+  - Verified: 83/83 tests (5 new) + tsc + lint == baseline + build green.
+    **NOT run against a live LLM** (no key in sandbox) — same chatJSON
+    contract as the verified extraction paths.
+- **2026-07-11** — **Timeline follow-ups shipped: sent-vs-arrived clock +
+  per-entity history on entity pages** (both roadmap items).
+  - **`timeBasis` option** on the pure `buildTimeline`: `"sent"` puts message
+    events at the sender's send time (`items.sent_at`, falls back to
+    received_at when the channel doesn't know) — forwarded email keeps its
+    original date. API: `?basis=sent`; UI: a "clock: arrived ⇄" pill in the
+    Timeline header toggles it.
+  - **`EntityHistory`** ([timeline-view.tsx](app/dashboard/timeline-view.tsx)):
+    every entity page ends with a COLLAPSED "◷ History" disclosure — fetched
+    only when opened (progressive disclosure per the simplicity rule), renders
+    the same event rows narrowed to that entity, chips navigate to other
+    entities' pages. Hidden for virtual dataset nodes (no vault history).
+  - Verified: 78/78 tests (1 new on sent-basis + fallback) + tsc + lint ==
+    baseline + build green.
+- **2026-07-11** — **NODE SHAPES PHASE 2 shipped: image nodes, bookmarks,
+  dataset-as-node** (Explorer track item — "a node can be anything").
+  - **Pure core** [node-shapes.ts](lib/datamodo/node-shapes.ts) (import-free):
+    `entityImageType` (image documents detected via `file_type` fact or the
+    filename inside the `doc:` natural key, same media gate as the vision
+    tier), `entityBookmarkUrl` (the `url` fact or a URL-shaped label; plain
+    http(s) only — anything else never becomes a link), `buildDatasetNodes`
+    (datasets → VIRTUAL `dataset` nodes with `contains` edges to the entities
+    projected into their rows; deduped, unknown ids dropped, empty tables
+    skipped — never enters the vault).
+  - **Image nodes render their image**: entity pages/Explorer panel embed the
+    original via `/api/documents/[id]?inline=1` (new inline disposition; the
+    binary still never leaves blob storage).
+  - **`bookmark` builtin kind** (required `url` field, title/site, `about`/
+    `shared_by` relations) — `ensureKinds` backfills it to existing orgs; the
+    extractor can now classify shared links. Bookmark nodes render a link card.
+  - **Dataset-as-node**: `/api/knowledge/entities` also returns each dataset's
+    row-entity ids; the Explorer's world = entities + dataset nodes, so you can
+    walk INTO a table and out through any of its rows. Panel shows a "▦ Table"
+    card (rows × columns); dossier hidden for virtual nodes.
+  - Verified: 77/77 tests (6 new) + tsc + lint == baseline + build green.
+    Image rendering not eyeballed live (no blob bucket in sandbox) — the
+    `<img>` rides the already-verified download route.
+- **2026-07-11** — **`bumpSupport` is now atomic** (`support = support + 1` via
+  Prisma's `increment`, one round-trip): concurrent per-entity extraction can
+  no longer lose corroboration counts to a read-modify-write race. Roadmap
+  item closed. Verified: 71/71 tests, tsc clean, lint == baseline.
+- **2026-07-11** — **CI pipeline added**: `.github/workflows/ci.yml` runs the
+  full verification bar (unit tests → tsc → lint==baseline → `next build`) on
+  every PR and on pushes to dev/prod. The lint gate is
+  `scripts/check-lint-baseline.mjs` (fails only on NEW problems vs the
+  documented 8-error/16-warning baseline; shrink the constants as old ones get
+  fixed). Build runs with dummy auth/DB env (module-scope reads only; nothing
+  connects). Verified locally: 71/71 tests, tsc clean, baseline check green,
+  build green.
 - **2026-07-10** — **EXPLORER shipped (north-star phase 1): walk the graph edge to
   edge; every edge shows its meaning.** Two durable decisions recorded in
   docs/MEMORY.md: free exploration with natural-shape nodes is the product's

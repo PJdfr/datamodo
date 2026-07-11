@@ -163,6 +163,25 @@ export const DEFAULT_KINDS: KindDef[] = [
     builtin: true,
   },
   {
+    kind: "bookmark",
+    label: "Bookmark",
+    plural: "Bookmarks",
+    icon: "🔖",
+    color: "#B15B6E",
+    description: "A saved link — a URL worth keeping: an article, tool, listing, or reference someone shared.",
+    aliases: ["link", "url", "webpage", "web_page", "saved_link"],
+    fields: [
+      { key: "url", label: "URL", type: "text", required: true, aliases: ["link", "href", "address", "web_address"] },
+      { key: "title", label: "Title", type: "text", aliases: ["name", "page_title"] },
+      { key: "site", label: "Site", type: "text", aliases: ["domain", "host", "source_site"] },
+    ],
+    relations: [
+      { predicate: "about", label: "about", targetKind: "concept", aliases: ["topic", "subject_of"] },
+      { predicate: "shared_by", label: "shared by", targetKind: "person", aliases: ["sent_by", "recommended_by"] },
+    ],
+    builtin: true,
+  },
+  {
     kind: "concept",
     label: "Concept",
     plural: "Concepts",

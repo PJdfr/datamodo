@@ -27,6 +27,7 @@ const H = 520;
 const KIND_TONE: Record<string, string> = {
   person: C.blue, company: C.accent, org: C.accent, organization: C.accent,
   invoice: C.gold, project: C.green, concept: C.accent, document: C.green, note: C.gold,
+  dataset: "#4A6B8E", bookmark: "#B15B6E",
 };
 const toneOf = (kind: string, kindDef?: KindDef) => kindDef?.color ?? KIND_TONE[kind.toLowerCase()] ?? C.ink;
 

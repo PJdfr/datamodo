@@ -4,7 +4,7 @@
 > inventory when they ship; add what the work surfaced. Ordered by value.
 > Siblings: [STATE.md](STATE.md) · [FLOW.md](FLOW.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-10
+> Last updated: 2026-07-11
 
 ## Now (unblocks everything else)
 1. **Merge PR #35 → dev**, then set env: `OPENROUTER_VISION_MODEL` (+ ~$10
@@ -33,10 +33,10 @@
   has 6 sub-views + 3 top buttons; Knowledge has 4 modes. Consolidate or nest
   (progressive disclosure), don't spread. Candidate: fold Files/Timeline into
   Knowledge or an "Explore"-first layout; move rare actions behind a menu.
-- **Node shapes, phase 2**: image nodes render their image (original already
-  streamable); `bookmark` builtin kind for URLs; dataset-as-node.
-- **On-demand synthesis**: "✦ Synthesize" on concept/hub pages → cited
-  cross-document note into `body_md` (never automatic — MEMORY.md north star).
+- ~~Node shapes, phase 2~~ ✅ 2026-07-11 — image nodes render their image,
+  `bookmark` builtin kind, dataset-as-node in the Explorer.
+- ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
+  with ≥2 connected bodies of content → cited note into `body_md`.
 - **Audio tier**: transcription pipeline stage → player + transcript nodes.
 
 ## Next build tracks (pick after the above)
@@ -56,13 +56,9 @@
 - Category proposals from the agent via Review ("no-fit entity → propose a new
   kind with inferred template") — growth loop ⑤ of the ontology design.
 - Semantic (ANN) chunk search behind the same `searchChunks` shape.
-- Timeline: `sent_at` vs `received_at` preference; per-entity timeline embedded
-  on entity pages.
 - Dossier: PDF rendering behind the same `buildDossier`.
 - Graph: persist collapsed-kind state if users ask for it (deliberately
   session-local today).
-- Requeue UX: surface "reprocessing N items" in the dashboard.
-- `bumpSupport` → atomic increment before concurrent per-entity extraction.
 - DuckDB / lance-graph sidecar when analytics volume demands it (documented
   seam in `analytics.ts`).
 

@@ -1127,6 +1127,12 @@ code {
   transform: translateY(1px);
 }
 
+/* Steady rotation for "working on it" glyphs (queue pill). */
+@keyframes dm-spin {
+  to { transform: rotate(360deg); }
+}
+.dm-spin { animation: dm-spin 1.6s linear infinite; }
+
 /* Slow, calm float for small decorative marks. */
 @keyframes dm-bob {
   0%, 100% { transform: translateY(0); }
