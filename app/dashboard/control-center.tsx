@@ -77,11 +77,12 @@ import { AnswerGraphModal } from "./answer-graph-modal";
 import { CategoriesModal } from "./categories-modal";
 import { BuildFromKnowledgeModal } from "./build-from-knowledge";
 import { DeriveTableModal } from "./derive-table-modal";
+import { ChatView } from "./chat-view";
 
 /* ================================================================== */
 /* Component                                                           */
 /* ================================================================== */
-type Tab = "agents" | "data" | "review" | "search";
+type Tab = "agents" | "data" | "review" | "search" | "chat";
 // The Data tab is ONE FLAT toggle (IA rule 2026-07-11: no toggles inside
 // toggles). Tables/Cards/Concepts unified into the Tables surface (schema
 // diagram + cards drill-down); the Map was removed outright — walk only.
@@ -264,6 +265,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
     }[dataView] },
     review: { t: "Review", sub: reviewTotal ? `${reviewTotal} pending changes to confirm — merges, conflicts & new facts` : "Pending changes to confirm — merges, conflicts & new facts (your data's story lives in Data → Timeline)" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
+    chat: { t: "Chat", sub: "The app is a channel too — text, photos, PDFs and voice notes, straight into the pipeline" },
   };
 
   const providerLabel = settings.aiProvider === "openai" ? "OpenAI" : settings.aiProvider === "openrouter" ? "OpenRouter" : "Claude";
@@ -309,6 +311,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
             { key: "data", label: "Data", count: uiTables.length ? String(uiTables.length) : null, icon: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></> },
             { key: "review", label: "Review", count: reviewTotal ? String(reviewTotal) : null, icon: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></> },
             { key: "search", label: "Search", count: null, icon: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></> },
+            { key: "chat", label: "Chat", count: null, icon: <><path d="M21 14a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></> },
           ] as const).map((item) => {
             const active = tab === item.key;
             return (
@@ -467,6 +470,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           )}
           {tab === "review" && <ReviewStudio />}
           {tab === "search" && <SearchTab onOpenTable={setOpenTableId} />}
+          {tab === "chat" && <ChatView />}
         </div>
       </main>
 

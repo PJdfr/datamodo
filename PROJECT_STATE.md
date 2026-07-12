@@ -12,6 +12,20 @@
 > Last updated: 2026-07-12
 
 ## Recent changes
+- **2026-07-12** — **The app is a channel: in-app Chat capture** (user
+  must-have). New "Chat" tab in the dashboard rail: a thread + composer that
+  sends straight into the SAME pipeline as email/WhatsApp — multiline text,
+  any-file attach (photos/PDF/docs, ≤8 files / 15 MB per message), a
+  dictaphone (MediaRecorder voice note → the existing transcription tier)
+  and live speech-to-text into the box (Web Speech API, feature-detected;
+  Chrome-family). `POST/GET /api/chat` is session-authed and attributes the
+  org explicitly (no link codes/shared secret — the session IS the
+  identity); items land as channel `upload` with `meta.via='app'` and get
+  the same post-response extraction kick as /api/ingest, so the thread's
+  status chips go ⟳ processing → ✓ filed live (4s poll while busy).
+  Verified: 143 tests, tsc, lint==baseline, build green. NOT verified live:
+  mic/dictation need a real browser + HTTPS; transcription stays dormant
+  until `TRANSCRIPTION_API_KEY`/`OPENAI_API_KEY` is set.
 - **2026-07-12** — **Channel pull-requests: the review comes to you** (user
   must-have: "when a message creates validation needs, send the pull request
   over the channel — click/reply to apply"). When extraction leaves decisions
