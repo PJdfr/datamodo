@@ -77,7 +77,6 @@ import { AnswerGraphModal } from "./answer-graph-modal";
 import { CategoriesModal } from "./categories-modal";
 import { BuildFromKnowledgeModal } from "./build-from-knowledge";
 import { DeriveTableModal } from "./derive-table-modal";
-import { FolderExportModal } from "./folder-export-modal";
 
 /* ================================================================== */
 /* Component                                                           */
@@ -192,7 +191,6 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const hasContext = !!onboarding.businessContext;
   const [buildOpen, setBuildOpen] = useState(false);
   const [deriveOpen, setDeriveOpen] = useState(false);
-  const [folderExportOpen, setFolderExportOpen] = useState(false);
   const [dataView, setDataView] = useState<DataView>("tables");
   const [dataActionsOpen, setDataActionsOpen] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
@@ -431,7 +429,6 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                         ["✦", "Spreadsheet → knowledge", "Import a sheet as entities & links", () => setImportGraphOpen(true)],
                         ["✦", "Build from knowledge", "Turn a category into a table", () => setBuildOpen(true)],
                         ["▤", "Derive a table", "Describe a table; we build it from your graph", () => setDeriveOpen(true)],
-                        ["▧", "Export as folders", "A folder structure built from your graph, as a .zip", () => setFolderExportOpen(true)],
                       ] as const).map(([glyph, label, hint, act]) => (
                         <button key={label} type="button" onClick={() => { setDataActionsOpen(false); act(); }}
                           style={{ display: "flex", alignItems: "baseline", gap: 8, width: "100%", textAlign: "left", padding: "9px 13px", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
@@ -561,7 +558,6 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           onCreated={(id) => { setOpenTableId(id); router.refresh(); }}
         />
       )}
-      {folderExportOpen && <FolderExportModal onClose={() => setFolderExportOpen(false)} />}
     </div>
   );
 }

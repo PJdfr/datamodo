@@ -12,6 +12,20 @@
 > Last updated: 2026-07-12
 
 ## Recent changes
+- **2026-07-12** — **Folders pivot to deterministic LENSES (no LLM), many
+  trees over the same docs** (user decision: "a folder is just a tag; derive
+  folders deterministically from the graph; suggest multiple trees"). New
+  pure core `lib/datamodo/folder-lenses.ts`: documents+notes collect their
+  tags from facts (linked clients/projects/people/topics, arrival month,
+  file type, channel); each lens is a deterministic grouping rule; lenses
+  stack two levels ("client / month"); a doc linked to two clients IS in
+  both folders. Files view reworked: lens chips (only ones that
+  discriminate), collapsible tree, folder click filters the grid, "↓ Export
+  tree" zips exactly the on-screen tree (multi-folder docs export in each
+  folder). The LLM folder-export modal + Build ▾ entry and the route's LLM
+  path are REMOVED (simplicity rule: the lens tree replaces them);
+  `parseFolderPlan` now allows one doc in several folders. Verified: 138
+  tests (6 new lens tests), tsc, lint==baseline, build green.
 - **2026-07-12** — **Ring grouping in the walk (WOW build-order step 1)** —
   user: "a company with 30 invoices doesn't need 30 spokes". `buildEgoGraph`
   gains `clusterTail`/`maxPerKind`: past 3 nodes of one kind (or past the ring
