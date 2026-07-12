@@ -12,6 +12,14 @@
 > Last updated: 2026-07-12
 
 ## Recent changes
+- **2026-07-12** — **"See in graph" no longer gated behind the LLM** (user
+  couldn't find the button: it lived only on the grounded-answer card, which
+  never renders without an LLM key + cited answer). The plain "In your
+  knowledge" search results now carry their own "◍ See in graph" button
+  (highlights up to 8 matched entities in the walk — zero LLM involved);
+  `AnswerGraphModal` gains a `variant` ("answer" | "results") so the title
+  and subtitle stay honest about what's highlighted. Verified: tests/tsc/
+  lint/build green.
 - **2026-07-12** — **Folders modal: the tree is the deliverable, the zip is
   optional** (user follow-up mid-session: "not [only] as zip — display the
   folder structure for the user to explore, select a doc, multiple layers of
