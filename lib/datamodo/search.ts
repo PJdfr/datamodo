@@ -25,6 +25,9 @@ export interface SearchHit {
   rowId: string;
   datasetId: string;
   datasetName: string;
+  /** The knowledge entity this row projects (rows are projections of the
+   *  vault) — lets an answer citation land on the graph, not just the table. */
+  entityId: string | null;
   cells: SearchCell[];
   score: number;
 }
@@ -72,10 +75,10 @@ export async function searchDatasets(
 
   const rowData = await prisma.dataset_rows.findMany({
     where: { org_id: orgId, status: "accepted" },
-    select: { id: true, dataset_id: true, data: true },
+    select: { id: true, dataset_id: true, data: true, subject_entity_id: true },
     take: scan,
   });
-  const rows = rowData as { id: string; dataset_id: string; data: Record<string, unknown> | null }[];
+  const rows = rowData as { id: string; dataset_id: string; data: Record<string, unknown> | null; subject_entity_id: string | null }[];
 
   const hits: SearchHit[] = [];
   for (const r of rows) {
@@ -100,7 +103,7 @@ export async function searchDatasets(
     for (const t of terms) if (nameHay.includes(t)) matchedTerms.add(t);
 
     const score = matchedTerms.size;
-    if (score > 0) hits.push({ rowId: r.id, datasetId: ds.id, datasetName: ds.name, cells, score });
+    if (score > 0) hits.push({ rowId: r.id, datasetId: ds.id, datasetName: ds.name, entityId: r.subject_entity_id, cells, score });
   }
 
   hits.sort((a, b) => b.score - a.score);

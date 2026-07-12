@@ -5,7 +5,7 @@
 > infographic), [ROADMAP.md](ROADMAP.md) (what's next), [MEMORY.md](MEMORY.md)
 > (durable context). Dated history stays in [../PROJECT_STATE.md](../PROJECT_STATE.md).
 >
-> Last updated: 2026-07-11
+> Last updated: 2026-07-12
 
 ## Stack at a glance
 
@@ -79,6 +79,9 @@
 | Files view (smart folders = projections over `mentions`) + original download | `app/dashboard/files-view.tsx`, `app/api/documents/[id]` |
 | Insights (any measure × any axis, live aggregation) | `lib/datamodo/analytics.ts`, `app/dashboard/insights-view.tsx` |
 | Search: tables + knowledge + document passages, grounded answers with citations | `lib/datamodo/search.ts`, `lib/datamodo/answer.ts`, `app/api/search`, `app/dashboard/answer-card.tsx` |
+| **Answer → graph ("see in graph")**: every grounded answer's citations resolve to graph nodes (entities, rows via `subject_entity_id`, passages via their document); one click opens the Explorer walk with those nodes HIGHLIGHTED — coral halo + ✦, lit edges between cited nodes, a "✦ used in the answer" chip row to hop cite-to-cite; cited nodes win ring slots (`EgoOptions.prefer`); node panel/edge inspector work as in the normal walk | `highlightIds` in `app/dashboard/explorer-view.tsx`, `prefer` in `lib/datamodo/explorer.ts`, `app/dashboard/answer-graph-modal.tsx`, `onShowInGraph` in `answer-card.tsx`, `entityId` on `SearchHit` (`search.ts`/`answer.ts`) |
+| **Derive a table from the graph** (Build ▾ → "Derive a table"): describe the table in plain language → LLM designs a spec over the graph's SCHEMA (kinds + predicates, never row data) → rows built deterministically from entities/facts/relations (attr values, linked labels either direction, counts) → PREVIEW with per-column source chips + honest counts → confirm creates the dataset (rows accepted, `subject_entity_id` linked, created_by `derive`) | pure `lib/datamodo/derive-table.ts` (`summarizeGraph`, `parseDeriveSpec`, `buildDerivedTable`), `app/api/knowledge/derive-table`, `app/dashboard/derive-table-modal.tsx` |
+| **Folders from the graph** (Build ▾ → "Export as folders"): describe an organization → LLM files the exportable nodes (documents + body nodes; it sees an INVENTORY — labels/kinds/links, never contents) into a sanitized folder plan (≤4 levels, traversal-proof; unplaced items land in `unsorted/`, nothing silently dropped) → the tree renders IN the modal as an EXPLORABLE structure: nested subfolders collapse/expand, clicking a file opens that node's page (body, facts, provenance, original ↓) → optional .zip download mirrors the tree: originals streamed from blob storage (fail-soft to markdown), other nodes as markdown pages, + README; dependency-free store-only zip writer | pure `lib/datamodo/folder-export.ts` + `lib/datamodo/zip.ts`, `app/api/knowledge/folder-export`, `app/dashboard/folder-export-modal.tsx` |
 | Review Studio (PR-metaphor queue) | `app/dashboard/review-studio.tsx` |
 | Spreadsheet → knowledge graph import: **preview/confirm** (dry-run reading with per-column roles + honest counts; nothing writes unconfirmed), **column-mapping overrides** (kind · identity column · link/fact/skip · link target), **cross-row reference dedupe** (`combineExtractions`, batched ingest) | pure `lib/datamodo/infer-graph-core.ts`; shell `infer-graph.ts` (`previewTableGraph`), `app/api/knowledge/import-graph` (`mode=preview`, `overrides`), `app/dashboard/import-graph-modal.tsx` |
 | Auto-link suggestions between tables; explicit dataset_relations draw as **dashed lines** between schema-canvas cards | `lib/datamodo/relations.ts`, `app/api/relations/suggestions`, `SchemaTableLink` in `app/dashboard/schema-view.tsx` |

@@ -73,8 +73,11 @@ import { InsightsView } from "./insights-view";
 import { TimelineView } from "./timeline-view";
 import { FilesView } from "./files-view";
 import { AnswerCard } from "./answer-card";
+import { AnswerGraphModal } from "./answer-graph-modal";
 import { CategoriesModal } from "./categories-modal";
 import { BuildFromKnowledgeModal } from "./build-from-knowledge";
+import { DeriveTableModal } from "./derive-table-modal";
+import { FolderExportModal } from "./folder-export-modal";
 
 /* ================================================================== */
 /* Component                                                           */
@@ -188,6 +191,8 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const onboardingTrack = Array.isArray(onboarding.answers?.track) ? (onboarding.answers.track as string[]) : [];
   const hasContext = !!onboarding.businessContext;
   const [buildOpen, setBuildOpen] = useState(false);
+  const [deriveOpen, setDeriveOpen] = useState(false);
+  const [folderExportOpen, setFolderExportOpen] = useState(false);
   const [dataView, setDataView] = useState<DataView>("tables");
   const [dataActionsOpen, setDataActionsOpen] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
@@ -419,6 +424,8 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                         ["▣", "Categories", "Edit what kinds of things exist", () => setCategoriesOpen(true)],
                         ["✦", "Spreadsheet → knowledge", "Import a sheet as entities & links", () => setImportGraphOpen(true)],
                         ["✦", "Build from knowledge", "Turn a category into a table", () => setBuildOpen(true)],
+                        ["▤", "Derive a table", "Describe a table; we build it from your graph", () => setDeriveOpen(true)],
+                        ["▧", "Export as folders", "A folder structure built from your graph, as a .zip", () => setFolderExportOpen(true)],
                       ] as const).map(([glyph, label, hint, act]) => (
                         <button key={label} type="button" onClick={() => { setDataActionsOpen(false); act(); }}
                           style={{ display: "flex", alignItems: "baseline", gap: 8, width: "100%", textAlign: "left", padding: "9px 13px", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
@@ -542,6 +549,13 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           onDone={() => router.refresh()}
         />
       )}
+      {deriveOpen && (
+        <DeriveTableModal
+          onClose={() => setDeriveOpen(false)}
+          onCreated={(id) => { setOpenTableId(id); router.refresh(); }}
+        />
+      )}
+      {folderExportOpen && <FolderExportModal onClose={() => setFolderExportOpen(false)} />}
     </div>
   );
 }
@@ -956,6 +970,8 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
   const [submitted, setSubmitted] = useState("");
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  // "See in graph": the cited entity ids to highlight in the Explorer walk.
+  const [graphIds, setGraphIds] = useState<string[] | null>(null);
 
   const run = async (query: string) => {
     const term = query.trim();
@@ -989,7 +1005,7 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
       {!loading && result && submitted && (
         result.total > 0 || result.entities.length > 0 || result.passages.length > 0 ? (
           <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 22 }}>
-            {result.answer && <AnswerCard answer={result.answer} onOpenTable={onOpenTable} />}
+            {result.answer && <AnswerCard answer={result.answer} onOpenTable={onOpenTable} onShowInGraph={setGraphIds} />}
             {result.passages.length > 0 && (
               <div>
                 <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 10 }}>In your documents · {result.passages.length}</div>
@@ -1027,6 +1043,10 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
             <p style={{ fontSize: 14, color: "#57534A", maxWidth: "40ch", margin: 0, lineHeight: 1.5 }}>Try a name, company, or amount from your messages or tables.</p>
           </div>
         )
+      )}
+
+      {graphIds && (
+        <AnswerGraphModal question={submitted} entityIds={graphIds} onClose={() => setGraphIds(null)} />
       )}
 
       {!submitted && !loading && (

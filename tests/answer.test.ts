@@ -10,6 +10,7 @@ const HIT: SearchHit = {
   rowId: "r1",
   datasetId: "ds1",
   datasetName: "Invoices",
+  entityId: "row-ent-1",
   score: 2,
   cells: [
     { column: "client", label: "Client", value: "Acme Inc", matched: true },
@@ -38,6 +39,7 @@ test("buildAnswerContext: entities first, then rows, numbered consecutively", ()
   assert.deepEqual(sources.map((s) => [s.n, s.type]), [[1, "entity"], [2, "row"]]);
   assert.equal(sources[1].datasetId, "ds1");
   assert.equal(sources[0].entityId, "e1");
+  assert.equal(sources[1].entityId, "row-ent-1"); // row citations land on the graph too
   assert.equal(sources[1].label, "Invoices — Acme Inc");
 });
 

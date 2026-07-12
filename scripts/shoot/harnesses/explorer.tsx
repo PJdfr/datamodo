@@ -33,6 +33,8 @@ createRoot(document.getElementById("root")!).render(
     initialId="acme"
     kindByName={new Map(DEFAULT_KINDS.map((k) => [k.kind, k]))}
     onOpenPage={() => {}}
+    // The answer→graph path: cited nodes halo + "used in the answer" chips.
+    highlightIds={["acme", "inv1", "bob"]}
   />,
 );
 flags.__mounted = true;
