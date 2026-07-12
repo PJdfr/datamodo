@@ -215,22 +215,28 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
       return;
     }
     startSubmit(async () => {
-      const res = await createAgentAction({
-        name: name.trim(),
-        purposeText,
-        purpose,
-        channels,
-        mode,
-        freestyle,
-        targetDatasetNames: freestyle ? [] : targetTables,
-      });
-      if (!res.ok) {
-        setCreateError(res.error);
-        return;
+      try {
+        const res = await createAgentAction({
+          name: name.trim(),
+          purposeText,
+          purpose,
+          channels,
+          mode,
+          freestyle,
+          targetDatasetNames: freestyle ? [] : targetTables,
+        });
+        if (!res.ok) {
+          setCreateError(res.error);
+          return;
+        }
+        setModalOpen(false);
+        setStep(1);
+        router.refresh();
+      } catch {
+        // A rejected action (network drop, or a fresh deployment invalidating
+        // this page's action ids) degrades to a message, never a crash screen.
+        setCreateError("Something went wrong — reload the page and try again.");
       }
-      setModalOpen(false);
-      setStep(1);
-      router.refresh();
     });
   };
   const nextStep = () => {

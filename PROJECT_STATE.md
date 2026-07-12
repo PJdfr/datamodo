@@ -12,6 +12,18 @@
 > Last updated: 2026-07-12
 
 ## Recent changes
+- **2026-07-12** — **Server-action rejections no longer crash the dashboard**
+  (user hit a full-page Vercel error screen on the create-agent wizard's final
+  button). Diagnosis: steps 1–3 of the wizard are pure client state — "Create
+  agent" is the wizard's ONLY server call, and neither `useAction.run` nor
+  `submitAgent` caught a REJECTED action promise, so any framework-level
+  failure (network drop; most likely here: the preview redeploying under an
+  open tab, invalidating its server-action ids) escaped `startTransition`
+  into the error boundary. No 5xx appeared in Vercel runtime logs — consistent
+  with a stale-action failure, inconsistent with a handler crash (the action
+  itself try/catches everything). Both call sites now catch and show "reload
+  the page and try again" inline. Verified: tests/tsc/lint/build green;
+  the actual repro needs a live browser (reload the preview tab and retry).
 - **2026-07-12** — **"See in graph" no longer gated behind the LLM** (user
   couldn't find the button: it lived only on the grounded-answer card, which
   never renders without an LLM key + cited answer). The plain "In your
