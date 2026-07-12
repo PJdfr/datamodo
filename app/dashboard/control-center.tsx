@@ -215,22 +215,28 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
       return;
     }
     startSubmit(async () => {
-      const res = await createAgentAction({
-        name: name.trim(),
-        purposeText,
-        purpose,
-        channels,
-        mode,
-        freestyle,
-        targetDatasetNames: freestyle ? [] : targetTables,
-      });
-      if (!res.ok) {
-        setCreateError(res.error);
-        return;
+      try {
+        const res = await createAgentAction({
+          name: name.trim(),
+          purposeText,
+          purpose,
+          channels,
+          mode,
+          freestyle,
+          targetDatasetNames: freestyle ? [] : targetTables,
+        });
+        if (!res.ok) {
+          setCreateError(res.error);
+          return;
+        }
+        setModalOpen(false);
+        setStep(1);
+        router.refresh();
+      } catch {
+        // A rejected action (network drop, or a fresh deployment invalidating
+        // this page's action ids) degrades to a message, never a crash screen.
+        setCreateError("Something went wrong — reload the page and try again.");
       }
-      setModalOpen(false);
-      setStep(1);
-      router.refresh();
     });
   };
   const nextStep = () => {
@@ -970,8 +976,10 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
   const [submitted, setSubmitted] = useState("");
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  // "See in graph": the cited entity ids to highlight in the Explorer walk.
+  // "See in graph": the entity ids to highlight in the Explorer walk — from a
+  // grounded answer's citations, or from the plain knowledge hits (no LLM).
   const [graphIds, setGraphIds] = useState<string[] | null>(null);
+  const [graphVariant, setGraphVariant] = useState<"answer" | "results">("answer");
 
   const run = async (query: string) => {
     const term = query.trim();
@@ -1005,7 +1013,7 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
       {!loading && result && submitted && (
         result.total > 0 || result.entities.length > 0 || result.passages.length > 0 ? (
           <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 22 }}>
-            {result.answer && <AnswerCard answer={result.answer} onOpenTable={onOpenTable} onShowInGraph={setGraphIds} />}
+            {result.answer && <AnswerCard answer={result.answer} onOpenTable={onOpenTable} onShowInGraph={(ids) => { setGraphVariant("answer"); setGraphIds(ids); }} />}
             {result.passages.length > 0 && (
               <div>
                 <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 10 }}>In your documents · {result.passages.length}</div>
@@ -1016,7 +1024,17 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
             )}
             {result.entities.length > 0 && (
               <div>
-                <div className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 10 }}>In your knowledge · {result.entities.length}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                  <span className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B" }}>In your knowledge · {result.entities.length}</span>
+                  {/* Works without any LLM — highlights the matched entities in the walk. */}
+                  <button
+                    type="button"
+                    onClick={() => { setGraphVariant("results"); setGraphIds(result.entities.slice(0, 8).map((e) => e.id)); }}
+                    title="Highlight these entities and their connections in the graph walk"
+                    className="dm-mono"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, fontWeight: 600, color: C.accent, background: "#fff", border: "1px solid #F3D6CB", borderRadius: 7, padding: "3px 9px", cursor: "pointer", fontFamily: "inherit" }}
+                  >◍ See in graph</button>
+                </div>
                 <div className="dm-stagger" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {result.entities.map((e) => <KnowledgeHitCard key={e.id} hit={e} terms={result.terms} />)}
                 </div>
@@ -1046,7 +1064,7 @@ function SearchTab({ onOpenTable }: { onOpenTable: (id: string) => void }) {
       )}
 
       {graphIds && (
-        <AnswerGraphModal question={submitted} entityIds={graphIds} onClose={() => setGraphIds(null)} />
+        <AnswerGraphModal question={submitted} entityIds={graphIds} variant={graphVariant} onClose={() => setGraphIds(null)} />
       )}
 
       {!submitted && !loading && (
