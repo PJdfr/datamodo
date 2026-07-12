@@ -12,6 +12,20 @@
 > Last updated: 2026-07-12
 
 ## Recent changes
+- **2026-07-12** — **Chat brand pass (10x UI)**. Evaluated open-source chat
+  kits per the user's suggestion (chatscope ships its own theme;
+  reachat/prompt-kit are Tailwind/shadcn — all three fight the design
+  system); rebuilt hand-rolled on the app's own motion vocabulary instead.
+  Now: day separators (hairline + mono kicker), right-aligned paper bubbles
+  (dm-drop-in entrance, warm shadows), OPTIMISTIC sends with image
+  thumbnails in the bubble, attachment tray with real previews (image thumbs,
+  playable audio for voice notes) and per-item remove, drag-&-drop veil +
+  paste-to-attach, recording state (coral ring on the composer, pulsing dot,
+  mm:ss timer), pulsing "reading…" → "✓ filed" status per message, glyph
+  toolbar ⊕ ⏺ ∿ (no emoji — brand rule), coral square send button, empty
+  state with three try-it chips, auto-growing textarea. New screenshot
+  harness (`npm run shoot -- chat`, fetch stubbed). Verified: 143 tests,
+  tsc, lint==baseline, build, screenshot eyeballed on-brand.
 - **2026-07-12** — **The app is a channel: in-app Chat capture** (user
   must-have). New "Chat" tab in the dashboard rail: a thread + composer that
   sends straight into the SAME pipeline as email/WhatsApp — multiline text,
