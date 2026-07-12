@@ -152,9 +152,65 @@ function Bubble({ m }: { m: ChatMessage }) {
   );
 }
 
+/* ---- datamodo's bubble: the pull request, tap-to-approve ---------------- */
+interface PingQuestion { id: string; question: string }
+
+function ReviewBubble({ questions, onDecide, resolved }: {
+  questions: PingQuestion[];
+  onDecide: (id: string, accept: boolean) => void;
+  resolved: { id: string; line: string }[];
+}) {
+  return (
+    <div style={{ alignSelf: "flex-start", maxWidth: "84%", display: "flex", flexDirection: "column", gap: 4, animation: "dm-drop-in .34s cubic-bezier(0.16,1,0.3,1)" }}>
+      <div style={{
+        background: "#211E18", color: "#F1ECE1",
+        borderRadius: "16px 16px 16px 6px", padding: "12px 15px",
+        boxShadow: "0 18px 40px -26px rgba(33,30,24,.65)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
+          <span style={{ color: C.accent, fontSize: 13 }}>✦</span>
+          <span className="dm-mono" style={{ fontSize: 9.5, letterSpacing: "0.09em", textTransform: "uppercase", color: "#9C958A" }}>
+            datamodo · {questions.length === 1 ? "one thing needs" : `${questions.length} things need`} your ok
+          </span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {questions.map((q, i) => (
+            <div key={q.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span className="dm-mono" style={{ fontSize: 10.5, color: "#9C958A", flexShrink: 0 }}>{i + 1}.</span>
+              <span style={{ fontSize: 13.5, lineHeight: 1.45, flex: 1, minWidth: 180 }}>{q.question}</span>
+              <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
+                <button type="button" onClick={() => onDecide(q.id, true)}
+                  style={{ fontSize: 12, fontWeight: 600, color: "#FFF8F4", background: C.accent, border: "none", borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontFamily: "inherit" }}>
+                  ✓ yes
+                </button>
+                <button type="button" onClick={() => onDecide(q.id, false)}
+                  style={{ fontSize: 12, fontWeight: 500, color: "#F1ECE1", background: "transparent", border: "1px solid #3A352C", borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontFamily: "inherit" }}>
+                  ✗ no
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+        {resolved.length > 0 && (
+          <div style={{ marginTop: questions.length ? 10 : 0, paddingTop: questions.length ? 9 : 0, borderTop: questions.length ? "1px solid #3A352C" : "none", display: "flex", flexDirection: "column", gap: 4 }}>
+            {resolved.map((r) => (
+              <span key={r.id} className="dm-mono dm-fade-in" style={{ fontSize: 10.5, color: "#9C958A" }}>{r.line}</span>
+            ))}
+          </div>
+        )}
+      </div>
+      <span className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F", paddingLeft: 2 }}>
+        same decisions as the review tab — applied for real when you tap
+      </span>
+    </div>
+  );
+}
+
 /* ======================================================================== */
 export function ChatView() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [questions, setQuestions] = useState<PingQuestion[]>([]);
+  const [resolved, setResolved] = useState<{ id: string; line: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
   const [pending, setPending] = useState<PendingFile[]>([]);
@@ -187,6 +243,7 @@ export function ChatView() {
       const json = await res.json();
       // Server truth replaces everything except still-unconfirmed optimistic bubbles.
       setMessages((prev) => [...(json.messages ?? []), ...prev.filter((m) => m.local)]);
+      setQuestions(json.questions ?? []);
     } catch { /* keep the current thread */ }
   }, []);
 
@@ -342,6 +399,26 @@ export function ChatView() {
     }
   };
 
+  /* ---- the pull request: tap a decision, it applies for real ---- */
+  const decide = async (id: string, accept: boolean) => {
+    const q = questions.find((x) => x.id === id);
+    if (!q) return;
+    // Optimistic: the question leaves the list, the receipt line lands.
+    setQuestions((prev) => prev.filter((x) => x.id !== id));
+    setResolved((prev) => [...prev, { id, line: `${accept ? "✓ approved" : "✗ declined"} — ${q.question.replace(/\?$/, "").toLowerCase()}` }]);
+    try {
+      const res = await fetch("/api/chat/review", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, accept }),
+      });
+      if (!res.ok) {
+        setResolved((prev) => prev.map((r) => (r.id === id ? { ...r, line: `⚠ could not apply — see the review tab` } : r)));
+      }
+    } catch {
+      setResolved((prev) => prev.map((r) => (r.id === id ? { ...r, line: `⚠ network error — see the review tab` } : r)));
+    }
+  };
+
   /* ---- grouped by day for the separators ---- */
   const days = useMemo(() => {
     const groups: { label: string; items: ChatMessage[] }[] = [];
@@ -417,6 +494,9 @@ export function ChatView() {
               {g.items.map((m) => <Bubble key={m.id} m={m} />)}
             </div>
           ))}
+          {(questions.length > 0 || resolved.length > 0) && (
+            <ReviewBubble questions={questions} onDecide={(id, accept) => void decide(id, accept)} resolved={resolved} />
+          )}
           <div ref={bottom} />
         </div>
       </div>

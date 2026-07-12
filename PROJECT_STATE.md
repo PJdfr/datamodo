@@ -12,6 +12,15 @@
 > Last updated: 2026-07-12
 
 ## Recent changes
+- **2026-07-12** — **The chat is two-way: pull requests land in the thread**.
+  Pending reviews now ride `GET /api/chat` as `questions` and render as
+  datamodo's own ink bubble — "✦ needs your OK", numbered, with ✓ yes / ✗ no
+  buttons per question; tapping posts `POST /api/chat/review` which applies
+  the SAME accept/reject side-effects as Review Studio and the WhatsApp
+  reply path, with an optimistic receipt line ("✓ approved — merge …") and
+  honest fallback on conflict. Closes the loop teased when the channel
+  pull-requests shipped. Verified: tests/tsc/lint/build green; shoot shows
+  the bubble with the demo account's two real pending decisions.
 - **2026-07-12** — **Chat brand pass (10x UI)**. Evaluated open-source chat
   kits per the user's suggestion (chatscope ships its own theme;
   reachat/prompt-kit are Tailwind/shadcn — all three fight the design

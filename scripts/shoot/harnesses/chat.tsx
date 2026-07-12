@@ -29,8 +29,14 @@ const messages = [
   },
 ];
 
+// The pull request rides the thread as datamodo's own bubble (tap-to-approve).
+const questions = [
+  { id: "q1", question: 'Merge "ACME Incorporated" into "Acme Group"?' },
+  { id: "q2", question: 'Create the category "Subscription" (3 things waiting)?' },
+];
+
 window.fetch = (async () =>
-  new Response(JSON.stringify({ messages }), { headers: { "content-type": "application/json" } })) as typeof fetch;
+  new Response(JSON.stringify({ messages, questions }), { headers: { "content-type": "application/json" } })) as typeof fetch;
 
 const flags = window as unknown as { __mounted: boolean };
 flags.__mounted = false;
