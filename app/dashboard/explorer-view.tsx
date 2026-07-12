@@ -48,8 +48,9 @@ const MOTION = {
 } as const;
 
 /* Legibility caps for the depth field (the design's density; the pure core's
-   defaults stay for other callers). */
-const CAPS = { maxHop1: 6, maxHop2: 8 };
+   defaults stay for other callers). clusterTail = ring grouping: a kind's
+   long tail folds into ONE expandable "+N more" pseudo-node. */
+const CAPS = { maxHop1: 6, maxHop2: 8, clusterTail: true, maxPerKind: 3 };
 
 /* ---- Card tones ----------------------------------------------------------- */
 const TONE = {
@@ -80,10 +81,12 @@ const fmtDay = (iso: string | null) =>
 /* ===========================================================================
    Node card
    =========================================================================== */
-function NodeCard({ e, kindDef, isCenter, isHover, cited = false }: {
+function NodeCard({ e, kindDef, isCenter, isHover, cited = false, cluster = false }: {
   e: KnowledgeEntityView; kindDef?: KindDef; isCenter: boolean; isHover: boolean;
   /** This node was used to answer the user's question — coral halo + ✦ mark. */
   cited?: boolean;
+  /** Ring-grouping pseudo-node ("+N more invoices") — dashed, expandable. */
+  cluster?: boolean;
 }) {
   // Card tone: the designed tones for the special kinds, otherwise a paper-warm
   // wash of the kind's REGISTRY color — every kind reads as its color without
@@ -101,7 +104,9 @@ function NodeCard({ e, kindDef, isCenter, isHover, cited = false }: {
       }
     : TONE.surface;
   const mono = MONO_KINDS.has(e.kind);
-  const sub = e.kind === "dataset"
+  const sub = cluster
+    ? "click to expand"
+    : e.kind === "dataset"
     ? `${e.naturalKeys.rows ?? "?"} rows · ${e.naturalKeys.columns ?? "?"} cols`
     : `${e.edges} link${e.edges === 1 ? "" : "s"}`;
   const baseShadow = isCenter
@@ -113,11 +118,11 @@ function NodeCard({ e, kindDef, isCenter, isHover, cited = false }: {
   const shadow = cited ? `0 0 0 2.5px rgba(228,89,59,.38), ${baseShadow}` : baseShadow;
   return (
     <div style={{
-      background: tone.bg, color: tone.fg,
-      border: `1px solid ${isHover || cited ? C.accent : tone.bd}`,
+      background: cluster ? "#FBF8F1" : tone.bg, color: tone.fg,
+      border: cluster ? `1.5px dashed ${isHover ? C.accent : "#C9BCA6"}` : `1px solid ${isHover || cited ? C.accent : tone.bd}`,
       borderRadius: isCenter ? 18 : 14,
       padding: isCenter ? "14px 16px" : "10px 12px",
-      boxShadow: shadow,
+      boxShadow: cluster ? "none" : shadow,
       transition: `box-shadow ${MOTION.hover}ms ${MOTION.ease}, border-color ${MOTION.hover}ms ${MOTION.ease}`,
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
@@ -148,9 +153,9 @@ function NodeCard({ e, kindDef, isCenter, isHover, cited = false }: {
 /* ===========================================================================
    A node in the depth field
    =========================================================================== */
-function Node3D({ e, kindDef, pos, enterFrom, isCenter, isHover, isDim, cited, reduced, nodeRef, onEnter, onLeave, onClick }: {
+function Node3D({ e, kindDef, pos, enterFrom, isCenter, isHover, isDim, cited, cluster, reduced, nodeRef, onEnter, onLeave, onClick }: {
   e: KnowledgeEntityView; kindDef?: KindDef; pos: DepthPos; enterFrom: DepthPos | null;
-  isCenter: boolean; isHover: boolean; isDim: boolean; cited: boolean; reduced: boolean;
+  isCenter: boolean; isHover: boolean; isDim: boolean; cited: boolean; cluster: boolean; reduced: boolean;
   nodeRef: (el: HTMLDivElement | null) => void;
   onEnter: () => void; onLeave: () => void; onClick: () => void;
 }) {
@@ -186,7 +191,7 @@ function Node3D({ e, kindDef, pos, enterFrom, isCenter, isHover, isDim, cited, r
       ref={nodeRef}
       role="button"
       tabIndex={0}
-      aria-label={isCenter ? `${e.label} — you are here` : `Walk to ${e.label}`}
+      aria-label={isCenter ? `${e.label} — you are here` : cluster ? `Expand ${e.label}` : `Walk to ${e.label}`}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       onFocus={onEnter}
@@ -206,7 +211,48 @@ function Node3D({ e, kindDef, pos, enterFrom, isCenter, isHover, isDim, cited, r
         willChange: "transform, opacity",
       }}
     >
-      <NodeCard e={e} kindDef={kindDef} isCenter={isCenter} isHover={isHover} cited={cited} />
+      <NodeCard e={e} kindDef={kindDef} isCenter={isCenter} isHover={isHover} cited={cited} cluster={cluster} />
+    </div>
+  );
+}
+
+/* ===========================================================================
+   Cluster panel — "+N more invoices" expands into its member list
+   =========================================================================== */
+function ClusterPanel({ node, byId, kindDef, onClose, onGoTo }: {
+  node: { label: string; kind: string; clusterOf?: string[] };
+  byId: Map<string, KnowledgeEntityView>;
+  kindDef?: KindDef;
+  onClose: () => void;
+  onGoTo: (id: string) => void;
+}) {
+  const members = (node.clusterOf ?? []).map((id) => byId.get(id)).filter((e): e is KnowledgeEntityView => Boolean(e));
+  return (
+    <div role="dialog" aria-label="Cluster members" style={{
+      position: "absolute", left: "50%", bottom: 20, transform: "translateX(-50%)",
+      width: 400, maxWidth: "calc(100% - 40px)", maxHeight: "calc(100% - 90px)", overflow: "hidden",
+      background: "#FFFDF8", border: "1px solid #E7E0D2", borderRadius: 18,
+      boxShadow: "0 24px 60px -34px rgba(33,30,24,.5)", padding: "14px 8px 10px 16px", zIndex: 60,
+      display: "flex", flexDirection: "column",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9, paddingRight: 8 }}>
+        <span aria-hidden style={{ width: 7, height: 7, borderRadius: 2, background: kindDef?.color ?? C.accent }} />
+        <span className="dm-display" style={{ fontWeight: 700, fontSize: 14.5, color: C.ink }}>{node.label}</span>
+        <span className="dm-mono" style={{ ...micro }}>grouped so the ring stays readable</span>
+        <button onClick={onClose} aria-label="Close" style={{ marginLeft: "auto", border: "none", background: "transparent", color: "#A39B8B", cursor: "pointer", fontSize: 17, lineHeight: 1 }}>×</button>
+      </div>
+      <div style={{ overflowY: "auto", paddingRight: 8, display: "flex", flexDirection: "column", gap: 1 }}>
+        {members.map((m) => (
+          <button key={m.id} type="button" onClick={() => onGoTo(m.id)} title={`Walk to ${m.label}`}
+            style={{ display: "flex", alignItems: "baseline", gap: 9, width: "100%", textAlign: "left", background: "transparent", border: "none", borderRadius: 8, padding: "5px 8px", cursor: "pointer", fontFamily: "inherit" }}
+            onMouseEnter={(ev) => { (ev.currentTarget as HTMLButtonElement).style.background = "#FBF8F1"; }}
+            onMouseLeave={(ev) => { (ev.currentTarget as HTMLButtonElement).style.background = "transparent"; }}>
+            <span style={{ fontSize: 13, color: C.ink, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, flex: 1 }}>{m.label}</span>
+            <span className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F", flexShrink: 0 }}>{m.edges} link{m.edges === 1 ? "" : "s"}</span>
+            <span className="dm-mono" style={{ fontSize: 10, color: C.accent, flexShrink: 0 }}>walk ›</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -388,6 +434,8 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   const [hoverNode, setHoverNode] = useState<string | null>(null);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
   const [selEdge, setSelEdge] = useState<string | null>(null);
+  // The expanded "+N more" pseudo-node (its member list shows in a panel).
+  const [selCluster, setSelCluster] = useState<string | null>(null);
   const [jump, setJump] = useState("");
   const [geom, setGeom] = useState<Record<string, EdgeGeom>>({});
   const [size, setSize] = useState({ w: 640, h: 560 });
@@ -505,6 +553,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     }
     // (The measure-loop effect re-arms the settle window when the graph flips.)
     setSelEdge(null);
+    setSelCluster(null);
     setHoverEdge(null);
     setHoverNode(null);
     setJump("");
@@ -532,6 +581,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   }
   const centerEntity = byId.get(center)!;
   const selectedEdge = selEdge ? graph.edges.find((e) => edgeKey(e) === selEdge) ?? null : null;
+  const selectedCluster = selCluster ? graph.nodes.find((n) => n.id === selCluster && n.clusterOf) ?? null : null;
 
   return (
     <div style={{ display: "flex", alignItems: "stretch", height: 620, background: "#F6F2E9", border: "1px solid #E7E0D2", borderRadius: 16, overflow: "hidden" }}>
@@ -546,7 +596,14 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
           <div style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d" }}>
             <EdgeLayer geom={geom} edges={graph.edges} layout={layout}
               hoverEdge={hoverEdge} selEdge={selEdge} focusNode={hoverNode} citedIds={citedSet}
-              onHover={setHoverEdge} onClick={(e) => setSelEdge(edgeKey(e))} />
+              onHover={setHoverEdge}
+              onClick={(e) => {
+                // A cluster's spoke has a synthetic fact — expand the members
+                // instead of opening the fact inspector.
+                const cn = graph.nodes.find((n) => n.clusterOf && (n.id === e.from || n.id === e.to));
+                if (cn) { setSelCluster(cn.id); setSelEdge(null); }
+                else setSelEdge(edgeKey(e));
+              }} />
 
             {graph.nodes.map((n) => {
               const p = layout[n.id];
@@ -569,11 +626,16 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
                   isHover={hoverNode === n.id}
                   isDim={isDim}
                   cited={citedSet.has(n.id)}
+                  cluster={Boolean(n.clusterOf)}
                   reduced={reduced}
                   nodeRef={(el) => { if (el) nodeEls.current.set(n.id, el); }}
                   onEnter={() => setHoverNode(n.id)}
                   onLeave={() => setHoverNode(null)}
-                  onClick={() => { if (!isCenter) goTo(n.id); }}
+                  onClick={() => {
+                    if (isCenter) return;
+                    if (n.clusterOf) { setSelCluster(selCluster === n.id ? null : n.id); setSelEdge(null); }
+                    else goTo(n.id);
+                  }}
                 />
               );
             })}
@@ -707,6 +769,15 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
 
         {selectedEdge && (
           <EdgeInspector edge={selectedEdge} onClose={() => setSelEdge(null)} onGoTo={(id) => { setSelEdge(null); goTo(id); }} />
+        )}
+        {selectedCluster && (
+          <ClusterPanel
+            node={selectedCluster}
+            byId={byId}
+            kindDef={kindByName.get(selectedCluster.kind)}
+            onClose={() => setSelCluster(null)}
+            onGoTo={(id) => { setSelCluster(null); goTo(id); }}
+          />
         )}
       </div>
 

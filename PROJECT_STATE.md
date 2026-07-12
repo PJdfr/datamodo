@@ -12,6 +12,18 @@
 > Last updated: 2026-07-12
 
 ## Recent changes
+- **2026-07-12** — **Ring grouping in the walk (WOW build-order step 1)** —
+  user: "a company with 30 invoices doesn't need 30 spokes". `buildEgoGraph`
+  gains `clusterTail`/`maxPerKind`: past 3 nodes of one kind (or past the ring
+  cap) the tail folds PER KIND into a "+N more <kind>s" pseudo-node
+  (`EgoNode.clusterOf`) with a majority-predicate spoke to the center;
+  nothing is silently dropped (truncated=0 when clustering), cited/preferred
+  nodes are never folded, lone stragglers take a free slot instead of a "+1"
+  chip, and clustered members can't leak back in as hop-2. The view renders
+  clusters as dashed cards ("click to expand") → ClusterPanel member list →
+  walk to any member; cluster spokes open the panel, not the fact inspector.
+  Verified: 132 tests (3 new), tsc, lint==baseline, build, shoot screenshot
+  shows "+6 more invoices" on the fixture.
 - **2026-07-12** — **Heavy demo account `demo@datamodo.dev` seeded on prod +
   dev + the PR-52 preview branch** (user request: "simulate someone using the
   app for 5 weeks — volume"). New `neon/seed-heavy.sql` (idempotent, same
