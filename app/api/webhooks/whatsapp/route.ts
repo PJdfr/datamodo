@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { ingest } from "@/lib/ingest/store";
-import { isHandleBound, redeemChannelLinkCode } from "@/lib/datamodo/channels";
+import { getBoundSource, redeemChannelLinkCode } from "@/lib/datamodo/channels";
+import { applyReviewReply } from "@/lib/datamodo/review-inbox";
 import type { IngestAttachment, IngestEnvelope } from "@/lib/ingest/types";
 
 // WhatsApp inbound adapter (Twilio BSP). Twilio delivers each inbound message
@@ -34,6 +35,11 @@ function webhookUrl(req: Request): string {
 /** Strip Twilio's "whatsapp:" scheme prefix from an address. */
 function bareNumber(v: string | null): string {
   return (v ?? "").replace(/^whatsapp:/i, "").trim();
+}
+
+/** XML-escape dynamic text before it rides inside TwiML. */
+function escapeXml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function twiml(message?: string): NextResponse {
@@ -78,7 +84,7 @@ export async function POST(req: Request) {
   const profileName = params.get("ProfileName") ?? undefined;
 
   // Identify-once: bind this sender if not already, using a code in the message.
-  let bound = await isHandleBound("whatsapp", waId);
+  const bound = await getBoundSource("whatsapp", waId);
   if (!bound) {
     const link = await redeemChannelLinkCode("whatsapp", waId, body, {
       provider: "twilio",
@@ -89,6 +95,18 @@ export async function POST(req: Request) {
     }
     // Unknown sender, no valid code — don't capture; nudge them to connect.
     return twiml("👋 To connect this number to datamodo, open the app and send the code shown under Connect WhatsApp.");
+  }
+
+  // Reply-to-approve: a short "1 yes"-style message resolves a pending review
+  // (the "pull request" we pinged them about) instead of being captured as
+  // content. Anything that doesn't parse as a decision flows to capture.
+  if (body) {
+    try {
+      const confirmation = await applyReviewReply(bound.orgId, body);
+      if (confirmation) return twiml(escapeXml(confirmation));
+    } catch (e) {
+      console.error("[whatsapp] review reply handling failed", e);
+    }
   }
 
   // Bound sender → capture the message. Pull any media attachments.

@@ -61,6 +61,7 @@
 | Document evidence layer: page-lineage chunks + keyword passage search | `chunkDocText` in `document-extraction.ts`, `lib/datamodo/chunks.ts` (table `doc_chunks`) |
 | Entity merge (repoints facts/chunks/rows/body, tombstones) | `mergeEntities` in `knowledge.ts` |
 | Review queue: merges, conflicts, low-confidence extractions, off-template, **category proposals (growth loop ⑤: ≥3 entities of an unknown kind → proposed category with AI-drafted template; accept creates it, decline never re-asks)** — impact-ranked, accept/reject with real side-effects | `lib/datamodo/reviews.ts`, `lib/datamodo/review-types.ts`, `app/api/knowledge/reviews*`; trigger `unregisteredKinds` in `ontology.ts` + `maybeProposeCategories` in `kinds.ts` |
+| **Channel pull-requests (2026-07-12)**: when a message leaves decisions behind (reviews / proposed rows) — and ONLY then; confident extractions ping nothing — the pipeline pings the user back over the channel it arrived on, numbered newest-first ("datamodo — 2 things need your OK: 1. Merge …? 2. Create category …? Reply '1 yes' / '2 no'"); replying "1y"/"no 2"/bare "yes" in WhatsApp resolves the review with real side-effects and answers with a confirmation; long/normal messages are never swallowed (strict short-reply parser). Outbound is env-gated fail-soft: WhatsApp via Twilio (`TWILIO_WHATSAPP_FROM`), Slack via `SLACK_BOT_TOKEN`; email/Teams have no outbound sender yet (dormant — Review tab still shows everything) | pure `lib/datamodo/review-ping.ts` (`buildReviewPing`, `parseReviewReply`, `reviewQuestion`); shells `review-inbox.ts` (`pendingQuestions`, `applyReviewReply`), `outbound.ts`; hook at the end of `runExtractionForItem` (`extract.ts`); reply interception in `app/api/webhooks/whatsapp` (+ `getBoundSource` in `channels.ts`) |
 
 ### Projections (every view derives from the vault; nothing is a second store)
 | Feature | Code |
@@ -104,7 +105,7 @@
 
 **Ingest & jobs:** `INGEST_WEBHOOK_SECRET` (worker↔app), `INBOUND_EMAIL_DOMAIN`, `CRON_SECRET` (tick + requeue; must match the GitHub Actions secret, with `APP_URL`), `EXTRACT_BATCH`.
 
-**Channels:** `TWILIO_AUTH_TOKEN`, `TWILIO_ACCOUNT_SID`, `TWILIO_WHATSAPP_WEBHOOK_URL`; `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`; `MICROSOFT_APP_ID` (+ dev-only `TEAMS_DEV_SKIP_AUTH`).
+**Channels:** `TWILIO_AUTH_TOKEN`, `TWILIO_ACCOUNT_SID`, `TWILIO_WHATSAPP_WEBHOOK_URL`, `TWILIO_WHATSAPP_FROM` (the shared bot number — outbound review pings are dormant without it); `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN` (also powers outbound review pings); `MICROSOFT_APP_ID` (+ dev-only `TEAMS_DEV_SKIP_AUTH`); `APP_URL` (review-ping deep links, falls back to `NEXT_PUBLIC_SITE_URL`).
 
 **Billing (dormant):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_MAX`.
 

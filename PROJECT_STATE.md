@@ -12,6 +12,25 @@
 > Last updated: 2026-07-12
 
 ## Recent changes
+- **2026-07-12** — **Channel pull-requests: the review comes to you** (user
+  must-have: "when a message creates validation needs, send the pull request
+  over the channel — click/reply to apply"). When extraction leaves decisions
+  behind for a message (pending knowledge_reviews and/or proposed rows) — and
+  only then — the pipeline pings the sender back over the originating
+  channel: numbered questions newest-first, "Reply '1 yes' / '2 no'", plus a
+  dashboard link. Replying in WhatsApp resolves the review with the real
+  accept/reject side-effects and confirms in-thread; the parser only accepts
+  short decision-shaped replies (unit-tested against real-message false
+  positives), so capture is never hijacked. Outbound is env-gated fail-soft:
+  WhatsApp (Twilio REST, new `TWILIO_WHATSAPP_FROM`), Slack
+  (chat.postMessage). New: pure `review-ping.ts` (+5 tests), shells
+  `review-inbox.ts`/`outbound.ts`, hook at end of `runExtractionForItem`,
+  reply interception in the WhatsApp webhook, `getBoundSource` in channels.
+  Also fixed: the heavy seed's merge review used kind 'merge' →
+  'entity_merge' (file + all three Neon branches updated). Verified: 143
+  tests, tsc, lint, build green. NOT live-fired (no Twilio/Slack creds):
+  the actual send + reply round-trip; email/Teams outbound don't exist yet
+  (roadmap).
 - **2026-07-12** — **Folders pivot to deterministic LENSES (no LLM), many
   trees over the same docs** (user decision: "a folder is just a tag; derive
   folders deterministically from the graph; suggest multiple trees"). New

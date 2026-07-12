@@ -363,7 +363,7 @@ begin
   values (v_org, v_uid, 'company', 'ACME Incorporated', 'acme incorporated', jsonb_build_object('domain', 'acme.com'), 0, now() - interval '2 days', now() - interval '2 days')
   returning id into v_dup;
   insert into public.knowledge_reviews (org_id, owner_user_id, kind, status, confidence, impact, source_entity_id, target_entity_id, detail, created_at)
-  values (v_org, v_uid, 'merge', 'pending', 0.62, 4, v_dup, c_ids[3],
+  values (v_org, v_uid, 'entity_merge', 'pending', 0.62, 4, v_dup, c_ids[3],
           jsonb_build_object('reason', 'Same domain acme.com; labels differ.', 'parsedLabel', 'ACME Incorporated'),
           now() - interval '2 days');
   insert into public.knowledge_reviews (org_id, owner_user_id, kind, status, confidence, impact, detail, created_at)
