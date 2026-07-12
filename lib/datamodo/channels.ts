@@ -132,9 +132,20 @@ export async function isHandleBound(
   channel: IngestChannel,
   handle: string,
 ): Promise<boolean> {
+  return (await getBoundSource(channel, handle)) !== null;
+}
+
+/** The bound source (with its org/owner) behind a sender handle, or null —
+ *  what webhooks need to act on a message beyond just capturing it. */
+export async function getBoundSource(
+  channel: IngestChannel,
+  handle: string,
+): Promise<BoundSource | null> {
   const data = await prisma.ingest_sources.findFirst({
     where: { channel, handle, status: "active" },
-    select: { id: true },
+    select: { id: true, org_id: true, owner_user_id: true },
   });
-  return !!data;
+  return data
+    ? { sourceId: data.id, ownerUserId: data.owner_user_id ?? "", orgId: data.org_id }
+    : null;
 }

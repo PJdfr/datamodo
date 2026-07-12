@@ -12,7 +12,6 @@ import {
   renderNodeMarkdown,
   renderFolderReadme,
   sanitizeFolderPath,
-  buildFolderPrompt,
 } from "../lib/datamodo/folder-export.ts";
 import type { KnowledgeEntityView, KnowledgeFactView } from "../lib/datamodo/types.ts";
 
@@ -140,10 +139,14 @@ test("renderFolderReadme: the tree as text", () => {
   assert.match(readme, /- \*\*notes\/\*\*\n  - renewal-strategy\.md/);
 });
 
-test("buildFolderPrompt: inventory only — ids, kinds, labels, links; no bodies", () => {
+test("parseFolderPlan: a doc may sit in SEVERAL folders (folders are tags), same folder twice collapses", () => {
   const xs = collectExportables(WORLD);
-  const { system, user } = buildFolderPrompt("organize by client", xs);
-  assert.match(system, /ONLY JSON/);
-  assert.match(user, /id=doc1 · document · "contract.pdf" · linked to: Acme Inc/);
-  assert.ok(!user.includes("Push for"), "node bodies never reach the prompt");
+  const plan = parseFolderPlan({ placements: [
+    { id: "doc1", path: "clients/acme" },
+    { id: "doc1", path: "by-month/2026-06" },
+    { id: "doc1", path: "clients/acme" }, // duplicate → once
+    { id: "note1", path: "notes" },
+  ] }, xs);
+  assert.deepEqual(plan.placements.filter((p) => p.id === "doc1").map((p) => p.path).sort(),
+    ["by-month/2026-06", "clients/acme"]);
 });

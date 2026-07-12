@@ -97,7 +97,13 @@
   animation once it exists; ship copy first if design lands earlier.
 - **Channel adapters E2E** — WhatsApp (Twilio sandbox), Slack app, Teams bot
   are code-complete but have never touched the real providers. The core pitch
-  ("forward from anywhere") ends here.
+  ("forward from anywhere") ends here. Now also covers the **channel
+  pull-request loop** (shipped 2026-07-12, never live-fired): review pings +
+  reply-to-approve. Follow-ups, not built: Slack reply interception (outbound
+  ping ships; the Slack webhook doesn't parse decisions yet), WhatsApp
+  interactive BUTTONS (Twilio content templates instead of "1 yes"), and an
+  outbound EMAIL provider (Resend/SES) so email users get the ping too — today
+  they only see the Review tab.
 - ~~Spreadsheet-import follow-ups~~ ✅ 2026-07-11 — pre-merge PREVIEW/confirm
   (dry-run shows the reading + honest counts; nothing writes until confirmed),
   column-mapping overrides (kind, identity column, per-column link/fact/skip,

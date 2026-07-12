@@ -12,6 +12,53 @@
 > Last updated: 2026-07-12
 
 ## Recent changes
+- **2026-07-12** — **The app is a channel: in-app Chat capture** (user
+  must-have). New "Chat" tab in the dashboard rail: a thread + composer that
+  sends straight into the SAME pipeline as email/WhatsApp — multiline text,
+  any-file attach (photos/PDF/docs, ≤8 files / 15 MB per message), a
+  dictaphone (MediaRecorder voice note → the existing transcription tier)
+  and live speech-to-text into the box (Web Speech API, feature-detected;
+  Chrome-family). `POST/GET /api/chat` is session-authed and attributes the
+  org explicitly (no link codes/shared secret — the session IS the
+  identity); items land as channel `upload` with `meta.via='app'` and get
+  the same post-response extraction kick as /api/ingest, so the thread's
+  status chips go ⟳ processing → ✓ filed live (4s poll while busy).
+  Verified: 143 tests, tsc, lint==baseline, build green. NOT verified live:
+  mic/dictation need a real browser + HTTPS; transcription stays dormant
+  until `TRANSCRIPTION_API_KEY`/`OPENAI_API_KEY` is set.
+- **2026-07-12** — **Channel pull-requests: the review comes to you** (user
+  must-have: "when a message creates validation needs, send the pull request
+  over the channel — click/reply to apply"). When extraction leaves decisions
+  behind for a message (pending knowledge_reviews and/or proposed rows) — and
+  only then — the pipeline pings the sender back over the originating
+  channel: numbered questions newest-first, "Reply '1 yes' / '2 no'", plus a
+  dashboard link. Replying in WhatsApp resolves the review with the real
+  accept/reject side-effects and confirms in-thread; the parser only accepts
+  short decision-shaped replies (unit-tested against real-message false
+  positives), so capture is never hijacked. Outbound is env-gated fail-soft:
+  WhatsApp (Twilio REST, new `TWILIO_WHATSAPP_FROM`), Slack
+  (chat.postMessage). New: pure `review-ping.ts` (+5 tests), shells
+  `review-inbox.ts`/`outbound.ts`, hook at end of `runExtractionForItem`,
+  reply interception in the WhatsApp webhook, `getBoundSource` in channels.
+  Also fixed: the heavy seed's merge review used kind 'merge' →
+  'entity_merge' (file + all three Neon branches updated). Verified: 143
+  tests, tsc, lint, build green. NOT live-fired (no Twilio/Slack creds):
+  the actual send + reply round-trip; email/Teams outbound don't exist yet
+  (roadmap).
+- **2026-07-12** — **Folders pivot to deterministic LENSES (no LLM), many
+  trees over the same docs** (user decision: "a folder is just a tag; derive
+  folders deterministically from the graph; suggest multiple trees"). New
+  pure core `lib/datamodo/folder-lenses.ts`: documents+notes collect their
+  tags from facts (linked clients/projects/people/topics, arrival month,
+  file type, channel); each lens is a deterministic grouping rule; lenses
+  stack two levels ("client / month"); a doc linked to two clients IS in
+  both folders. Files view reworked: lens chips (only ones that
+  discriminate), collapsible tree, folder click filters the grid, "↓ Export
+  tree" zips exactly the on-screen tree (multi-folder docs export in each
+  folder). The LLM folder-export modal + Build ▾ entry and the route's LLM
+  path are REMOVED (simplicity rule: the lens tree replaces them);
+  `parseFolderPlan` now allows one doc in several folders. Verified: 138
+  tests (6 new lens tests), tsc, lint==baseline, build green.
 - **2026-07-12** — **Ring grouping in the walk (WOW build-order step 1)** —
   user: "a company with 30 invoices doesn't need 30 spokes". `buildEgoGraph`
   gains `clusterTail`/`maxPerKind`: past 3 nodes of one kind (or past the ring

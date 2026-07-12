@@ -67,24 +67,6 @@ export interface FolderPlan {
   placements: FolderPlacement[];
 }
 
-export function buildFolderPrompt(request: string, nodes: ExportableNode[]): { system: string; user: string } {
-  const inventory = nodes
-    .map((n) => `- id=${n.id} · ${n.kind} · "${n.label}"${n.links.length ? ` · linked to: ${n.links.join(", ")}` : ""}`)
-    .join("\n");
-  return {
-    system: [
-      "You organize a user's documents and notes into a folder structure. You see an INVENTORY (kind, name, what each item is linked to) — not the contents.",
-      "Design a folder tree that fits the user's request and place EVERY item in exactly one folder.",
-      "Rules:",
-      "- Folder paths are '/'-separated, at most 4 levels deep, short lowercase names (e.g. \"clients/acme/2026/invoices\"). Use subfolders where they genuinely help.",
-      "- Group by what the request asks for; use the links to decide where an item belongs.",
-      "- Place every listed id. Never invent ids.",
-      'Respond with ONLY JSON: {"name":"<short archive name>","placements":[{"id":"<id>","path":"<folder/path>"}]}',
-    ].join("\n"),
-    user: `Request: ${request}\n\nItems:\n${inventory}`,
-  };
-}
-
 const MAX_DEPTH = 4;
 const SEGMENT_MAX = 40;
 
@@ -109,28 +91,33 @@ export function sanitizeFolderPath(raw: string): string {
   return segs.join("/") || "unsorted";
 }
 
-/** Validate the model's plan: known ids only, one folder each, sanitized
- *  paths; anything the model missed lands in "unsorted" — nothing is ever
- *  silently dropped. */
+/** Validate a plan: known ids only, sanitized paths; anything missing lands
+ *  in "unsorted" — nothing is ever silently dropped. A doc MAY appear in
+ *  several folders (folders are tags — the lens trees rely on this); the
+ *  same doc twice in the SAME folder collapses to one. */
 export function parseFolderPlan(raw: unknown, nodes: ExportableNode[]): FolderPlan {
   const o = raw as Record<string, unknown> | null;
   const known = new Set(nodes.map((n) => n.id));
-  const placed = new Map<string, string>();
+  const seen = new Set<string>();
+  const placed: { id: string; path: string }[] = [];
   const list = Array.isArray(o?.placements) ? (o!.placements as Record<string, unknown>[]) : [];
   for (const p of list) {
     if (!p || typeof p !== "object") continue;
     const id = typeof p.id === "string" ? p.id : "";
-    const path = typeof p.path === "string" ? p.path : "";
-    if (!known.has(id) || placed.has(id)) continue; // unknown/duplicate → ignore
-    placed.set(id, sanitizeFolderPath(path));
+    const rawPath = typeof p.path === "string" ? p.path : "";
+    if (!known.has(id)) continue; // unknown id → ignore
+    const path = sanitizeFolderPath(rawPath);
+    const key = `${id}~${path}`;
+    if (seen.has(key)) continue; // same doc, same folder → once
+    seen.add(key);
+    placed.push({ id, path });
   }
-  for (const n of nodes) if (!placed.has(n.id)) placed.set(n.id, "unsorted");
+  const placedIds = new Set(placed.map((p) => p.id));
+  for (const n of nodes) if (!placedIds.has(n.id)) placed.push({ id: n.id, path: "unsorted" });
   const name = safeSegment(typeof o?.name === "string" ? o.name : "") || "datamodo-export";
   // Deterministic order: by path, then label order of the inventory.
   const order = new Map(nodes.map((n, i) => [n.id, i]));
-  const placements = [...placed.entries()]
-    .map(([id, path]) => ({ id, path }))
-    .sort((a, b) => a.path.localeCompare(b.path) || (order.get(a.id)! - order.get(b.id)!));
+  const placements = placed.sort((a, b) => a.path.localeCompare(b.path) || (order.get(a.id)! - order.get(b.id)!));
   return { name, placements };
 }
 

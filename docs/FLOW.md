@@ -19,6 +19,7 @@ subgraph SENDS["1 · THE USER SENDS<br/>gesture-based capture, never account slu
   SL["▦ Slack / ◇ Teams<br/><i>same shared-bot +<br/>link-code pattern</i>"]
   XL["▦ Spreadsheet upload<br/><i>xlsx → table or<br/>→ knowledge graph</i>"]
   NT["✎ Prose dump<br/><i>subject 'note:' forces<br/>a generated note</i>"]
+  APP["▣ In-app Chat<br/><i>type · attach · dictate ·<br/>voice-note, in the dashboard</i>"]
 end
 
 subgraph LISTEN["2 · WE LISTEN<br/>adapters normalize to one envelope"]
@@ -85,7 +86,7 @@ XL -.infer graph → same ingest.-> CANON
 
 | Stage | What the user senses | How we do it | Stack / key files |
 |---|---|---|---|
-| **Send** | "Forward it to datamodo" — email address, bot DM, upload | Gesture-based capture; identify-once link codes bind a sender handle to the user | `forwarding_addresses`, `ingest_sources`, `channel_link_codes` |
+| **Send** | "Forward it to datamodo" — email address, bot DM, upload, or the in-app Chat (text · files · voice notes · dictation) | Gesture-based capture; identify-once link codes bind a sender handle to the user; the Chat route attributes by session, no codes needed | `forwarding_addresses`, `ingest_sources`, `channel_link_codes`, `app/api/chat` |
 | **Listen** | Instant "got it" | Channel adapters normalize to `IngestEnvelope`; signature-verified; idempotent by `external_id` | `workers/email-ingest`, `app/api/webhooks/*`, `app/api/ingest` |
 | **Store raw** | "The original is always kept" | sha256+gzip blob dedup (same file re-forwarded = one blob), items at `stored` | `lib/ingest/store.ts`, `lib/storage/blob.ts`, R2 |
 | **Process** | Facts appear minutes later; unclear things ask for review | Cron + self-kick drain; claim/recover/retry; classify → extract → canonicalize → restrain; audio transcribes first (fail-soft) then follows the document path; low confidence escalates models, then to Review | `lib/datamodo/extract.ts`, `ontology.ts`, `documents.ts`, `lib/llm/*` (incl. `transcription.ts`) |

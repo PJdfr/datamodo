@@ -1,22 +1,30 @@
 "use client";
 
 /**
- * FILES view — the documents that arrived as attachments, surfaced from the
- * knowledge graph. Every attachment becomes a `document` entity (the binary
- * stays in blob storage; its meaning lives here), and "folders" are
- * PROJECTIONS over its relationship facts — a folder is "every document
- * linked to Acme Inc", not a directory. One document can live in many
- * folders; folders assemble themselves as facts arrive; nothing is moved.
+ * FILES view — the documents & notes that live in the graph, organized by
+ * FOLDER LENSES: a folder is a TAG derived deterministically from facts (no
+ * LLM), so there is no single "right" tree — the same corpus organizes BY
+ * CLIENT, BY PROJECT, BY TOPIC, BY MONTH, BY TYPE, and lenses stack two
+ * levels deep ("client / month"). A document linked to two clients appears
+ * in BOTH folders: membership, not location; nothing is ever moved. The
+ * on-screen tree exports 1:1 as a .zip (originals kept, notes as markdown).
  * Lazy-loaded from /api/knowledge/entities like the Knowledge view.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { C, monoLabel, CountUp } from "./ui";
 import { EntityPageModal } from "./entity-page";
+import {
+  collectFiledDocs,
+  availableLenses,
+  buildLensTree,
+  treeToPlacements,
+  UNFILED,
+  type LensFolder,
+  type LensKey,
+} from "@/lib/datamodo/folder-lenses";
 import type { KnowledgeEntityView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
-
-const DOCUMENT_KIND = "document";
 
 const fmtBytes = (n: number): string => {
   if (!Number.isFinite(n) || n <= 0) return "";
@@ -33,6 +41,7 @@ const shortType = (ct: string): string => {
   if (t.includes("spreadsheet") || t.includes("excel")) return "Sheet";
   if (t.startsWith("text/")) return "Text";
   if (t.startsWith("image/")) return "Image";
+  if (t.startsWith("audio/")) return "Audio";
   const sub = t.split("/")[1];
   return sub ? sub.split(";")[0].toUpperCase().slice(0, 8) : t;
 };
@@ -45,13 +54,13 @@ const INDEX_BADGE: Record<string, { label: string; bg: string; fg: string }> = {
 
 interface DocView {
   id: string;
+  kind: string;
   label: string;
+  hasOriginal: boolean;
   fileType: string | null;
   size: number | null;
   indexing: string | null;
-  /** Entities this document is linked to (mentions/about/…) — its folders. */
   links: { id: string; label: string }[];
-  /** The message it arrived on, from any fact's provenance. */
   via: { channel: string; sender: string | null; subject: string | null } | null;
 }
 
@@ -73,7 +82,9 @@ function toDocView(e: KnowledgeEntityView): DocView {
   }
   return {
     id: e.id,
+    kind: e.kind,
     label: e.label,
+    hasOriginal: /^doc:[^:]+:/.test(e.naturalKeys?.id ?? ""),
     fileType,
     size,
     indexing,
@@ -82,48 +93,34 @@ function toDocView(e: KnowledgeEntityView): DocView {
   };
 }
 
-function DocCard({ d, onFolder, onOpen }: { d: DocView; onFolder: (id: string) => void; onOpen: (id: string) => void }) {
+function DocCard({ d, onOpen }: { d: DocView; onOpen: (id: string) => void }) {
   const badge = d.indexing ? INDEX_BADGE[d.indexing] ?? null : null;
-  const meta = [d.fileType ? shortType(d.fileType) : null, d.size != null ? fmtBytes(d.size) : null]
+  const meta = [d.fileType ? shortType(d.fileType) : d.kind === "note" ? "Note" : null, d.size != null ? fmtBytes(d.size) : null]
     .filter(Boolean)
     .join(" · ");
   return (
     <div className="dm-card" style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 13, padding: "13px 15px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <button type="button" onClick={() => onOpen(d.id)} title="Open this document's page" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, background: "transparent", border: "none", padding: 0, cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
-        <span style={{ width: 34, height: 34, borderRadius: 9, background: "#FBF8F1", border: "1px solid #ECE5D8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>📄</span>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div className="dm-display" style={{ fontWeight: 700, fontSize: 14.5, letterSpacing: "-0.01em", color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.label}</div>
-          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "#A39B8B", display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-            {meta && <span>{meta}</span>}
-            {badge && <span style={{ background: badge.bg, color: badge.fg, borderRadius: 5, padding: "1px 6px", textTransform: "none", letterSpacing: 0 }}>{badge.label}</span>}
+        <button type="button" onClick={() => onOpen(d.id)} title="Open this page" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, background: "transparent", border: "none", padding: 0, cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
+          <span style={{ width: 34, height: 34, borderRadius: 9, background: "#FBF8F1", border: "1px solid #ECE5D8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>{d.kind === "note" ? "▤" : "📄"}</span>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div className="dm-display" style={{ fontWeight: 700, fontSize: 14.5, letterSpacing: "-0.01em", color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.label}</div>
+            <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "#A39B8B", display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+              {meta && <span>{meta}</span>}
+              {badge && <span style={{ background: badge.bg, color: badge.fg, borderRadius: 5, padding: "1px 6px", textTransform: "none", letterSpacing: 0 }}>{badge.label}</span>}
+            </div>
           </div>
-        </div>
         </button>
         {/* The original binary never leaves blob storage — this streams it back. */}
-        <a
-          href={`/api/documents/${d.id}`}
-          title="Download the original file"
-          className="dm-mono"
-          style={{ fontSize: 10.5, color: "#8A8477", border: "1px solid #ECE5D8", borderRadius: 7, padding: "4px 8px", textDecoration: "none", flexShrink: 0, whiteSpace: "nowrap" }}
-        >original ↓</a>
+        {d.hasOriginal && (
+          <a
+            href={`/api/documents/${d.id}`}
+            title="Download the original file"
+            className="dm-mono"
+            style={{ fontSize: 10.5, color: "#8A8477", border: "1px solid #ECE5D8", borderRadius: 7, padding: "4px 8px", textDecoration: "none", flexShrink: 0, whiteSpace: "nowrap" }}
+          >original ↓</a>
+        )}
       </div>
-      {d.links.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-          {d.links.map((l) => (
-            <button
-              key={l.id}
-              type="button"
-              onClick={() => onFolder(l.id)}
-              title={`Show every document linked to ${l.label}`}
-              className="dm-mono"
-              style={{ fontSize: 10.5, color: C.accent, background: "#FDF6F2", border: "1px solid #F3D6CB", borderRadius: 6, padding: "2px 7px", cursor: "pointer", fontFamily: "inherit" }}
-            >
-              → {l.label}
-            </button>
-          ))}
-        </div>
-      )}
       {d.via && (
         <div style={{ fontSize: 11.5, color: "#8A8477", marginTop: 9, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           via {d.via.channel}{d.via.sender ? ` · ${d.via.sender}` : ""}{d.via.subject ? ` · “${d.via.subject}”` : ""}
@@ -133,13 +130,55 @@ function DocCard({ d, onFolder, onOpen }: { d: DocView; onFolder: (id: string) =
   );
 }
 
+/* One folder row of the lens tree (recursive, collapsible). */
+function TreeFolder({ folder, depth, selPath, openPaths, toggle, onSelect }: {
+  folder: LensFolder;
+  depth: number;
+  selPath: string | null;
+  openPaths: Set<string>;
+  toggle: (p: string) => void;
+  onSelect: (p: string | null) => void;
+}) {
+  const open = openPaths.has(folder.path);
+  const selected = selPath === folder.path;
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+        {folder.children.length > 0 ? (
+          <button type="button" onClick={() => toggle(folder.path)} aria-expanded={open} aria-label={`${open ? "Collapse" : "Expand"} ${folder.name}`}
+            style={{ border: "none", background: "transparent", cursor: "pointer", color: "#A39B8B", fontSize: 11, width: 16, padding: 0, marginLeft: depth * 14, transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }}>›</button>
+        ) : (
+          <span style={{ width: 16, marginLeft: depth * 14 }} />
+        )}
+        <button
+          type="button"
+          onClick={() => onSelect(selected ? null : folder.path)}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: selected ? 600 : 400, color: selected ? "#fff" : folder.name === UNFILED ? "#8A8477" : "#57534A", background: selected ? C.accent : "transparent", border: "none", borderRadius: 8, padding: "4px 9px", cursor: "pointer", fontFamily: "inherit", minWidth: 0 }}
+        >
+          <span style={{ fontSize: 11 }}>▧</span>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 170, fontStyle: folder.name === UNFILED ? "italic" : "normal" }}>{folder.name}</span>
+          <span className="dm-mono" style={{ fontSize: 9.5, color: selected ? "rgba(255,255,255,.8)" : "#A39B8B" }}>{folder.total}</span>
+        </button>
+      </div>
+      {open && folder.children.map((c) => (
+        <TreeFolder key={c.path} folder={c} depth={depth + 1} selPath={selPath} openPaths={openPaths} toggle={toggle} onSelect={onSelect} />
+      ))}
+    </div>
+  );
+}
+
 export function FilesView() {
   const [entities, setEntities] = useState<KnowledgeEntityView[]>([]);
   const [kinds, setKinds] = useState<KindDef[]>([]);
   const [loading, setLoading] = useState(true);
-  const [folder, setFolder] = useState<string>("all");
+  const [lens, setLens] = useState<LensKey | null>(null);
+  const [lens2, setLens2] = useState<LensKey | null>(null);
+  const [selPath, setSelPath] = useState<string | null>(null);
+  const [openPaths, setOpenPaths] = useState<Set<string>>(new Set());
   const [q, setQ] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -161,84 +200,153 @@ export function FilesView() {
     return () => { alive = false; };
   }, []);
 
-  const docs = useMemo(
-    () => entities.filter((e) => e.kind === DOCUMENT_KIND).map(toDocView),
-    [entities],
+  const filed = useMemo(() => collectFiledDocs(entities), [entities]);
+  const lenses = useMemo(() => availableLenses(filed), [filed]);
+  // The active lens: the picked one, or the first that discriminates.
+  const activeLens = lens ?? lenses[0]?.key ?? null;
+  const tree = useMemo(
+    () => (activeLens ? buildLensTree(filed, [activeLens, ...(lens2 && lens2 !== activeLens ? [lens2] : [])]) : []),
+    [filed, activeLens, lens2],
   );
 
-  // Folders = every entity documents are linked to, counted. Pure projection.
-  const folders = useMemo(() => {
-    const m = new Map<string, { label: string; count: number }>();
-    for (const d of docs) {
-      for (const l of d.links) {
-        const cur = m.get(l.id);
-        if (cur) cur.count++;
-        else m.set(l.id, { label: l.label, count: 1 });
+  // Which docs the selected folder holds (its subtree), else all.
+  const docIdsInSel = useMemo(() => {
+    if (!selPath) return null;
+    const find = (fs: LensFolder[]): LensFolder | null => {
+      for (const f of fs) {
+        if (f.path === selPath) return f;
+        const hit = find(f.children);
+        if (hit) return hit;
       }
-    }
-    return [...m.entries()]
-      .map(([id, v]) => ({ id, ...v }))
-      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-  }, [docs]);
+      return null;
+    };
+    const f = find(tree);
+    if (!f) return null;
+    const ids = new Set<string>();
+    const walk = (x: LensFolder) => { x.docs.forEach((d) => ids.add(d.id)); x.children.forEach(walk); };
+    walk(f);
+    return ids;
+  }, [selPath, tree]);
+
+  const docs = useMemo(() => {
+    const filedIds = new Set(filed.map((f) => f.id));
+    return entities.filter((e) => filedIds.has(e.id)).map(toDocView);
+  }, [entities, filed]);
 
   const shown = useMemo(() => {
-    let list = folder === "all" ? docs : docs.filter((d) => d.links.some((l) => l.id === folder));
+    let list = docIdsInSel ? docs.filter((d) => docIdsInSel.has(d.id)) : docs;
     const t = q.trim().toLowerCase();
     if (t) list = list.filter((d) => `${d.label} ${d.fileType ?? ""} ${d.links.map((l) => l.label).join(" ")}`.toLowerCase().includes(t));
     return list;
-  }, [docs, folder, q]);
+  }, [docs, docIdsInSel, q]);
+
+  const exportTree = async () => {
+    setExporting(true); setExportError(null);
+    try {
+      const placements = treeToPlacements(tree);
+      const name = `datamodo-${activeLens ?? "files"}${lens2 && lens2 !== activeLens ? `-${lens2}` : ""}`;
+      const res = await fetch("/api/knowledge/folder-export", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plan: { name, placements }, download: true }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setExportError(String((json as { error?: string }).error ?? "export failed"));
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${name}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportError("network error — try again");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (loading) return <div className="dm-mono" style={{ color: "#A39B8B", fontSize: 13, padding: "40px 4px" }}>Loading your documents…</div>;
 
-  if (docs.length === 0) {
+  if (filed.length === 0) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "72px 20px" }}>
         <div className="dm-bob" style={{ width: 64, height: 64, borderRadius: 18, background: "#FBF8F1", border: "1px solid #ECE5D8", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20, fontSize: 26 }}>📄</div>
         <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 24, letterSpacing: "-0.03em", margin: "0 0 8px" }}>No documents yet</h2>
         <p style={{ fontSize: 14.5, color: "#57534A", maxWidth: "46ch", margin: 0, lineHeight: 1.55 }}>
-          Forward a message with an attachment and it lands here: we keep the original file forever, read what it says, and link it to the people, companies and invoices it mentions — so it files itself into the right folders.
+          Forward a message with an attachment and it lands here: we keep the original file forever, read what it says, and link it to the people, companies and invoices it mentions — so it files itself into every folder it belongs to.
         </p>
       </div>
     );
   }
 
-  const activeFolder = folder === "all" ? null : folders.find((f) => f.id === folder) ?? null;
+  const second = lenses.filter((l) => l.key !== activeLens);
 
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
         <div>
-          <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink }}><CountUp value={docs.length} /> document{docs.length === 1 ? "" : "s"}</div>
-          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Originals kept forever · folders assemble themselves from what each document mentions</div>
+          <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink }}><CountUp value={filed.length} /> document{filed.length === 1 ? "" : "s"} &amp; notes</div>
+          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Folders derive from the graph — same files, as many trees as you have lenses; nothing is ever moved</div>
         </div>
-        <div style={{ marginLeft: "auto", position: "relative", minWidth: 220 }}>
-          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search documents…" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ position: "relative", minWidth: 200 }}>
+            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search documents…" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
+          </div>
+          <button type="button" onClick={exporting ? undefined : exportTree} title="Download exactly this tree as a .zip (originals kept; notes as markdown)"
+            className="dm-mono" style={{ fontSize: 11, color: C.ink, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 9, padding: "7px 12px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+            {exporting ? "Building…" : "↓ Export tree"}
+          </button>
         </div>
       </div>
+      {exportError && <div className="dm-mono" style={{ fontSize: 11, color: C.accent, marginBottom: 10 }}>{exportError}</div>}
 
-      {/* Smart folders: saved queries over relationship facts, not directories. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", marginBottom: 18 }}>
-        <span className="dm-mono" style={{ ...monoLabel, marginRight: 2 }}>Folders</span>
-        {[{ id: "all", label: "All documents", count: docs.length }, ...folders].map((f) => {
-          const active = folder === f.id;
+      {/* LENSES — each chip is a different tree over the same documents. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", marginBottom: 8 }}>
+        <span className="dm-mono" style={{ ...monoLabel, marginRight: 2 }}>Organize</span>
+        {lenses.map((l) => {
+          const active = l.key === activeLens;
           return (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setFolder(f.id)}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: active ? 600 : 400, color: active ? "#fff" : "#57534A", background: active ? C.accent : "#fff", border: `1px solid ${active ? C.accent : "#E1D9C8"}`, borderRadius: 999, padding: "5px 11px", cursor: "pointer", fontFamily: "inherit" }}
-            >
-              {f.id === "all" ? "🗂" : "📁"} {f.label}
-              <span className="dm-mono" style={{ fontSize: 10, color: active ? "rgba(255,255,255,.8)" : "#A39B8B" }}>{f.count}</span>
+            <button key={l.key} type="button" onClick={() => { setLens(l.key); if (lens2 === l.key) setLens2(null); setSelPath(null); setOpenPaths(new Set()); }}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: active ? 600 : 400, color: active ? "#fff" : "#57534A", background: active ? C.ink : "#fff", border: `1px solid ${active ? C.ink : "#E1D9C8"}`, borderRadius: 999, padding: "5px 11px", cursor: "pointer", fontFamily: "inherit" }}>
+              {l.label}
+              <span className="dm-mono" style={{ fontSize: 10, color: active ? "rgba(255,255,255,.75)" : "#A39B8B" }}>{l.folders}</span>
             </button>
           );
         })}
+        {second.length > 0 && (
+          <>
+            <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B", marginLeft: 6 }}>then</span>
+            <select value={lens2 ?? ""} onChange={(e) => { setLens2((e.target.value || null) as LensKey | null); setSelPath(null); setOpenPaths(new Set()); }}
+              className="dm-mono" style={{ fontSize: 11, color: "#57534A", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 8, padding: "4px 8px", fontFamily: "inherit", cursor: "pointer" }}>
+              <option value="">—</option>
+              {second.map((l) => <option key={l.key} value={l.key}>{l.label}</option>)}
+            </select>
+          </>
+        )}
       </div>
 
-      {activeFolder && (
+      {/* The tree of the active lens stack. */}
+      <div style={{ border: "1px solid #ECE5D8", borderRadius: 12, background: "#fff", padding: "8px 10px", marginBottom: 16, maxHeight: 280, overflowY: "auto" }}>
+        <button type="button" onClick={() => setSelPath(null)}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: selPath === null ? 600 : 400, color: selPath === null ? "#fff" : "#57534A", background: selPath === null ? C.accent : "transparent", border: "none", borderRadius: 8, padding: "4px 9px", cursor: "pointer", fontFamily: "inherit", marginBottom: 2 }}>
+          🗂 All <span className="dm-mono" style={{ fontSize: 9.5, color: selPath === null ? "rgba(255,255,255,.8)" : "#A39B8B" }}>{filed.length}</span>
+        </button>
+        {tree.map((f) => (
+          <TreeFolder key={f.path} folder={f} depth={0} selPath={selPath} openPaths={openPaths}
+            toggle={(p) => setOpenPaths((prev) => { const n = new Set(prev); if (n.has(p)) n.delete(p); else n.add(p); return n; })}
+            onSelect={setSelPath} />
+        ))}
+      </div>
+
+      {selPath && (
         <div className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginBottom: 12 }}>
-          Every document linked to <span style={{ color: C.accent }}>{activeFolder.label}</span> — a live query over its facts, not a place files were moved to.
+          <span style={{ color: C.accent }}>▧ {selPath}</span> — a live projection over the graph; the same file can sit in several folders.
         </div>
       )}
 
@@ -246,7 +354,7 @@ export function FilesView() {
         <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Nothing matches{q.trim() ? ` “${q.trim()}”` : ""} in this folder.</div>
       ) : (
         <div className="dm-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
-          {shown.map((d) => <DocCard key={d.id} d={d} onFolder={setFolder} onOpen={setOpenId} />)}
+          {shown.map((d) => <DocCard key={d.id} d={d} onOpen={setOpenId} />)}
         </div>
       )}
 
