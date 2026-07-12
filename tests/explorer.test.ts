@@ -66,6 +66,64 @@ test("buildEgoGraph: preferred nodes win ring slots when the caps bite", () => {
   assert.equal(g.truncated, 3);
 });
 
+test("buildEgoGraph clusterTail: one kind can't hog the ring — the tail folds into a pseudo-node", () => {
+  // A company with 30 invoices and 3 people: the ring shows a few invoices,
+  // the people, and ONE "+N more invoices" cluster — never 30 spokes.
+  const world = [
+    ent("co", "company", "Hub Co", [], 33),
+    ...Array.from({ length: 30 }, (_, i) =>
+      ent(`inv${i}`, "invoice", `INV-${100 + i}`, [rel("issued_by", "co")], 30 - i),
+    ),
+    ...Array.from({ length: 3 }, (_, i) =>
+      ent(`p${i}`, "person", `Person ${i}`, [rel("works_for", "co")], 5),
+    ),
+  ];
+  const g = buildEgoGraph(world, "co", { maxHop1: 6, clusterTail: true, maxPerKind: 3 })!;
+  const ring = g.nodes.filter((n) => n.hop === 1);
+  const individuals = ring.filter((n) => !n.clusterOf);
+  const clusters = ring.filter((n) => n.clusterOf);
+  assert.deepEqual(individuals.map((n) => n.id), ["inv0", "inv1", "inv2", "p0", "p1", "p2"]);
+  assert.equal(clusters.length, 1);
+  assert.equal(clusters[0].label, "+27 more invoices");
+  assert.equal(clusters[0].clusterOf!.length, 27);
+  assert.equal(clusters[0].clusterOf![0], "inv3", "members importance-ordered");
+  assert.equal(g.truncated, 0, "nothing silently dropped — the tail is visible as the cluster");
+  // The cluster hangs off the center with the members' majority predicate.
+  const ce = g.edges.find((e) => e.from === clusters[0].id)!;
+  assert.equal(ce.to, "co");
+  assert.equal(ce.predicate, "issued_by");
+  assert.equal(g.parentOf[clusters[0].id], "co");
+  // Clustered members never leak back in as hop-2 nodes.
+  assert.ok(!g.nodes.some((n) => n.hop === 2 && n.id.startsWith("inv")));
+});
+
+test("buildEgoGraph clusterTail: preferred (cited) nodes are never folded away", () => {
+  const world = [
+    ent("co", "company", "Hub Co", [], 33),
+    ...Array.from({ length: 10 }, (_, i) =>
+      ent(`inv${i}`, "invoice", `INV-${100 + i}`, [rel("issued_by", "co")], 10 - i),
+    ),
+  ];
+  const g = buildEgoGraph(world, "co", { maxHop1: 4, clusterTail: true, maxPerKind: 2, prefer: new Set(["inv9"]) })!;
+  const individuals = g.nodes.filter((n) => n.hop === 1 && !n.clusterOf).map((n) => n.id);
+  assert.ok(individuals.includes("inv9"), "the weakest invoice stays visible because it was cited");
+  const cluster = g.nodes.find((n) => n.clusterOf)!;
+  assert.ok(!cluster.clusterOf!.includes("inv9"));
+});
+
+test("buildEgoGraph clusterTail: a lone straggler takes a free slot instead of a +1 chip", () => {
+  const world = [
+    ent("co", "company", "Hub Co", [], 5),
+    ...Array.from({ length: 4 }, (_, i) =>
+      ent(`inv${i}`, "invoice", `INV-${i}`, [rel("issued_by", "co")], 4 - i),
+    ),
+  ];
+  // perKind 3 would fold inv3 alone; the ring has room, so it stays a node.
+  const g = buildEgoGraph(world, "co", { maxHop1: 6, clusterTail: true, maxPerKind: 3 })!;
+  assert.ok(!g.nodes.some((n) => n.clusterOf));
+  assert.equal(g.nodes.filter((n) => n.hop === 1).length, 4);
+});
+
 test("buildEgoGraph: unknown center → null; edges only among included nodes", () => {
   assert.equal(buildEgoGraph(WORLD, "nope"), null);
   const g = buildEgoGraph(WORLD, "bob")!; // po is 3 hops from bob → excluded

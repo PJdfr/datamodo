@@ -5,7 +5,7 @@
 > how we work, what we decided and why. Siblings: [STATE.md](STATE.md) ·
 > [FLOW.md](FLOW.md) · [ROADMAP.md](ROADMAP.md).
 >
-> Last updated: 2026-07-11
+> Last updated: 2026-07-12
 
 ## What datamodo is (the aim)
 Turn unstructured personal communications into **structured, reviewable,
@@ -40,6 +40,12 @@ reviewable, nothing is ever silently lost or merged.
   it in PROJECT_STATE. Migrations must be idempotent (`if not exists`).
 - Demo account `user@example.com` must stay seeded (`neon/seed.sql`, run after
   signing the user up; idempotent). Update the seed when the schema changes.
+- Heavy demo account `demo@datamodo.dev` (`neon/seed-heavy.sql` — ~5 weeks of
+  volume for eyeballing every view) is seeded on prod + dev. Discovered
+  2026-07-12: Better Auth users live IN the branch DB (`neon_auth` schema), so
+  an auth user CAN be created via SQL — generate the scrypt hash with the
+  SDK's own `hashPassword` (better-auth `crypto/password.mjs`); app signup is
+  the normal path, SQL is the agent/bootstrap path.
 
 ## North star (decided 2026-07-10)
 - **Free graph exploration is the product's destination**: stand on a node,

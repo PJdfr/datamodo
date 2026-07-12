@@ -15,6 +15,11 @@ export interface EgoNode {
   /** 0 = the center, 1/2 = rings outward. */
   hop: 0 | 1 | 2;
   entity: KnowledgeEntityView;
+  /** Ring grouping (the WOW engine's LOD idea, applied to the walk): when a
+   *  hop would drown in spokes, the long tail of one kind collapses into ONE
+   *  pseudo-node — this is its member list, importance-ordered. The entity is
+   *  synthetic; clicking expands the members instead of walking. */
+  clusterOf?: string[];
 }
 
 export interface EgoEdge {
@@ -49,6 +54,13 @@ export interface EgoOptions {
   /** Nodes that must win a ring slot when the caps bite (e.g. the nodes an
    *  answer cited) — they rank before everything else, then connectedness. */
   prefer?: Set<string>;
+  /** Ring grouping: instead of silently truncating the hop-1 tail, collapse
+   *  it PER KIND into "+N more <kind>" pseudo-nodes ("a company with 30
+   *  invoices doesn't need 30 spokes"). Preferred nodes are never folded. */
+  clusterTail?: boolean;
+  /** With clusterTail: at most this many individual nodes of ONE kind on the
+   *  hop-1 ring before the rest of that kind folds into its cluster. */
+  maxPerKind?: number;
 }
 
 /**
@@ -84,8 +96,8 @@ export function buildEgoGraph(
 
   const rank = (id: string) => byId.get(id)?.edges ?? 0;
   const preferred = (id: string) => (opts.prefer?.has(id) ? 1 : 0);
-  const pick = (candidates: Iterable<string>, cap: number, taken: Set<string>) => {
-    const list = [...candidates]
+  const sortIds = (candidates: Iterable<string>, taken: Set<string>) =>
+    [...candidates]
       .filter((id) => !taken.has(id))
       .sort(
         (a, b) =>
@@ -93,15 +105,58 @@ export function buildEgoGraph(
           rank(b) - rank(a) ||
           (byId.get(a)?.label ?? "").localeCompare(byId.get(b)?.label ?? ""),
       );
+  const pick = (candidates: Iterable<string>, cap: number, taken: Set<string>) => {
+    const list = sortIds(candidates, taken);
     return { kept: list.slice(0, cap), dropped: list.length - Math.min(list.length, cap) };
   };
 
   const taken = new Set<string>([centerId]);
-  const hop1 = pick(neighborIds.get(centerId) ?? [], maxHop1, taken);
-  hop1.kept.forEach((id) => taken.add(id));
+  let hop1Kept: string[];
+  let hop1Dropped = 0;
+  // Ring grouping: the sorted candidates fill the ring, but no kind may hog it
+  // — past `maxPerKind` of one kind (or past the ring cap), the rest of that
+  // kind folds into ONE "+N more" pseudo-node. Nothing is silently dropped.
+  const clusters: { id: string; kind: string; members: string[] }[] = [];
+  if (opts.clusterTail) {
+    const perKind = opts.maxPerKind ?? 3;
+    const sorted = sortIds(neighborIds.get(centerId) ?? [], taken);
+    const kept: string[] = [];
+    const kindCount = new Map<string, number>();
+    const tail = new Map<string, string[]>();
+    for (const id of sorted) {
+      const kind = byId.get(id)!.kind;
+      const kc = kindCount.get(kind) ?? 0;
+      if (preferred(id) || (kept.length < maxHop1 && kc < perKind)) {
+        kept.push(id);
+        kindCount.set(kind, kc + 1);
+      } else {
+        if (!tail.has(kind)) tail.set(kind, []);
+        tail.get(kind)!.push(id);
+      }
+    }
+    // A lone straggler takes a free slot — a "+1 more" chip is worse noise.
+    for (const [kind, members] of [...tail]) {
+      if (members.length === 1 && kept.length < maxHop1) {
+        kept.push(members[0]);
+        tail.delete(kind);
+      }
+    }
+    hop1Kept = kept;
+    // Biggest tails first, then kind name — deterministic ring order.
+    for (const [kind, members] of [...tail.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))) {
+      clusters.push({ id: `cluster:${centerId}:${kind}`, kind, members });
+      // Members are represented by their cluster — hop-2 must not re-pull them.
+      members.forEach((m) => taken.add(m));
+    }
+  } else {
+    const hop1 = pick(neighborIds.get(centerId) ?? [], maxHop1, taken);
+    hop1Kept = hop1.kept;
+    hop1Dropped = hop1.dropped;
+  }
+  hop1Kept.forEach((id) => taken.add(id));
 
   const hop2Candidates = new Set<string>();
-  for (const id of hop1.kept) for (const n of neighborIds.get(id) ?? []) hop2Candidates.add(n);
+  for (const id of hop1Kept) for (const n of neighborIds.get(id) ?? []) hop2Candidates.add(n);
   const hop2 = pick(hop2Candidates, maxHop2, taken);
   hop2.kept.forEach((id) => taken.add(id));
 
@@ -109,9 +164,10 @@ export function buildEgoGraph(
   // FIRST kept hop-1 node (ring order) it neighbors — deterministic, and the
   // same rule the layout uses for sector placement.
   const parentOf: Record<string, string> = {};
-  for (const id of hop1.kept) parentOf[id] = centerId;
+  for (const id of hop1Kept) parentOf[id] = centerId;
+  for (const c of clusters) parentOf[c.id] = centerId;
   for (const id of hop2.kept) {
-    const parent = hop1.kept.find((p) => neighborIds.get(id)?.has(p)) ?? hop1.kept[0];
+    const parent = hop1Kept.find((p) => neighborIds.get(id)?.has(p)) ?? hop1Kept[0];
     if (parent) parentOf[id] = parent;
   }
 
@@ -119,9 +175,22 @@ export function buildEgoGraph(
     const e = byId.get(id)!;
     return { id, kind: e.kind, label: e.label, hop, entity: e };
   };
+  const mkCluster = (c: { id: string; kind: string; members: string[] }): EgoNode => {
+    const label = `+${c.members.length} more ${c.kind}${c.members.length === 1 ? "" : "s"}`;
+    return {
+      id: c.id,
+      kind: c.kind,
+      label,
+      hop: 1,
+      clusterOf: c.members,
+      // Synthetic entity — enough for the card and the layout; never walked.
+      entity: { id: c.id, kind: c.kind, label, naturalKeys: {}, facts: [], edges: c.members.length, bodyMd: null, graphPin: null },
+    };
+  };
   const nodes: EgoNode[] = [
     mkNode(centerId, 0),
-    ...hop1.kept.map((id) => mkNode(id, 1)),
+    ...hop1Kept.map((id) => mkNode(id, 1)),
+    ...clusters.map(mkCluster),
     ...hop2.kept.map((id) => mkNode(id, 2)),
   ];
 
@@ -147,7 +216,30 @@ export function buildEgoGraph(
     }
   }
 
-  return { center: nodes[0], nodes, edges, truncated: hop1.dropped + hop2.dropped, parentOf };
+  // Cluster spokes: one edge per pseudo-node, labeled with the MAJORITY
+  // predicate its members share with the center. The fact is synthetic —
+  // the view opens the member list instead of the fact inspector.
+  for (const c of clusters) {
+    const counts = new Map<string, number>();
+    const bump = (p: string) => counts.set(p, (counts.get(p) ?? 0) + 1);
+    for (const mid of c.members) {
+      for (const f of byId.get(mid)?.facts ?? []) if (f.ref && f.refId === centerId) bump(f.predicate);
+      for (const f of center.facts) if (f.ref && f.refId === mid) bump(f.predicate);
+    }
+    const predicate =
+      [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? "related_to";
+    const label = `+${c.members.length} more ${c.kind}${c.members.length === 1 ? "" : "s"}`;
+    edges.push({
+      from: c.id,
+      to: centerId,
+      predicate,
+      fact: { predicate, value: center.label, ref: true, refId: centerId, sources: 0, provenance: [], confidence: 1, validFrom: null },
+      fromLabel: label,
+      toLabel: center.label,
+    });
+  }
+
+  return { center: nodes[0], nodes, edges, truncated: hop1Dropped + hop2.dropped, parentOf };
 }
 
 // --- Radial layout ---------------------------------------------------------------
