@@ -4,7 +4,7 @@
 > inventory when they ship; add what the work surfaced. Ordered by value.
 > Siblings: [STATE.md](STATE.md) · [FLOW.md](FLOW.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-11
+> Last updated: 2026-07-12
 
 ## Now (unblocks everything else)
 1. **Merge PR #35 → dev**, then set env: `OPENROUTER_VISION_MODEL` (+ ~$10
@@ -46,6 +46,20 @@
   page is PLAYER (streams the original) + summary + transcript; passages land
   in doc_chunks. Dormant until `TRANSCRIPTION_API_KEY`/`OPENAI_API_KEY` is set;
   never live-fired against a real API yet.
+- ~~Graph as the answer surface~~ ✅ 2026-07-12 (user call: research + derived
+  shapes before the WOW visuals) — three prompt-shaped projections:
+  1. **Answer → graph highlight**: "◍ See in graph" on every grounded answer
+     opens the walk with the cited nodes haloed, edges between them lit, and a
+     chip row to hop cite-to-cite (row citations resolve via
+     `subject_entity_id`).
+  2. **Derive a table from the graph**: plain-language request → LLM designs a
+     spec over the graph SCHEMA → deterministic rows → preview → real dataset.
+  3. **Folder structure from the graph**: plain-language request → LLM files
+     documents+notes into a folder plan (inventory only) → tree preview →
+     .zip with originals + markdown nodes + README.
+  Follow-ups, not built: highlight the exact matched FACTS (not just edges
+  between cited nodes); re-derive/refresh action on derived tables when the
+  graph grows; folder export straight to Drive/Dropbox.
 
 ## Next build tracks (pick after the above)
 - **THE WOW: the graph engine — REPLAY + COSMOS, one renderer, two modes**

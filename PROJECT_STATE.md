@@ -9,9 +9,36 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-11
+> Last updated: 2026-07-12
 
 ## Recent changes
+- **2026-07-12** — **The graph becomes the answer surface: three prompt-shaped
+  projections** (user call: research + derived shapes before the WOW visuals).
+  ① **Answer → graph highlight**: grounded answers grow a "◍ See in graph"
+  action — a modal opens the Explorer walk with every cited node highlighted
+  (coral halo + ✦, edges between cited nodes lit, a "✦ used in the answer"
+  chip row hops cite-to-cite); rows cite into the graph via their
+  `subject_entity_id` (`SearchHit.entityId`), and cited nodes win ring slots
+  via the new `EgoOptions.prefer` in the pure core. ② **Derive a table from
+  the graph** (Build ▾): plain-language request → LLM designs a spec over the
+  graph's SCHEMA only (`summarizeGraph` — kinds/predicates, never row data) →
+  `buildDerivedTable` fills rows deterministically (attrs, linked labels in
+  either direction, counts) → preview with per-column provenance chips →
+  confirm creates a real dataset (rows accepted + entity-linked, so it walks
+  in the Explorer). ③ **Folder structure from the graph** (Build ▾): request →
+  LLM files documents + body nodes into a folder plan (inventory only:
+  labels/kinds/links) → sanitized (traversal-proof, depth-capped, unplaced →
+  `unsorted/`) → tree preview → .zip download with originals from blob
+  storage (fail-soft to markdown), markdown node pages, and a README —
+  via a new dependency-free store-only zip writer (`lib/datamodo/zip.ts`,
+  round-trip verified against real `unzip`). All three are on-demand only and
+  preview-before-write, per the north star. **Verified**: 129 unit tests green
+  (16 new across `derive-table`/`folder-export`/`explorer`/`answer`), tsc
+  clean, lint == baseline (7/16), `next build` green, screenshot harness
+  (`npm run shoot -- explorer`) shows the highlight state. NOT verified live
+  (no LLM key / no browser login in the sandbox): the actual LLM spec/plan
+  design calls and the two modals end-to-end; the shared preview/confirm route
+  contract is exercised by the pure-core tests.
 - **2026-07-11** — **WOW track unified: REPLAY + COSMOS = one graph engine**
   (follow-up to the direction session below; user: "do what you think is
   best"). The stronger wow is a scenaristic chronological REPLAY of the vault

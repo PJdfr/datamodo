@@ -61,7 +61,7 @@ export function buildAnswerContext(
       .join(" · ");
     const first = h.cells.find((c) => c.value !== "")?.value ?? "row";
     lines.push(`[${n}] Row in table "${h.datasetName}": ${row}`);
-    sources.push({ n, type: "row", label: `${h.datasetName} — ${cell(first)}`, datasetId: h.datasetId, entityId: null });
+    sources.push({ n, type: "row", label: `${h.datasetName} — ${cell(first)}`, datasetId: h.datasetId, entityId: h.entityId ?? null });
   }
 
   // Passages from inside documents — the evidence layer's page-cited quotes.

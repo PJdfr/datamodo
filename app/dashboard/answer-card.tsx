@@ -12,14 +12,29 @@ import { Fragment } from "react";
 import { C } from "./ui";
 import type { GroundedAnswer } from "@/lib/datamodo/answer";
 
-export function AnswerCard({ answer, onOpenTable }: { answer: GroundedAnswer; onOpenTable: (id: string) => void }) {
+export function AnswerCard({ answer, onOpenTable, onShowInGraph }: {
+  answer: GroundedAnswer;
+  onOpenTable: (id: string) => void;
+  /** Open the graph walk with the cited nodes highlighted ("show your work"). */
+  onShowInGraph?: (entityIds: string[]) => void;
+}) {
   const byN = new Map(answer.sources.map((s) => [s.n, s]));
   const parts = answer.text.split(/(\[\d+\])/g);
+  const graphIds = [...new Set(answer.sources.map((s) => s.entityId).filter((id): id is string => Boolean(id)))];
   return (
     <div className="dm-card dm-rise" style={{ background: "linear-gradient(#FDF9F2,#FCF5EC)", border: "1px solid #F0DFC8", borderRadius: 14, padding: "15px 18px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <span style={{ color: C.accent, fontSize: 14 }}>✦</span>
         <span className="dm-mono" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B" }}>Answer · from your own data</span>
+        {onShowInGraph && graphIds.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onShowInGraph(graphIds)}
+            title="Highlight the nodes and connections this answer used, in the graph walk"
+            className="dm-mono"
+            style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, fontWeight: 600, color: C.accent, background: "#fff", border: "1px solid #F3D6CB", borderRadius: 7, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}
+          >◍ See in graph</button>
+        )}
       </div>
       <div style={{ fontSize: 15.5, color: C.ink, lineHeight: 1.55 }}>
         {parts.map((p, i) => {

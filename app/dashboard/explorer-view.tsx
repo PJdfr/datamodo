@@ -80,8 +80,10 @@ const fmtDay = (iso: string | null) =>
 /* ===========================================================================
    Node card
    =========================================================================== */
-function NodeCard({ e, kindDef, isCenter, isHover }: {
+function NodeCard({ e, kindDef, isCenter, isHover, cited = false }: {
   e: KnowledgeEntityView; kindDef?: KindDef; isCenter: boolean; isHover: boolean;
+  /** This node was used to answer the user's question — coral halo + ✦ mark. */
+  cited?: boolean;
 }) {
   // Card tone: the designed tones for the special kinds, otherwise a paper-warm
   // wash of the kind's REGISTRY color — every kind reads as its color without
@@ -102,15 +104,17 @@ function NodeCard({ e, kindDef, isCenter, isHover }: {
   const sub = e.kind === "dataset"
     ? `${e.naturalKeys.rows ?? "?"} rows · ${e.naturalKeys.columns ?? "?"} cols`
     : `${e.edges} link${e.edges === 1 ? "" : "s"}`;
-  const shadow = isCenter
+  const baseShadow = isCenter
     ? "0 30px 60px -28px rgba(33,30,24,.5), 0 6px 16px -8px rgba(33,30,24,.22)"
     : isHover
     ? "0 16px 34px -22px rgba(228,89,59,.5)"
     : "0 18px 44px -30px rgba(33,30,24,.4)";
+  // Cited halo: a soft coral ring in FRONT of the drop shadow.
+  const shadow = cited ? `0 0 0 2.5px rgba(228,89,59,.38), ${baseShadow}` : baseShadow;
   return (
     <div style={{
       background: tone.bg, color: tone.fg,
-      border: `1px solid ${isHover ? C.accent : tone.bd}`,
+      border: `1px solid ${isHover || cited ? C.accent : tone.bd}`,
       borderRadius: isCenter ? 18 : 14,
       padding: isCenter ? "14px 16px" : "10px 12px",
       boxShadow: shadow,
@@ -123,6 +127,9 @@ function NodeCard({ e, kindDef, isCenter, isHover }: {
         <span className="dm-mono" style={{ fontSize: isCenter ? 9.5 : 8.5, letterSpacing: "0.1em", textTransform: "uppercase", color: tone.chip, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {kindDef?.label ?? e.kind}
         </span>
+        {cited && (
+          <span title="Used to answer your question" className="dm-mono" style={{ fontSize: 9, color: C.accent, flexShrink: 0 }}>✦</span>
+        )}
         {e.kind === "dataset" && (
           <span className="dm-mono" style={{ marginLeft: "auto", fontSize: 9, color: tone.chip }}>▦</span>
         )}
@@ -141,9 +148,9 @@ function NodeCard({ e, kindDef, isCenter, isHover }: {
 /* ===========================================================================
    A node in the depth field
    =========================================================================== */
-function Node3D({ e, kindDef, pos, enterFrom, isCenter, isHover, isDim, reduced, nodeRef, onEnter, onLeave, onClick }: {
+function Node3D({ e, kindDef, pos, enterFrom, isCenter, isHover, isDim, cited, reduced, nodeRef, onEnter, onLeave, onClick }: {
   e: KnowledgeEntityView; kindDef?: KindDef; pos: DepthPos; enterFrom: DepthPos | null;
-  isCenter: boolean; isHover: boolean; isDim: boolean; reduced: boolean;
+  isCenter: boolean; isHover: boolean; isDim: boolean; cited: boolean; reduced: boolean;
   nodeRef: (el: HTMLDivElement | null) => void;
   onEnter: () => void; onLeave: () => void; onClick: () => void;
 }) {
@@ -199,7 +206,7 @@ function Node3D({ e, kindDef, pos, enterFrom, isCenter, isHover, isDim, reduced,
         willChange: "transform, opacity",
       }}
     >
-      <NodeCard e={e} kindDef={kindDef} isCenter={isCenter} isHover={isHover} />
+      <NodeCard e={e} kindDef={kindDef} isCenter={isCenter} isHover={isHover} cited={cited} />
     </div>
   );
 }
@@ -209,9 +216,11 @@ function Node3D({ e, kindDef, pos, enterFrom, isCenter, isHover, isDim, reduced,
    =========================================================================== */
 interface EdgeGeom { x1: number; y1: number; x2: number; y2: number; mx: number; my: number; op: number }
 
-function EdgeLayer({ geom, edges, layout, hoverEdge, selEdge, focusNode, onHover, onClick }: {
+function EdgeLayer({ geom, edges, layout, hoverEdge, selEdge, focusNode, citedIds, onHover, onClick }: {
   geom: Record<string, EdgeGeom>; edges: EgoEdge[]; layout: Record<string, DepthPos>;
   hoverEdge: string | null; selEdge: string | null; focusNode: string | null;
+  /** Nodes an answer cited: an edge joining two of them stays lit coral. */
+  citedIds: Set<string>;
   onHover: (k: string | null) => void; onClick: (e: EgoEdge) => void;
 }) {
   return (
@@ -223,9 +232,10 @@ function EdgeLayer({ geom, edges, layout, hoverEdge, selEdge, focusNode, onHover
         const hop = Math.max(layout[e.from]?.hop ?? 1, layout[e.to]?.hop ?? 1);
         const active = hoverEdge === k || selEdge === k;
         const incidentFocus = Boolean(focusNode && (e.from === focusNode || e.to === focusNode));
-        const lit = active || incidentFocus;
+        const cited = citedIds.has(e.from) && citedIds.has(e.to);
+        const lit = active || incidentFocus || cited;
         const dim = Boolean(hoverEdge || selEdge || focusNode) && !lit;
-        const showLabel = active || (incidentFocus && !hoverEdge && !selEdge) || (!focusNode && !hoverEdge && !selEdge && hop <= 1);
+        const showLabel = active || cited || (incidentFocus && !hoverEdge && !selEdge) || (!focusNode && !hoverEdge && !selEdge && hop <= 1);
         const dx = g.x2 - g.x1, dy = g.y2 - g.y1, len = Math.hypot(dx, dy) || 1;
         const off = Math.min(11, len * 0.4);
         return (
@@ -359,12 +369,16 @@ function EdgeInspector({ edge, onClose, onGoTo }: { edge: EgoEdge; onClose: () =
 /* ===========================================================================
    ExplorerView — the orchestrator (same public contract as v1)
    =========================================================================== */
-export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
+export function ExplorerView({ entities, initialId, kindByName, onOpenPage, highlightIds }: {
   entities: KnowledgeEntityView[];
   initialId: string;
   kindByName: Map<string, KindDef>;
   /** Open the full page modal for a node. */
   onOpenPage?: (id: string) => void;
+  /** Nodes used to answer a question (search → "see in graph"): they get a
+   *  coral halo, win ring slots, edges between them stay lit, and a floating
+   *  chip row walks between them. */
+  highlightIds?: string[];
 }) {
   const [reduced, setReduced] = useState(() =>
     typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false,
@@ -407,7 +421,11 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
   const byId = useMemo(() => new Map(entities.map((e) => [e.id, e])), [entities]);
   // Body [[wikilinks]] in the side panel resolve against the whole world.
   const resolveNode = useMemo(() => buildNodeResolver(entities), [entities]);
-  const graph = useMemo(() => buildEgoGraph(entities, center, CAPS), [entities, center]);
+  const citedSet = useMemo(() => new Set(highlightIds ?? []), [highlightIds]);
+  const graph = useMemo(
+    () => buildEgoGraph(entities, center, citedSet.size ? { ...CAPS, prefer: citedSet } : CAPS),
+    [entities, center, citedSet],
+  );
   const layout = useMemo(
     () => (graph ? depthLayout(graph, size.w, size.h, reduced) : {}),
     [graph, size.w, size.h, reduced],
@@ -527,7 +545,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
         >
           <div style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d" }}>
             <EdgeLayer geom={geom} edges={graph.edges} layout={layout}
-              hoverEdge={hoverEdge} selEdge={selEdge} focusNode={hoverNode}
+              hoverEdge={hoverEdge} selEdge={selEdge} focusNode={hoverNode} citedIds={citedSet}
               onHover={setHoverEdge} onClick={(e) => setSelEdge(edgeKey(e))} />
 
             {graph.nodes.map((n) => {
@@ -550,6 +568,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
                   isCenter={isCenter}
                   isHover={hoverNode === n.id}
                   isDim={isDim}
+                  cited={citedSet.has(n.id)}
                   reduced={reduced}
                   nodeRef={(el) => { if (el) nodeEls.current.set(n.id, el); }}
                   onEnter={() => setHoverNode(n.id)}
@@ -634,6 +653,30 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage }: {
             </div>
           )}
         </div>
+
+        {/* cited nodes (floating, under the breadcrumb): the nodes the answer
+            used — click one to walk straight to it and read it in the panel */}
+        {citedSet.size > 0 && (
+          <div style={{ position: "absolute", top: 52, left: 16, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", zIndex: 50, maxWidth: "62%" }}>
+            <span className="dm-mono" style={{ ...micro, color: C.accent, background: "#FFFDF8", border: "1px solid #F3D6CB", borderRadius: 999, padding: "4px 9px" }}>✦ used in the answer</span>
+            {[...citedSet].filter((id) => byId.has(id)).map((id) => {
+              const isHere = id === center;
+              return (
+                <button key={id} type="button" onClick={() => goTo(id)} disabled={isHere}
+                  title={isHere ? "You are here" : `Walk to ${byId.get(id)!.label}`}
+                  style={{
+                    border: `1px solid ${isHere ? C.accent : "#F3D6CB"}`, background: isHere ? C.accent : "#FFFDF8",
+                    color: isHere ? "#FFF8F4" : C.ink, borderRadius: 999, padding: "4px 11px",
+                    fontSize: 11.5, fontWeight: 500, cursor: isHere ? "default" : "pointer", fontFamily: "inherit",
+                    maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    boxShadow: "0 8px 22px -16px rgba(33,30,24,.4)",
+                  }}>
+                  {byId.get(id)!.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* jump box (floating, top-right) */}
         <div style={{ position: "absolute", top: 14, right: 16, zIndex: 50, width: 210 }}>

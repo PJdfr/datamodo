@@ -52,6 +52,20 @@ test("buildEgoGraph: ring caps keep the most-connected neighbors and count drops
   assert.equal(g.truncated, 3);
 });
 
+test("buildEgoGraph: preferred nodes win ring slots when the caps bite", () => {
+  const many = [
+    ent("hub", "company", "Hub", [], 99),
+    ...Array.from({ length: 6 }, (_, i) =>
+      ent(`n${i}`, "person", `P${i}`, [rel("works_for", "hub")], i),
+    ),
+  ];
+  // Without preference n0 (weakest) would be dropped; preferring it keeps it.
+  const g = buildEgoGraph(many, "hub", { maxHop1: 3, prefer: new Set(["n0"]) })!;
+  const hop1 = g.nodes.filter((n) => n.hop === 1).map((n) => n.id);
+  assert.deepEqual(hop1, ["n0", "n5", "n4"], "preferred first, then connectedness");
+  assert.equal(g.truncated, 3);
+});
+
 test("buildEgoGraph: unknown center → null; edges only among included nodes", () => {
   assert.equal(buildEgoGraph(WORLD, "nope"), null);
   const g = buildEgoGraph(WORLD, "bob")!; // po is 3 hops from bob → excluded
