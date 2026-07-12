@@ -19,12 +19,15 @@ import { buildNodeResolver } from "./markdown";
 import type { KnowledgeEntityView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
 
-export function AnswerGraphModal({ question, entityIds, onClose }: {
-  /** The question the answer responded to — shown as the modal subtitle. */
+export function AnswerGraphModal({ question, entityIds, onClose, variant = "answer" }: {
+  /** The question/query — shown in the modal subtitle. */
   question: string;
-  /** The entities the answer cited (in citation order). */
+  /** The entities to highlight (citation/result order). */
   entityIds: string[];
   onClose: () => void;
+  /** "answer" = a grounded answer's citations; "results" = plain search hits
+   *  (no LLM involved) — same highlighted walk, honest words. */
+  variant?: "answer" | "results";
 }) {
   const [entities, setEntities] = useState<KnowledgeEntityView[]>([]);
   const [datasetSources, setDatasetSources] = useState<DatasetNodeSource[]>([]);
@@ -70,8 +73,8 @@ export function AnswerGraphModal({ question, entityIds, onClose }: {
 
   return (
     <ModalShell
-      title={<><span style={{ color: C.accent }}>◍</span> How this answer was grounded</>}
-      subtitle={`“${question}” — the highlighted nodes and their connections are the sources the answer cited`}
+      title={<><span style={{ color: C.accent }}>◍</span> {variant === "answer" ? "How this answer was grounded" : "Your results, in the graph"}</>}
+      subtitle={`“${question}” — ${variant === "answer" ? "the highlighted nodes and their connections are the sources the answer cited" : "the highlighted nodes are the entities your search matched"}`}
       onClose={onClose}
       maxWidth={1160}
     >

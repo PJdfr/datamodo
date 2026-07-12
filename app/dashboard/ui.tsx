@@ -380,9 +380,16 @@ export function useAction() {
   const run = (fn: () => Promise<ActionResult>, after?: () => void) => {
     setError(null);
     start(async () => {
-      const res = await fn();
-      if (!res.ok) { setError(res.error); return; }
-      after?.();
+      try {
+        const res = await fn();
+        if (!res.ok) { setError(res.error); return; }
+        after?.();
+      } catch {
+        // A REJECTED action (network drop, or a fresh deployment invalidating
+        // this page's action ids) must degrade to a message — an uncaught
+        // rejection here takes down the whole page with an error screen.
+        setError("Something went wrong — reload the page and try again.");
+      }
     });
   };
   return { pending, error, setError, run };
