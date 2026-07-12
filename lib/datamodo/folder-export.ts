@@ -76,7 +76,7 @@ export function buildFolderPrompt(request: string, nodes: ExportableNode[]): { s
       "You organize a user's documents and notes into a folder structure. You see an INVENTORY (kind, name, what each item is linked to) — not the contents.",
       "Design a folder tree that fits the user's request and place EVERY item in exactly one folder.",
       "Rules:",
-      "- Folder paths are '/'-separated, at most 3 levels deep, short lowercase names (e.g. \"clients/acme/invoices\").",
+      "- Folder paths are '/'-separated, at most 4 levels deep, short lowercase names (e.g. \"clients/acme/2026/invoices\"). Use subfolders where they genuinely help.",
       "- Group by what the request asks for; use the links to decide where an item belongs.",
       "- Place every listed id. Never invent ids.",
       'Respond with ONLY JSON: {"name":"<short archive name>","placements":[{"id":"<id>","path":"<folder/path>"}]}',
@@ -85,7 +85,7 @@ export function buildFolderPrompt(request: string, nodes: ExportableNode[]): { s
   };
 }
 
-const MAX_DEPTH = 3;
+const MAX_DEPTH = 4;
 const SEGMENT_MAX = 40;
 
 /** One path segment, filesystem-safe ("Acme Inc!" → "acme-inc"). */

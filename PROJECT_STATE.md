@@ -12,6 +12,17 @@
 > Last updated: 2026-07-12
 
 ## Recent changes
+- **2026-07-12** — **Folders modal: the tree is the deliverable, the zip is
+  optional** (user follow-up mid-session: "not [only] as zip — display the
+  folder structure for the user to explore, select a doc, multiple layers of
+  subfolders"). The folder-export modal now renders the plan as an EXPLORABLE
+  tree — nested subfolders (plan depth cap raised 3→4 levels)
+  collapse/expand, every file row is clickable and opens that node's
+  `EntityPageModal` (body, facts, provenance, original ↓) — and "↓ Download
+  .zip" becomes the optional secondary action mirroring exactly that tree.
+  Preview API now returns each file's `entityId`. Verified: 129 tests green
+  (depth test updated), tsc clean, lint == baseline, `next build` green; the
+  modal itself still needs an eyeball in a live browser (LLM-gated).
 - **2026-07-12** — **The graph becomes the answer surface: three prompt-shaped
   projections** (user call: research + derived shapes before the WOW visuals).
   ① **Answer → graph highlight**: grounded answers grow a "◍ See in graph"

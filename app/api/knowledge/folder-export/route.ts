@@ -113,7 +113,8 @@ export async function POST(req: Request) {
   const files = planFiles(plan, nodes);
   return NextResponse.json({
     plan,
-    files: files.map((f) => ({ path: f.path, label: f.label, mode: f.mode })),
+    // entityId lets the preview tree open each file's node page in place.
+    files: files.map((f) => ({ path: f.path, label: f.label, mode: f.mode, entityId: f.entityId })),
     total: files.length,
   });
 }

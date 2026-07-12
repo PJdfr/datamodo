@@ -86,7 +86,7 @@ test("collectExportables: documents + body nodes only; links from both direction
 
 test("sanitizeFolderPath: traversal, junk and depth are neutralized", () => {
   assert.equal(sanitizeFolderPath("../../etc//passwd"), "etc/passwd");
-  assert.equal(sanitizeFolderPath("Clients/Acme Inc!/2026/Q3/extra"), "clients/acme-inc/2026");
+  assert.equal(sanitizeFolderPath("Clients/Acme Inc!/2026/Q3/extra"), "clients/acme-inc/2026/q3");
   assert.equal(sanitizeFolderPath("///"), "unsorted");
 });
 
