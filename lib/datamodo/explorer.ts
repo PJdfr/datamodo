@@ -46,6 +46,9 @@ export interface EgoOptions {
   /** Ring caps: at most this many hop-1 / hop-2 nodes. */
   maxHop1?: number;
   maxHop2?: number;
+  /** Nodes that must win a ring slot when the caps bite (e.g. the nodes an
+   *  answer cited) — they rank before everything else, then connectedness. */
+  prefer?: Set<string>;
 }
 
 /**
@@ -80,10 +83,16 @@ export function buildEgoGraph(
   }
 
   const rank = (id: string) => byId.get(id)?.edges ?? 0;
+  const preferred = (id: string) => (opts.prefer?.has(id) ? 1 : 0);
   const pick = (candidates: Iterable<string>, cap: number, taken: Set<string>) => {
     const list = [...candidates]
       .filter((id) => !taken.has(id))
-      .sort((a, b) => rank(b) - rank(a) || (byId.get(a)?.label ?? "").localeCompare(byId.get(b)?.label ?? ""));
+      .sort(
+        (a, b) =>
+          preferred(b) - preferred(a) ||
+          rank(b) - rank(a) ||
+          (byId.get(a)?.label ?? "").localeCompare(byId.get(b)?.label ?? ""),
+      );
     return { kept: list.slice(0, cap), dropped: list.length - Math.min(list.length, cap) };
   };
 
