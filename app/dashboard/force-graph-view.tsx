@@ -91,6 +91,9 @@ export function ForceGraphView() {
   // Split anchors pinned at the dissolved cluster's exact spot until the sim
   // cools — "the node you zoom on does not move".
   const pins = useRef(new Map<string, { x: number; y: number }>());
+  // Nodes still landing after a split/merge — everyone else is near-inert
+  // while these settle, so transitions don't shake the whole graph.
+  const fresh = useRef(new Set<string>());
   const prevCutIds = useRef<Set<string>>(new Set());
   const alphaRef = useRef(1);
   const diveRef = useRef<typeof dive>(null);
@@ -172,62 +175,94 @@ export function ForceGraphView() {
   // pass; deferred to a frame callback so renders never cascade).
   useEffect(() => {
     if (!cut || setEquals(cut.expanded, expanded)) return;
-    const raf = requestAnimationFrame(() => {
-      setExpanded(cut.expanded);
-      alphaRef.current = Math.max(alphaRef.current, 0.8); // reheat on split/merge
-    });
+    const raf = requestAnimationFrame(() => setExpanded(cut.expanded));
     return () => cancelAnimationFrame(raf);
   }, [cut, expanded]);
 
-  /* ---- the sim (ported from the mock; runs over the CUT only) ---- */
+  /* ---- the sim (ported from the mock; runs over the CUT only).
+     CALM RULES (user feedback — "everything wiggles"): entering nodes are
+     placed DETERMINISTICALLY on a non-overlapping ring around their origin
+     (no overlap → the collision solver has nothing to explode); transitions
+     reheat only a little and cool fast; while fresh nodes settle, VETERANS
+     are nearly inert (forces scaled way down) so a split nudges the
+     neighbourhood instead of shaking the world; velocities are capped. ---- */
   useEffect(() => {
     if (!cut) return;
     const nodes = cut.nodes;
     const sides = nodes.map((n) => nodeSide(n.size) * P.size * CARD_W); // physics on card WIDTH
     const prev = prevCutIds.current;
+    const firstMount = prev.size === 0;
 
     // Continuity seeding. A node is "entering" when it wasn't in the last cut:
     //  · SPLIT — a dissolved cluster's ANCHOR (its id ends "/<hub>") takes the
-    //    cluster's exact position and gets PINNED there; siblings pop in
-    //    around it. The cluster card never "disappears" — it becomes its hub.
+    //    cluster's exact position and gets PINNED there; its siblings take an
+    //    evenly-spaced ring around it (the walk's ego-ring, precomputed — not
+    //    physics). The cluster card never "disappears" — it becomes its hub.
     //  · MERGE — a collapsing cluster appears exactly where its hub was.
-    //  · fresh mount — deterministic ring.
-    const bs = nodes.map((n, i) => {
-      let b = bodies.current.get(n.id);
+    //  · a node with an old body keeps it (reappear where you were).
+    //  · fresh mount — deterministic ring around the origin.
+    const bs: Body[] = new Array(nodes.length);
+    const ringKids = new Map<string, number[]>(); // parentId → entering sibling indices
+    const centerW = new Map<string, number>(); // parentId → card width sitting at the ring center
+    nodes.forEach((n, i) => {
+      const b = bodies.current.get(n.id);
       const entering = !prev.has(n.id);
-      if (!b || entering) {
-        const parentId = cut.parentOf[n.id];
+      const parentId = cut.parentOf[n.id];
+      const hubBody = n.children.length
+        ? bodies.current.get(n.hubId) ?? bodies.current.get(`${n.id}/${n.hubId}`)
+        : undefined;
+      if (entering && hubBody) {
+        // Merge: reappear exactly where the hub last stood (old body is stale).
+        bs[i] = { x: hubBody.x, y: hubBody.y, vx: 0, vy: 0 };
+        pins.current.set(n.id, { x: bs[i].x, y: bs[i].y });
+      } else if (b) {
+        bs[i] = b;
+      } else {
         const parent = bodies.current.get(parentId);
-        const isAnchorOfParent = parentId?.endsWith(`/${n.hubId}`) ?? false;
-        // Merge: this cluster's hub was on screen (as a leaf or as the anchor
-        // of a deeper sub-cluster) — reappear exactly there.
-        const hubBody = bodies.current.get(n.hubId) ?? bodies.current.get(`${n.id}/${n.hubId}`);
-        if (n.children.length && hubBody) {
-          b = { x: hubBody.x, y: hubBody.y, vx: 0, vy: 0 };
-          pins.current.set(n.id, { x: b.x, y: b.y });
-        } else if (parent && isAnchorOfParent) {
-          b = { x: parent.x, y: parent.y, vx: 0, vy: 0 };
-          pins.current.set(n.id, { x: b.x, y: b.y });
+        if (parent && parentId.endsWith(`/${n.hubId}`)) {
+          // Split anchor: the cluster's exact spot, pinned.
+          bs[i] = { x: parent.x, y: parent.y, vx: 0, vy: 0 };
+          pins.current.set(n.id, { x: bs[i].x, y: bs[i].y });
+          centerW.set(parentId, sides[i]);
         } else if (parent) {
-          const ang = hash01(n.id) * Math.PI * 2;
-          const spread = sides[i] * 0.9;
-          b = { x: parent.x + Math.cos(ang) * spread, y: parent.y + Math.sin(ang) * spread, vx: 0, vy: 0 };
-        } else if (!b) {
+          bs[i] = { x: parent.x, y: parent.y, vx: 0, vy: 0 }; // placed below
+          if (!ringKids.has(parentId)) ringKids.set(parentId, []);
+          ringKids.get(parentId)!.push(i);
+        } else {
           const ang = hash01(n.id) * Math.PI * 2;
           const r = 260 + 340 * hash01(`r${n.id}`);
-          b = { x: Math.cos(ang) * r, y: Math.sin(ang) * r, vx: 0, vy: 0 };
+          bs[i] = { x: Math.cos(ang) * r, y: Math.sin(ang) * r, vx: 0, vy: 0 };
         }
-        bodies.current.set(n.id, b);
       }
-      return b;
+      bodies.current.set(n.id, bs[i]);
+      if (entering && !firstMount) fresh.current.add(n.id);
     });
+    // Ring placement: evenly spaced, radius wide enough to clear both the
+    // center card and each other — overlap-free from frame one.
+    for (const [pid, idxs] of ringKids) {
+      const c = bodies.current.get(pid)!; // ring center: the old cluster spot
+      const cw = centerW.get(pid) ?? 0;
+      const maxW = Math.max(...idxs.map((i) => sides[i]));
+      const base = hash01(pid) * Math.PI * 2;
+      const rr = Math.max((cw + maxW) / 2 + 30, (idxs.length * (maxW + 26)) / (2 * Math.PI));
+      idxs.forEach((i, j) => {
+        const ang = base + (j / idxs.length) * Math.PI * 2;
+        bs[i].x = c.x + Math.cos(ang) * rr;
+        bs[i].y = c.y + Math.sin(ang) * rr * 0.82; // gentle ellipse, like the walk
+      });
+    }
     prevCutIds.current = new Set(nodes.map((n) => n.id));
     const byId = new Map(nodes.map((n, i) => [n.id, i]));
     const decay = 0.82;
+    const VMAX = 10; // world units per tick — no popping
+    const VETERAN = 0.1; // force share for settled nodes while fresh ones land
 
     const tick = () => {
       const drag = dragRef.current.id;
-      const a = Math.max(alphaRef.current, drag ? 0.35 : 0);
+      const a = Math.max(alphaRef.current, drag ? 0.3 : 0);
+      const settling = fresh.current.size > 0;
+      // Veterans barely feel transition forces — a split nudges, never shakes.
+      const wOf = (i: number) => (settling && !fresh.current.has(nodes[i].id) ? VETERAN : 1);
       for (let i = 0; i < bs.length; i++) {
         for (let j = i + 1; j < bs.length; j++) {
           let dx = bs[i].x - bs[j].x, dy = bs[i].y - bs[j].y, d2 = dx * dx + dy * dy;
@@ -235,7 +270,8 @@ export function ForceGraphView() {
           const d = Math.sqrt(d2);
           const f = (P.repel * (sides[i] * sides[j])) / 2500 / d2; // charge ∝ card area
           const fx = (dx / d) * f * a, fy = (dy / d) * f * a;
-          bs[i].vx += fx; bs[i].vy += fy; bs[j].vx -= fx; bs[j].vy -= fy;
+          bs[i].vx += fx * wOf(i); bs[i].vy += fy * wOf(i);
+          bs[j].vx -= fx * wOf(j); bs[j].vy -= fy * wOf(j);
         }
       }
       for (const e of edges) {
@@ -247,13 +283,16 @@ export function ForceGraphView() {
         const rest = P.dist + (sides[ia] + sides[ib]) / 2;
         const f = (d - rest) * P.link * a;
         dx /= d; dy /= d;
-        A.vx += dx * f; A.vy += dy * f; B.vx -= dx * f; B.vy -= dy * f;
+        A.vx += dx * f * wOf(ia); A.vy += dy * f * wOf(ia);
+        B.vx -= dx * f * wOf(ib); B.vy -= dy * f * wOf(ib);
       }
       for (let i = 0; i < bs.length; i++) {
         if (nodes[i].id === drag) continue;
-        bs[i].vx += (0 - bs[i].x) * P.center * a;
-        bs[i].vy += (0 - bs[i].y) * P.center * a;
+        bs[i].vx += (0 - bs[i].x) * P.center * a * wOf(i);
+        bs[i].vy += (0 - bs[i].y) * P.center * a * wOf(i);
         bs[i].vx *= decay; bs[i].vy *= decay;
+        const sp = Math.hypot(bs[i].vx, bs[i].vy);
+        if (sp > VMAX) { bs[i].vx *= VMAX / sp; bs[i].vy *= VMAX / sp; }
         bs[i].x += bs[i].vx; bs[i].y += bs[i].vy;
       }
       // hard collision — cards never overlap (position-based)
@@ -276,8 +315,10 @@ export function ForceGraphView() {
         const i = byId.get(id);
         if (i !== undefined && id !== drag) { bs[i].x = p.x; bs[i].y = p.y; bs[i].vx = 0; bs[i].vy = 0; }
       }
-      alphaRef.current *= 0.985;
-      if (alphaRef.current < 0.05) pins.current.clear(); // release once cool
+      alphaRef.current *= 0.96; // cool fast — a settle is ~1.5s, not a wobble
+      // Release pins/damping only when motion CEASES — if they let go while
+      // the sim still has energy, a full-strength coda re-shakes the layout.
+      if (alphaRef.current < 0.003) { pins.current.clear(); fresh.current.clear(); }
     };
     const publish = () => {
       const snap: PosMap = {};
@@ -289,7 +330,7 @@ export function ForceGraphView() {
     if (reduced) {
       // Reduced motion: settle silently, paint the final state once.
       raf = requestAnimationFrame(() => {
-        alphaRef.current = Math.max(alphaRef.current, 0.8);
+        alphaRef.current = Math.max(alphaRef.current, 0.6);
         for (let i = 0; i < 320 && alphaRef.current > 0.003; i++) tick();
         publish();
       });
@@ -302,7 +343,8 @@ export function ForceGraphView() {
       }
       raf = requestAnimationFrame(loop);
     };
-    alphaRef.current = Math.max(alphaRef.current, 0.6);
+    // Transitions get a small, local reheat — only the first layout runs hot.
+    alphaRef.current = Math.max(alphaRef.current, firstMount ? 0.6 : 0.25);
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [cut, edges, P, reduced]);
@@ -535,7 +577,7 @@ export function ForceGraphView() {
         </span>
         <button
           type="button"
-          onClick={() => { setCamera({ x: 0, y: 0, scale: fitScale(root) }); setExpanded(new Set()); pins.current.clear(); alphaRef.current = 1; }}
+          onClick={() => { setCamera({ x: 0, y: 0, scale: fitScale(root) }); setExpanded(new Set()); pins.current.clear(); fresh.current.clear(); alphaRef.current = 1; }}
           className="dm-mono"
           style={{ fontSize: 10.5, color: C.ink, background: "#FFFDF8", border: "1px solid #E1D9C8", borderRadius: 999, padding: "4px 11px", cursor: "pointer", fontFamily: "inherit" }}
         >⤢ fit</button>

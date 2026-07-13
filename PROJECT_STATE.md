@@ -12,6 +12,20 @@
 > Last updated: 2026-07-13
 
 ## Recent changes
+- **2026-07-13** — **Map calm pass (user feedback: "everything wiggles")**:
+  split/merge transitions no longer shake the graph. Four sim rules in
+  `force-graph-view.tsx`: (1) entering siblings are placed DETERMINISTICALLY
+  on an evenly-spaced, overlap-free ellipse around the pinned anchor (the
+  walk's ego-ring, precomputed — the collision solver has nothing to explode);
+  (2) while fresh nodes land, VETERANS get ~10% force weight, so a split
+  nudges the neighbourhood instead of shaking the world; (3) velocities are
+  capped and alpha cools 0.96/tick (settle ≈1.5s, transitions reheat to only
+  0.25 — the global-reheat-on-split was removed); (4) pins + damping release
+  only when motion CEASES (alpha < 0.003) — releasing earlier let a
+  full-strength coda re-shake the layout (probe caught the anchor drifting
+  52 units; after the fix 0.04). Playwright probe asserts: anchor drift 0.04,
+  residual wiggle 0.44 world units over 600ms post-settle. All 10 harnesses,
+  155 tests, tsc, lint == baseline green.
 - **2026-07-13** — **Map continuity pass (user feedback on v1)**: (1) a
   splitting cluster no longer "disappears" — its ANCHOR card inherits the
   cluster's exact world position and is PINNED there while the sim settles
