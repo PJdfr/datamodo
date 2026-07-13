@@ -12,6 +12,24 @@
 > Last updated: 2026-07-13
 
 ## Recent changes
+- **2026-07-13** — **Map continuity pass (user feedback on v1)**: (1) a
+  splitting cluster no longer "disappears" — its ANCHOR card inherits the
+  cluster's exact world position and is PINNED there while the sim settles
+  (members pop in around it, cross-links stay); merging is symmetric (the
+  cluster reappears where its hub was). Verified with a playwright probe:
+  0.00 world-units of anchor drift across a split. (2) Cards adopt the WALK's
+  visual language — kind chip row, kind-tinted paper tones, ink
+  company/dataset cards, dashed pseudo-cluster cards ("+N more inside") — so
+  the map reads as the walk zoomed out. (3) The deepest zoom needs NO click:
+  a lone entity card filling the screen center past `walkPx` makes the map
+  FALL INTO the real `ExplorerView` INLINE (dm-drop-in transition, "◎ Back to
+  map" chip bottom-center, camera pulled back on exit so it can't re-trigger);
+  clicking any card dives the same way. The `AnswerGraphModal` handoff was
+  replaced by this inline takeover (+`EntityPageModal` wired for "Full page
+  ›"). `LOD.leafSide` 34→56 so the dive threshold lands ~3× instead of ~8×.
+  New harness `force-graph-dive` (synthetic click → asserts the real walk
+  mounted); `force-graph-zoom` retuned. Verified: 155 tests, tsc, lint ==
+  baseline, `next build`, all 10 shoot harnesses, pin probe.
 - **2026-07-13** — **"◎ Map": the semantic-zoom constellation shipped** (the
   ROADMAP "Constellation overview", built to the handoff
   `design/mocks/SEMANTIC_ZOOM_README.md`). One graph where zoom = granularity:
