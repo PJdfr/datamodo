@@ -217,6 +217,57 @@ function Node3D({ e, kindDef, pos, enterFrom, isCenter, isHover, isDim, cited, c
 }
 
 /* ===========================================================================
+   Ghost ring — a decorative THIRD layer of unreadable card silhouettes pushed
+   deep behind hop-2. Pure atmosphere: never interactive, no edges, washed out
+   by the depth fog. Deterministic (fixed spec, no randomness) and independent
+   of the center, so it stays put and grounds the space as you walk. 3D only —
+   the reduced-motion 2D radial drops it entirely.
+   =========================================================================== */
+const GHOST_SPEC = [
+  { w: 118, o: 0.5, dz: 0 },
+  { w: 104, o: 0.42, dz: -40 },
+  { w: 122, o: 0.48, dz: 20 },
+  { w: 110, o: 0.44, dz: -20 },
+  { w: 116, o: 0.52, dz: 0 },
+  { w: 100, o: 0.4, dz: -50 },
+  { w: 126, o: 0.46, dz: 10 },
+];
+function GhostRing({ w, h }: { w: number; h: number }) {
+  const r3x = w * DEPTH.r3x;
+  const r3y = h * DEPTH.r3y;
+  return (
+    <>
+      {GHOST_SPEC.map((g, i) => {
+        // Fan evenly, phase-shifted so ghosts peek BETWEEN the outer ring's
+        // bearings rather than hiding directly behind real nodes.
+        const deg = -90 + 25 + (i * 360) / GHOST_SPEC.length;
+        const rad = (deg * Math.PI) / 180;
+        const z = DEPTH.hop3Z + g.dz;
+        const blur = 2.4 + (-z - 410) / 70;
+        return (
+          <div key={i} aria-hidden style={{
+            position: "absolute", left: "50%", top: "50%", width: g.w,
+            transform: `translate(-50%,-50%) translate3d(${Math.cos(rad) * r3x}px, ${Math.sin(rad) * r3y}px, ${z}px)`,
+            transformStyle: "preserve-3d",
+            opacity: g.o, filter: `blur(${blur.toFixed(1)}px)`,
+            pointerEvents: "none", zIndex: 3, willChange: "transform",
+          }}>
+            <div style={{
+              background: "#FBF7EF", border: "1px solid #E2DAC9", borderRadius: 12,
+              padding: "9px 11px", boxShadow: "0 16px 40px -30px rgba(33,30,24,.35)",
+            }}>
+              <div style={{ width: "42%", height: 5, borderRadius: 3, background: "#E5DDCB", marginBottom: 7 }} />
+              <div style={{ width: "82%", height: 8, borderRadius: 3, background: "#D9CFB8", marginBottom: 5 }} />
+              <div style={{ width: "60%", height: 6, borderRadius: 3, background: "#E5DDCB" }} />
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/* ===========================================================================
    Cluster panel — "+N more invoices" expands into its member list
    =========================================================================== */
 function ClusterPanel({ node, byId, kindDef, onClose, onGoTo }: {
@@ -594,6 +645,9 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
           style={{ position: "absolute", inset: 0, perspective: reduced ? "none" : `${DEPTH.perspective}px`, perspectiveOrigin: "50% 46%" }}
         >
           <div style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d" }}>
+            {/* decorative third layer — deep, unreadable card silhouettes */}
+            {!reduced && <GhostRing w={size.w} h={size.h} />}
+
             <EdgeLayer geom={geom} edges={graph.edges} layout={layout}
               hoverEdge={hoverEdge} selEdge={selEdge} focusNode={hoverNode} citedIds={citedSet}
               onHover={setHoverEdge}

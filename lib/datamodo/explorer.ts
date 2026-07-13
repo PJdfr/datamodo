@@ -304,6 +304,10 @@ export const DEPTH = {
   centerZ: 150,
   hop1Z: 0,
   hop2Z: -230,
+  /** Purely-decorative third ring: blank card silhouettes pushed deep behind
+   *  hop-2 on a wider ellipse — atmosphere only, never interactive, and only
+   *  in the 3D mode (the reduced-motion 2D radial drops it). */
+  hop3Z: -430,
   /** hop-2 fans ± this many degrees around its parent's bearing. */
   hop2SpreadDeg: 34,
   /** Elliptical ring radii — x as a fraction of the canvas WIDTH, y of its
@@ -312,6 +316,8 @@ export const DEPTH = {
   r1y: 0.34,
   r2x: 0.52,
   r2y: 0.46,
+  r3x: 0.66,
+  r3y: 0.6,
 } as const;
 
 export interface DepthPos {

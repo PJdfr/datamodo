@@ -9,9 +9,18 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-12
+> Last updated: 2026-07-13
 
 ## Recent changes
+- **2026-07-13** — **Explorer: decorative third ring (deeper 3D)**. Added a
+  `GhostRing` to the Explorer depth field — a fixed, deterministic set of faint,
+  blurred, unreadable card silhouettes pushed deep behind hop-2 on a wider
+  ellipse (`DEPTH.hop3Z`/`r3x`/`r3y`), washed out by the existing cream fog.
+  Pure atmosphere: `aria-hidden`, `pointerEvents:none`, no edges, no data-model
+  or interaction change; rendered only in 3D mode (dropped under
+  `prefers-reduced-motion`). No parallax (explicitly declined). Verified via the
+  `explorer` screenshot harness. `lib/datamodo/explorer.ts` (DEPTH consts),
+  `app/dashboard/explorer-view.tsx` (`GhostRing`).
 - **2026-07-12** — **The app is a channel: in-app Chat capture** (user
   must-have). New "Chat" tab in the dashboard rail: a thread + composer that
   sends straight into the SAME pipeline as email/WhatsApp — multiline text,
