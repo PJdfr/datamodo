@@ -12,7 +12,32 @@
 > Last updated: 2026-07-13
 
 ## Recent changes
-- **2026-07-13** — **Files Finder view: the content column's header is the
+- **2026-07-13** — **"◎ Map": the semantic-zoom constellation shipped** (the
+  ROADMAP "Constellation overview", built to the handoff
+  `design/mocks/SEMANTIC_ZOOM_README.md`). One graph where zoom = granularity:
+  zoomed out → a few big clusters; scroll in → clusters whose card crosses the
+  split threshold dissolve into sub-clusters → individual entity cards; click
+  any card (or zoom right onto one) → the REAL Explorer walk opens on it via
+  `AnswerGraphModal` — the walk was reused, never reimplemented. New pure core
+  `lib/datamodo/constellation.ts`: `buildConstellation` (recursive hub +
+  seeded label propagation; kind fallback for sparse sets; disconnected dust →
+  a dashed "everything else" bucket; fully deterministic), `visibleCut` (the
+  LOD tree cut — split/merge hysteresis built as a fixed point so the render
+  loop can't oscillate, hard 120-node cap expanding biggest-first), `cutEdges`
+  (real edges bundled up to visible reps with counts). Shared adjacency:
+  `buildAdjacency` extracted in `explorer.ts` and used by BOTH the walk and
+  the map (guardrail: one edge rule, no drift). View
+  `app/dashboard/force-graph-view.tsx` ports the constellation mock's physics
+  (area-scaled repulsion, link springs, center gravity, hard collision, force
+  sliders) over the visible cut only; positions publish to state from rAF
+  (React hooks lint clean); wheel-zoom-at-cursor, pan, drag cards;
+  reduced-motion settles silently. Wired as the "◎ Map" pill in Data
+  (`control-center.tsx`). UI intentionally v1-plain — polish is a Claude
+  Design pass. Verified: 11 new unit tests (155 total green), tsc, lint ==
+  baseline, `next build` green, and two shoot harnesses
+  (`force-graph`, `force-graph-zoom` — the latter fires real wheel events and
+  caught a bug where the wheel/resize listeners attached before the canvas
+  existed, i.e. zoom would have been dead on first load).
   next split, not the folder's name**. When you select a folder, the trailing
   content (files) column no longer repeats that folder's name in its header —
   the folder is already selected and highlighted in the column to its left, so

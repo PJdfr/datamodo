@@ -39,22 +39,14 @@
   as global ⌘K, exports as row actions — revisit if the rail grows again.
 - ~~Node shapes, phase 2~~ ✅ 2026-07-11 — image nodes render their image,
   `bookmark` builtin kind, dataset-as-node in the Explorer.
-- ⬜ **Constellation overview** (proposed 2026-07-13, mock:
-  [`design/mocks/constellation.html`](../design/mocks/constellation.html)) — the
-  Explorer's zoomed-OUT view: the answer to "why can't we show the whole graph
-  like Obsidian." A dense machine graph hairballs, so instead of every node,
-  render ~dozens of **clusters** (by kind, later community detection) as
-  super-nodes with bundled, count-labelled edges + a folded long-tail "dust"
-  ring — "your world at a glance." Hover a cluster → its links light up + a
-  side panel breaks it down; click → dives into the existing 3D ego-walk. Makes
-  Constellation → Backbone (top-N salient) → Walk a semantic-zoom continuum,
-  with a type/time lens to drop to a sparse Obsidian-like slice. The mock has
-  since grown into an **Obsidian-style force graph**: real physics (area-scaled
-  repulsion, link springs, center gravity, hard collision), live force sliders
-  (center/repel/link force/link dist/node size), draggable square cards with
-  labels below, and **click-a-card → zoom into its ego walk** (camera zoom +
-  ego-ring relayout + back). Wire these interactions into the Explorer tab —
-  force graph for a local neighbourhood, aggregate constellation at full zoom.
+- ~~Constellation overview / semantic-zoom Map~~ ✅ 2026-07-13 — shipped as the
+  "◎ Map" Data view per `design/mocks/SEMANTIC_ZOOM_README.md`: recursive
+  hub-clustering hierarchy + screen-size LOD cut (split/merge hysteresis, hard
+  cap) in pure `lib/datamodo/constellation.ts`; the mock's force physics +
+  square cards in `force-graph-view.tsx`; click / deepest zoom hands off to the
+  REAL Explorer walk via `AnswerGraphModal`. Left for the design pass: split
+  /merge transition animation (children currently pop in at the parent's spot
+  — no tween), cluster hover side-panel breakdown, and a type/time lens.
 - ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
   with ≥2 connected bodies of content → cited note into `body_md`.
 - ~~Audio tier~~ ✅ 2026-07-11 — audio attachments transcribe (fail-soft

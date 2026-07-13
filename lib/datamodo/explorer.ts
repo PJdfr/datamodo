@@ -47,6 +47,32 @@ export interface EgoGraph {
   parentOf: Record<string, string>;
 }
 
+/**
+ * The ONE adjacency rule for every graph surface (the walk AND the
+ * constellation's semantic zoom — if edges were computed twice they'd drift):
+ * a fact with `ref && refId` pointing at another known entity is an undirected
+ * edge, weighted by how many facts connect the pair (both directions).
+ * Returns node id → (neighbor id → fact count).
+ */
+export function buildAdjacency(entities: KnowledgeEntityView[]): Map<string, Map<string, number>> {
+  const known = new Set(entities.map((e) => e.id));
+  const adj = new Map<string, Map<string, number>>();
+  const bump = (a: string, b: string) => {
+    if (!adj.has(a)) adj.set(a, new Map());
+    const m = adj.get(a)!;
+    m.set(b, (m.get(b) ?? 0) + 1);
+  };
+  for (const e of entities) {
+    for (const f of e.facts) {
+      if (f.ref && f.refId && known.has(f.refId) && f.refId !== e.id) {
+        bump(e.id, f.refId);
+        bump(f.refId, e.id);
+      }
+    }
+  }
+  return adj;
+}
+
 export interface EgoOptions {
   /** Ring caps: at most this many hop-1 / hop-2 nodes. */
   maxHop1?: number;
@@ -79,20 +105,10 @@ export function buildEgoGraph(
   const center = byId.get(centerId);
   if (!center) return null;
 
-  // Adjacency over relationship facts, both directions.
+  // Adjacency over relationship facts, both directions (the shared rule).
+  const adjacency = buildAdjacency(entities);
   const neighborIds = new Map<string, Set<string>>();
-  const link = (a: string, b: string) => {
-    if (!neighborIds.has(a)) neighborIds.set(a, new Set());
-    neighborIds.get(a)!.add(b);
-  };
-  for (const e of entities) {
-    for (const f of e.facts) {
-      if (f.ref && f.refId && byId.has(f.refId) && f.refId !== e.id) {
-        link(e.id, f.refId);
-        link(f.refId, e.id);
-      }
-    }
-  }
+  for (const [id, nbrs] of adjacency) neighborIds.set(id, new Set(nbrs.keys()));
 
   const rank = (id: string) => byId.get(id)?.edges ?? 0;
   const preferred = (id: string) => (opts.prefer?.has(id) ? 1 : 0);
