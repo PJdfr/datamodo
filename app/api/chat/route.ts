@@ -43,6 +43,12 @@ export async function GET() {
     if (!byItem.has(a.item_id)) byItem.set(a.item_id, []);
     byItem.get(a.item_id)!.push({ filename: a.filename, contentType: a.content_type, bytes: Number(a.bytes ?? 0) });
   }
+  // The thread is TWO-WAY: pending reviews ride along as datamodo's own
+  // bubble ("needs your OK") with tap-to-approve — the same pull request
+  // that goes out over WhatsApp/Slack, rendered natively here.
+  const { pendingQuestions } = await import("@/lib/datamodo/review-inbox");
+  const questions = await pendingQuestions(org.id).catch(() => []);
+
   return NextResponse.json({
     messages: items.reverse().map((i) => ({
       id: i.id,
@@ -52,6 +58,7 @@ export async function GET() {
       at: i.received_at.toISOString(),
       attachments: byItem.get(i.id) ?? [],
     })),
+    questions,
   });
 }
 

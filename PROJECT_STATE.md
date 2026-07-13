@@ -12,15 +12,29 @@
 > Last updated: 2026-07-13
 
 ## Recent changes
-- **2026-07-13** — **Explorer: decorative third ring (deeper 3D)**. Added a
-  `GhostRing` to the Explorer depth field — a fixed, deterministic set of faint,
-  blurred, unreadable card silhouettes pushed deep behind hop-2 on a wider
-  ellipse (`DEPTH.hop3Z`/`r3x`/`r3y`), washed out by the existing cream fog.
-  Pure atmosphere: `aria-hidden`, `pointerEvents:none`, no edges, no data-model
-  or interaction change; rendered only in 3D mode (dropped under
-  `prefers-reduced-motion`). No parallax (explicitly declined). Verified via the
-  `explorer` screenshot harness. `lib/datamodo/explorer.ts` (DEPTH consts),
-  `app/dashboard/explorer-view.tsx` (`GhostRing`).
+- **2026-07-12** — **The chat is two-way: pull requests land in the thread**.
+  Pending reviews now ride `GET /api/chat` as `questions` and render as
+  datamodo's own ink bubble — "✦ needs your OK", numbered, with ✓ yes / ✗ no
+  buttons per question; tapping posts `POST /api/chat/review` which applies
+  the SAME accept/reject side-effects as Review Studio and the WhatsApp
+  reply path, with an optimistic receipt line ("✓ approved — merge …") and
+  honest fallback on conflict. Closes the loop teased when the channel
+  pull-requests shipped. Verified: tests/tsc/lint/build green; shoot shows
+  the bubble with the demo account's two real pending decisions.
+- **2026-07-12** — **Chat brand pass (10x UI)**. Evaluated open-source chat
+  kits per the user's suggestion (chatscope ships its own theme;
+  reachat/prompt-kit are Tailwind/shadcn — all three fight the design
+  system); rebuilt hand-rolled on the app's own motion vocabulary instead.
+  Now: day separators (hairline + mono kicker), right-aligned paper bubbles
+  (dm-drop-in entrance, warm shadows), OPTIMISTIC sends with image
+  thumbnails in the bubble, attachment tray with real previews (image thumbs,
+  playable audio for voice notes) and per-item remove, drag-&-drop veil +
+  paste-to-attach, recording state (coral ring on the composer, pulsing dot,
+  mm:ss timer), pulsing "reading…" → "✓ filed" status per message, glyph
+  toolbar ⊕ ⏺ ∿ (no emoji — brand rule), coral square send button, empty
+  state with three try-it chips, auto-growing textarea. New screenshot
+  harness (`npm run shoot -- chat`, fetch stubbed). Verified: 143 tests,
+  tsc, lint==baseline, build, screenshot eyeballed on-brand.
 - **2026-07-12** — **The app is a channel: in-app Chat capture** (user
   must-have). New "Chat" tab in the dashboard rail: a thread + composer that
   sends straight into the SAME pipeline as email/WhatsApp — multiline text,
