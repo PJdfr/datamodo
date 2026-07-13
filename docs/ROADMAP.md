@@ -44,9 +44,10 @@
   hub-clustering hierarchy + screen-size LOD cut (split/merge hysteresis, hard
   cap) in pure `lib/datamodo/constellation.ts`; the mock's force physics +
   square cards in `force-graph-view.tsx`; click / deepest zoom hands off to the
-  REAL Explorer walk via `AnswerGraphModal`. Left for the design pass: split
-  /merge transition animation (children currently pop in at the parent's spot
-  — no tween), cluster hover side-panel breakdown, and a type/time lens.
+  REAL Explorer walk — inline takeover, no click needed at max zoom (same-day
+  continuity pass: pinned split anchors, walk-style cards, auto-dive).
+  Left for the design pass: split/merge tweens (children currently pop in at
+  the parent's spot), cluster hover side-panel breakdown, a type/time lens.
 - ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
   with ≥2 connected bodies of content → cited note into `body_md`.
 - ~~Audio tier~~ ✅ 2026-07-11 — audio attachments transcribe (fail-soft

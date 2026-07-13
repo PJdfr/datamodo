@@ -217,8 +217,11 @@ export const LOD = {
   /** Hard cap on simultaneously visible nodes (the sim only ever runs over
    *  the cut — that's the whole point). */
   maxVisible: 120,
-  /** Card side in world units: leaf size, plus area ∝ member count. */
-  leafSide: 34,
+  /** Card side in world units: leaf size, plus area ∝ member count. Leaves
+   *  are card-sized (not dots) so the walk handoff triggers at a sane zoom:
+   *  a leaf card (w ≈ 1.5×side) crosses walkPx around 3× — the map "falls
+   *  into" the Explorer without a click. */
+  leafSide: 56,
   sideGrow: 26,
 } as const;
 

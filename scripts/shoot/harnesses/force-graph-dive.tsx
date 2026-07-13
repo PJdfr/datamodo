@@ -1,6 +1,6 @@
-// Harness: the Map mid-zoom — wheel events fire after mount, so the shot
-// catches clusters DISSOLVED into sub-clusters/cards (the semantic-zoom rule).
-// Run: npm run shoot -- force-graph-zoom
+// Harness: the Map's walk handoff — a (synthetic) click on the Acme cluster
+// card must drop into the REAL Explorer walk inline, centered on acme.
+// Run: npm run shoot -- force-graph-dive
 
 import { createRoot } from "react-dom/client";
 import { ForceGraphView } from "@/app/dashboard/force-graph-view";
@@ -19,12 +19,9 @@ const world: KnowledgeEntityView[] = [
   ...Array.from({ length: 12 }, (_, i) => ent(`ainv${i}`, "invoice", `INV-${900 + i}`, [rel("issued_by", "acme")])),
   ent("elena", "person", "Elena Voss", [rel("works_for", "acme")]),
   ent("marco", "person", "Marco Ruiz", [rel("works_for", "acme")]),
-  ent("q3", "project", "Q3 Rebrand", [rel("commissioned_by", "acme")]),
-  ...Array.from({ length: 5 }, (_, i) => ent(`qdoc${i}`, "document", `Q3 brief ${i}.pdf`, [rel("part_of", "q3")])),
   ent("bright", "company", "Brightwave"),
   ...Array.from({ length: 7 }, (_, i) => ent(`bdoc${i}`, "document", `BW-doc-${i}.pdf`, [rel("sent_by", "bright")])),
   ent("priya", "person", "Priya Nair", [rel("works_for", "bright"), rel("knows", "elena")]),
-  ...Array.from({ length: 4 }, (_, i) => ent(`note${i}`, "note", `Loose note ${i}`)),
 ];
 
 (window as unknown as { fetch: typeof fetch }).fetch = (async (url: RequestInfo | URL) => ({
@@ -36,20 +33,19 @@ const flags = window as unknown as { __mounted: boolean };
 flags.__mounted = false;
 createRoot(document.getElementById("root")!).render(<ForceGraphView />);
 
-// After fetch + fit settle, zoom ~2× toward the canvas center: the big
-// clusters must cross splitPx and dissolve before the screenshot lands
-// (staying under the walk-dive threshold — the dive has its own harness).
+// Click (pointerdown+up, no movement) the Acme cluster card → the map must
+// hand off to the real ExplorerView, standing on acme.
 window.setTimeout(() => {
-  const wrap = document.querySelector("svg")?.parentElement;
-  if (!wrap) return;
-  const r = wrap.getBoundingClientRect();
-  for (let i = 0; i < 2; i++) {
-    window.setTimeout(() => {
-      wrap.dispatchEvent(new WheelEvent("wheel", {
-        deltaY: -250, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
-        bubbles: true, cancelable: true,
-      }));
-    }, i * 90);
-  }
-}, 450);
+  const card = document.querySelector('[data-map-node="root/acme"]');
+  if (!card) throw new Error("acme cluster card not found — clustering changed?");
+  const r = card.getBoundingClientRect();
+  const at = { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true, pointerId: 1 };
+  card.dispatchEvent(new PointerEvent("pointerdown", at));
+  card.dispatchEvent(new PointerEvent("pointerup", at));
+  window.setTimeout(() => {
+    if (!document.querySelector('[aria-label="Edge fact"], [role="button"][aria-label*="you are here"]')) {
+      throw new Error("dive did not open the Explorer walk");
+    }
+  }, 500);
+}, 600);
 flags.__mounted = true;

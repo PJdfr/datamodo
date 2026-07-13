@@ -2,14 +2,21 @@
 
 /**
  * FORCE GRAPH / MAP — the semantic-zoom constellation (design handoff
- * design/mocks/SEMANTIC_ZOOM_README.md; physics + card styling ported from
- * design/mocks/constellation.html).
+ * design/mocks/SEMANTIC_ZOOM_README.md; physics ported from
+ * design/mocks/constellation.html; card styling borrowed from the walk).
  *
  * One graph where ZOOM = GRANULARITY: zoomed out → a few big clusters;
- * scroll in → clusters whose card grows past the split threshold dissolve
- * into their children (the pure `visibleCut` decides — hysteresis, hard cap);
- * zoom right onto a single entity card — or click any card — and the REAL
- * Explorer walk opens on it (`AnswerGraphModal`; never reimplemented).
+ * scroll in → a cluster whose card grows past the split threshold dissolves
+ * into its children (the pure `visibleCut` decides — hysteresis, hard cap).
+ * CONTINUITY RULES (user call 2026-07-13): the cluster never "disappears" —
+ * its ANCHOR card takes the cluster's exact position and is PINNED there
+ * while the members pop in around it and its cross-links stay; a node you
+ * zoom on does not move. And the deepest zoom needs NO click: once a single
+ * entity card fills enough of the screen, the map FALLS INTO the real
+ * Explorer walk (inline takeover with a transition, not a modal) — clicking
+ * any card dives the same way. Cards use the walk's visual language (kind
+ * chip, tinted paper tones, dashed pseudo-cluster cards) so the dive reads
+ * as a continuation, not a context switch.
  *
  * The force sim (repulsion ∝ card area, link springs, center gravity, hard
  * collision) runs only over the visible cut — tens of nodes, never the whole
@@ -26,7 +33,9 @@ import {
   buildConstellation, visibleCut, cutEdges, nodeSide, LOD, type ClusterNode,
 } from "@/lib/datamodo/constellation";
 import { buildDatasetNodes, type DatasetNodeSource } from "@/lib/datamodo/node-shapes";
-import { AnswerGraphModal } from "./answer-graph-modal";
+import { ExplorerView } from "./explorer-view";
+import { EntityPageModal } from "./entity-page";
+import { buildNodeResolver } from "./markdown";
 import type { KnowledgeEntityView } from "@/lib/datamodo/types";
 import type { KindDef } from "@/lib/datamodo/ontology";
 
@@ -35,7 +44,12 @@ interface Camera { x: number; y: number; scale: number }
 type PosMap = Record<string, { x: number; y: number }>;
 
 const SCALE_MIN = 0.04;
-const SCALE_MAX = 10;
+const SCALE_MAX = 8;
+/** Cards are wider than tall — width/height as factors of the LOD side. */
+const CARD_W = 1.5;
+const CARD_H = 0.95;
+/** The walk's ink-card kinds (mirrors explorer-view's TONE_BY_KIND). */
+const INK_KINDS = new Set(["company", "dataset"]);
 
 /** Deterministic per-id jitter (no Math.random — stable layouts, shootable). */
 function hash01(s: string): number {
@@ -57,8 +71,9 @@ export function ForceGraphView() {
   const [datasetSources, setDatasetSources] = useState<DatasetNodeSource[]>([]);
   const [kinds, setKinds] = useState<KindDef[]>([]);
   const [loading, setLoading] = useState(true);
-  const [walkId, setWalkId] = useState<string | null>(null);
-  const [walkLabel, setWalkLabel] = useState("");
+  // The inline Explorer takeover — set by a click OR by zooming onto a card.
+  const [dive, setDive] = useState<{ id: string } | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, scale: 0 }); // 0 = not fitted yet
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -73,13 +88,20 @@ export function ForceGraphView() {
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const bodies = useRef(new Map<string, Body>());
+  // Split anchors pinned at the dissolved cluster's exact spot until the sim
+  // cools — "the node you zoom on does not move".
+  const pins = useRef(new Map<string, { x: number; y: number }>());
+  const prevCutIds = useRef<Set<string>>(new Set());
   const alphaRef = useRef(1);
+  const diveRef = useRef<typeof dive>(null);
   const dragRef = useRef<{ id: string | null; panning: boolean; sx: number; sy: number; moved: boolean; cam: Camera }>(
     { id: null, panning: false, sx: 0, sy: 0, moved: false, cam: { x: 0, y: 0, scale: 1 } },
   );
-  const autoWalkRef = useRef<string | null>(null);
+  const autoDiveRef = useRef<string | null>(null);
 
-  /* ---- world (same fetch as AnswerGraphModal — self-contained) ---- */
+  useEffect(() => { diveRef.current = dive; }, [dive]);
+
+  /* ---- world (same fetch as the Knowledge surfaces — self-contained) ---- */
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -115,6 +137,7 @@ export function ForceGraphView() {
   );
   const root = useMemo(() => (world.length ? buildConstellation(world) : null), [world]);
   const adj = useMemo(() => buildAdjacency(world), [world]);
+  const resolveNode = useMemo(() => buildNodeResolver(world), [world]);
 
   /* ---- initial fit: start where the biggest cluster is JUST below split ---- */
   useEffect(() => {
@@ -160,19 +183,45 @@ export function ForceGraphView() {
   useEffect(() => {
     if (!cut) return;
     const nodes = cut.nodes;
-    const sides = nodes.map((n) => nodeSide(n.size) * P.size);
-    // Positions persist across cuts; entering nodes seed at their tree parent.
+    const sides = nodes.map((n) => nodeSide(n.size) * P.size * CARD_W); // physics on card WIDTH
+    const prev = prevCutIds.current;
+
+    // Continuity seeding. A node is "entering" when it wasn't in the last cut:
+    //  · SPLIT — a dissolved cluster's ANCHOR (its id ends "/<hub>") takes the
+    //    cluster's exact position and gets PINNED there; siblings pop in
+    //    around it. The cluster card never "disappears" — it becomes its hub.
+    //  · MERGE — a collapsing cluster appears exactly where its hub was.
+    //  · fresh mount — deterministic ring.
     const bs = nodes.map((n, i) => {
       let b = bodies.current.get(n.id);
-      if (!b) {
-        const parent = bodies.current.get(cut.parentOf[n.id]);
-        const ang = hash01(n.id) * Math.PI * 2;
-        const spread = parent ? sides[i] : 260 + 340 * hash01(`r${n.id}`);
-        b = { x: (parent?.x ?? 0) + Math.cos(ang) * spread, y: (parent?.y ?? 0) + Math.sin(ang) * spread, vx: 0, vy: 0 };
+      const entering = !prev.has(n.id);
+      if (!b || entering) {
+        const parentId = cut.parentOf[n.id];
+        const parent = bodies.current.get(parentId);
+        const isAnchorOfParent = parentId?.endsWith(`/${n.hubId}`) ?? false;
+        // Merge: this cluster's hub was on screen (as a leaf or as the anchor
+        // of a deeper sub-cluster) — reappear exactly there.
+        const hubBody = bodies.current.get(n.hubId) ?? bodies.current.get(`${n.id}/${n.hubId}`);
+        if (n.children.length && hubBody) {
+          b = { x: hubBody.x, y: hubBody.y, vx: 0, vy: 0 };
+          pins.current.set(n.id, { x: b.x, y: b.y });
+        } else if (parent && isAnchorOfParent) {
+          b = { x: parent.x, y: parent.y, vx: 0, vy: 0 };
+          pins.current.set(n.id, { x: b.x, y: b.y });
+        } else if (parent) {
+          const ang = hash01(n.id) * Math.PI * 2;
+          const spread = sides[i] * 0.9;
+          b = { x: parent.x + Math.cos(ang) * spread, y: parent.y + Math.sin(ang) * spread, vx: 0, vy: 0 };
+        } else if (!b) {
+          const ang = hash01(n.id) * Math.PI * 2;
+          const r = 260 + 340 * hash01(`r${n.id}`);
+          b = { x: Math.cos(ang) * r, y: Math.sin(ang) * r, vx: 0, vy: 0 };
+        }
         bodies.current.set(n.id, b);
       }
       return b;
     });
+    prevCutIds.current = new Set(nodes.map((n) => n.id));
     const byId = new Map(nodes.map((n, i) => [n.id, i]));
     const decay = 0.82;
 
@@ -222,7 +271,13 @@ export function ForceGraphView() {
           }
         }
       }
+      // Pinned anchors hold their exact spot; everyone else flows around them.
+      for (const [id, p] of pins.current) {
+        const i = byId.get(id);
+        if (i !== undefined && id !== drag) { bs[i].x = p.x; bs[i].y = p.y; bs[i].vx = 0; bs[i].vy = 0; }
+      }
       alphaRef.current *= 0.985;
+      if (alphaRef.current < 0.05) pins.current.clear(); // release once cool
     };
     const publish = () => {
       const snap: PosMap = {};
@@ -257,6 +312,7 @@ export function ForceGraphView() {
     const el = wrapRef.current;
     if (!el) return;
     const onWheel = (ev: WheelEvent) => {
+      if (diveRef.current) return; // the Explorer owns the surface now
       ev.preventDefault();
       const r = el.getBoundingClientRect();
       const mx = ev.clientX - r.left - r.width / 2;
@@ -272,25 +328,38 @@ export function ForceGraphView() {
     return () => el.removeEventListener("wheel", onWheel);
   }, [ready]);
 
-  /* ---- deepest zoom = the walk: a LEAF card past walkPx opens the Explorer ---- */
+  /* ---- deepest zoom = the walk, NO click needed: once a single entity card
+     fills the screen center past walkPx, the map falls into the Explorer ---- */
   useEffect(() => {
-    if (!cut || walkId) return;
-    const hit = cut.nodes.find((n) => {
-      if (n.children.length || nodeSide(1) * lodScale < LOD.walkPx) return false;
-      const b = pos[n.id];
-      if (!b) return false;
-      const sx = (b.x - camera.x) * camera.scale, sy = (b.y - camera.y) * camera.scale;
-      return Math.abs(sx) < size.w * 0.3 && Math.abs(sy) < size.h * 0.3;
-    });
-    if (hit && autoWalkRef.current !== hit.id) {
-      autoWalkRef.current = hit.id; // one auto-open per card until you leave it
-      setWalkId(hit.hubId);
-      setWalkLabel(hit.label);
+    if (!cut || dive) return;
+    const leafW = nodeSide(1) * lodScale * CARD_W;
+    const hit = leafW >= LOD.walkPx
+      ? cut.nodes.find((n) => {
+          if (n.children.length) return false;
+          const b = pos[n.id];
+          if (!b) return false;
+          const sx = (b.x - camera.x) * camera.scale, sy = (b.y - camera.y) * camera.scale;
+          return Math.abs(sx) < size.w * 0.28 && Math.abs(sy) < size.h * 0.28;
+        })
+      : undefined;
+    if (hit && autoDiveRef.current !== hit.id) {
+      autoDiveRef.current = hit.id; // one auto-dive per card until you pull back
+      setDive({ id: hit.hubId });
     }
-    if (!hit) autoWalkRef.current = null;
-  }, [camera, cut, lodScale, size, walkId, pos]);
+    if (!hit) autoDiveRef.current = null;
+  }, [camera, cut, lodScale, size, dive, pos]);
 
-  /* ---- pointer: drag a card / pan the canvas / click = walk ---- */
+  // Leaving the dive: pull the camera back a notch so the same card doesn't
+  // instantly swallow the map again.
+  const closeDive = () => {
+    setDive(null);
+    setCamera((c) => {
+      const leafW = nodeSide(1) * c.scale * P.size * CARD_W;
+      return leafW >= LOD.walkPx * 0.9 ? { ...c, scale: (LOD.walkPx * 0.55) / (nodeSide(1) * P.size * CARD_W) } : c;
+    });
+  };
+
+  /* ---- pointer: drag a card / pan the canvas / click = dive ---- */
   const toWorld = (clientX: number, clientY: number) => {
     const r = wrapRef.current!.getBoundingClientRect();
     return {
@@ -299,11 +368,13 @@ export function ForceGraphView() {
     };
   };
   const onPointerDown = (ev: React.PointerEvent, nodeId: string | null) => {
-    (ev.currentTarget as Element).setPointerCapture?.(ev.pointerId);
+    if (dive) return;
+    try { (ev.currentTarget as Element).setPointerCapture?.(ev.pointerId); } catch { /* synthetic events */ }
     dragRef.current = { id: nodeId, panning: !nodeId, sx: ev.clientX, sy: ev.clientY, moved: false, cam: camera };
-    if (nodeId) alphaRef.current = Math.max(alphaRef.current, 0.4);
+    if (nodeId) { pins.current.delete(nodeId); alphaRef.current = Math.max(alphaRef.current, 0.4); }
   };
   const onPointerMove = (ev: React.PointerEvent) => {
+    if (dive) return;
     const d = dragRef.current;
     if (!d.id && !d.panning) return;
     if (Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) > 4) d.moved = true;
@@ -321,10 +392,11 @@ export function ForceGraphView() {
     }
   };
   const onPointerUp = () => {
+    if (dive) return;
     const d = dragRef.current;
     if (d.id && !d.moved && cut) {
       const n = cut.nodes.find((x) => x.id === d.id);
-      if (n) { setWalkId(n.hubId); setWalkLabel(n.label); }
+      if (n) setDive({ id: n.hubId });
     }
     dragRef.current = { id: null, panning: false, sx: 0, sy: 0, moved: false, cam: camera };
   };
@@ -349,7 +421,6 @@ export function ForceGraphView() {
   const tx = size.w / 2 - camera.x * camera.scale;
   const ty = size.h / 2 - camera.y * camera.scale;
   const px = (v: number) => v / camera.scale; // constant-screen-size in world units
-  const sideOf = (n: ClusterNode) => nodeSide(n.size) * P.size;
 
   return (
     <div
@@ -373,10 +444,10 @@ export function ForceGraphView() {
               <g key={`${e.a}~${e.b}`} style={{ pointerEvents: "none" }}>
                 <line
                   x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                  stroke={lit ? C.accent : "#CDBFA6"}
+                  stroke={lit ? C.accent : "#DDD5C5"}
                   strokeWidth={px(Math.min(1 + e.n * 0.35, 4.2))}
                   strokeLinecap="round"
-                  opacity={hoverId && !lit ? 0.14 : 0.55}
+                  opacity={hoverId && !lit ? 0.14 : 0.6}
                 />
                 {e.n > 1 && (lit || camera.scale > 0.5) && (
                   <text
@@ -393,55 +464,64 @@ export function ForceGraphView() {
           {cut.nodes.map((n) => {
             const b = pos[n.id];
             if (!b) return null; // entering node — appears on the sim's next frame
-            const s = sideOf(n);
+            const s = nodeSide(n.size) * P.size;
+            const w = s * CARD_W, h = s * CARD_H;
+            const x0 = b.x - w / 2, y0 = b.y - h / 2;
             const isCluster = n.children.length > 0;
             const isOther = n.id.endsWith("/other");
+            const ink = !isCluster && INK_KINDS.has(n.kind);
             const kd = kindByName.get(n.kind);
+            const kindColor = kd?.color ?? "#A39B8B";
             const dim = hoverId !== null && !hoverNbrs.has(n.id);
             const hov = hoverId === n.id;
-            const label = n.label.length > 24 ? n.label.slice(0, 23) + "…" : n.label;
+            // Walk-card tones: dashed paper for clusters (the walk's "+N more"
+            // pseudo-node), ink for company/dataset, kind-tinted paper else.
+            const fill = isCluster || isOther ? "#FBF8F1" : ink ? "#211E18" : `color-mix(in srgb, ${kindColor} 10%, #FFFDF8)`;
+            const stroke = hov ? C.accent : isCluster || isOther ? "#C9BCA6" : ink ? "#3A352C" : `color-mix(in srgb, ${kindColor} 42%, #E7E0D2)`;
+            const fg = ink ? "#F1ECE1" : "#211E18";
+            const links = adj.get(n.id)?.size ?? 0;
+            const sub = isOther ? `${n.size} unlinked` : isCluster ? `+${n.size - 1} more inside` : `${links} link${links === 1 ? "" : "s"}`;
+            const pad = s * 0.13;
+            const chipS = Math.max(4, s * 0.09);
+            const kindFs = Math.max(5.5, s * 0.1);
+            const labelFs = Math.min(22, Math.max(9, s * 0.19));
+            const subFs = Math.max(6.5, s * 0.12);
+            const maxChars = Math.max(6, Math.floor((w - pad * 2) / (labelFs * 0.56)));
+            const label = n.label.length > maxChars ? n.label.slice(0, maxChars - 1) + "…" : n.label;
+            const kindLabel = (isOther ? "unfiled" : kd?.label ?? n.kind).toUpperCase();
             return (
               <g
                 key={n.id}
+                data-map-node={n.id}
                 opacity={dim ? 0.3 : 1}
                 style={{ cursor: "grab", transition: "opacity .18s" }}
                 onPointerEnter={() => !dragRef.current.id && setHoverId(n.id)}
-                onPointerLeave={() => setHoverId((h) => (h === n.id ? null : h))}
+                onPointerLeave={() => setHoverId((h2) => (h2 === n.id ? null : h2))}
                 onPointerDown={(ev) => { ev.stopPropagation(); onPointerDown(ev, n.id); }}
               >
                 <rect
-                  x={b.x - s / 2} y={b.y - s / 2} width={s} height={s}
-                  rx={isCluster ? 11 : 7}
-                  fill={isOther ? "#FBF8F1" : isCluster ? "#211E18" : "#FFFDF8"}
-                  stroke={hov ? C.accent : isOther ? "#C9BCA6" : isCluster ? "#3A352C" : "#E1D9C8"}
-                  strokeWidth={px(hov ? 2.2 : 1.5)}
-                  strokeDasharray={isOther ? `${px(5)} ${px(4)}` : undefined}
+                  x={x0} y={y0} width={w} height={h}
+                  rx={Math.min(14, s * 0.16)}
+                  fill={fill}
+                  stroke={stroke}
+                  strokeWidth={hov ? Math.max(1.5, s * 0.02) : Math.max(1, s * 0.014)}
+                  strokeDasharray={isCluster || isOther ? `${s * 0.06} ${s * 0.045}` : undefined}
                 />
-                {/* kind chip — the registry color, top-left like the walk's cards */}
-                <rect x={b.x - s / 2 + s * 0.1} y={b.y - s / 2 + s * 0.1} width={Math.min(7, s * 0.12)} height={Math.min(7, s * 0.12)} rx={2} fill={kd?.color ?? (isCluster ? "#9C958A" : C.accent)} />
-                {isCluster ? (
-                  <text x={b.x} y={b.y} textAnchor="middle" dominantBaseline="middle" className="dm-mono"
-                    fontSize={Math.max(12, s * 0.24)} fill={isOther ? "#8A8477" : "#F1ECE1"} style={{ pointerEvents: "none" }}>
-                    {n.size}
-                  </text>
-                ) : (
-                  <text x={b.x} y={b.y} textAnchor="middle" dominantBaseline="middle"
-                    fontSize={13} fill={kd?.color ?? C.accent} style={{ pointerEvents: "none" }}>
-                    {n.kind === "dataset" ? "▦" : n.kind === "document" ? "▤" : "●"}
-                  </text>
-                )}
-                {/* label below, constant screen size — readable at every zoom */}
-                <text x={b.x} y={b.y + s / 2 + px(15)} textAnchor="middle"
-                  fontSize={px(isCluster ? 12 : 10.5)} fontWeight={isCluster ? 700 : 600} fill={isCluster ? "#1E1B16" : "#514C43"}
-                  stroke="#FBF7EF" strokeWidth={px(3)} paintOrder="stroke" style={{ pointerEvents: "none" }}>
+                {/* kind chip row — the walk card's header */}
+                <rect x={x0 + pad} y={y0 + pad} width={chipS} height={chipS} rx={chipS * 0.3} fill={kindColor} />
+                <text x={x0 + pad + chipS * 1.6} y={y0 + pad + chipS * 0.9} className="dm-mono"
+                  fontSize={kindFs} letterSpacing="0.08em" fill={ink ? "#9C958A" : "#A39B8B"} style={{ pointerEvents: "none" }}>
+                  {kindLabel}
+                </text>
+                {/* label + sub, left-aligned like the walk's cards */}
+                <text x={x0 + pad} y={b.y + labelFs * 0.28} fontSize={labelFs} fontWeight={700}
+                  fill={fg} style={{ pointerEvents: "none", letterSpacing: "-0.02em" }}>
                   {label}
                 </text>
-                {isCluster && (
-                  <text x={b.x} y={b.y + s / 2 + px(28)} textAnchor="middle" className="dm-mono"
-                    fontSize={px(9)} fill="#A39B8B" style={{ pointerEvents: "none" }}>
-                    {isOther ? `${n.size} unlinked` : `${kd?.label ?? n.kind} · ${n.size} inside`}
-                  </text>
-                )}
+                <text x={x0 + pad} y={y0 + h - pad * 0.9} fontSize={subFs}
+                  fill={fg} opacity={0.62} style={{ pointerEvents: "none" }}>
+                  {sub}
+                </text>
               </g>
             );
           })}
@@ -455,7 +535,7 @@ export function ForceGraphView() {
         </span>
         <button
           type="button"
-          onClick={() => { setCamera({ x: 0, y: 0, scale: fitScale(root) }); setExpanded(new Set()); alphaRef.current = 1; }}
+          onClick={() => { setCamera({ x: 0, y: 0, scale: fitScale(root) }); setExpanded(new Set()); pins.current.clear(); alphaRef.current = 1; }}
           className="dm-mono"
           style={{ fontSize: 10.5, color: C.ink, background: "#FFFDF8", border: "1px solid #E1D9C8", borderRadius: 999, padding: "4px 11px", cursor: "pointer", fontFamily: "inherit" }}
         >⤢ fit</button>
@@ -486,18 +566,45 @@ export function ForceGraphView() {
 
       {/* hint (bottom) */}
       <div className="dm-mono" style={{ position: "absolute", left: 16, bottom: 12, fontSize: 10, letterSpacing: "0.05em", color: "#A39B8B", pointerEvents: "none", zIndex: 5 }}>
-        scroll to zoom — clusters dissolve as you close in · drag a card to push the graph around · click a card to walk it
+        scroll to zoom — clusters dissolve, and zooming onto one card drops you into its walk · click a card to walk it now
       </div>
 
-      {/* deepest zoom / click → the REAL Explorer walk */}
-      {walkId && (
-        <AnswerGraphModal
-          question={walkLabel}
-          entityIds={[walkId]}
-          variant="results"
-          onClose={() => setWalkId(null)}
-        />
+      {/* deepest zoom / click → the REAL Explorer walk takes the surface over
+          (inline, with the house drop-in transition — not a modal) */}
+      {dive && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 20, background: "#F6F2E9", animation: reduced ? "none" : "dm-drop-in 420ms cubic-bezier(0.16,1,0.3,1)" }}>
+          <ExplorerView
+            entities={world}
+            initialId={dive.id}
+            kindByName={kindByName}
+            onOpenPage={setOpenId}
+          />
+          <button
+            type="button"
+            onClick={closeDive}
+            className="dm-mono"
+            style={{
+              // Bottom-center: the walk's own chrome owns the top corners.
+              position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)", zIndex: 70,
+              fontSize: 11, color: C.ink, background: "#FFFDF8", border: "1px solid #E1D9C8",
+              borderRadius: 999, padding: "5px 13px", cursor: "pointer", fontFamily: "inherit",
+              boxShadow: "0 8px 22px -16px rgba(33,30,24,.4)",
+            }}
+          >◎ Back to map</button>
+        </div>
       )}
+      {openId && (() => {
+        const ent = world.find((e) => e.id === openId);
+        return ent ? (
+          <EntityPageModal
+            e={ent}
+            kindDef={kindByName.get(ent.kind)}
+            onClose={() => setOpenId(null)}
+            onOpen={setOpenId}
+            resolveNode={resolveNode}
+          />
+        ) : null;
+      })()}
     </div>
   );
 }
