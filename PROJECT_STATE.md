@@ -12,6 +12,15 @@
 > Last updated: 2026-07-13
 
 ## Recent changes
+- **2026-07-13** — **Files Finder view: the content column's header is the
+  next split, not the folder's name**. When you select a folder, the trailing
+  content (files) column no longer repeats that folder's name in its header —
+  the folder is already selected and highlighted in the column to its left, so
+  the name was redundant. The header is now reserved for the NEXT split: it
+  shows only a "+" that turns the shown files into sub-folders (and the
+  standalone "+" rail only renders when there's no content column to host it).
+  `files-view.tsx`; verified via the files shoot harness (content header shows
+  the "+" with no folder name; the name appears once, in the folder column).
 - **2026-07-13** — **Chat goes full-width + a persistent "drop any doc" hint;
   Files subtab rebuilt as a real explorer**. Chat: the thread/composer no
   longer sit in a narrow 720px left column — the container is now full-width

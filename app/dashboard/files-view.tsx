@@ -355,11 +355,11 @@ export function FilesView() {
     folders: depth === 0 ? tree : chain[depth - 1] ? chain[depth - 1].children : null,
   }));
   const deepest = chain[chain.length - 1];
-  const filesCol: { title: string; docs: DocView[] } | null =
+  const filesCol: { docs: DocView[] } | null =
     steps.length === 0
-      ? { title: "All files", docs }
+      ? { docs }
       : deepest && deepest.children.length === 0
-        ? { title: deepest.name, docs: deepest.docs.map((fd) => docById.get(fd.id)).filter((x): x is DocView => Boolean(x)) }
+        ? { docs: deepest.docs.map((fd) => docById.get(fd.id)).filter((x): x is DocView => Boolean(x)) }
         : null;
 
   return (
@@ -427,13 +427,17 @@ export function FilesView() {
             );
           })}
 
-          {/* trailing FILES column — the contents of the selected folder */}
+          {/* trailing content column — the FILES of the selected folder. Its
+              header is reserved for the NEXT split (a "+" that turns these files
+              into sub-folders); the folder's own name isn't repeated here — it's
+              already selected & highlighted in the column to the left. */}
           {filesCol && (
             <div style={{ width: 250, flexShrink: 0, display: "flex", flexDirection: "column", borderRight: "1px solid #EFE9DC" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid #EFE9DC", background: "#FBF8F1", padding: "9px 10px" }}>
-                <span style={{ color: C.accent, fontSize: 11 }}>▦</span>
-                <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textTransform: filesCol.title === "All files" ? "none" : "capitalize" }}>{filesCol.title}</span>
-                <span className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F" }}>{filesCol.docs.length}</span>
+              <div style={{ display: "flex", alignItems: "center", borderBottom: "1px solid #EFE9DC", background: "#FBF8F1", padding: "7px 8px", minHeight: 37 }}>
+                {pickerOptions(null).length > 0 && (
+                  <button type="button" title="Split these into sub-folders" aria-label="Add a level" onClick={(e) => openPicker("add", e.currentTarget)}
+                    style={{ width: 26, height: 26, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15, lineHeight: 1, color: picker === "add" ? "#fff" : C.accent, background: picker === "add" ? C.accent : "transparent", border: `1px dashed ${picker === "add" ? C.accent : "#DAD0BE"}`, borderRadius: 7, cursor: "pointer", fontFamily: "inherit" }}>+</button>
+                )}
               </div>
               <div className="cc-scroll" style={{ flex: 1, overflowY: "auto", padding: 6 }}>
                 {filesCol.docs.length === 0 ? (
@@ -445,8 +449,8 @@ export function FilesView() {
             </div>
           )}
 
-          {/* "+" — add a deeper split; a slim rail, plus pinned at the top */}
-          {pickerOptions(null).length > 0 && (
+          {/* "+" rail — add a level when there's no content column to host it */}
+          {!filesCol && pickerOptions(null).length > 0 && (
             <div style={{ width: 42, flexShrink: 0, display: "flex", justifyContent: "center", alignItems: "flex-start", paddingTop: 6 }}>
               <button type="button" title="Add a level" aria-label="Add a level" onClick={(e) => openPicker("add", e.currentTarget)}
                 style={{ width: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 16, lineHeight: 1, color: picker === "add" ? "#fff" : C.accent, background: picker === "add" ? C.accent : "transparent", border: `1px dashed ${picker === "add" ? C.accent : "#DAD0BE"}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>
