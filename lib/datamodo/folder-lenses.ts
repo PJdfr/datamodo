@@ -4,8 +4,9 @@
 // MONTH, BY TYPE — each lens is a grouping rule over facts the vault already
 // holds, so switching trees is instant and a document linked to two clients
 // appears in both folders (a folder is membership, not location). Lenses
-// stack two levels deep ("client / month"). The zip export mirrors whatever
-// tree is on screen. Pure module (type imports only) — unit-tested; the
+// stack into a user-built pipeline of ANY depth ("client / month / type").
+// The zip export mirrors whatever tree is on screen. Pure module (type
+// imports only) — unit-tested; the
 // Files view renders what this computes.
 
 import type { KnowledgeEntityView } from "./types";
@@ -143,7 +144,9 @@ export function availableLenses(docs: FiledDoc[]): (LensDef & { folders: number 
 }
 
 /* --------------------------------------------------------------------------
- * The tree — one or two lenses stacked; same docs, different shape.
+ * The tree — an ORDERED PIPELINE of lenses (any depth) the user builds step by
+ * step; each step nests inside the previous, so the same docs take whatever
+ * shape the pipeline describes. "client → month → type" is three levels deep.
  * ------------------------------------------------------------------------ */
 
 export interface LensFolder {
@@ -158,10 +161,13 @@ export interface LensFolder {
 
 export const UNFILED = "unfiled";
 
-/** Group docs by the lens stack (1 or 2 levels). Deterministic: folders sort
- *  by size then name; docs are already label-sorted; unfiled sinks last. */
+/** Group docs by the lens stack (any depth — the user-built pipeline).
+ *  Deterministic: folders sort by size then name; docs are already
+ *  label-sorted; unfiled sinks last. Recurses by DEPTH INDEX (not by lens
+ *  identity) so a pipeline may even repeat a dimension without collapsing. */
 export function buildLensTree(docs: FiledDoc[], stack: LensKey[]): LensFolder[] {
-  const level = (list: FiledDoc[], lens: LensKey, base: string): LensFolder[] => {
+  const level = (list: FiledDoc[], depth: number, base: string): LensFolder[] => {
+    const lens = stack[depth];
     const groups = new Map<string, FiledDoc[]>();
     for (const d of list) {
       const values = lensValues(d, lens);
@@ -179,8 +185,8 @@ export function buildLensTree(docs: FiledDoc[], stack: LensKey[]): LensFolder[] 
       )
       .map(([name, members]) => {
         const path = base ? `${base}/${name}` : name;
-        const rest = stack.slice(stack.indexOf(lens) + 1);
-        const children = rest.length && members.length > 1 ? level(members, rest[0], path) : [];
+        const hasMore = depth + 1 < stack.length;
+        const children = hasMore && members.length > 1 ? level(members, depth + 1, path) : [];
         // With children, docs live in the leaves; a single-member group keeps
         // the doc at this level instead of a one-doc subfolder.
         return {
@@ -193,7 +199,7 @@ export function buildLensTree(docs: FiledDoc[], stack: LensKey[]): LensFolder[] 
       });
   };
   if (stack.length === 0) return [];
-  return level(docs, stack[0], "");
+  return level(docs, 0, "");
 }
 
 /** Flatten a lens tree into export placements (entityId → folder path) for

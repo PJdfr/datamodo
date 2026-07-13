@@ -100,6 +100,19 @@ test("buildLensTree: stacked lenses nest; single-member groups keep the doc at t
   assert.equal(bw.docs.length, 1);
 });
 
+test("buildLensTree: pipelines nest to any depth (client → month → type)", () => {
+  const docs = collectFiledDocs(WORLD);
+  const tree = buildLensTree(docs, ["client", "month", "type"]);
+  const acme = tree.find((f) => f.name === "Acme Group")!;
+  // Acme has two docs in different months → two subfolders, each a lone doc so
+  // it keeps the doc at the month level rather than a one-doc type subfolder.
+  assert.deepEqual(acme.children.map((c) => c.name).sort(), ["2026-06 Jun", "2026-07 Jul"]);
+  assert.ok(acme.children.every((m) => m.children.length === 0 && m.docs.length === 1));
+  // Depth is bounded by the pipeline length, not hardcoded to 2.
+  const deepest = buildLensTree(docs, ["month", "client", "type", "channel"]);
+  assert.ok(deepest.length > 0);
+});
+
 test("treeToPlacements: mirrors the tree, doc-in-two-folders exports twice", () => {
   const docs = collectFiledDocs(WORLD);
   const placements = treeToPlacements(buildLensTree(docs, ["client"]));

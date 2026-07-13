@@ -113,7 +113,7 @@ function StatusLine({ m }: { m: ChatMessage }) {
 /* ---- one message bubble ------------------------------------------------ */
 function Bubble({ m }: { m: ChatMessage }) {
   return (
-    <div style={{ alignSelf: "flex-end", maxWidth: "78%", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, animation: "dm-drop-in .34s cubic-bezier(0.16,1,0.3,1)" }}>
+    <div style={{ alignSelf: "flex-end", maxWidth: "min(78%, 640px)", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, animation: "dm-drop-in .34s cubic-bezier(0.16,1,0.3,1)" }}>
       <div style={{
         background: "#FFFDF8", border: "1px solid #E7E0D2",
         borderRadius: "16px 16px 6px 16px", padding: "10px 14px",
@@ -161,7 +161,7 @@ function ReviewBubble({ questions, onDecide, resolved }: {
   resolved: { id: string; line: string }[];
 }) {
   return (
-    <div style={{ alignSelf: "flex-start", maxWidth: "84%", display: "flex", flexDirection: "column", gap: 4, animation: "dm-drop-in .34s cubic-bezier(0.16,1,0.3,1)" }}>
+    <div style={{ alignSelf: "flex-start", maxWidth: "min(84%, 700px)", display: "flex", flexDirection: "column", gap: 4, animation: "dm-drop-in .34s cubic-bezier(0.16,1,0.3,1)" }}>
       <div style={{
         background: "#211E18", color: "#F1ECE1",
         borderRadius: "16px 16px 16px 6px", padding: "12px 15px",
@@ -448,7 +448,7 @@ export function ChatView() {
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
       onDrop={(e) => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
-      style={{ maxWidth: 720, display: "flex", flexDirection: "column", height: "calc(100vh - 190px)", minHeight: 440, position: "relative" }}
+      style={{ width: "100%", display: "flex", flexDirection: "column", height: "calc(100vh - 190px)", minHeight: 440, position: "relative" }}
     >
       {/* drop veil */}
       {dragOver && (
@@ -532,6 +532,29 @@ export function ChatView() {
 
       {error && <div className="dm-mono dm-fade-in" style={{ fontSize: 11, color: C.accent, padding: "8px 2px 0" }}>{error}</div>}
 
+      {/* ---- persistent drop hint ---- */}
+      {pending.length === 0 && (
+        <button
+          type="button"
+          onClick={() => fileInput.current?.click()}
+          title="Attach or drop any document"
+          style={{
+            display: "flex", alignItems: "center", gap: 9, width: "100%",
+            margin: "10px 0 0", padding: "8px 12px", cursor: "pointer",
+            background: "transparent", textAlign: "left",
+            border: "1px dashed #DAD0BE", borderRadius: 12, color: "#8A8477",
+            transition: "border-color .15s, background .15s, color .15s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.background = "rgba(228,89,59,.04)"; e.currentTarget.style.color = "#57534A"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#DAD0BE"; e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#8A8477"; }}
+        >
+          <span style={{ color: C.accent, fontSize: 14, lineHeight: 1 }}>⊕</span>
+          <span className="dm-mono" style={{ fontSize: 11.5, letterSpacing: "0.01em" }}>
+            Drag &amp; drop any doc here — or click to attach. PDFs, photos, spreadsheets, notes, voice memos.
+          </span>
+        </button>
+      )}
+
       {/* ---- composer ---- */}
       <div style={{
         display: "flex", alignItems: "flex-end", gap: 8, marginTop: 10,
@@ -565,7 +588,7 @@ export function ChatView() {
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
             onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }}
             rows={1}
-            placeholder={dictating ? "listening…" : "Type, dictate, or drop a file — Enter sends"}
+            placeholder={dictating ? "listening…" : "Type, dictate, or drop any doc here — Enter sends"}
             style={{ flex: 1, border: "none", outline: "none", resize: "none", fontFamily: "inherit", fontSize: 14, color: C.ink, background: "transparent", lineHeight: 1.5, padding: "7px 4px", maxHeight: 168 }}
           />
         )}

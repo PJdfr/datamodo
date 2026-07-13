@@ -11,7 +11,7 @@
  * Lazy-loaded from /api/knowledge/entities like the Knowledge view.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { C, monoLabel, CountUp } from "./ui";
 import { EntityPageModal } from "./entity-page";
 import {
@@ -46,11 +46,16 @@ const shortType = (ct: string): string => {
   return sub ? sub.split(";")[0].toUpperCase().slice(0, 8) : t;
 };
 
-const INDEX_BADGE: Record<string, { label: string; bg: string; fg: string }> = {
-  full: { label: "indexed", bg: "#EDF5EC", fg: "#3E6B44" },
-  partial: { label: "partially indexed", bg: "#FBF3DE", fg: "#8A6D1F" },
-  metadata_only: { label: "not indexed yet", bg: "#F3EFE6", fg: "#8A8477" },
+// Each grouping dimension belongs to a family so the step picker reads the way
+// the user thinks about it: "group by a relationship, a concept, or a tag".
+const LENS_FAMILY: Record<LensKey, string> = {
+  client: "Relationships", person: "Relationships", project: "Relationships",
+  topic: "Concepts",
+  type: "Attributes", month: "Attributes", channel: "Attributes",
 };
+const FAMILY_ORDER = ["Relationships", "Concepts", "Attributes"];
+// The label without the leading "by " — used inside the pipeline chips.
+const stepName = (label: string): string => label.replace(/^by /, "");
 
 interface DocView {
   id: string;
@@ -93,77 +98,55 @@ function toDocView(e: KnowledgeEntityView): DocView {
   };
 }
 
-function DocCard({ d, onOpen }: { d: DocView; onOpen: (id: string) => void }) {
-  const badge = d.indexing ? INDEX_BADGE[d.indexing] ?? null : null;
-  const meta = [d.fileType ? shortType(d.fileType) : d.kind === "note" ? "Note" : null, d.size != null ? fmtBytes(d.size) : null]
-    .filter(Boolean)
-    .join(" · ");
+/* One folder row inside a Miller column. Selecting drills the next column
+ * open; a › chevron marks folders that split further under the pipeline. */
+function ColumnRow({ folder, selected, hasNext, onSelect }: {
+  folder: LensFolder;
+  selected: boolean;
+  hasNext: boolean;
+  onSelect: () => void;
+}) {
+  const [hover, setHover] = useState(false);
+  const isUnfiled = folder.name === UNFILED;
   return (
-    <div className="dm-card" style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 13, padding: "13px 15px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <button type="button" onClick={() => onOpen(d.id)} title="Open this page" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, background: "transparent", border: "none", padding: 0, cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
-          <span style={{ width: 34, height: 34, borderRadius: 9, background: "#FBF8F1", border: "1px solid #ECE5D8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>{d.kind === "note" ? "▤" : "📄"}</span>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="dm-display" style={{ fontWeight: 700, fontSize: 14.5, letterSpacing: "-0.01em", color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.label}</div>
-            <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "#A39B8B", display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-              {meta && <span>{meta}</span>}
-              {badge && <span style={{ background: badge.bg, color: badge.fg, borderRadius: 5, padding: "1px 6px", textTransform: "none", letterSpacing: 0 }}>{badge.label}</span>}
-            </div>
-          </div>
-        </button>
-        {/* The original binary never leaves blob storage — this streams it back. */}
-        {d.hasOriginal && (
-          <a
-            href={`/api/documents/${d.id}`}
-            title="Download the original file"
-            className="dm-mono"
-            style={{ fontSize: 10.5, color: "#8A8477", border: "1px solid #ECE5D8", borderRadius: 7, padding: "4px 8px", textDecoration: "none", flexShrink: 0, whiteSpace: "nowrap" }}
-          >original ↓</a>
-        )}
-      </div>
-      {d.via && (
-        <div style={{ fontSize: 11.5, color: "#8A8477", marginTop: 9, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          via {d.via.channel}{d.via.sender ? ` · ${d.via.sender}` : ""}{d.via.subject ? ` · “${d.via.subject}”` : ""}
-        </div>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={onSelect}
+      title={folder.name}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", minWidth: 0, fontSize: 12.5, fontWeight: selected ? 600 : 400, color: selected ? "#fff" : isUnfiled ? "#9A9384" : "#57534A", background: selected ? C.accent : hover ? "#F6F1E7" : "transparent", border: "none", borderRadius: 8, padding: "6px 8px", cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "background .12s" }}
+    >
+      <span style={{ fontSize: 11.5, flexShrink: 0, color: selected ? "rgba(255,255,255,.9)" : isUnfiled ? "#B7AF9F" : C.accent }}>▧</span>
+      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontStyle: isUnfiled ? "italic" : "normal" }}>{folder.name}</span>
+      <span className="dm-mono" style={{ fontSize: 9.5, flexShrink: 0, color: selected ? "rgba(255,255,255,.8)" : "#A39B8B" }}>{folder.total}</span>
+      {hasNext && <span style={{ flexShrink: 0, fontSize: 11, color: selected ? "rgba(255,255,255,.7)" : "#C9BFAD" }}>›</span>}
+    </button>
   );
 }
 
-/* One folder row of the lens tree (recursive, collapsible). */
-function TreeFolder({ folder, depth, selPath, openPaths, toggle, onSelect }: {
-  folder: LensFolder;
-  depth: number;
-  selPath: string | null;
-  openPaths: Set<string>;
-  toggle: (p: string) => void;
-  onSelect: (p: string | null) => void;
-}) {
-  const open = openPaths.has(folder.path);
-  const selected = selPath === folder.path;
+/* A file row inside the trailing (contents) column. A mono type badge stands
+ * in for the icon; clicking opens the entity page. */
+function FileRow({ d, selected, onOpen }: { d: DocView; selected: boolean; onOpen: (id: string) => void }) {
+  const [hover, setHover] = useState(false);
+  const badge = d.fileType ? shortType(d.fileType).toUpperCase() : d.kind === "note" ? "NOTE" : "DOC";
+  const meta = [d.fileType ? shortType(d.fileType) : d.kind === "note" ? "Note" : null, d.size != null ? fmtBytes(d.size) : null].filter(Boolean).join(" · ");
   return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-        {folder.children.length > 0 ? (
-          <button type="button" onClick={() => toggle(folder.path)} aria-expanded={open} aria-label={`${open ? "Collapse" : "Expand"} ${folder.name}`}
-            style={{ border: "none", background: "transparent", cursor: "pointer", color: "#A39B8B", fontSize: 11, width: 16, padding: 0, marginLeft: depth * 14, transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }}>›</button>
-        ) : (
-          <span style={{ width: 16, marginLeft: depth * 14 }} />
-        )}
-        <button
-          type="button"
-          onClick={() => onSelect(selected ? null : folder.path)}
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: selected ? 600 : 400, color: selected ? "#fff" : folder.name === UNFILED ? "#8A8477" : "#57534A", background: selected ? C.accent : "transparent", border: "none", borderRadius: 8, padding: "4px 9px", cursor: "pointer", fontFamily: "inherit", minWidth: 0 }}
-        >
-          <span style={{ fontSize: 11 }}>▧</span>
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 170, fontStyle: folder.name === UNFILED ? "italic" : "normal" }}>{folder.name}</span>
-          <span className="dm-mono" style={{ fontSize: 9.5, color: selected ? "rgba(255,255,255,.8)" : "#A39B8B" }}>{folder.total}</span>
-        </button>
-      </div>
-      {open && folder.children.map((c) => (
-        <TreeFolder key={c.path} folder={c} depth={depth + 1} selPath={selPath} openPaths={openPaths} toggle={toggle} onSelect={onSelect} />
-      ))}
-    </div>
+    <button
+      type="button"
+      onClick={() => onOpen(d.id)}
+      title={d.label}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", minWidth: 0, background: selected ? C.accent : hover ? "#F6F1E7" : "transparent", border: "none", borderRadius: 8, padding: "6px 8px", cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "background .12s" }}
+    >
+      <span className="dm-mono" style={{ flexShrink: 0, fontSize: 8, fontWeight: 600, letterSpacing: "0.03em", color: selected ? "#fff" : "#8A8477", background: selected ? "rgba(255,255,255,.18)" : "#F1EADC", border: `1px solid ${selected ? "transparent" : "#E4DCCB"}`, borderRadius: 5, padding: "3px 3px", minWidth: 28, textAlign: "center" }}>{badge}</span>
+      <span style={{ minWidth: 0, flex: 1 }}>
+        <span style={{ display: "block", fontSize: 12.5, fontWeight: selected ? 600 : 500, color: selected ? "#fff" : "#3D3A33", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.label}</span>
+        {meta && <span className="dm-mono" style={{ display: "block", fontSize: 9, color: selected ? "rgba(255,255,255,.8)" : "#A39B8B", marginTop: 1 }}>{meta}</span>}
+      </span>
+      {d.hasOriginal && <span className="dm-mono" style={{ flexShrink: 0, fontSize: 9, color: selected ? "rgba(255,255,255,.7)" : "#C9BFAD" }}>↓</span>}
+    </button>
   );
 }
 
@@ -171,11 +154,15 @@ export function FilesView() {
   const [entities, setEntities] = useState<KnowledgeEntityView[]>([]);
   const [kinds, setKinds] = useState<KindDef[]>([]);
   const [loading, setLoading] = useState(true);
-  const [lens, setLens] = useState<LensKey | null>(null);
-  const [lens2, setLens2] = useState<LensKey | null>(null);
+  // The user-built classification pipeline: an ORDERED list of dimensions, each
+  // nesting inside the last. Any depth — add/remove/reorder steps freely.
+  const [steps, setSteps] = useState<LensKey[]>([]);
+  const seeded = useRef(false);
+  // Which step's picker popover is open (or the "add a level" picker).
+  const [picker, setPicker] = useState<{ index: number } | "add" | null>(null);
+  const [pickerAnchor, setPickerAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [pQuery, setPQuery] = useState("");
   const [selPath, setSelPath] = useState<string | null>(null);
-  const [openPaths, setOpenPaths] = useState<Set<string>>(new Set());
-  const [q, setQ] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -202,49 +189,42 @@ export function FilesView() {
 
   const filed = useMemo(() => collectFiledDocs(entities), [entities]);
   const lenses = useMemo(() => availableLenses(filed), [filed]);
-  // The active lens: the picked one, or the first that discriminates.
-  const activeLens = lens ?? lenses[0]?.key ?? null;
-  const tree = useMemo(
-    () => (activeLens ? buildLensTree(filed, [activeLens, ...(lens2 && lens2 !== activeLens ? [lens2] : [])]) : []),
-    [filed, activeLens, lens2],
-  );
+  const lensLabel = useMemo(() => new Map(lenses.map((l) => [l.key, l.label])), [lenses]);
+  // Seed a sensible first step once the corpus loads (the most discriminating
+  // lens), but never fight the user afterwards — even if they clear it.
+  useEffect(() => {
+    if (seeded.current || loading || lenses.length === 0) return;
+    setSteps([lenses[0].key]);
+    seeded.current = true;
+  }, [loading, lenses]);
+  const tree = useMemo(() => buildLensTree(filed, steps), [filed, steps]);
 
-  // Which docs the selected folder holds (its subtree), else all.
-  const docIdsInSel = useMemo(() => {
-    if (!selPath) return null;
-    const find = (fs: LensFolder[]): LensFolder | null => {
-      for (const f of fs) {
-        if (f.path === selPath) return f;
-        const hit = find(f.children);
-        if (hit) return hit;
-      }
-      return null;
-    };
-    const f = find(tree);
-    if (!f) return null;
-    const ids = new Set<string>();
-    const walk = (x: LensFolder) => { x.docs.forEach((d) => ids.add(d.id)); x.children.forEach(walk); };
-    walk(f);
-    return ids;
-  }, [selPath, tree]);
+  // Finder columns: walk the selected path down the tree. chain[i] is the
+  // folder chosen at depth i (the highlighted item in column i).
+  const chain = useMemo(() => {
+    const crumbs = selPath ? selPath.split("/") : [];
+    const out: LensFolder[] = [];
+    let level = tree;
+    for (const seg of crumbs) {
+      const f = level.find((x) => x.name === seg);
+      if (!f) break;
+      out.push(f);
+      level = f.children;
+    }
+    return out;
+  }, [tree, selPath]);
 
   const docs = useMemo(() => {
     const filedIds = new Set(filed.map((f) => f.id));
     return entities.filter((e) => filedIds.has(e.id)).map(toDocView);
   }, [entities, filed]);
-
-  const shown = useMemo(() => {
-    let list = docIdsInSel ? docs.filter((d) => docIdsInSel.has(d.id)) : docs;
-    const t = q.trim().toLowerCase();
-    if (t) list = list.filter((d) => `${d.label} ${d.fileType ?? ""} ${d.links.map((l) => l.label).join(" ")}`.toLowerCase().includes(t));
-    return list;
-  }, [docs, docIdsInSel, q]);
+  const docById = useMemo(() => new Map(docs.map((d) => [d.id, d])), [docs]);
 
   const exportTree = async () => {
     setExporting(true); setExportError(null);
     try {
       const placements = treeToPlacements(tree);
-      const name = `datamodo-${activeLens ?? "files"}${lens2 && lens2 !== activeLens ? `-${lens2}` : ""}`;
+      const name = `datamodo-${steps.length ? steps.join("-") : "files"}`;
       const res = await fetch("/api/knowledge/folder-export", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ plan: { name, placements }, download: true }),
@@ -284,79 +264,200 @@ export function FilesView() {
     );
   }
 
-  const second = lenses.filter((l) => l.key !== activeLens);
+  // Any pipeline edit invalidates the current selection/expansion.
+  const resetNav = () => { setSelPath(null); setPicker(null); setPQuery(""); };
+  const setStepAt = (index: number, key: LensKey) => { setSteps((s) => s.map((k, i) => (i === index ? key : k))); resetNav(); };
+  // Appending a level keeps the outer folders identical, so we DON'T reset the
+  // view — the new column's header (its split label) renders immediately with
+  // an empty body until its parent is selected, so adding never feels like a
+  // no-op. The current selection is preserved.
+  const addStep = (key: LensKey) => { setSteps((s) => [...s, key]); setPicker(null); setPQuery(""); };
+  const removeStep = (index: number) => { setSteps((s) => s.filter((_, i) => i !== index)); resetNav(); };
+  const moveStep = (index: number, dir: -1 | 1) => {
+    setSteps((s) => { const j = index + dir; if (j < 0 || j >= s.length) return s; const n = [...s]; [n[index], n[j]] = [n[j], n[index]]; return n; });
+    resetNav();
+  };
+  // Options offered by a step's picker: available lenses not already used
+  // elsewhere in the pipeline (a dimension used twice would nest into itself),
+  // filtered by the search box and grouped by family.
+  const pickerOptions = (forIndex: number | null) => {
+    const taken = new Set(steps.filter((_, i) => i !== forIndex));
+    const t = pQuery.trim().toLowerCase();
+    return lenses.filter((l) => !taken.has(l.key) && (!t || l.label.toLowerCase().includes(t) || LENS_FAMILY[l.key].toLowerCase().includes(t)));
+  };
+
+  const ministep = { border: "none", background: "transparent", cursor: "pointer", color: "#8A8477", fontSize: 12, lineHeight: 1, padding: "6px 5px", fontFamily: "inherit" } as const;
+
+  // Open the dimension picker anchored under the clicked column header (or the
+  // "+ add" button). We capture the button's screen rect so the popover can be
+  // FIXED-positioned — it must escape the horizontally-scrolling column strip,
+  // which would otherwise clip it.
+  const openPicker = (target: { index: number } | "add", el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    setPickerAnchor({ x: r.left, y: r.bottom + 6 });
+    setPicker(target);
+    setPQuery("");
+  };
+  const closePicker = () => { setPicker(null); setPQuery(""); };
+
+  // The searchable dimension picker — rendered ONCE, fixed at the anchor,
+  // outside the column scroller. Grouped Relationships / Concepts / Attributes.
+  const renderPicker = () => {
+    if (picker === null) return null;
+    const forIndex = picker === "add" ? null : picker.index;
+    const opts = pickerOptions(forIndex);
+    const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
+    const left = Math.max(8, Math.min(pickerAnchor?.x ?? 0, vw - 254));
+    const top = pickerAnchor?.y ?? 0;
+    return (
+      <>
+        <div onClick={closePicker} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+        <div style={{ position: "fixed", left, top, zIndex: 41, width: 246, background: "#fff", border: "1px solid #E7E0D2", borderRadius: 12, boxShadow: "0 24px 50px -24px rgba(33,30,24,.5)", padding: 8, maxHeight: 330, overflowY: "auto" }}>
+          <div style={{ position: "relative", marginBottom: 4 }}>
+            <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
+            <input autoFocus value={pQuery} onChange={(e) => setPQuery(e.target.value)} placeholder="Find a way to group…"
+              style={{ width: "100%", border: "1px solid #E1D9C8", borderRadius: 8, padding: "6px 8px 6px 24px", fontFamily: "inherit", fontSize: 12, color: C.ink, background: "#FBF8F1", outline: "none", boxSizing: "border-box" }} />
+          </div>
+          {opts.length === 0 ? (
+            <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", padding: "8px 6px" }}>Nothing left to group by.</div>
+          ) : (
+            FAMILY_ORDER.filter((fam) => opts.some((o) => LENS_FAMILY[o.key] === fam)).map((fam) => (
+              <div key={fam} style={{ marginBottom: 2 }}>
+                <div className="dm-mono" style={{ fontSize: 8.5, letterSpacing: "0.09em", textTransform: "uppercase", color: "#B7AF9F", padding: "6px 8px 3px" }}>{fam}</div>
+                {opts.filter((o) => LENS_FAMILY[o.key] === fam).map((o) => (
+                  <button key={o.key} type="button" onClick={() => (forIndex === null ? addStep(o.key) : setStepAt(forIndex, o.key))}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#F6F1E7")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", fontSize: 12.5, color: "#3D3A33", background: "transparent", border: "none", borderRadius: 8, padding: "6px 8px", cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "background .12s" }}>
+                    <span style={{ color: C.accent, fontSize: 11 }}>▧</span>
+                    <span style={{ flex: 1, textTransform: "capitalize" }}>{stepName(o.label)}</span>
+                    <span className="dm-mono" style={{ fontSize: 9.5, color: "#A39B8B" }}>{o.folders} folder{o.folders === 1 ? "" : "s"}</span>
+                  </button>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      </>
+    );
+  };
+
+  const selectPath = (p: string | null) => setSelPath(p);
+  const crumbs = selPath ? selPath.split("/") : [];
+
+  // The Finder columns to render, left → right. EVERY defined step gets a
+  // column so its header (the split label) is always visible — even before its
+  // parent is selected, when its body is empty (`folders: null`). When the
+  // deepest selection is a LEAF (or there are no splits), a trailing FILES
+  // column shows its documents.
+  const folderCols: { depth: number; folders: LensFolder[] | null }[] = steps.map((_, depth) => ({
+    depth,
+    folders: depth === 0 ? tree : chain[depth - 1] ? chain[depth - 1].children : null,
+  }));
+  const deepest = chain[chain.length - 1];
+  const filesCol: { title: string; docs: DocView[] } | null =
+    steps.length === 0
+      ? { title: "All files", docs }
+      : deepest && deepest.children.length === 0
+        ? { title: deepest.name, docs: deepest.docs.map((fd) => docById.get(fd.id)).filter((x): x is DocView => Boolean(x)) }
+        : null;
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
+      {/* header */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
         <div>
           <div className="dm-display" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", color: C.ink }}><CountUp value={filed.length} /> document{filed.length === 1 ? "" : "s"} &amp; notes</div>
-          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Folders derive from the graph — same files, as many trees as you have lenses; nothing is ever moved</div>
+          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Build the tree yourself, step by step — folders derive from the graph, so nothing is ever moved and a file can sit in every folder it belongs to</div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <div style={{ position: "relative", minWidth: 200 }}>
-            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search documents…" style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
-          </div>
-          <button type="button" onClick={exporting ? undefined : exportTree} title="Download exactly this tree as a .zip (originals kept; notes as markdown)"
-            className="dm-mono" style={{ fontSize: 11, color: C.ink, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 9, padding: "7px 12px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
-            {exporting ? "Building…" : "↓ Export tree"}
-          </button>
-        </div>
+        <button type="button" onClick={exporting ? undefined : exportTree} title="Download exactly this tree as a .zip (originals kept; notes as markdown)"
+          className="dm-mono" style={{ marginLeft: "auto", fontSize: 11, color: C.ink, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 9, padding: "7px 12px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+          {exporting ? "Building…" : "↓ Export tree"}
+        </button>
       </div>
       {exportError && <div className="dm-mono" style={{ fontSize: 11, color: C.accent, marginBottom: 10 }}>{exportError}</div>}
 
-      {/* LENSES — each chip is a different tree over the same documents. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", marginBottom: 8 }}>
-        <span className="dm-mono" style={{ ...monoLabel, marginRight: 2 }}>Organize</span>
-        {lenses.map((l) => {
-          const active = l.key === activeLens;
-          return (
-            <button key={l.key} type="button" onClick={() => { setLens(l.key); if (lens2 === l.key) setLens2(null); setSelPath(null); setOpenPaths(new Set()); }}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: active ? 600 : 400, color: active ? "#fff" : "#57534A", background: active ? C.ink : "#fff", border: `1px solid ${active ? C.ink : "#E1D9C8"}`, borderRadius: 999, padding: "5px 11px", cursor: "pointer", fontFamily: "inherit" }}>
-              {l.label}
-              <span className="dm-mono" style={{ fontSize: 10, color: active ? "rgba(255,255,255,.75)" : "#A39B8B" }}>{l.folders}</span>
-            </button>
-          );
-        })}
-        {second.length > 0 && (
-          <>
-            <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B", marginLeft: 6 }}>then</span>
-            <select value={lens2 ?? ""} onChange={(e) => { setLens2((e.target.value || null) as LensKey | null); setSelPath(null); setOpenPaths(new Set()); }}
-              className="dm-mono" style={{ fontSize: 11, color: "#57534A", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 8, padding: "4px 8px", fontFamily: "inherit", cursor: "pointer" }}>
-              <option value="">—</option>
-              {second.map((l) => <option key={l.key} value={l.key}>{l.label}</option>)}
-            </select>
-          </>
-        )}
+      {/* FINDER COLUMN VIEW — folders drill left → right into columns; the
+          trailing column shows the FILES in the selected folder. The one way
+          this differs from Finder: each folder column's HEADER is its split
+          control — you decide how that level is classified (change the
+          dimension / reorder / remove). "+" at the far right adds a deeper
+          split. Nothing is ever moved — folders are projections of the graph. */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 9 }}>
+        <span className="dm-mono" style={{ ...monoLabel }}>Your files</span>
+        <span style={{ fontSize: 11.5, color: "#A39B8B" }}>drill left → right; set each column’s split at its header · nothing is ever moved</span>
+      </div>
+      <div style={{ border: "1px solid #ECE5D8", borderRadius: 14, background: "#fff", boxShadow: "0 22px 46px -38px rgba(33,30,24,.5)", overflow: "hidden", marginBottom: 8 }}>
+        <div style={{ display: "flex", height: 400, overflowX: "auto" }}>
+          {folderCols.map(({ depth, folders }) => {
+            const key = steps[depth];
+            const editing = picker !== null && picker !== "add" && picker.index === depth;
+            return (
+              <div key={`col-${depth}-${key}`} style={{ width: 216, flexShrink: 0, display: "flex", flexDirection: "column", borderRight: "1px solid #EFE9DC" }}>
+                {/* header — the split control (this is the "folder path" you set) */}
+                <div style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #EFE9DC", background: editing ? "#FBEEE8" : "#FBF8F1" }}>
+                  <button type="button" onClick={(e) => openPicker({ index: depth }, e.currentTarget)} title="Change how this level splits"
+                    style={{ flex: 1, minWidth: 0, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: C.ink, background: "transparent", border: "none", padding: "9px 8px", cursor: "pointer", fontFamily: "inherit", textTransform: "capitalize" }}>
+                    <span style={{ color: C.accent, fontSize: 11 }}>▧</span>
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>{stepName(lensLabel.get(key) ?? key)}</span>
+                    <span style={{ color: "#B7AF9F", fontSize: 10 }}>⌄</span>
+                  </button>
+                  <span style={{ display: "inline-flex", alignItems: "center", paddingRight: 4 }}>
+                    {depth > 0 && <button type="button" title="Move earlier" onClick={() => moveStep(depth, -1)} style={ministep}>‹</button>}
+                    {depth < steps.length - 1 && <button type="button" title="Move later" onClick={() => moveStep(depth, 1)} style={ministep}>›</button>}
+                    <button type="button" title="Remove this level" onClick={() => removeStep(depth)} style={{ ...ministep, color: "#B7AF9F" }}>×</button>
+                  </span>
+                </div>
+                <div className="cc-scroll" style={{ flex: 1, overflowY: "auto", padding: 6 }}>
+                  {folders === null ? (
+                    <div className="dm-mono" style={{ fontSize: 10.5, color: "#C4BBA9", padding: "16px 8px", lineHeight: 1.5 }}>Pick a folder in the column to the left to fill this split.</div>
+                  ) : folders.length === 0 ? (
+                    <div className="dm-mono" style={{ fontSize: 10.5, color: "#C4BBA9", padding: "16px 8px" }}>Nothing splits further here.</div>
+                  ) : (
+                    folders.map((f) => {
+                      const sel = crumbs[depth] === f.name;
+                      return (
+                        <ColumnRow key={f.path} folder={f} selected={sel} hasNext
+                          onSelect={() => selectPath(sel ? (depth === 0 ? null : chain[depth - 1].path) : f.path)} />
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* trailing FILES column — the contents of the selected folder */}
+          {filesCol && (
+            <div style={{ width: 250, flexShrink: 0, display: "flex", flexDirection: "column", borderRight: "1px solid #EFE9DC" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid #EFE9DC", background: "#FBF8F1", padding: "9px 10px" }}>
+                <span style={{ color: C.accent, fontSize: 11 }}>▦</span>
+                <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textTransform: filesCol.title === "All files" ? "none" : "capitalize" }}>{filesCol.title}</span>
+                <span className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F" }}>{filesCol.docs.length}</span>
+              </div>
+              <div className="cc-scroll" style={{ flex: 1, overflowY: "auto", padding: 6 }}>
+                {filesCol.docs.length === 0 ? (
+                  <div className="dm-mono" style={{ fontSize: 10.5, color: "#C4BBA9", padding: "16px 8px" }}>No files here.</div>
+                ) : (
+                  filesCol.docs.map((d) => <FileRow key={d.id} d={d} selected={openId === d.id} onOpen={setOpenId} />)
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* "+" — add a deeper split; a slim rail, plus pinned at the top */}
+          {pickerOptions(null).length > 0 && (
+            <div style={{ width: 42, flexShrink: 0, display: "flex", justifyContent: "center", alignItems: "flex-start", paddingTop: 6 }}>
+              <button type="button" title="Add a level" aria-label="Add a level" onClick={(e) => openPicker("add", e.currentTarget)}
+                style={{ width: 28, height: 28, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 16, lineHeight: 1, color: picker === "add" ? "#fff" : C.accent, background: picker === "add" ? C.accent : "transparent", border: `1px dashed ${picker === "add" ? C.accent : "#DAD0BE"}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>
+                +
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* The tree of the active lens stack. */}
-      <div style={{ border: "1px solid #ECE5D8", borderRadius: 12, background: "#fff", padding: "8px 10px", marginBottom: 16, maxHeight: 280, overflowY: "auto" }}>
-        <button type="button" onClick={() => setSelPath(null)}
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: selPath === null ? 600 : 400, color: selPath === null ? "#fff" : "#57534A", background: selPath === null ? C.accent : "transparent", border: "none", borderRadius: 8, padding: "4px 9px", cursor: "pointer", fontFamily: "inherit", marginBottom: 2 }}>
-          🗂 All <span className="dm-mono" style={{ fontSize: 9.5, color: selPath === null ? "rgba(255,255,255,.8)" : "#A39B8B" }}>{filed.length}</span>
-        </button>
-        {tree.map((f) => (
-          <TreeFolder key={f.path} folder={f} depth={0} selPath={selPath} openPaths={openPaths}
-            toggle={(p) => setOpenPaths((prev) => { const n = new Set(prev); if (n.has(p)) n.delete(p); else n.add(p); return n; })}
-            onSelect={setSelPath} />
-        ))}
-      </div>
-
-      {selPath && (
-        <div className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginBottom: 12 }}>
-          <span style={{ color: C.accent }}>▧ {selPath}</span> — a live projection over the graph; the same file can sit in several folders.
-        </div>
-      )}
-
-      {shown.length === 0 ? (
-        <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Nothing matches{q.trim() ? ` “${q.trim()}”` : ""} in this folder.</div>
-      ) : (
-        <div className="dm-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
-          {shown.map((d) => <DocCard key={d.id} d={d} onOpen={setOpenId} />)}
-        </div>
-      )}
+      {renderPicker()}
 
       {openId && (() => {
         const ent = entities.find((e) => e.id === openId);

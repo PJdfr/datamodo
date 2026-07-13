@@ -12,6 +12,60 @@
 > Last updated: 2026-07-13
 
 ## Recent changes
+- **2026-07-13** — **Chat goes full-width + a persistent "drop any doc" hint;
+  Files subtab rebuilt as a real explorer**. Chat: the thread/composer no
+  longer sit in a narrow 720px left column — the container is now full-width
+  (bubbles capped at `min(78/84%, 640/700px)` so they stay readable on a wide
+  canvas), and an always-visible dashed drop affordance sits above the composer
+  ("Drag & drop any doc here — or click to attach. PDFs, photos, spreadsheets,
+  notes, voice memos") so the drag/drop/paste capability is discoverable even
+  once the empty state is gone (`app/dashboard/chat-view.tsx`). Files subtab:
+  the cramped stacked "tree box above the grid" is replaced by a two-column
+  **explorer** — a persistent sticky sidebar folder tree (full-width rows,
+  hover feedback, rotating caret, nested indent guide-lines) + a breadcrumb
+  path (each segment clickable, opens ancestors) + the file grid in the main
+  pane (`app/dashboard/files-view.tsx`). The lens ENGINE is unchanged — folders
+  are still deterministic projections of the graph, still "nothing is ever
+  moved"; only the UI was rebuilt. Considered react-arborist/dnd-kit but a
+  drag-to-move tree contradicts the lens model (a file has no single home), so
+  we kept lenses and polished the surface. Verified: tsc green.
+  **Then (same day) — the tree is user-built, any depth**: the fixed two-level
+  stack ("lens + then") became an ORDERED classification PIPELINE the user
+  assembles step by step — a chip row "client › month › type" where each step
+  opens a searchable dimension picker (grouped Relationships / Concepts /
+  Attributes; hides dimensions already used); steps reorder (‹ ›) and remove
+  (×), and "+ add a level" appends with no depth cap. Because order = nesting
+  and the sidebar echoes the pipeline as a depth legend, every subfolder's
+  "why" is visible. Engine change: `buildLensTree` now recurses by DEPTH INDEX
+  instead of `stack.indexOf(lens)` (which silently collapsed a repeated
+  dimension) — a new 3-level unit test locks in arbitrary depth. Verified:
+  144/144 unit tests pass, tsc green.
+  **Then (same day) — rendered as a macOS Finder column view**: the sidebar
+  tree + separate chip-row builder collapsed into ONE surface — horizontal
+  **Miller columns**, one per pipeline step. Each column's HEADER *is* the
+  split control (click to change the dimension via the searchable picker;
+  ‹ › reorder; × remove), and its body lists that level's subfolders; selecting
+  a folder drills the next column open, so you see every subfolder at each step
+  side by side and folders nest left → right. An "+ add a level" ghost column
+  appends; the picker popover is fixed-positioned so it escapes the
+  horizontally-scrolling strip. **Then (same day) — made it TRUE Finder**: the
+  files now render INSIDE a trailing column (compact FileRows: mono type badge
+  + name + size + ↓, click opens the entity page) instead of a grid below; the
+  "+ add a level" shrank to a small plus pinned at the top of a slim rail; and
+  the breadcrumb / search / doc grid below were all removed — everything lives
+  in the columns. With no splits defined, one "All files" column lists
+  everything. Verified: 144/144 tests, tsc + eslint green.
+  **Bugfix (same day)**: adding a level looked like a no-op — the progressive
+  Finder view only rendered columns along the current selection, so a freshly
+  added split had no column until you happened to drill into it. Fix: EVERY
+  defined step now renders its own column, so the split label (header) is
+  visible immediately; a not-yet-drilled column shows an empty-state ("Pick a
+  folder in the column to the left to fill this split") instead of vanishing.
+  `addStep` just appends and preserves the selection. Added a Files shoot
+  harness (`scripts/shoot/harnesses/files.tsx`, mocked fetch) and drove it in
+  headless Chromium: "+ add a level" → "month" immediately shows the Client +
+  Month columns (Month with its empty-state), and drilling Client → Month leaf
+  shows the files column (MSA.pdf, Receipt June.jpg). Screenshot-verified.
 - **2026-07-12** — **The chat is two-way: pull requests land in the thread**.
   Pending reviews now ride `GET /api/chat` as `questions` and render as
   datamodo's own ink bubble — "✦ needs your OK", numbered, with ✓ yes / ✗ no
