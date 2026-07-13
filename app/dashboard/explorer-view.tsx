@@ -291,35 +291,43 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
   onWalk: (id: string) => void;
   reduced: boolean;
 }) {
-  // EVERY layer obeys the walk's own depth rules (user call): ring k sits one
-  // layer DEEPER — same perspective math (DEPTH.*), so it renders smaller,
-  // blurrier and hazier exactly like hop-2 sits behind hop-1 in the walk.
-  // Each zoom step pulls the camera back ONE layer-gap; between steps the
-  // world is static. Positions are the projection of fixed ring radii + fixed
-  // bearings, so a card keeps its spoke forever.
-  const ZGAP = DEPTH.hop2Z - DEPTH.hop3Z; // one layer of depth (200)
-  const zOf = (k: number) => (k === 0 ? DEPTH.centerZ : k === 1 ? DEPTH.hop1Z : DEPTH.hop2Z - (k - 2) * ZGAP);
-  const shift = Math.max(0, K - 2) * ZGAP; // camera pull-back per extra layer
-  const fOf = (k: number) => DEPTH.perspective / (DEPTH.perspective - (zOf(k) - shift));
-  const RX = (k: number) => (k <= 0 ? 0 : k === 1 ? DEPTH.r1x : DEPTH.r2x + (k - 2) * (DEPTH.r3x - DEPTH.r2x));
-  const RY = (k: number) => (k <= 0 ? 0 : k === 1 ? DEPTH.r1y : DEPTH.r2y + (k - 2) * (DEPTH.r3y - DEPTH.r2y));
+  // EVERY layer obeys the base view's rules, relative to the CURRENT view:
+  // the outermost ring is the blurred frontier (hop-2's haze — a preview of
+  // what's deeper), and the HIGHLIGHTED layer is the last sharp one — the
+  // ring you just revealed. Its cards are the biggest; sizes taper DOWN
+  // toward the center (explored ground recedes, the reading focus is always
+  // the newest ring).
+  const focus = Math.max(1, K - 1);
+  const ringScale = (hop: number) =>
+    hop >= K ? 0.72 : Math.max(0.45, Math.pow(0.8, focus - hop));
+  const blurOf = (hop: number) => (reduced || hop < K ? 0 : 1.4);
+  const opOf = (hop: number) => (hop < K ? 1 : 0.9);
+  // Ring radii come from the cards that SIT on them: each gap clears the two
+  // neighbouring rings' card heights (the focus ring gets the room its big
+  // cards need; tapered inner rings pack tight), then the whole wheel fits
+  // the canvas. Radial overlap is impossible by construction; bearings stay
+  // fixed, so between steps the layout is static. (+1: the just-removed ring
+  // still needs a radius for its sink-out ghosts.)
+  const estH = (hop: number) => (hop === 0 ? 120 : 96) * ringScale(hop);
+  const radial: number[] = [0];
+  for (let k = 1; k <= K + 1; k++) radial[k] = radial[k - 1] + (estH(k - 1) + estH(k)) / 2 + 16;
+  const fit = Math.min(1, (h / 2 - 44) / radial[K]);
+  const sxF = Math.min((w / 2 - 130) / radial[K], fit * 1.6);
   const counts = new Map<number, number>();
   for (const n of graph.nodes) counts.set(n.hop, (counts.get(n.hop) ?? 0) + 1);
   // A busy ring's cards shrink a little further so they leave each other room.
   const crowdOf = (k: number) => {
     const c = counts.get(k) ?? 1;
-    return k === 0 ? 1 : Math.max(0.45, Math.min(1, (2 * Math.PI * RX(k) * w * fOf(k)) / (c * 165)));
+    return k === 0
+      ? 1
+      : Math.max(0.45, Math.min(1, (2 * Math.PI * radial[Math.min(k, K + 1)] * sxF) / (c * 165 * ringScale(k) * fit)));
   };
   const posOf = (n: LayerNode) => {
-    const f = fOf(n.hop);
+    const r = radial[Math.min(n.hop, K + 1)] ?? 0;
     const rad = (n.angleDeg * Math.PI) / 180;
-    return { x: Math.cos(rad) * RX(n.hop) * w * f, y: Math.sin(rad) * RY(n.hop) * h * f };
+    return { x: Math.cos(rad) * r * sxF, y: Math.sin(rad) * r * fit };
   };
-  const scaleOf = (hop: number) => fOf(hop) * crowdOf(hop);
-  // The walk's haze rules, one ring deeper each layer: hop-2's blur/opacity,
-  // then progressively deeper into the fog.
-  const blurOf = (hop: number) => (reduced || hop <= 1 ? 0 : Math.min(3, 1.4 + (hop - 2) * 0.7));
-  const opOf = (hop: number) => (hop <= 1 ? 1 : Math.max(0.72, 0.9 - (hop - 2) * 0.06));
+  const scaleOf = (hop: number) => ringScale(hop) * fit * crowdOf(hop);
   const hoverPopOf = (hop: number) => Math.min(2.6, Math.max(1.06, 0.9 / scaleOf(hop)));
   const shown = graph.nodes.filter((n) => n.hop <= K);
   const shownIds = new Set(shown.map((n) => n.id));
@@ -350,8 +358,8 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
           {Array.from({ length: K }, (_, i) => i + 1).map((k) => {
             const isUnlinkedRing = graph.nodes.some((n) => !n.linked && n.hop === k);
             return (
-              <text key={k} x={0} y={-RY(k) * h * fOf(k) - 10} textAnchor="middle" className="dm-mono"
-                style={{ fontSize: 9, letterSpacing: "0.08em", fill: "#B7AF9F", opacity: opOf(k) }}>
+              <text key={k} x={0} y={-radial[k] * fit - 10} textAnchor="middle" className="dm-mono"
+                style={{ fontSize: 9, letterSpacing: "0.08em", fill: k === focus ? C.accent : "#B7AF9F", opacity: opOf(k) }}>
                 {isUnlinkedRing ? "not linked yet" : `${k} hop${k === 1 ? "" : "s"}`}
               </text>
             );

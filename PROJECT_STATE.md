@@ -9,9 +9,23 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-13
+> Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Layered zoom-out: focus-layer highlight**. User calls,
+  applied in order: (1) no blur GRADIENT — only the OUTERMOST ring (the
+  frontier/preview) carries hop-2's blur+0.9 opacity; it sharpens the moment
+  the next ring surfaces (otherwise far-out views blur into nothing);
+  (2) the HIGHLIGHTED layer is the last sharp ring — the one just revealed:
+  biggest cards (coral ring badge), sizes tapering 0.8×/ring DOWN toward the
+  center ("explored ground recedes; the reading focus is the newest ring").
+  The perspective-projection radii were replaced by CARD-DRIVEN radii: each
+  ring gap clears the card heights of its two neighbour rings (the focus ring
+  gets the room its big cards need, inner rings pack tight), then the wheel
+  fits the canvas — radial overlap impossible by construction, bearings
+  unchanged, layout still static between steps. Verified: 162 tests, tsc,
+  lint == baseline, `next build`, `explorer-layers` screenshot (focus ring
+  large + sharp, frontier blurred, taper toward center).
 - **2026-07-13** — **Graph zoom, FINAL shape: the Explorer's layered zoom-out
   (physics map REPLACED)**. User reset after the calm pass: "the only thing
   you can do is go from the explorer view and zoom out … the graph stays
@@ -56,9 +70,11 @@
   = exactly the base view's rules, one more layer")**: every ring now obeys
   the WALK's own depth grammar — ring k sits one layer deeper on the walk's
   perspective math (`DEPTH.*` constants; a 2D projection of fixed radii/z, so
-  positions stay exact), rendering smaller, blurrier (hop-2's 1.4px + 0.7/
-  layer, capped) and hazier (opacity taper + the walk's cream fog overlay)
-  exactly like hop-2 behind hop-1; each step pulls the camera back ONE
+  positions stay exact), rendering smaller with depth + the walk's cream fog;
+  the haze rule is RELATIVE to the view (user fix: "only the next layer is
+  blurry — no gradient or you see nothing far out"): ONLY the outermost ring
+  — the frontier — carries hop-2's blur/0.9 opacity, and it sharpens the
+  moment the next ring surfaces behind it; each step pulls the camera back ONE
   layer-gap (200z); a new ring COMES UP from one layer deeper (small +
   transparent → surfaces, staggered) instead of dropping from the camera, a
   leaving ring sinks back; hovering a deep card unblurs + pops it readable;
