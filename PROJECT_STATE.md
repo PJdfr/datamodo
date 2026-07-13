@@ -9,7 +9,7 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-12
+> Last updated: 2026-07-13
 
 ## Recent changes
 - **2026-07-12** — **The chat is two-way: pull requests land in the thread**.
