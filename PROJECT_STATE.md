@@ -51,10 +51,21 @@
   layout between steps is completely static (pure rescale of fixed ratios).
   Below the entry step (3 layers, or 2 if the graph is shallow) you're back
   in the walk. Playwright probe asserts: steps are one-at-a-time (a 5-notch
-  burst inside the cooldown moves nothing), fall/lift animations attach only
-  to the stepping ring. Verified: 162 tests, tsc, lint == baseline,
-  `next build`, harnesses incl. `explorer-layers` (two paced notches →
-  4-layer screenshot).
+  burst inside the cooldown moves nothing), enter/exit animations attach only
+  to the stepping ring. **Depth rules pass (same day, user call: "each layer
+  = exactly the base view's rules, one more layer")**: every ring now obeys
+  the WALK's own depth grammar — ring k sits one layer deeper on the walk's
+  perspective math (`DEPTH.*` constants; a 2D projection of fixed radii/z, so
+  positions stay exact), rendering smaller, blurrier (hop-2's 1.4px + 0.7/
+  layer, capped) and hazier (opacity taper + the walk's cream fog overlay)
+  exactly like hop-2 behind hop-1; each step pulls the camera back ONE
+  layer-gap (200z); a new ring COMES UP from one layer deeper (small +
+  transparent → surfaces, staggered) instead of dropping from the camera, a
+  leaving ring sinks back; hovering a deep card unblurs + pops it readable;
+  the edge SVG re-fades per step (keyed) so lines never visibly detach from
+  the gliding cards. Verified: 162 tests, tsc, lint == baseline, `next
+  build`, harnesses incl. `explorer-layers` (two paced notches → 4-layer
+  screenshot showing the blur/haze gradient).
 - **2026-07-13** — **Map calm pass (user feedback: "everything wiggles")**:
   split/merge transitions no longer shake the graph. Four sim rules in
   `force-graph-view.tsx`: (1) entering siblings are placed DETERMINISTICALLY
