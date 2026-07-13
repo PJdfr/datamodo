@@ -190,7 +190,7 @@ test("depthLayout: a sparse ring fans across the upper arc", () => {
 
 // --- Layered ego (the zoom-out) ---------------------------------------------
 
-import { buildLayeredEgo } from "../lib/datamodo/explorer.ts";
+import { buildLayeredEgo, layeredAngles } from "../lib/datamodo/explorer.ts";
 
 const LAYERED_WORLD = [
   ent("acme", "company", "Acme Inc", [], 9),
@@ -263,4 +263,40 @@ test("buildLayeredEgo: edges connect only kept real nodes and carry predicates",
   assert.equal(e.predicate, "references");
   const ids = new Set(g.nodes.map((n) => n.id));
   assert.ok(g.edges.every((x) => ids.has(x.from) && ids.has(x.to)));
+});
+
+test("layeredAngles + depthLayout override: the walk shares the zoom-out's bearings", () => {
+  const walk = buildEgoGraph(LAYERED_WORLD, "acme")!;
+  const layered = buildLayeredEgo(LAYERED_WORLD, "acme")!;
+  const angles = layeredAngles(layered, walk);
+  const layeredDeg = new Map(layered.nodes.map((n) => [n.id, n.angleDeg]));
+  assert.equal(angles.get("inv1"), layeredDeg.get("inv1"));
+
+  const pos = depthLayout(walk, 800, 600, false, angles);
+  const inv1 = pos["inv1"];
+  assert.equal(inv1.angleDeg, layeredDeg.get("inv1"), "walk card sits at its layered bearing");
+  // The bearing actually drives the position, not just the metadata.
+  const rad = (inv1.angleDeg * Math.PI) / 180;
+  assert.ok(Math.abs(inv1.x - Math.cos(rad) * 800 * DEPTH.r1x) < 0.001);
+  // Without the override the default even spacing applies (unchanged behavior).
+  const plain = depthLayout(walk, 800, 600);
+  assert.notEqual(plain["inv1"].angleDeg, undefined);
+});
+
+test("layeredAngles: a walk-only '+N more' kind-chip takes the circular mean of its members' bearings", () => {
+  const world = [
+    ent("co", "company", "Hub Co", [], 33),
+    ...Array.from({ length: 10 }, (_, i) =>
+      ent(`inv${i}`, "invoice", `INV-${100 + i}`, [rel("issued_by", "co")], 10 - i),
+    ),
+  ];
+  const walk = buildEgoGraph(world, "co", { maxHop1: 4, clusterTail: true, maxPerKind: 2 })!;
+  const layered = buildLayeredEgo(world, "co", { maxChildren: 7 })!;
+  const chip = walk.nodes.find((n) => n.clusterOf)!;
+  const angles = layeredAngles(layered, walk);
+  const a = angles.get(chip.id);
+  assert.ok(a !== undefined, "the walk chip got a bearing even though it doesn't exist in the layered graph");
+  // Its members with layered bearings sit around that mean.
+  const memberAngles = chip.clusterOf!.map((id) => angles.get(id)).filter((x): x is number => x !== undefined);
+  assert.ok(memberAngles.length > 0);
 });

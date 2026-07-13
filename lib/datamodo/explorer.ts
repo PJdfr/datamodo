@@ -530,15 +530,50 @@ export interface DepthPos {
 }
 
 /**
+ * The walk's bearings, sourced from the LAYERED layout so the zoom-out is a
+ * continuation, not a re-shuffle: a card at some angle in the walk stays at
+ * that angle when the layers unfold. Walk-only "+N more" kind-chips (absent
+ * from the layered graph) take the circular mean of their members' layered
+ * bearings; chips whose members are all folded away borrow the layered chip
+ * on the same parent, fanned a little apart when several need it.
+ */
+export function layeredAngles(layered: LayeredEgo | null, walk: EgoGraph | null): Map<string, number> {
+  const m = new Map<string, number>();
+  if (!layered || !walk) return m;
+  for (const n of layered.nodes) if (n.hop > 0) m.set(n.id, n.angleDeg);
+  const orphans: string[] = [];
+  for (const n of walk.nodes) {
+    if (!n.clusterOf || m.has(n.id)) continue;
+    const pts = n.clusterOf
+      .map((id) => m.get(id))
+      .filter((a): a is number => a !== undefined)
+      .map((a) => (a * Math.PI) / 180);
+    const x = pts.reduce((s, a) => s + Math.cos(a), 0);
+    const y = pts.reduce((s, a) => s + Math.sin(a), 0);
+    if (pts.length && (x || y)) m.set(n.id, (Math.atan2(y, x) * 180) / Math.PI);
+    else orphans.push(n.id);
+  }
+  // All members folded on the layered side too: sit by the layered chip.
+  const hostChip = layered.nodes.find((c) => c.clusterOf && c.parent === walk.center.id);
+  orphans.forEach((id, i) => {
+    if (hostChip) m.set(id, hostChip.angleDeg + (i - (orphans.length - 1) / 2) * 16);
+  });
+  return m;
+}
+
+/**
  * Positions for the depth field, scaled to the canvas. Offsets are from the
  * canvas CENTER (the view translates them). Sparse hop-1 rings (1–2 nodes)
  * fan across the upper arc instead of leaving a lonely dot — per the design.
+ * `angles` (id → degrees) overrides a node's bearing — the view passes
+ * `layeredAngles` so the walk and the zoom-out share one bearing per node.
  */
 export function depthLayout(
   graph: EgoGraph,
   width: number,
   height: number,
   reduced = false,
+  angles?: ReadonlyMap<string, number>,
 ): Record<string, DepthPos> {
   const r1x = width * DEPTH.r1x;
   const r1y = height * DEPTH.r1y;
@@ -560,6 +595,7 @@ export function depthLayout(
     if (hop1.length === 1) deg = -90;
     else if (hop1.length === 2) deg = -140 + i * 100; // gentle upper arc
     else deg = -90 + (i * 360) / hop1.length;
+    deg = angles?.get(n.id) ?? deg;
     bearing.set(n.id, deg);
     const rad = (deg * Math.PI) / 180;
     pos[n.id] = {
@@ -584,7 +620,7 @@ export function depthLayout(
       // A lone child steps 14° aside so it peeks out from behind its parent
       // instead of hiding exactly on its bearing.
       const spread = kids.length === 1 ? 14 : ((i / (kids.length - 1)) - 0.5) * 2 * DEPTH.hop2SpreadDeg;
-      const deg = baseDeg + spread;
+      const deg = angles?.get(id) ?? baseDeg + spread;
       const rad = (deg * Math.PI) / 180;
       pos[id] = {
         x: Math.cos(rad) * r2x,

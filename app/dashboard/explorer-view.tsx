@@ -23,7 +23,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { C } from "./ui";
-import { buildEgoGraph, buildLayeredEgo, depthLayout, DEPTH, type DepthPos, type EgoEdge, type LayeredEgo, type LayerNode } from "@/lib/datamodo/explorer";
+import { buildEgoGraph, buildLayeredEgo, depthLayout, layeredAngles, DEPTH, type DepthPos, type EgoEdge, type LayeredEgo, type LayerNode } from "@/lib/datamodo/explorer";
 import { EntityPageBody } from "./entity-page";
 import { buildNodeResolver } from "./markdown";
 import type { FactSourceView, KnowledgeEntityView } from "@/lib/datamodo/types";
@@ -274,8 +274,6 @@ function GhostRing({ w, h }: { w: number; h: number }) {
    so zoom only rescales radii and grows/shrinks cards — nothing can wiggle,
    and a node that leaves comes back to the exact same spot.
    =========================================================================== */
-const RING_W = 250;
-
 function LayeredView({ graph, L, w, h, kindByName, hover, onHover, onWalk, reduced }: {
   graph: LayeredEgo;
   /** Continuous layer dial — ring k fades in as L crosses k. */
@@ -290,28 +288,36 @@ function LayeredView({ graph, L, w, h, kindByName, hover, onHover, onWalk, reduc
   const maxK = Math.max(2, graph.maxHop);
   const K = Math.min(Math.max(2, L), maxK);
   const KH = Math.ceil(K - 0.001); // outermost (possibly still fading) ring
-  // Ring spacing adapts to the BUSIEST ring so cards get breathing room —
-  // computed from the whole graph (never from the zoom), so world positions
-  // stay fixed and zooming remains a pure rescale.
-  const WORLD_CARD = 330; // world units one card wants along its ring
+  // Ring radii mirror the WALK's rings at K=2 (r1≈0.34, r2≈0.52 of the canvas)
+  // and keep growing evenly past hop 2 — so entering the zoom-out is seamless,
+  // and zooming is a PURE rescale of fixed ratios (bearings + ratios never
+  // change → nothing can re-flow).
+  const FX = (k: number) => (k <= 0 ? 0 : k === 1 ? DEPTH.r1x : DEPTH.r2x + (k - 2) * 0.3);
+  const FY = (k: number) => (k <= 0 ? 0 : k === 1 ? DEPTH.r1y : DEPTH.r2y + (k - 2) * 0.28);
+  const sx = (w * 0.5) / FX(K);
+  const sy = (h * 0.44) / FY(K);
+  // Card size ∝ the scroll: exactly walk-sized at 2 layers, shrinking with
+  // the same factor the rings do — plus a crowd factor (K-independent) so a
+  // busy ring's cards leave each other room. Hover pops one to readable.
   const counts = new Map<number, number>();
   for (const n of graph.nodes) counts.set(n.hop, (counts.get(n.hop) ?? 0) + 1);
-  let ringGap = RING_W;
+  let crowd = 1;
   for (const [k, c] of counts) {
-    if (k > 0) ringGap = Math.max(ringGap, (c * WORLD_CARD) / (2 * Math.PI * k));
+    if (k > 0) crowd = Math.min(crowd, (2 * Math.PI * FX(k) * ((w * 0.5) / FX(2))) / (c * 175));
   }
-  // Fit the outermost visible ring to the canvas — zooming is JUST this scale.
-  const fitR = Math.min(w / 2 - 140, (h / 2 - 60) / 0.82);
-  const s = fitR / (ringGap * K);
-  // Cards scale WITH the world (true zoom — no floor big enough to cause
-  // overlap); far out they read as mini-cards, hover pops one to readable.
-  const cardScale = Math.max(0.22, Math.min(1, (WORLD_CARD * s) / 170));
+  crowd = Math.max(crowd, 0.4);
+  const zoomScale = FX(2) / FX(K); // 1 at two layers, ∝ 1/scroll beyond
+  const cardScale = Math.max(0.2, Math.min(1, crowd * zoomScale));
   const hoverPop = Math.min(2.4, Math.max(1.06, 0.85 / cardScale));
   const posOf = (n: LayerNode) => {
     const rad = (n.angleDeg * Math.PI) / 180;
-    return { x: Math.cos(rad) * ringGap * n.hop * s, y: Math.sin(rad) * ringGap * n.hop * s * 0.82 };
+    return { x: Math.cos(rad) * FX(n.hop) * sx, y: Math.sin(rad) * FY(n.hop) * sy };
   };
   const ringOp = (hop: number) => (hop === 0 ? 1 : Math.max(0, Math.min(1, K - hop + 1)));
+  // Entrance = falling from the z axis, DRIVEN BY THE SCROLL: a ring fading
+  // in starts 1.8× (nearer the camera) and settles to size as it lands —
+  // reversing the scroll lifts it back off the canvas.
+  const fallOf = (hop: number) => (reduced ? 1 : 1.8 - 0.8 * ringOp(hop));
   const shown = graph.nodes.filter((n) => n.hop <= KH);
   const shownIds = new Set(shown.map((n) => n.id));
   const nbrs = hover
@@ -329,7 +335,7 @@ function LayeredView({ graph, L, w, h, kindByName, hover, onHover, onWalk, reduc
           {Array.from({ length: KH }, (_, i) => i + 1).map((k) => {
             const isUnlinkedRing = graph.nodes.some((n) => !n.linked && n.hop === k);
             return (
-              <text key={k} x={0} y={-ringGap * k * s * 0.82 - 7} textAnchor="middle" className="dm-mono"
+              <text key={k} x={0} y={-FY(k) * sy - 10} textAnchor="middle" className="dm-mono"
                 style={{ fontSize: 9, letterSpacing: "0.08em", fill: "#B7AF9F", opacity: ringOp(k), transition: trans }}>
                 {isUnlinkedRing ? "not linked yet" : `${k} hop${k === 1 ? "" : "s"}`}
               </text>
@@ -373,7 +379,7 @@ function LayeredView({ graph, L, w, h, kindByName, hover, onHover, onWalk, reduc
             onKeyDown={(ev) => { if (!chip && !isCenter && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); onWalk(n.id); } }}
             style={{
               position: "absolute", left: "50%", top: "50%", width: isCenter ? 190 : 150,
-              transform: `translate(-50%,-50%) translate(${p.x}px, ${p.y}px) scale(${(isCenter ? Math.max(cardScale * 1.15, 0.5) : cardScale) * (hover === n.id && !isCenter ? hoverPop : 1)})`,
+              transform: `translate(-50%,-50%) translate(${p.x}px, ${p.y}px) scale(${(isCenter ? Math.max(cardScale * 1.15, 0.5) : cardScale * fallOf(n.hop)) * (hover === n.id && !isCenter ? hoverPop : 1)})`,
               opacity: ringOp(n.hop) * (dim ? 0.3 : n.linked ? 1 : 0.8),
               transition: trans,
               cursor: chip || isCenter ? "default" : "pointer",
@@ -658,9 +664,12 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   );
   // The zoom-out layers: same center, whole world, fixed bearings.
   const layeredGraph = useMemo(() => buildLayeredEgo(entities, center), [entities, center]);
+  // ONE bearing per node, shared by the walk and the zoom-out — a card keeps
+  // its angle when the layers unfold.
+  const sharedAngles = useMemo(() => layeredAngles(layeredGraph, graph), [layeredGraph, graph]);
   const layout = useMemo(
-    () => (graph ? depthLayout(graph, size.w, size.h, reduced) : {}),
-    [graph, size.w, size.h, reduced],
+    () => (graph ? depthLayout(graph, size.w, size.h, reduced, sharedAngles) : {}),
+    [graph, size.w, size.h, reduced, sharedAngles],
   );
 
   // Entering nodes are computed at walk time (the event handler knows both the
@@ -681,7 +690,9 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
       setHoverNode(null);
       setLayers((prev) => {
         const maxL = Math.max(2, layeredGraph?.maxHop ?? 2) + 0.4;
-        if (prev === null) return ev.deltaY > 0 ? 2.15 : null;
+        // Enter right at 2 layers: same rings, same bearings, walk-sized
+        // cards — the first scroll reads as a continuation, not a jump.
+        if (prev === null) return ev.deltaY > 0 ? 2.02 : null;
         const next = prev + ev.deltaY * 0.004;
         if (next < 1.95) return null; // zoomed back in — the walk again
         return Math.min(maxL, next);
@@ -991,7 +1002,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
         <div className="dm-mono" style={{ position: "absolute", left: 18, bottom: 13, ...micro, zIndex: 50, opacity: 0.8, pointerEvents: "none" }}>
           {layers !== null
             ? "scroll in to return to the walk · click a card to walk to it"
-            : "click a neighbour to walk · click an edge to inspect the fact · scroll out for the big picture"}
+            : "click to walk · click an edge for its fact · scroll out to zoom"}
         </div>
         <div className="dm-mono" style={{ position: "absolute", right: 18, bottom: 13, ...micro, zIndex: 50, opacity: 0.7, pointerEvents: "none" }}>
           {layers !== null && layeredGraph

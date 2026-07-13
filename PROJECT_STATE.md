@@ -33,8 +33,20 @@
   (concept-map policy). MEMORY.md design rule updated (graph zoom = one dial,
   fixed bearings, no physics). Ring guide CIRCLES removed same day (user:
   clutter) — the card rings carry the shape, only the tiny hop badges remain.
-  Verified: 160 tests, tsc, lint == baseline, `next build`, harnesses incl.
-  new `explorer-layers` (wheel events → 4-layer screenshot).
+  **Walk↔zoom continuity pass (same day)**: (1) card size is ∝ the scroll —
+  layered cards are exactly walk-sized at 2 layers and shrink with the same
+  factor the rings do (plus a K-independent crowd factor for busy rings), and
+  the layered ring radii MATCH the walk's rings (r1/r2 = DEPTH.r1/r2) at
+  entry, so scrolling out reads as a continuation, not a jump; (2) ONE bearing
+  per node shared by both views — new pure `layeredAngles` +
+  `depthLayout(..., angles)` override make the WALK sit its cards at the
+  layered bearings (walk-only "+N more" kind-chips take the circular mean of
+  their members'), so a card keeps its angle when the layers unfold;
+  (3) appearing rings FALL IN from the z-axis, driven by the scroll itself
+  (start 1.8× nearer the camera + transparent, land at size; reversing the
+  scroll lifts them back off). Verified: 162 tests, tsc, lint == baseline,
+  `next build`, harnesses incl. `explorer-layers` (wheel events → 4-layer
+  screenshot).
 - **2026-07-13** — **Map calm pass (user feedback: "everything wiggles")**:
   split/merge transitions no longer shake the graph. Four sim rules in
   `force-graph-view.tsx`: (1) entering siblings are placed DETERMINISTICALLY
