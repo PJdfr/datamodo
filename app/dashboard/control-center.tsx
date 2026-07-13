@@ -501,7 +501,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                 <ModalStep3 purposeText={purposeText} setPurposeText={setPurposeText} tables={uiTables} purpose={purpose} setPurpose={setPurpose} freestyle={freestyle} setFreestyle={setFreestyle} targetTables={targetTables} setTargetTables={setTargetTables} toggle={toggle} />
               )}
               {step === 4 && (
-                <ModalStep4 channels={channels} mode={mode} purpose={purpose} freestyle={freestyle} targetTables={targetTables} runtimeDot={runtimeDot} runtimeLabel={runtimeLabel} />
+                <ModalStep4 name={name} setName={setName} channels={channels} mode={mode} purpose={purpose} freestyle={freestyle} targetTables={targetTables} runtimeDot={runtimeDot} runtimeLabel={runtimeLabel} />
               )}
             </div>
 
@@ -1216,11 +1216,13 @@ function ModalStep3({ purposeText, setPurposeText, tables, purpose, setPurpose, 
   );
 }
 
-function ModalStep4({ channels, mode, purpose, freestyle, targetTables, runtimeDot, runtimeLabel }: {
+function ModalStep4({ name, setName, channels, mode, purpose, freestyle, targetTables, runtimeDot, runtimeLabel }: {
+  name: string; setName: (v: string) => void;
   channels: string[]; mode: "auto" | "ping";
   purpose: "curate" | "auto"; freestyle: boolean; targetTables: string[];
   runtimeDot: string; runtimeLabel: string;
 }) {
+  const initial = name.trim().slice(0, 1).toUpperCase() || "A";
   const reviewChannels = channels.length ? channels.map((k) => CH_NAMES[k]).join(", ") : "None selected";
   const reviewMode = mode === "auto" ? "Automatic — reads everything" : "On ping — only when tagged";
   const reviewPurpose = purpose === "curate" ? "Curated to a purpose" : "Auto from context";
@@ -1236,8 +1238,8 @@ function ModalStep4({ channels, mode, purpose, freestyle, targetTables, runtimeD
       <h3 className="dm-display" style={{ fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", margin: "0 0 4px" }}>Name your agent</h3>
       <p style={{ fontSize: 13.5, color: "#8A8477", margin: "0 0 18px" }}>Almost done.</p>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
-        <span className="dm-display" style={{ width: 46, height: 46, borderRadius: 13, background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 19, flexShrink: 0 }}>L</span>
-        <input type="text" defaultValue="Ledger" style={{ flex: 1, border: "1px solid #DDD5C5", borderRadius: 11, padding: "12px 14px", fontFamily: "inherit", fontSize: 15, fontWeight: 500, color: C.ink, background: "#fff", outline: "none" }} />
+        <span className="dm-display" style={{ width: 46, height: 46, borderRadius: 13, background: pickColor(name), color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 19, flexShrink: 0 }}>{initial}</span>
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ledger" style={{ flex: 1, border: "1px solid #DDD5C5", borderRadius: 11, padding: "12px 14px", fontFamily: "inherit", fontSize: 15, fontWeight: 500, color: C.ink, background: "#fff", outline: "none" }} />
       </div>
       <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 13, padding: "4px 16px" }}>
         {rows.map((r) => (
