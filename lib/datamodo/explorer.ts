@@ -315,6 +315,186 @@ export function radialLayout(graph: EgoGraph, width: number, height: number): Re
 // applies the transforms. Deterministic, unit-tested; `reduced` flattens all
 // z to 0 (the prefers-reduced-motion 2D radial).
 
+// --- Layered ego (the Explorer's zoom-out) -----------------------------------
+// "Zoom out = more layers" (user decision 2026-07-13, replacing the physics
+// map): the whole reachable world as concentric BFS rings around the CENTER.
+// Every node gets a PERMANENT bearing via deterministic wedge subdivision (a
+// radial tree: each subtree owns an angular slice of its parent's wedge, so
+// children always sit behind their parent). Zoom only rescales ring radii and
+// reveals/hides rings — positions never re-flow, so nothing can wiggle, and a
+// node that disappears reappears at the same bearing. Per-parent long tails
+// fold into "+N more" chips (the walk's ring-grouping rule at every depth);
+// entities unreachable from the center form one final dashed ring.
+
+export interface LayerNode {
+  id: string;
+  /** 0 = the center; k = the k-th ring out. */
+  hop: number;
+  /** Fixed bearing in degrees (-90 = straight up). Never changes with zoom. */
+  angleDeg: number;
+  parent: string | null;
+  entity: KnowledgeEntityView;
+  /** "+N more" chip: the folded sibling ids (synthetic entity, not walkable). */
+  clusterOf?: string[];
+  /** False on the outermost ring — entities with no path to the center. */
+  linked: boolean;
+}
+
+export interface LayeredEgo {
+  center: LayerNode;
+  /** Center first, then ring by ring in wedge order. */
+  nodes: LayerNode[];
+  /** Relationship facts among kept real nodes, plus one spoke per chip
+   *  (chip spokes carry an empty predicate). */
+  edges: { from: string; to: string; predicate: string }[];
+  /** The deepest ring, including the unlinked ring when present. */
+  maxHop: number;
+}
+
+export interface LayeredOptions {
+  /** Per parent, at most this many children spread onto the next ring —
+   *  the rest fold into one "+N more" chip. */
+  maxChildren?: number;
+  /** Cap on the unlinked outer ring (overflow folds into a chip too). */
+  maxUnlinked?: number;
+}
+
+export function buildLayeredEgo(
+  entities: KnowledgeEntityView[],
+  centerId: string,
+  opts: LayeredOptions = {},
+): LayeredEgo | null {
+  const maxChildren = opts.maxChildren ?? 7;
+  const maxUnlinked = opts.maxUnlinked ?? 36;
+  const byId = new Map(entities.map((e) => [e.id, e]));
+  if (!byId.has(centerId)) return null;
+  const adj = buildAdjacency(entities);
+  const rank = (id: string) => byId.get(id)?.edges ?? 0;
+  const sortIds = (ids: Iterable<string>) =>
+    [...ids].sort(
+      (a, b) =>
+        rank(b) - rank(a) ||
+        (byId.get(a)?.label ?? "").localeCompare(byId.get(b)?.label ?? "") ||
+        a.localeCompare(b),
+    );
+
+  // BFS tree with per-parent folding — deterministic ring order.
+  interface TNode { id: string; hop: number; parent: string | null; children: TNode[]; clusterOf?: string[]; weight: number }
+  const mkT = (id: string, hop: number, parent: string | null): TNode => ({ id, hop, parent, children: [], weight: 1 });
+  const rootT = mkT(centerId, 0, null);
+  const visited = new Set([centerId]);
+  let frontier = [rootT];
+  let linkedMax = 0;
+  while (frontier.length) {
+    const next: TNode[] = [];
+    for (const t of frontier) {
+      const cand = sortIds([...(adj.get(t.id)?.keys() ?? [])].filter((id) => !visited.has(id)));
+      let kept = cand.slice(0, maxChildren);
+      let tail = cand.slice(maxChildren);
+      if (tail.length === 1) { kept = cand; tail = []; } // lone straggler takes the slot
+      for (const id of kept) {
+        visited.add(id);
+        const c = mkT(id, t.hop + 1, t.id);
+        t.children.push(c);
+        next.push(c);
+        linkedMax = Math.max(linkedMax, c.hop);
+      }
+      if (tail.length) {
+        tail.forEach((id) => visited.add(id)); // folded away — never re-pulled
+        const chip = mkT(`more:${t.id}`, t.hop + 1, t.id);
+        chip.clusterOf = tail;
+        t.children.push(chip);
+        linkedMax = Math.max(linkedMax, chip.hop);
+      }
+    }
+    frontier = next;
+  }
+
+  // Subtree weights → proportional wedges. A chip weighs like a small subtree
+  // so big folds visibly claim room.
+  const weigh = (t: TNode): number => {
+    t.weight = t.clusterOf
+      ? 1 + Math.sqrt(t.clusterOf.length) * 0.5
+      : 1 + t.children.reduce((s, c) => s + weigh(c), 0);
+    return t.weight;
+  };
+  weigh(rootT);
+
+  const chipEntity = (t: TNode): KnowledgeEntityView => {
+    const kind = byId.get(t.clusterOf![0])?.kind ?? "entity";
+    const label = `+${t.clusterOf!.length} more`;
+    return { id: t.id, kind, label, naturalKeys: {}, facts: [], edges: t.clusterOf!.length, bodyMd: null, graphPin: null };
+  };
+
+  const nodes: LayerNode[] = [];
+  const place = (t: TNode, a0: number, a1: number) => {
+    nodes.push({
+      id: t.id,
+      hop: t.hop,
+      angleDeg: t.hop === 0 ? 0 : (a0 + a1) / 2,
+      parent: t.parent,
+      entity: t.clusterOf ? chipEntity(t) : byId.get(t.id)!,
+      clusterOf: t.clusterOf,
+      linked: true,
+    });
+    const total = t.children.reduce((s, c) => s + c.weight, 0);
+    const count = t.children.length;
+    let a = a0;
+    for (const c of t.children) {
+      // Blend subtree-proportional with uniform: heavy branches get room for
+      // their descendants, but leaf siblings keep ≥45% of an even share — a
+      // fat subtree can't squeeze its siblings into an unreadable sliver.
+      const span = (a1 - a0) * (0.55 * (c.weight / total) + 0.45 / count);
+      place(c, a, a + span);
+      a += span;
+    }
+  };
+  place(rootT, -90, 270);
+
+  // The unlinked ring: everything with no path to the center, evenly spaced.
+  let maxHop = linkedMax;
+  const unlinked = sortIds(entities.map((e) => e.id).filter((id) => !visited.has(id)));
+  if (unlinked.length) {
+    maxHop = linkedMax + 1;
+    const kept = unlinked.length <= maxUnlinked + 1 ? unlinked : unlinked.slice(0, maxUnlinked);
+    const tail = unlinked.length <= maxUnlinked + 1 ? [] : unlinked.slice(maxUnlinked);
+    const slots = kept.length + (tail.length ? 1 : 0);
+    kept.forEach((id, i) => {
+      nodes.push({ id, hop: maxHop, angleDeg: -90 + (i * 360) / slots, parent: null, entity: byId.get(id)!, linked: false });
+    });
+    if (tail.length) {
+      const kind = byId.get(tail[0])?.kind ?? "entity";
+      nodes.push({
+        id: "more:unlinked", hop: maxHop, angleDeg: -90 + ((slots - 1) * 360) / slots, parent: null,
+        entity: { id: "more:unlinked", kind, label: `+${tail.length} more`, naturalKeys: {}, facts: [], edges: tail.length, bodyMd: null, graphPin: null },
+        clusterOf: tail, linked: false,
+      });
+    }
+  }
+
+  // Edges: every relationship fact among kept REAL nodes (fixed endpoints →
+  // an edge that leaves and comes back always comes back to the same place),
+  // plus one spoke per chip so folds visibly hang off their parent.
+  const kept = new Set(nodes.filter((n) => !n.clusterOf).map((n) => n.id));
+  const edges: LayeredEgo["edges"] = [];
+  const seen = new Set<string>();
+  for (const e of entities) {
+    if (!kept.has(e.id)) continue;
+    for (const f of e.facts) {
+      if (!f.ref || !f.refId || f.refId === e.id || !kept.has(f.refId)) continue;
+      const key = `${e.id}~${f.refId}~${f.predicate}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      edges.push({ from: e.id, to: f.refId, predicate: f.predicate });
+    }
+  }
+  for (const n of nodes) {
+    if (n.clusterOf && n.parent) edges.push({ from: n.id, to: n.parent, predicate: "" });
+  }
+
+  return { center: nodes[0], nodes, edges, maxHop };
+}
+
 export const DEPTH = {
   perspective: 1250,
   centerZ: 150,

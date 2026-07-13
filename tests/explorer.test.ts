@@ -187,3 +187,80 @@ test("depthLayout: a sparse ring fans across the upper arc", () => {
   assert.equal(ring.length, 2);
   for (const p of ring) assert.ok(p.y < 0, "sparse neighbors sit in the upper arc");
 });
+
+// --- Layered ego (the zoom-out) ---------------------------------------------
+
+import { buildLayeredEgo } from "../lib/datamodo/explorer.ts";
+
+const LAYERED_WORLD = [
+  ent("acme", "company", "Acme Inc", [], 9),
+  ent("inv1", "invoice", "INV-1", [rel("issued_by", "acme")], 2),
+  ent("bob", "person", "Bob", [rel("works_for", "acme")], 2),
+  ent("po", "document", "PO-9", [rel("references", "inv1")], 1),
+  ent("law", "company", "Law LLP", [rel("hired_for", "po")], 1),
+  ent("lost", "note", "Loose note"),
+];
+
+test("buildLayeredEgo: BFS rings around the center, any depth; unlinked entities form the final ring", () => {
+  const g = buildLayeredEgo(LAYERED_WORLD, "acme")!;
+  const hopOf = new Map(g.nodes.map((n) => [n.id, n.hop]));
+  assert.equal(hopOf.get("acme"), 0);
+  assert.equal(hopOf.get("inv1"), 1);
+  assert.equal(hopOf.get("bob"), 1);
+  assert.equal(hopOf.get("po"), 2);
+  assert.equal(hopOf.get("law"), 3, "layers go past the walk's 2 hops");
+  const lost = g.nodes.find((n) => n.id === "lost")!;
+  assert.equal(lost.hop, 4, "unreachable entities sit one ring past the deepest");
+  assert.equal(lost.linked, false);
+  assert.equal(g.maxHop, 4);
+});
+
+test("buildLayeredEgo: bearings are fixed and deterministic; children stay inside their parent's wedge", () => {
+  const a = buildLayeredEgo(LAYERED_WORLD, "acme")!;
+  const b = buildLayeredEgo([...LAYERED_WORLD], "acme")!;
+  assert.deepEqual(a, b, "same input, same layout — zoom can never re-flow it");
+  const angle = new Map(a.nodes.map((n) => [n.id, n.angleDeg]));
+  // po descends from inv1: it must sit nearer inv1's bearing than bob's.
+  const dist = (x: number, y: number) => Math.abs(((x - y + 540) % 360) - 180);
+  assert.ok(
+    dist(angle.get("po")!, angle.get("inv1")!) < dist(angle.get("po")!, angle.get("bob")!),
+    "a child keeps its parent's bearing neighbourhood",
+  );
+  const po = a.nodes.find((n) => n.id === "po")!;
+  assert.equal(po.parent, "inv1");
+});
+
+test("buildLayeredEgo: per-parent long tails fold into a '+N more' chip with a spoke to the parent", () => {
+  const world = [
+    ent("hub", "company", "Hub", [], 40),
+    ...Array.from({ length: 12 }, (_, i) => ent(`n${i}`, "invoice", `INV-${i}`, [rel("issued_by", "hub")], 12 - i)),
+  ];
+  const g = buildLayeredEgo(world, "hub", { maxChildren: 7 })!;
+  const ring1 = g.nodes.filter((n) => n.hop === 1);
+  const chip = ring1.find((n) => n.clusterOf)!;
+  assert.equal(ring1.length, 8, "7 kept + 1 chip");
+  assert.equal(chip.clusterOf!.length, 5);
+  assert.equal(chip.entity.label, "+5 more");
+  assert.ok(g.edges.some((e) => e.from === chip.id && e.to === "hub" && e.predicate === ""), "chip hangs off its parent");
+  // Folded ids never leak back onto deeper rings.
+  assert.ok(!g.nodes.some((n) => n.hop > 1));
+});
+
+test("buildLayeredEgo: a lone straggler takes the slot instead of a +1 chip; unknown center → null", () => {
+  const world = [
+    ent("hub", "company", "Hub", [], 8),
+    ...Array.from({ length: 8 }, (_, i) => ent(`n${i}`, "invoice", `INV-${i}`, [rel("issued_by", "hub")], 8 - i)),
+  ];
+  const g = buildLayeredEgo(world, "hub", { maxChildren: 7 })!;
+  assert.ok(!g.nodes.some((n) => n.clusterOf));
+  assert.equal(g.nodes.filter((n) => n.hop === 1).length, 8);
+  assert.equal(buildLayeredEgo(world, "nope"), null);
+});
+
+test("buildLayeredEgo: edges connect only kept real nodes and carry predicates", () => {
+  const g = buildLayeredEgo(LAYERED_WORLD, "acme")!;
+  const e = g.edges.find((x) => x.from === "po" && x.to === "inv1")!;
+  assert.equal(e.predicate, "references");
+  const ids = new Set(g.nodes.map((n) => n.id));
+  assert.ok(g.edges.every((x) => ids.has(x.from) && ids.has(x.to)));
+});

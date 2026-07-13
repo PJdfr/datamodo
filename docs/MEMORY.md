@@ -5,7 +5,7 @@
 > how we work, what we decided and why. Siblings: [STATE.md](STATE.md) ·
 > [FLOW.md](FLOW.md) · [ROADMAP.md](ROADMAP.md).
 >
-> Last updated: 2026-07-12
+> Last updated: 2026-07-13
 
 ## What datamodo is (the aim)
 Turn unstructured personal communications into **structured, reviewable,
@@ -121,8 +121,13 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
     `datasets.kind_id` → `kinds.id` (plural-name match is only a fallback for
     pre-migration rows).
   - **The Map is REMOVED, not merged** (user decision: useless next to the
-    walk). Explore = the ego walk only; no zoom-out. `entities.graph_pin` and
-    its PATCH endpoint remain dormant.
+    walk). `entities.graph_pin` and its PATCH endpoint remain dormant.
+    **Revised 2026-07-13: the walk gained a ZOOM-OUT, but as LAYERS, not a
+    separate map** — after two discarded physics/force-graph iterations the
+    standing rule is: graph zoom is ONE dial from the Explorer (scroll out =
+    more BFS rings around the same center), every node keeps a permanent
+    bearing (pure deterministic layout), NO physics, NO free camera — motion
+    that can wiggle is out. A separate map surface stays rejected.
   - Rare build actions live behind one "✦ Build ▾" menu. Review owns the
     words "pending changes"; Timeline owns "what we learned".
 

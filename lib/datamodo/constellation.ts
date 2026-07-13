@@ -1,4 +1,11 @@
-// CONSTELLATION — the Explorer's zoomed-OUT view (semantic zoom / LOD).
+// CONSTELLATION — hub-cluster hierarchy + screen-size LOD (semantic zoom).
+//
+// ⚠ DORMANT since 2026-07-13: the force-graph Map this powered was replaced by
+// the Explorer's layered zoom-out (`buildLayeredEgo` in explorer.ts — fixed
+// bearings, no physics; user call: "no wiggle, one zoom axis"). The clustering
+// + LOD-cut cores below stay tested and unit-covered because they are exactly
+// the COSMOS seam (ROADMAP: WOW graph engine LOD clustering) — resurrect there
+// or delete after a quiet month, same policy as concept-map.
 // One graph where zoom = granularity: zoomed out → a few big clusters; zoom
 // in → clusters dissolve into sub-clusters → individual entity cards; the
 // deepest zoom hands off to the real Explorer walk (never reimplemented).

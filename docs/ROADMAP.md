@@ -39,15 +39,16 @@
   as global ⌘K, exports as row actions — revisit if the rail grows again.
 - ~~Node shapes, phase 2~~ ✅ 2026-07-11 — image nodes render their image,
   `bookmark` builtin kind, dataset-as-node in the Explorer.
-- ~~Constellation overview / semantic-zoom Map~~ ✅ 2026-07-13 — shipped as the
-  "◎ Map" Data view per `design/mocks/SEMANTIC_ZOOM_README.md`: recursive
-  hub-clustering hierarchy + screen-size LOD cut (split/merge hysteresis, hard
-  cap) in pure `lib/datamodo/constellation.ts`; the mock's force physics +
-  square cards in `force-graph-view.tsx`; click / deepest zoom hands off to the
-  REAL Explorer walk — inline takeover, no click needed at max zoom (same-day
-  continuity pass: pinned split anchors, walk-style cards, auto-dive).
-  Left for the design pass: split/merge tweens (children currently pop in at
-  the parent's spot), cluster hover side-panel breakdown, a type/time lens.
+- ~~Explorer zoom-out~~ ✅ 2026-07-13 — landed as **layers** after two
+  discarded physics iterations (force-graph constellation Map → calm pass →
+  replaced; user call: one zoom axis, fixed positions, no wiggle): scroll out
+  on the walk → concentric BFS rings unfold around the same center to any
+  depth + a dashed unlinked outer ring; permanent bearings (pure wedge
+  layout, `buildLayeredEgo`), "+N more" folding per parent, click-to-walk,
+  scroll-in returns to the walk. The `constellation.ts` cluster/LOD core is
+  DORMANT — it is the COSMOS seam (resurrect there or delete after a quiet
+  month). Left for the design pass: layered-view typography at small card
+  scales, ring-label collisions, maybe a mini-map dial.
 - ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
   with ≥2 connected bodies of content → cited note into `body_md`.
 - ~~Audio tier~~ ✅ 2026-07-11 — audio attachments transcribe (fail-soft

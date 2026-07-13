@@ -23,7 +23,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { C } from "./ui";
-import { buildEgoGraph, depthLayout, DEPTH, type DepthPos, type EgoEdge } from "@/lib/datamodo/explorer";
+import { buildEgoGraph, buildLayeredEgo, depthLayout, DEPTH, type DepthPos, type EgoEdge, type LayeredEgo, type LayerNode } from "@/lib/datamodo/explorer";
 import { EntityPageBody } from "./entity-page";
 import { buildNodeResolver } from "./markdown";
 import type { FactSourceView, KnowledgeEntityView } from "@/lib/datamodo/types";
@@ -268,6 +268,133 @@ function GhostRing({ w, h }: { w: number; h: number }) {
 }
 
 /* ===========================================================================
+   Layered view — the walk's ZOOM-OUT (user decision 2026-07-13: no physics,
+   no free camera). One dial: scroll out and more BFS rings appear around the
+   SAME center; every node holds a permanent bearing (pure core wedge layout),
+   so zoom only rescales radii and grows/shrinks cards — nothing can wiggle,
+   and a node that leaves comes back to the exact same spot.
+   =========================================================================== */
+const RING_W = 250;
+
+function LayeredView({ graph, L, w, h, kindByName, hover, onHover, onWalk, reduced }: {
+  graph: LayeredEgo;
+  /** Continuous layer dial — ring k fades in as L crosses k. */
+  L: number;
+  w: number; h: number;
+  kindByName: Map<string, KindDef>;
+  hover: string | null;
+  onHover: (id: string | null) => void;
+  onWalk: (id: string) => void;
+  reduced: boolean;
+}) {
+  const maxK = Math.max(2, graph.maxHop);
+  const K = Math.min(Math.max(2, L), maxK);
+  const KH = Math.ceil(K - 0.001); // outermost (possibly still fading) ring
+  // Ring spacing adapts to the BUSIEST ring so cards get breathing room —
+  // computed from the whole graph (never from the zoom), so world positions
+  // stay fixed and zooming remains a pure rescale.
+  const WORLD_CARD = 330; // world units one card wants along its ring
+  const counts = new Map<number, number>();
+  for (const n of graph.nodes) counts.set(n.hop, (counts.get(n.hop) ?? 0) + 1);
+  let ringGap = RING_W;
+  for (const [k, c] of counts) {
+    if (k > 0) ringGap = Math.max(ringGap, (c * WORLD_CARD) / (2 * Math.PI * k));
+  }
+  // Fit the outermost visible ring to the canvas — zooming is JUST this scale.
+  const fitR = Math.min(w / 2 - 140, (h / 2 - 60) / 0.82);
+  const s = fitR / (ringGap * K);
+  // Cards scale WITH the world (true zoom — no floor big enough to cause
+  // overlap); far out they read as mini-cards, hover pops one to readable.
+  const cardScale = Math.max(0.22, Math.min(1, (WORLD_CARD * s) / 170));
+  const hoverPop = Math.min(2.4, Math.max(1.06, 0.85 / cardScale));
+  const posOf = (n: LayerNode) => {
+    const rad = (n.angleDeg * Math.PI) / 180;
+    return { x: Math.cos(rad) * ringGap * n.hop * s, y: Math.sin(rad) * ringGap * n.hop * s * 0.82 };
+  };
+  const ringOp = (hop: number) => (hop === 0 ? 1 : Math.max(0, Math.min(1, K - hop + 1)));
+  const shown = graph.nodes.filter((n) => n.hop <= KH);
+  const shownIds = new Set(shown.map((n) => n.id));
+  const nbrs = hover
+    ? new Set([hover, ...graph.edges.filter((e) => e.from === hover || e.to === hover).flatMap((e) => [e.from, e.to])])
+    : null;
+  const trans = reduced ? "none" : `transform 160ms ${MOTION.ease}, opacity 220ms ${MOTION.ease}`;
+  const unlinkedShown = graph.nodes.some((n) => !n.linked && n.hop <= KH);
+
+  return (
+    <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "#F6F2E9", animation: reduced ? "none" : `dm-drop-in 260ms ${MOTION.easeOut}` }}>
+      <svg width="100%" height="100%" style={{ position: "absolute", inset: 0, overflow: "visible" }} aria-label="Zoomed-out layers — scroll to reveal more of your world">
+        <g transform={`translate(${w / 2}, ${h / 2})`}>
+          {/* ring badges — depth markers only, no drawn circles (user call:
+              the guides read as clutter; the card rings carry the shape) */}
+          {Array.from({ length: KH }, (_, i) => i + 1).map((k) => {
+            const isUnlinkedRing = graph.nodes.some((n) => !n.linked && n.hop === k);
+            return (
+              <text key={k} x={0} y={-ringGap * k * s * 0.82 - 7} textAnchor="middle" className="dm-mono"
+                style={{ fontSize: 9, letterSpacing: "0.08em", fill: "#B7AF9F", opacity: ringOp(k), transition: trans }}>
+                {isUnlinkedRing ? "not linked yet" : `${k} hop${k === 1 ? "" : "s"}`}
+              </text>
+            );
+          })}
+          {/* edges — fixed endpoints, drawn under the cards */}
+          {graph.edges.map((e) => {
+            const na = graph.nodes.find((n) => n.id === e.from);
+            const nb = graph.nodes.find((n) => n.id === e.to);
+            if (!na || !nb || !shownIds.has(e.from) || !shownIds.has(e.to)) return null;
+            const a = posOf(na), b = posOf(nb);
+            const lit = hover !== null && (e.from === hover || e.to === hover);
+            const op = Math.min(ringOp(na.hop), ringOp(nb.hop)) * (hover ? (lit ? 0.95 : 0.1) : 0.5);
+            return (
+              <line key={`${e.from}~${e.to}~${e.predicate}`}
+                x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                stroke={lit ? C.accent : "#D8D0BF"} strokeWidth={lit ? 1.6 : 1} strokeLinecap="round"
+                style={{ opacity: op, transition: trans }} />
+            );
+          })}
+        </g>
+      </svg>
+      {/* the cards — the walk's own NodeCard, scaled by the dial */}
+      {shown.map((n) => {
+        const p = posOf(n);
+        const isCenter = n.hop === 0;
+        const chip = Boolean(n.clusterOf);
+        const dim = nbrs ? !nbrs.has(n.id) : false;
+        return (
+          <div
+            key={n.id}
+            role={chip ? undefined : "button"}
+            tabIndex={chip ? -1 : 0}
+            aria-label={isCenter ? `${n.entity.label} — you are here` : chip ? n.entity.label : `Walk to ${n.entity.label}`}
+            title={chip ? `${n.clusterOf!.length} more behind ${n.parent ? "this branch" : "the horizon"} — walk closer to expand` : undefined}
+            onMouseEnter={() => onHover(n.id)}
+            onMouseLeave={() => onHover(null)}
+            onFocus={() => onHover(n.id)}
+            onBlur={() => onHover(null)}
+            onClick={() => { if (!chip && !isCenter) onWalk(n.id); }}
+            onKeyDown={(ev) => { if (!chip && !isCenter && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); onWalk(n.id); } }}
+            style={{
+              position: "absolute", left: "50%", top: "50%", width: isCenter ? 190 : 150,
+              transform: `translate(-50%,-50%) translate(${p.x}px, ${p.y}px) scale(${(isCenter ? Math.max(cardScale * 1.15, 0.5) : cardScale) * (hover === n.id && !isCenter ? hoverPop : 1)})`,
+              opacity: ringOp(n.hop) * (dim ? 0.3 : n.linked ? 1 : 0.8),
+              transition: trans,
+              cursor: chip || isCenter ? "default" : "pointer",
+              outline: "none",
+              zIndex: hover === n.id ? 46 : isCenter ? 45 : 44 - Math.min(n.hop, 20),
+            }}
+          >
+            <NodeCard e={n.entity} kindDef={kindByName.get(n.entity.kind)} isCenter={isCenter} isHover={hover === n.id} cluster={chip} />
+          </div>
+        );
+      })}
+      {unlinkedShown && (
+        <div className="dm-mono" style={{ position: "absolute", right: 18, bottom: 32, ...micro, zIndex: 45, pointerEvents: "none" }}>
+          outermost ring = not connected to this node
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ===========================================================================
    Cluster panel — "+N more invoices" expands into its member list
    =========================================================================== */
 function ClusterPanel({ node, byId, kindDef, onClose, onGoTo }: {
@@ -491,8 +618,12 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   const [geom, setGeom] = useState<Record<string, EdgeGeom>>({});
   const [size, setSize] = useState({ w: 640, h: 560 });
   const [leaving, setLeaving] = useState<{ id: string; e: KnowledgeEntityView; last: DepthPos }[]>([]);
+  // The zoom-out dial: null = the walk; a number = how many layers are out.
+  const [layers, setLayers] = useState<number | null>(null);
+  const [layerHover, setLayerHover] = useState<string | null>(null);
 
   const sceneRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
   const nodeEls = useRef(new Map<string, HTMLDivElement>());
   const settleUntil = useRef(0);
 
@@ -525,6 +656,8 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     () => buildEgoGraph(entities, center, citedSet.size ? { ...CAPS, prefer: citedSet } : CAPS),
     [entities, center, citedSet],
   );
+  // The zoom-out layers: same center, whole world, fixed bearings.
+  const layeredGraph = useMemo(() => buildLayeredEgo(entities, center), [entities, center]);
   const layout = useMemo(
     () => (graph ? depthLayout(graph, size.w, size.h, reduced) : {}),
     [graph, size.w, size.h, reduced],
@@ -533,6 +666,30 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   // Entering nodes are computed at walk time (the event handler knows both the
   // old and the new neighborhood) — never from refs during render.
   const [enteringIds, setEnteringIds] = useState<Set<string>>(() => new Set());
+
+  /* ---- the zoom dial: scroll out → layers appear; scroll back in → the walk.
+     One axis, nothing else — positions are fixed by the pure layout. ---- */
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const onWheel = (ev: WheelEvent) => {
+      ev.preventDefault();
+      // Walk-mode selections don't survive the zoom-out (harmless when absent).
+      setSelEdge(null);
+      setSelCluster(null);
+      setHoverEdge(null);
+      setHoverNode(null);
+      setLayers((prev) => {
+        const maxL = Math.max(2, layeredGraph?.maxHop ?? 2) + 0.4;
+        if (prev === null) return ev.deltaY > 0 ? 2.15 : null;
+        const next = prev + ev.deltaY * 0.004;
+        if (next < 1.95) return null; // zoomed back in — the walk again
+        return Math.min(maxL, next);
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [layeredGraph]);
 
   /* ---- edge geometry: measure the live projected node centers ---- */
   const measure = useCallback(() => {
@@ -608,6 +765,8 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     setHoverEdge(null);
     setHoverNode(null);
     setJump("");
+    setLayers(null); // walking always lands you back in the walk
+    setLayerHover(null);
     setTrail(nextTrail);
   };
   const goTo = (id: string) =>
@@ -637,7 +796,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   return (
     <div style={{ display: "flex", alignItems: "stretch", height: 620, background: "#F6F2E9", border: "1px solid #E7E0D2", borderRadius: 16, overflow: "hidden" }}>
       {/* ---- CANVAS ---- */}
-      <div style={{ position: "relative", flex: 1, minWidth: 0, overflow: "hidden" }}>
+      <div ref={canvasRef} style={{ position: "relative", flex: 1, minWidth: 0, overflow: "hidden" }}>
         {/* the depth field */}
         <div
           ref={sceneRef}
@@ -736,6 +895,21 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
           background: reduced ? "none" : "radial-gradient(120% 90% at 50% 42%, rgba(246,242,233,0) 40%, rgba(246,242,233,.55) 78%, rgba(239,233,220,.85) 100%)",
         }} />
 
+        {/* zoomed out: the layers view covers the walk (z 40, under the chrome) */}
+        {layers !== null && layeredGraph && (
+          <LayeredView
+            graph={layeredGraph}
+            L={layers}
+            w={size.w}
+            h={size.h}
+            kindByName={kindByName}
+            hover={layerHover}
+            onHover={setLayerHover}
+            onWalk={goTo}
+            reduced={reduced}
+          />
+        )}
+
         {/* breadcrumb + back (floating) */}
         <div style={{ position: "absolute", top: 14, left: 16, display: "flex", alignItems: "center", gap: 8, zIndex: 50, maxWidth: "62%" }}>
           <button onClick={back} disabled={trail.length < 2} aria-label="Back"
@@ -815,16 +989,20 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
 
         {/* hints */}
         <div className="dm-mono" style={{ position: "absolute", left: 18, bottom: 13, ...micro, zIndex: 50, opacity: 0.8, pointerEvents: "none" }}>
-          click a neighbour to walk · click an edge to inspect the fact
+          {layers !== null
+            ? "scroll in to return to the walk · click a card to walk to it"
+            : "click a neighbour to walk · click an edge to inspect the fact · scroll out for the big picture"}
         </div>
         <div className="dm-mono" style={{ position: "absolute", right: 18, bottom: 13, ...micro, zIndex: 50, opacity: 0.7, pointerEvents: "none" }}>
-          {reduced ? "2D radial · reduced motion" : "ego neighbourhood · 2 hops"} · {graph.nodes.length} nodes · {graph.edges.length} edges
+          {layers !== null && layeredGraph
+            ? `${Math.round(Math.min(Math.max(2, layers), Math.max(2, layeredGraph.maxHop)))} of ${Math.max(2, layeredGraph.maxHop)} layers · ${layeredGraph.nodes.length} nodes`
+            : `${reduced ? "2D radial · reduced motion" : "ego neighbourhood · 2 hops"} · ${graph.nodes.length} nodes · ${graph.edges.length} edges`}
         </div>
 
-        {selectedEdge && (
+        {selectedEdge && layers === null && (
           <EdgeInspector edge={selectedEdge} onClose={() => setSelEdge(null)} onGoTo={(id) => { setSelEdge(null); goTo(id); }} />
         )}
-        {selectedCluster && (
+        {selectedCluster && layers === null && (
           <ClusterPanel
             node={selectedCluster}
             byId={byId}

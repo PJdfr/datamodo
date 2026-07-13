@@ -12,6 +12,29 @@
 > Last updated: 2026-07-13
 
 ## Recent changes
+- **2026-07-13** — **Graph zoom, FINAL shape: the Explorer's layered zoom-out
+  (physics map REPLACED)**. User reset after the calm pass: "the only thing
+  you can do is go from the explorer view and zoom out … the graph stays
+  centered … edges reappear at the same place … one axis … no wiggle
+  (impossible since all edges are fixed), just card size + new layers." Built
+  exactly that: new pure core `buildLayeredEgo` (`lib/datamodo/explorer.ts`) —
+  BFS rings around the walk's center to ANY depth, permanent bearings via
+  deterministic wedge subdivision (55% subtree-weight / 45% uniform blend so
+  fat branches can't squeeze siblings), per-parent "+N more" folding at every
+  depth, one dashed final ring for entities unreachable from the center;
+  5 new unit tests (160 total). `LayeredView` in `explorer-view.tsx`: scroll
+  out on the walk → rings fade in (ring spacing adapts to the busiest ring but
+  NEVER to the zoom — zooming is a pure rescale, wiggle geometrically
+  impossible), cards are the walk's own NodeCards scaling with the dial (hover
+  pops one readable), click walks there, scroll in returns to the walk; walk
+  chrome (breadcrumb/jump/panel) stays. REMOVED: the "◎ Map" pill,
+  `force-graph-view.tsx`, its 3 harnesses (physics/cluster-LOD map + calm
+  pass discarded); `constellation.ts` + tests stay DORMANT as the COSMOS seam
+  (concept-map policy). MEMORY.md design rule updated (graph zoom = one dial,
+  fixed bearings, no physics). Ring guide CIRCLES removed same day (user:
+  clutter) — the card rings carry the shape, only the tiny hop badges remain.
+  Verified: 160 tests, tsc, lint == baseline, `next build`, harnesses incl.
+  new `explorer-layers` (wheel events → 4-layer screenshot).
 - **2026-07-13** — **Map calm pass (user feedback: "everything wiggles")**:
   split/merge transitions no longer shake the graph. Four sim rules in
   `force-graph-view.tsx`: (1) entering siblings are placed DETERMINISTICALLY
