@@ -274,10 +274,16 @@ function GhostRing({ w, h }: { w: number; h: number }) {
    so zoom only rescales radii and grows/shrinks cards — nothing can wiggle,
    and a node that leaves comes back to the exact same spot.
    =========================================================================== */
-function LayeredView({ graph, L, w, h, kindByName, hover, onHover, onWalk, reduced }: {
+/** The one step animation: a ring ARRIVES from higher z (bigger + transparent
+ *  → lands at size) or LIFTS back off. Everything else is a static relayout. */
+export interface RingAnim { dir: "in" | "out"; ring: number }
+
+function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk, reduced }: {
   graph: LayeredEgo;
-  /** Continuous layer dial — ring k fades in as L crosses k. */
-  L: number;
+  /** DISCRETE layer count — one scroll notch = one more ring. */
+  K: number;
+  /** The ring that just stepped in/out — the only thing that animates. */
+  anim: RingAnim | null;
   w: number; h: number;
   kindByName: Map<string, KindDef>;
   hover: string | null;
@@ -285,20 +291,17 @@ function LayeredView({ graph, L, w, h, kindByName, hover, onHover, onWalk, reduc
   onWalk: (id: string) => void;
   reduced: boolean;
 }) {
-  const maxK = Math.max(2, graph.maxHop);
-  const K = Math.min(Math.max(2, L), maxK);
-  const KH = Math.ceil(K - 0.001); // outermost (possibly still fading) ring
   // Ring radii mirror the WALK's rings at K=2 (r1≈0.34, r2≈0.52 of the canvas)
   // and keep growing evenly past hop 2 — so entering the zoom-out is seamless,
-  // and zooming is a PURE rescale of fixed ratios (bearings + ratios never
-  // change → nothing can re-flow).
+  // and each step is a PURE rescale of fixed ratios (bearings + ratios never
+  // change → the layout between steps is static; nothing can re-flow).
   const FX = (k: number) => (k <= 0 ? 0 : k === 1 ? DEPTH.r1x : DEPTH.r2x + (k - 2) * 0.3);
   const FY = (k: number) => (k <= 0 ? 0 : k === 1 ? DEPTH.r1y : DEPTH.r2y + (k - 2) * 0.28);
   const sx = (w * 0.5) / FX(K);
   const sy = (h * 0.44) / FY(K);
-  // Card size ∝ the scroll: exactly walk-sized at 2 layers, shrinking with
-  // the same factor the rings do — plus a crowd factor (K-independent) so a
-  // busy ring's cards leave each other room. Hover pops one to readable.
+  // Card size ∝ the layer count: exactly walk-sized at 2 layers, shrinking
+  // with the same factor the rings do — plus a crowd factor (K-independent)
+  // so a busy ring's cards leave each other room. Hover pops one to readable.
   const counts = new Map<number, number>();
   for (const n of graph.nodes) counts.set(n.hop, (counts.get(n.hop) ?? 0) + 1);
   let crowd = 1;
@@ -306,25 +309,26 @@ function LayeredView({ graph, L, w, h, kindByName, hover, onHover, onWalk, reduc
     if (k > 0) crowd = Math.min(crowd, (2 * Math.PI * FX(k) * ((w * 0.5) / FX(2))) / (c * 175));
   }
   crowd = Math.max(crowd, 0.4);
-  const zoomScale = FX(2) / FX(K); // 1 at two layers, ∝ 1/scroll beyond
-  const cardScale = Math.max(0.2, Math.min(1, crowd * zoomScale));
+  const cardScale = Math.max(0.2, Math.min(1, crowd * (FX(2) / FX(K))));
   const hoverPop = Math.min(2.4, Math.max(1.06, 0.85 / cardScale));
   const posOf = (n: LayerNode) => {
     const rad = (n.angleDeg * Math.PI) / 180;
     return { x: Math.cos(rad) * FX(n.hop) * sx, y: Math.sin(rad) * FY(n.hop) * sy };
   };
-  const ringOp = (hop: number) => (hop === 0 ? 1 : Math.max(0, Math.min(1, K - hop + 1)));
-  // Entrance = falling from the z axis, DRIVEN BY THE SCROLL: a ring fading
-  // in starts 1.8× (nearer the camera) and settles to size as it lands —
-  // reversing the scroll lifts it back off the canvas.
-  const fallOf = (hop: number) => (reduced ? 1 : 1.8 - 0.8 * ringOp(hop));
-  const shown = graph.nodes.filter((n) => n.hop <= KH);
+  const shown = graph.nodes.filter((n) => n.hop <= K);
   const shownIds = new Set(shown.map((n) => n.id));
+  // The ring that just left keeps rendering as ghosts lifting off toward the
+  // camera (animation ends invisible + inert — no timer needed).
+  const exiting = anim?.dir === "out" ? graph.nodes.filter((n) => n.hop === anim.ring) : [];
   const nbrs = hover
     ? new Set([hover, ...graph.edges.filter((e) => e.from === hover || e.to === hover).flatMap((e) => [e.from, e.to])])
     : null;
-  const trans = reduced ? "none" : `transform 160ms ${MOTION.ease}, opacity 220ms ${MOTION.ease}`;
-  const unlinkedShown = graph.nodes.some((n) => !n.linked && n.hop <= KH);
+  const trans = reduced ? "none" : `transform 420ms ${MOTION.easeOut}, opacity 220ms ${MOTION.ease}`;
+  const unlinkedShown = graph.nodes.some((n) => !n.linked && n.hop <= K);
+  const fallAnim = (hop: number, i: number): CSSProperties =>
+    !reduced && anim?.dir === "in" && hop === anim.ring
+      ? { animation: `dm-fall-z 460ms ${MOTION.easeOut} both`, animationDelay: `${(i % 12) * 28}ms` }
+      : {};
 
   return (
     <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "#F6F2E9", animation: reduced ? "none" : `dm-drop-in 260ms ${MOTION.easeOut}` }}>
@@ -332,34 +336,48 @@ function LayeredView({ graph, L, w, h, kindByName, hover, onHover, onWalk, reduc
         <g transform={`translate(${w / 2}, ${h / 2})`}>
           {/* ring badges — depth markers only, no drawn circles (user call:
               the guides read as clutter; the card rings carry the shape) */}
-          {Array.from({ length: KH }, (_, i) => i + 1).map((k) => {
+          {Array.from({ length: K }, (_, i) => i + 1).map((k) => {
             const isUnlinkedRing = graph.nodes.some((n) => !n.linked && n.hop === k);
             return (
               <text key={k} x={0} y={-FY(k) * sy - 10} textAnchor="middle" className="dm-mono"
-                style={{ fontSize: 9, letterSpacing: "0.08em", fill: "#B7AF9F", opacity: ringOp(k), transition: trans }}>
+                style={{ fontSize: 9, letterSpacing: "0.08em", fill: "#B7AF9F", transition: trans, ...(k === anim?.ring && anim.dir === "in" && !reduced ? { animation: "dm-fall-edge 500ms 180ms both" } : {}) }}>
                 {isUnlinkedRing ? "not linked yet" : `${k} hop${k === 1 ? "" : "s"}`}
               </text>
             );
           })}
-          {/* edges — fixed endpoints, drawn under the cards */}
+          {/* edges — fixed endpoints, drawn under the cards; edges reaching
+              the arriving ring fade in with it */}
           {graph.edges.map((e) => {
             const na = graph.nodes.find((n) => n.id === e.from);
             const nb = graph.nodes.find((n) => n.id === e.to);
             if (!na || !nb || !shownIds.has(e.from) || !shownIds.has(e.to)) return null;
             const a = posOf(na), b = posOf(nb);
             const lit = hover !== null && (e.from === hover || e.to === hover);
-            const op = Math.min(ringOp(na.hop), ringOp(nb.hop)) * (hover ? (lit ? 0.95 : 0.1) : 0.5);
+            const arriving = !reduced && anim?.dir === "in" && Math.max(na.hop, nb.hop) === anim.ring;
             return (
               <line key={`${e.from}~${e.to}~${e.predicate}`}
                 x1={a.x} y1={a.y} x2={b.x} y2={b.y}
                 stroke={lit ? C.accent : "#D8D0BF"} strokeWidth={lit ? 1.6 : 1} strokeLinecap="round"
-                style={{ opacity: op, transition: trans }} />
+                style={{
+                  opacity: hover ? (lit ? 0.95 : 0.1) : 0.5,
+                  transition: trans,
+                  ...(arriving ? { animation: "dm-fall-edge 500ms 220ms both" } : {}),
+                }} />
             );
           })}
         </g>
       </svg>
-      {/* the cards — the walk's own NodeCard, scaled by the dial */}
-      {shown.map((n) => {
+      {/* one keyframe pair is the WHOLE animation vocabulary: a ring falls in
+          from higher z, or lifts back off — recursive per step */}
+      <style>{`
+        @keyframes dm-fall-z { from { opacity: 0; transform: scale(1.75); } }
+        @keyframes dm-lift-z { to { opacity: 0; transform: scale(1.75); } }
+        @keyframes dm-fall-edge { from { opacity: 0; } }
+      `}</style>
+      {/* the cards — the walk's own NodeCard; positions static between steps.
+          The OUTER div owns placement (transitions on step rescale); the INNER
+          div plays the one-shot z-fall so keyframes never fight the layout. */}
+      {shown.map((n, i) => {
         const p = posOf(n);
         const isCenter = n.hop === 0;
         const chip = Boolean(n.clusterOf);
@@ -379,15 +397,32 @@ function LayeredView({ graph, L, w, h, kindByName, hover, onHover, onWalk, reduc
             onKeyDown={(ev) => { if (!chip && !isCenter && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); onWalk(n.id); } }}
             style={{
               position: "absolute", left: "50%", top: "50%", width: isCenter ? 190 : 150,
-              transform: `translate(-50%,-50%) translate(${p.x}px, ${p.y}px) scale(${(isCenter ? Math.max(cardScale * 1.15, 0.5) : cardScale * fallOf(n.hop)) * (hover === n.id && !isCenter ? hoverPop : 1)})`,
-              opacity: ringOp(n.hop) * (dim ? 0.3 : n.linked ? 1 : 0.8),
+              transform: `translate(-50%,-50%) translate(${p.x}px, ${p.y}px) scale(${(isCenter ? Math.max(cardScale * 1.15, 0.5) : cardScale) * (hover === n.id && !isCenter ? hoverPop : 1)})`,
+              opacity: dim ? 0.3 : n.linked ? 1 : 0.8,
               transition: trans,
               cursor: chip || isCenter ? "default" : "pointer",
               outline: "none",
               zIndex: hover === n.id ? 46 : isCenter ? 45 : 44 - Math.min(n.hop, 20),
             }}
           >
-            <NodeCard e={n.entity} kindDef={kindByName.get(n.entity.kind)} isCenter={isCenter} isHover={hover === n.id} cluster={chip} />
+            <div style={fallAnim(n.hop, i)}>
+              <NodeCard e={n.entity} kindDef={kindByName.get(n.entity.kind)} isCenter={isCenter} isHover={hover === n.id} cluster={chip} />
+            </div>
+          </div>
+        );
+      })}
+      {/* the ring that just left — ghosts lifting off toward the camera */}
+      {!reduced && exiting.map((n) => {
+        const p = posOf(n);
+        return (
+          <div key={`exit-${n.id}`} aria-hidden style={{
+            position: "absolute", left: "50%", top: "50%", width: 150,
+            transform: `translate(-50%,-50%) translate(${p.x}px, ${p.y}px) scale(${cardScale})`,
+            transition: trans, pointerEvents: "none", zIndex: 43,
+          }}>
+            <div style={{ animation: "dm-lift-z 300ms cubic-bezier(0.4,0,1,1) forwards" }}>
+              <NodeCard e={n.entity} kindDef={kindByName.get(n.entity.kind)} isCenter={false} isHover={false} cluster={Boolean(n.clusterOf)} />
+            </div>
           </div>
         );
       })}
@@ -624,9 +659,13 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   const [geom, setGeom] = useState<Record<string, EdgeGeom>>({});
   const [size, setSize] = useState({ w: 640, h: 560 });
   const [leaving, setLeaving] = useState<{ id: string; e: KnowledgeEntityView; last: DepthPos }[]>([]);
-  // The zoom-out dial: null = the walk; a number = how many layers are out.
+  // The zoom-out: null = the walk; an INTEGER = how many rings are out.
+  // One scroll notch = one ring — discrete steps, one animation each.
   const [layers, setLayers] = useState<number | null>(null);
+  const [ringAnim, setRingAnim] = useState<RingAnim | null>(null);
   const [layerHover, setLayerHover] = useState<string | null>(null);
+  const wheelAcc = useRef(0);
+  const lastStep = useRef(0);
 
   const sceneRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -676,31 +715,46 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   // old and the new neighborhood) — never from refs during render.
   const [enteringIds, setEnteringIds] = useState<Set<string>>(() => new Set());
 
-  /* ---- the zoom dial: scroll out → layers appear; scroll back in → the walk.
-     One axis, nothing else — positions are fixed by the pure layout. ---- */
+  /* ---- the zoom stepper: scroll enough → ONE more ring falls in; scroll
+     back → it lifts off (below the walk's 2 hops → the walk itself). The
+     layout between steps is static — one recursive animation per step. ---- */
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
     const onWheel = (ev: WheelEvent) => {
       ev.preventDefault();
-      // Walk-mode selections don't survive the zoom-out (harmless when absent).
-      setSelEdge(null);
-      setSelCluster(null);
-      setHoverEdge(null);
-      setHoverNode(null);
-      setLayers((prev) => {
-        const maxL = Math.max(2, layeredGraph?.maxHop ?? 2) + 0.4;
-        // Enter right at 2 layers: same rings, same bearings, walk-sized
-        // cards — the first scroll reads as a continuation, not a jump.
-        if (prev === null) return ev.deltaY > 0 ? 2.02 : null;
-        const next = prev + ev.deltaY * 0.004;
-        if (next < 1.95) return null; // zoomed back in — the walk again
-        return Math.min(maxL, next);
-      });
+      if (!layeredGraph) return;
+      const now = performance.now();
+      if (now - lastStep.current < 340) return; // let the ring land first
+      const NOTCH = 110; // accumulated deltaY per step
+      wheelAcc.current += ev.deltaY;
+      const maxHop = layeredGraph.maxHop;
+      const entry = Math.min(3, Math.max(2, maxHop)); // first step past the walk
+      if (wheelAcc.current > NOTCH) {
+        wheelAcc.current = 0;
+        // Nothing beyond the walk's 2 hops and nothing unlinked → no zoom-out.
+        if (layers === null && maxHop < 3 && !layeredGraph.nodes.some((n) => !n.linked)) return;
+        const next = layers === null ? entry : Math.min(maxHop, layers + 1);
+        if (next === layers) return;
+        setSelEdge(null); setSelCluster(null); setHoverEdge(null); setHoverNode(null);
+        setLayers(next);
+        setRingAnim({ dir: "in", ring: next });
+        lastStep.current = now;
+      } else if (wheelAcc.current < -NOTCH) {
+        wheelAcc.current = 0;
+        if (layers === null) return;
+        if (layers <= entry) {
+          setLayers(null); setRingAnim(null); setLayerHover(null);
+        } else {
+          setLayers(layers - 1);
+          setRingAnim({ dir: "out", ring: layers });
+        }
+        lastStep.current = now;
+      }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [layeredGraph]);
+  }, [layeredGraph, layers]);
 
   /* ---- edge geometry: measure the live projected node centers ---- */
   const measure = useCallback(() => {
@@ -777,6 +831,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     setHoverNode(null);
     setJump("");
     setLayers(null); // walking always lands you back in the walk
+    setRingAnim(null);
     setLayerHover(null);
     setTrail(nextTrail);
   };
@@ -910,7 +965,8 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
         {layers !== null && layeredGraph && (
           <LayeredView
             graph={layeredGraph}
-            L={layers}
+            K={layers}
+            anim={ringAnim}
             w={size.w}
             h={size.h}
             kindByName={kindByName}
@@ -1006,7 +1062,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
         </div>
         <div className="dm-mono" style={{ position: "absolute", right: 18, bottom: 13, ...micro, zIndex: 50, opacity: 0.7, pointerEvents: "none" }}>
           {layers !== null && layeredGraph
-            ? `${Math.round(Math.min(Math.max(2, layers), Math.max(2, layeredGraph.maxHop)))} of ${Math.max(2, layeredGraph.maxHop)} layers · ${layeredGraph.nodes.length} nodes`
+            ? `${layers} of ${Math.max(2, layeredGraph.maxHop)} layers · ${layeredGraph.nodes.length} nodes`
             : `${reduced ? "2D radial · reduced motion" : "ego neighbourhood · 2 hops"} · ${graph.nodes.length} nodes · ${graph.edges.length} edges`}
         </div>
 

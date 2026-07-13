@@ -42,11 +42,19 @@
   `depthLayout(..., angles)` override make the WALK sit its cards at the
   layered bearings (walk-only "+N more" kind-chips take the circular mean of
   their members'), so a card keeps its angle when the layers unfold;
-  (3) appearing rings FALL IN from the z-axis, driven by the scroll itself
-  (start 1.8× nearer the camera + transparent, land at size; reversing the
-  scroll lifts them back off). Verified: 162 tests, tsc, lint == baseline,
-  `next build`, harnesses incl. `explorer-layers` (wheel events → 4-layer
-  screenshot).
+  (3) zoom went DISCRETE (final same-day revision, user call: "scroll enough
+  → one more layer; one easy recursive animation"): scroll notches accumulate
+  (110 deltaY) with a 340ms per-step cooldown; each step adds/removes exactly
+  ONE ring — the arriving ring's cards FALL from higher z (scale 1.75 +
+  transparent → land, 28ms stagger; edges + ring badge fade in with it), a
+  leaving ring lifts back off (ghost cards, animation ends inert), and the
+  layout between steps is completely static (pure rescale of fixed ratios).
+  Below the entry step (3 layers, or 2 if the graph is shallow) you're back
+  in the walk. Playwright probe asserts: steps are one-at-a-time (a 5-notch
+  burst inside the cooldown moves nothing), fall/lift animations attach only
+  to the stepping ring. Verified: 162 tests, tsc, lint == baseline,
+  `next build`, harnesses incl. `explorer-layers` (two paced notches →
+  4-layer screenshot).
 - **2026-07-13** — **Map calm pass (user feedback: "everything wiggles")**:
   split/merge transitions no longer shake the graph. Four sim rules in
   `force-graph-view.tsx`: (1) entering siblings are placed DETERMINISTICALLY

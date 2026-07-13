@@ -41,14 +41,15 @@ createRoot(document.getElementById("root")!).render(
 );
 
 // Scroll out over the walk (events bubble from the center card to the canvas
-// listener) → the layered view, out to ~4 layers.
+// listener). Steps are DISCRETE with a per-step cooldown — two paced notches:
+// walk → 3 layers → 4 layers; the screenshot catches the last ring landing.
 window.setTimeout(() => {
   const target = document.querySelector('[aria-label*="you are here"]');
   if (!target) throw new Error("walk center card not found");
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 2; i++) {
     window.setTimeout(() => {
       target.dispatchEvent(new WheelEvent("wheel", { deltaY: 160, bubbles: true, cancelable: true }));
-    }, i * 60);
+    }, i * 420);
   }
-}, 500);
+}, 400);
 flags.__mounted = true;
