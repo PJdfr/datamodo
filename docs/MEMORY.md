@@ -67,20 +67,14 @@ reviewable, nothing is ever silently lost or merged.
   note) are produced when the user asks (a button or a question), never by a
   background trigger. LLM spend maps 1:1 to user curiosity; no stale-synthesis
   bookkeeping.
-- **The WOW is the graph engine: REPLAY first, COSMOS as its final frame**
-  (decided 2026-07-11): one canvas/WebGL renderer, two modes. REPLAY = a
-  scenaristic chronological time-lapse of the vault building itself (the
-  bitemporal store makes it a query, not new infrastructure) — five acts:
-  first node · extraction bursts · the user's merge/deny decisions rendered
-  physically · nodes crystallizing into tables · settle into the Cosmos and
-  hand over the controls. COSMOS = the standing whole-vault view, scaled by
-  **level-of-detail clustering** (named stars ∝ degree; long tail collapses
-  into zoom-expandable cluster nodes — same idea de-overloads the walk's
-  rings via "+38 more" pseudo-nodes). The engine is the poster (dark mode
-  allowed); the walk stays the workbench; everything designed through Claude
-  Design (brief: design/briefs/wow-graph-engine-brief.md). Landing hero
-  autoplays the demo replay; a user's replay is private (export-as-video,
-  never public links).
+- ~~**The WOW is the graph engine: REPLAY + COSMOS**~~ **DROPPED 2026-07-14**
+  (user call: remove the Cosmos/WOW feature). There is NO separate canvas/WebGL
+  showpiece — the Explorer walk + its continuous zoom-out IS the graph surface,
+  and the landing hero uses that live Explorer over demo data. The old
+  `constellation.ts` LOD/cluster core (kept "for the Cosmos seam") now has no
+  consumer → dormant, delete after a quiet month;
+  `design/briefs/wow-graph-engine-brief.md` is retired. (Ring grouping, which
+  had shipped as build-order step 1, stays — it earns its keep in the walk.)
 
 ## Architecture decisions (and why)
 - **Neon + Prisma + Neon Auth** (migrated off Supabase 2026-07-09; zero users

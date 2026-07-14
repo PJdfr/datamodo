@@ -346,7 +346,7 @@ const LayerCard = memo(function LayerCard({ n, kindDef, x, y, scale, pop, blur, 
   );
 });
 
-function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk, onExpand, reduced }: {
+function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk, onExpand, hoverEdge, selEdge, onEdgeHover, onEdgeClick, reduced }: {
   graph: LayeredEgo;
   /** DISCRETE layer count — one scroll notch = one more ring. */
   K: number;
@@ -359,6 +359,14 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
   onWalk: (id: string) => void;
   /** Expand a "+N more" chip's folded members into the panel. */
   onExpand: (id: string) => void;
+  /** Edge interaction — the SAME contract as the base walk's EdgeLayer, so an
+   *  edge is clickable at every zoom level (Feature 1). Layered edges carry NO
+   *  predicate label (too much text across many rings); the click still opens
+   *  the fact inspector. `key` is `${from}~${to}~${predicate}`. */
+  hoverEdge: string | null;
+  selEdge: string | null;
+  onEdgeHover: (k: string | null) => void;
+  onEdgeClick: (e: LayeredEgo["edges"][number]) => void;
   reduced: boolean;
 }) {
   // EVERY layer obeys the base view's rules, relative to the CURRENT view:
@@ -453,25 +461,37 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
               point toward the origin gives the hierarchical-edge-bundling look
               that belongs to a concentric layout: radial (cross-ring) edges
               stay near-straight, same-ring links bow gracefully through the
-              middle. Deeper edges haze out like their ring. */}
+              middle. Deeper edges haze out like their ring. CLICKABLE at every
+              zoom level (Feature 1) via a fat transparent hit path — same fact
+              inspector as the walk — but with NO predicate label (too much text
+              across many rings). Cluster spokes (predicate "") expand instead. */}
           {graph.edges.map((e) => {
             if (!shownIds.has(e.from) || !shownIds.has(e.to)) return null;
             const na = nodeById.get(e.from);
             const nb = nodeById.get(e.to);
             if (!na || !nb) return null;
             const a = posOf(na), b = posOf(nb);
-            const lit = hover !== null && (e.from === hover || e.to === hover);
+            const k = `${e.from}~${e.to}~${e.predicate}`;
+            const incident = hover !== null && (e.from === hover || e.to === hover);
+            const active = hoverEdge === k || selEdge === k;
+            const lit = incident || active;
+            const dim = (hover !== null || hoverEdge !== null || selEdge !== null) && !lit;
             const depthOp = opOf(Math.max(na.hop, nb.hop)) * 0.55;
             // Control point = the chord midpoint pulled 40% toward the center,
             // so every thread curves inward along the rings.
             const cx = ((a.x + b.x) / 2) * 0.6;
             const cy = ((a.y + b.y) / 2) * 0.6;
+            const d = `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`;
             return (
-              <path key={`${e.from}~${e.to}~${e.predicate}`}
-                d={`M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`}
-                fill="none"
-                stroke={lit ? C.accent : "#D3C6AF"} strokeWidth={lit ? 1.6 : 1} strokeLinecap="round"
-                style={{ opacity: hover ? (lit ? 0.95 : 0.08) : depthOp }} />
+              <g key={k} style={{ opacity: dim ? 0.08 : lit ? 0.95 : depthOp, transition: `opacity ${MOTION.edgeFade}ms ${MOTION.ease}` }}>
+                <path d={d} fill="none" stroke="transparent" strokeWidth={14}
+                  style={{ pointerEvents: "stroke", cursor: "pointer" }}
+                  onPointerEnter={() => onEdgeHover(k)} onPointerLeave={() => onEdgeHover(null)}
+                  onClick={(ev) => { ev.stopPropagation(); onEdgeClick(e); }} />
+                <path d={d} fill="none"
+                  stroke={lit ? C.accent : "#D3C6AF"} strokeWidth={active ? 2 : lit ? 1.6 : 1} strokeLinecap="round"
+                  style={{ pointerEvents: "none", transition: `stroke ${MOTION.hover}ms ${MOTION.ease}, stroke-width ${MOTION.hover}ms ${MOTION.ease}` }} />
+              </g>
             );
           })}
         </g>
@@ -1018,7 +1038,25 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     return <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "28px 4px" }}>That node isn&apos;t in your knowledge yet.</div>;
   }
   const centerEntity = byId.get(center)!;
-  const selectedEdge = selEdge ? graph.edges.find((e) => edgeKey(e) === selEdge) ?? null : null;
+  // A layered edge is the light {from,to,predicate} shape (no fact); rebuild the
+  // full EgoEdge from the subject's facts so the SAME EdgeInspector opens at
+  // every zoom level (Feature 1). Cluster spokes (predicate "") have no real
+  // fact → null, and are routed to expand instead of inspect.
+  const layeredEdgeToEgo = (le: { from: string; to: string; predicate: string }): EgoEdge | null => {
+    const from = byId.get(le.from), to = byId.get(le.to);
+    if (!from || !to) return null;
+    const fact = from.facts.find((f) => f.ref && f.refId === le.to && f.predicate === le.predicate);
+    if (!fact) return null;
+    return { from: le.from, to: le.to, predicate: le.predicate, fact, fromLabel: from.label, toLabel: to.label };
+  };
+  const selectedEdge: EgoEdge | null = !selEdge
+    ? null
+    : layers === null
+    ? graph.edges.find((e) => edgeKey(e) === selEdge) ?? null
+    : (() => {
+        const le = (layeredGraph?.edges ?? []).find((e) => `${e.from}~${e.to}~${e.predicate}` === selEdge);
+        return le ? layeredEdgeToEgo(le) : null;
+      })();
   // The chip lives in whichever graph is on screen: the walk's ego graph, or
   // the zoom-out's layered graph. Both node shapes carry `.entity` + `.clusterOf`.
   const clusterPool: Array<{ id: string; clusterOf?: string[]; entity: KnowledgeEntityView }> =
@@ -1143,6 +1181,16 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
             onHover={setLayerHover}
             onWalk={layerWalk}
             onExpand={layerExpand}
+            hoverEdge={hoverEdge}
+            selEdge={selEdge}
+            onEdgeHover={setHoverEdge}
+            onEdgeClick={(e) => {
+              // Cluster spokes (empty predicate) have no real fact → expand the
+              // folded members (the spoke is always chip→parent, so the chip is
+              // `from`); every other edge opens the fact inspector.
+              if (!e.predicate) { setSelCluster(e.from); setSelEdge(null); }
+              else { setSelEdge(`${e.from}~${e.to}~${e.predicate}`); setSelCluster(null); }
+            }}
             reduced={reduced}
           />
         )}
@@ -1236,7 +1284,9 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
             : `${reduced ? "2D radial · reduced motion" : "ego neighbourhood"} · ${graph.nodes.length} nodes · ${graph.edges.length} edges`}
         </div>
 
-        {selectedEdge && layers === null && (
+        {/* The fact inspector works from either surface — the walk OR the
+            zoom-out (Feature 1): an edge is clickable at every zoom level. */}
+        {selectedEdge && (
           <EdgeInspector edge={selectedEdge} onClose={() => setSelEdge(null)} onGoTo={(id) => { setSelEdge(null); goTo(id); }} />
         )}
         {/* The panel works from either surface — the walk or the zoom-out. */}

@@ -53,7 +53,32 @@
   inert past the primary ring — only the walk expanded them). Enhanced
   2026-07-14: layered cards SPREAD from their parent on entry (the walk's
   enter-from-parent motion, applied to every ring — first reveal blooms all
-  rings from center; a step-in spreads just the newest).
+  rings from center; a step-in spreads just the newest). Enhanced 2026-07-14:
+  clicking a card while zoomed out RECENTERS in place at the same zoom level
+  (was snapping back to the walk); dropped the "N hops"/"not linked yet" ring
+  labels; layered edges are soft arcs bowing toward the center.
+- **Explorer edges at every zoom level (Feature 1 — clickable, label-less
+  when zoomed out)** *(user ask 2026-07-14)*: today only the base walk has
+  clickable edges that open the fact inspector + show the predicate name. Make
+  the LAYERED (zoomed-out) edges clickable too — same fact inspector — but
+  WITHOUT the predicate label (too much text across many rings; dropping it
+  keeps every zoom level legible). Goal beyond the feature itself: unify the
+  base-view and layered-view edge code so they are roughly the same, which
+  sets up the continuous scroll below.
+- **Explorer continuous scroll with progressive edge drawing (Feature 2)**
+  *(user ask 2026-07-14 — REVISES the 2026-07-13 "zoom is DISCRETE" decision)*:
+  replace the discrete one-notch-per-ring stepper with a CONTINUOUS scroll.
+  As you scroll out: the current frontier (blurred) items become less blurred
+  and bigger, while the new outermost ring appears FROM THE CENTER fully
+  blurred and travels outward. The new layer's edges are DRAWN progressively
+  with the scroll — starting from the cards nearest the center and extending to
+  the outer circles — rather than appearing in one shot. The scroll is
+  continuous but still "falls"/snaps at exact points: each snap point is the
+  moment a layer's edges finish drawing (one integer layer landed). Only the
+  newly-added layer's edges animate; already-landed layers stay drawn. Requires
+  interpolating the whole-wheel layout (radii/scale/blur) across a FRACTIONAL
+  ring count and a center-out path-reveal for the new edges. Builds on
+  Feature 1's unified edge code.
 - ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
   with ≥2 connected bodies of content → cited note into `body_md`.
 - ~~Audio tier~~ ✅ 2026-07-11 — audio attachments transcribe (fail-soft
@@ -204,39 +229,21 @@
      channel reply-to-approve). Cost/latency note: only classify the no-addressee
      path, not every message. (Revisit true auto-routing later behind a
      per-user opt-in once classification precision is measured.)
-- **THE WOW: the graph engine — REPLAY + COSMOS, one renderer, two modes**
-  (user decisions 2026-07-11: virality needs a visual that "feels like
-  superpowers / science fiction", and the strongest version is a scenaristic
-  chronological REPLAY of the vault building itself — Gource/"Wrapped"
-  energy). Design brief ready for a Claude Design project:
-  **[design/briefs/wow-graph-engine-brief.md](../design/briefs/wow-graph-engine-brief.md)**
-  (context, both modes, 5-act replay structure, LOD rules, demo fixture,
-  deliverables). Build order:
-  1. ~~Ring grouping in the existing walk~~ ✅ 2026-07-12 — per-kind tail
-     collapse into expandable "+N more invoices" pseudo-nodes
-     (`clusterTail`/`maxPerKind` in the pure core; cited nodes never folded;
-     click → member list → walk). The clustering seam the engine reuses.
-  2. **REPLAY** (first wow — forces the whole engine): time-ordered scenario
-     compiled from data we ALREADY store (items.received_at, entities/facts
-     created_at/valid_from, review resolutions, supersessions — the
-     bitemporal vault makes replay a query). Pure core: scenario compiler
-     (events → keyframes) + LOD clustering (degree ranking + community
-     detection), both unit-tested. Five acts ending in the Cosmos; scrubber;
-     pause-to-interact; deterministic captions; canvas/WebGL; dark "poster"
-     palette allowed. Landing hero autoplays it over demo data (no login);
-     user's own replay private + client-side export-as-video
-     (canvas + MediaRecorder) later. Cold-start: demo replay doubles as
-     onboarding; own replay unlocks after week one (retention nudge).
-  3. **COSMOS** = the replay's final frame as a standing view (named stars ∝
-     degree, zoom-expandable cluster nodes, "◍ Walk from here" dive into the
-     2-hop walk). NOT the old Map resurrected — showpiece with an escape
-     hatch into the tool.
+- ~~**THE WOW: the graph engine — REPLAY + COSMOS**~~ **DROPPED 2026-07-14**
+  (user call: remove the Cosmos/WOW feature). The replay-of-the-vault-building
+  and standing Cosmos showpiece are OFF the roadmap. What survives independently:
+  ring grouping (already shipped in the walk) and the continuous-scroll Explorer
+  zoom (below) — the Explorer walk/zoom stays the graph surface; there is no
+  separate WebGL showpiece. `lib/datamodo/constellation.ts` (the old cluster/LOD
+  core kept "for the Cosmos seam") is now fully dormant with no consumer —
+  delete after a quiet month. `design/briefs/wow-graph-engine-brief.md` is
+  retired.
 - **Landing page rework** (with **Claude Design**, not hand-rolled): fold in
   the exec summary (capture → understand → vault → views → trust story) and
   a "who it's for" section from the 2026-07-11 persona set (freelancer,
   researcher, student, recruiter, landlord, creator — each: what they
-  forward / what builds itself / the payoff moment). Hero = the Cosmos
-  animation once it exists; ship copy first if design lands earlier.
+  forward / what builds itself / the payoff moment). Hero = the live Explorer
+  walk/zoom over demo data (no login), not a bespoke animation.
 - **Channel adapters E2E** — WhatsApp (Twilio sandbox), Slack app, Teams bot
   are code-complete but have never touched the real providers. The core pitch
   ("forward from anywhere") ends here. Now also covers the **channel

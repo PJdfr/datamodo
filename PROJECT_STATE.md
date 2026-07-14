@@ -12,6 +12,28 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Dropped the WOW/Cosmos feature + Explorer edges clickable
+  at every zoom level (Feature 1)**. (1) Roadmap/MEMORY: removed "THE WOW: the
+  graph engine — REPLAY + COSMOS" (user call). No separate WebGL showpiece — the
+  Explorer walk + continuous zoom IS the graph surface; landing hero uses the
+  live Explorer. `constellation.ts` (the LOD/cluster core kept for the Cosmos
+  seam) now has no consumer → dormant, delete after a quiet month;
+  `design/briefs/wow-graph-engine-brief.md` retired. (2) **Feature 1**: the
+  layered (zoomed-out) edges are now clickable — a fat transparent hit path per
+  edge opens the SAME `EdgeInspector` as the base walk. Layered edges are the
+  light `{from,to,predicate}` shape, so `layeredEdgeToEgo` rebuilds the full
+  `EgoEdge` (finds the fact on the subject entity) on click; cluster spokes
+  (empty predicate) route to expand instead. The inspector render lost its
+  `layers === null` gate. Layered edges carry NO predicate label (too much text
+  across rings) — the predicate shows only inside the inspector. `LayeredView`
+  gained `hoverEdge`/`selEdge`/`onEdgeHover`/`onEdgeClick` props (same contract
+  as the walk's `EdgeLayer`) — the base and layered edge code are now roughly
+  unified, which sets up the planned continuous-scroll zoom (Feature 2, on the
+  roadmap). Verified via the `explorer-layers` shoot harness (temporarily
+  extended to click an edge while zoomed out, then reverted): the fact inspector
+  opened over the layered view ("INV-900 —issued by→ Acme Group", 4 of 4
+  layers), edges lit coral on select, no labels drawn on the arcs. tsc + lint
+  clean, 163 tests green.
 - **2026-07-14** — **Explorer: clicking a card while zoomed out RECENTERS in
   place at the same zoom level + dropped the "N hops"/"not linked yet" ring
   labels + curved the layered edges** (user requests). (1) `walkTo` now branches
