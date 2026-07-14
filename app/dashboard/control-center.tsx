@@ -86,7 +86,7 @@ type Tab = "agents" | "data" | "review" | "search" | "chat";
 // The Data tab is ONE FLAT toggle (IA rule 2026-07-11: no toggles inside
 // toggles). Tables/Cards/Concepts unified into the Tables surface (schema
 // diagram + cards drill-down); the Map was removed outright — walk only.
-type DataView = "tables" | "explore" | "timeline" | "files" | "insights";
+type DataView = "tables" | "explore" | "graph" | "timeline" | "files" | "insights";
 export type ControlCenterProps = {
   fullName: string;
   initial: string;
@@ -258,6 +258,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
     agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
     data: { t: "Data", sub: {
       explore: "Everything we know, walkable — stand on a node and look around; scroll out for the big picture",
+      graph: "Your whole vault as one map — every entity and link at once; pick the layout that reads best",
       timeline: "What datamodo learned, in order — your data's story, not table edits",
       files: "Documents that arrived as attachments — filed by what they mention, originals kept",
       insights: "The numbers behind your knowledge — totals & breakdowns, computed live",
@@ -419,7 +420,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           {tab === "data" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "▦ Tables" }, { v: "explore", label: "◍ Explore" }, { v: "timeline", label: "Timeline" }, { v: "files", label: "Files" }, { v: "insights", label: "Insights" }]} />
+                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "▦ Tables" }, { v: "explore", label: "◍ Explore" }, { v: "graph", label: "⊛ Graph" }, { v: "timeline", label: "Timeline" }, { v: "files", label: "Files" }, { v: "insights", label: "Insights" }]} />
                 {/* Rare actions live behind ONE menu, not three peers (simplicity rule). */}
                 <div style={{ position: "relative" }}>
                   <Hov onClick={() => setDataActionsOpen((o) => !o)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
@@ -446,11 +447,11 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                   )}
                 </div>
               </div>
-              {/* ONE KnowledgeView instance across Tables/Explore — same slot,
-                  so the walk's breadcrumb trail survives pill switches. */}
-              {(dataView === "tables" || dataView === "explore") && (
+              {/* ONE KnowledgeView instance across Tables/Explore/Graph — same
+                  slot, so the walk's breadcrumb trail survives pill switches. */}
+              {(dataView === "tables" || dataView === "explore" || dataView === "graph") && (
                 <KnowledgeView
-                  view={dataView === "tables" ? "schema" : "explore"}
+                  view={dataView === "tables" ? "schema" : dataView}
                   onSwitch={() => setDataView("explore")}
                   tables={datasets.map((d) => ({ id: d.id, name: d.name, kindId: d.kind_id }))}
                   tableLinks={relations}

@@ -78,32 +78,28 @@
   the new ring grows and the old blurred frontier sharpens + grows for free.
   Still deterministic (fixed bearings) — a scroll-attached tween, not physics.
   Walk↔layered boundary (below 2 rings) stays a swap.
-- **Explorer v2 experiment — a Sigma.js + graphology renderer, PARALLEL to
-  (not replacing) the existing explorer** *(user ask 2026-07-14)*. Try a second
-  explorer built on **graphology** (the graph data structure + algorithms — load
-  `entities`/`facts` into a `Graph`, get degree/community/pathfinding for free)
-  rendered by **sigma.js** (WebGL canvas, handles thousands of nodes at 60fps
-  where our hand-rolled DOM+SVG walk tops out at a modest ring count). Keep the
-  CURRENT explorer intact and shipped — this is a separate surface/route (e.g.
-  an "Explore (beta)" toggle or `/dashboard/explorer2`) so we can compare, not a
-  rewrite. What it buys us: whole-vault scale in one view (the niche the dropped
-  Cosmos was meant to fill — but as a real tool, not a bespoke animation),
-  force/circular/BFS layouts from graphology-layout libs, and cheap zoom/pan.
-  What it costs / open questions to answer in the experiment: (1) sigma draws
-  nodes as WebGL discs + labels, NOT our rich natural-shape DOM cards — decide
-  whether nodes stay dots that open the existing side-panel/entity-page on
-  click (likely yes — keep the card richness in the panel, the canvas is the
-  map), or whether a hybrid (DOM overlay for the focused node) is worth it;
-  (2) our brand look (cream/ink/coral, curved bundled edges, depth blur) must be
-  reproduced in sigma's node/edge programs (custom renderers) or it'll look
-  generic; (3) reconcile with the pure cores — feed it from `entities`/`facts`
-  directly (graphology as the in-memory index) rather than `buildEgoGraph`, and
-  keep the click→walk/recenter and edge→fact-inspector interactions. Deliverable
-  of the experiment: a spike that renders the demo vault at scale, a side-by-side
-  read on feel vs the DOM explorer, and a keep/kill call. New deps:
-  `graphology` (+ `graphology-layout*`, `graphology-communities-louvain`) and
-  `sigma`. If it wins, it could become the standing whole-vault surface with the
-  ego-walk as the drill-in; if it loses on brand/feel, we keep the DOM explorer.
+- ~~**Explorer v2 experiment — a Sigma.js + graphology renderer, PARALLEL to
+  (not replacing) the existing explorer**~~ ✅ 2026-07-14 *(user ask; the spike
+  shipped as the Data tab's **⊛ Graph** sub-tab, next to ◍ Explore)*: the WHOLE
+  vault on one WebGL canvas — graphology holds the graph, sigma.js draws it —
+  and the USER picks the layout (✦ Organic = ForceAtlas2 · ◯ Circle ·
+  ◉ By kind = circlepack), all deterministic (circular seed, no randomness).
+  Unlike the Explorer it is NOT centered on one node. The open questions
+  resolved: (1) nodes stay DOTS (kind-colored, sized by degree, labels appear
+  by size/on focus) — the card richness lives in the click panel, whose
+  "◍ Walk from here" hands the node to the Explorer and "open ›" opens the
+  entity page; (2) the brand look came from sigma settings + reducers (cream
+  canvas, warm `#E1D9C8` edges, coral-lit focus neighborhood that dims the
+  rest) — no custom GL programs needed at this fidelity; (3) it feeds from
+  `entities`/`facts` via a new pure core `buildVaultGraph` that reuses the ONE
+  `buildAdjacency` rule. Edge click opens a light link inspector (every
+  predicate on the pair, directions kept; NO labels drawn on edges — standing
+  rule). Fails soft to a message without WebGL. New deps: `graphology`,
+  `graphology-layout`, `graphology-layout-forceatlas2`, `sigma` (louvain
+  skipped — kind colors carry the reading). Still open from the experiment:
+  the side-by-side KEEP/KILL call (both surfaces are live to compare), a
+  worker for ForceAtlas2 at real whole-vault scale, and whether the walk's
+  arcs/blur vocabulary is worth porting into custom node/edge programs.
 - ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
   with ≥2 connected bodies of content → cited note into `body_md`.
 - ~~Audio tier~~ ✅ 2026-07-11 — audio attachments transcribe (fail-soft
