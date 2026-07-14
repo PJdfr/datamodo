@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { C, monoLabel, CountUp, SourceRow } from "./ui";
 import { ExplorerView } from "./explorer-view";
+import { GraphView } from "./graph-view";
 import { SchemaView, type SchemaTableLink, type SchemaTableRef } from "./schema-view";
 import { EntityPageModal } from "./entity-page";
 import { buildDatasetNodes, type DatasetNodeSource } from "@/lib/datamodo/node-shapes";
@@ -110,11 +111,12 @@ function EntityCard({ e, kindDef, onOpen }: { e: KnowledgeEntityView; kindDef?: 
   );
 }
 
-export type KnowledgeViewName = "schema" | "explore";
+export type KnowledgeViewName = "schema" | "explore" | "graph";
 
 export function KnowledgeView({ view, onSwitch, tables = [], tableLinks = [], onOpenTable, onTablesChanged }: {
   /** "schema" = the unified Tables surface (schema diagram + cards drill-down);
-   *  "explore" = the graph walk. One flat toggle upstairs, nothing nested. */
+   *  "explore" = the ego graph walk; "graph" = the whole vault at once
+   *  (sigma.js canvas). One flat toggle upstairs, nothing nested. */
   view: KnowledgeViewName;
   /** Flip the flat toggle to Explore ("◍ Explore" from a page modal). */
   onSwitch?: (v: "explore") => void;
@@ -241,6 +243,17 @@ export function KnowledgeView({ view, onSwitch, tables = [], tableLinks = [], on
           initialId={exploreId ?? entities[0].id}
           kindByName={kindByName}
           onOpenPage={setOpenId}
+        />
+      )}
+
+      {/* Graph: the whole vault at once — no center, pick a layout; "walk
+          from here" hands the node to the Explorer. */}
+      {view === "graph" && entities.length > 0 && (
+        <GraphView
+          entities={explorerEntities}
+          kindByName={kindByName}
+          onOpenPage={setOpenId}
+          onExplore={explore}
         />
       )}
 
