@@ -9,9 +9,465 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-12
+> Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Roadmap: added an "Explorer v2 experiment" item** (user
+  ask) — try a SECOND explorer built on graphology (graph data structure +
+  algorithms) rendered by sigma.js (WebGL, thousands of nodes), PARALLEL to and
+  not replacing the existing hand-rolled DOM+SVG explorer (separate route/toggle
+  for a side-by-side keep/kill call). Fills the whole-vault-scale niche the
+  dropped Cosmos was meant to, but as a real tool. Open questions captured in
+  ROADMAP: WebGL discs vs our natural-shape cards (nodes likely stay dots that
+  open the existing panel on click), reproducing the brand look in sigma's
+  node/edge programs, and feeding it from `entities`/`facts` while keeping the
+  click→walk + edge→fact-inspector interactions. Docs-only change.
+- **2026-07-14** — **Explorer zoom-out is now CONTINUOUS (Feature 2)** — reverses
+  the 2026-07-13 "zoom is DISCRETE" call (user ask). The wheel no longer steps
+  one ring per notch; scroll maps DIRECTLY to a float ring count (`layers` is now
+  a float; SENS ≈ one ring / 320px) and HOLDS wherever you stop — the user chose
+  hold-partial over settle-to-nearest. `floor(zoom)` rings are landed; the
+  fraction emerges the next ring FROM THE CENTER (radius 0 → target, always
+  full-blurred) with its edges drawing outward — the emerging edge's outer
+  endpoint travels out so it reveals center→rim, opacity ramping with the
+  emergence (`opOf` fades the emerging ring by the emerge easing). Geometry: the
+  original per-integer wheel math is now `wheelGeom(KK)`, computed for `floor`
+  and `floor+1` and LERPed by the fraction — landed rings shrink inward (camera
+  pulls back) as the new ring grows, and the old blurred frontier "becomes less
+  blurred and bigger" for free (ring K is the blurred frontier at count K but a
+  sharp interior at count K+1, so the LERP does it). Only the emerging layer
+  animates; landed rings/edges stay. The wheel handler is a continuous
+  functional `setLayers` (no `wheelAcc`/`lastStep`/cooldown); the `<g key={K}>`
+  per-step re-fade is gone (edges track every frame); recenter still blooms via
+  `RingAnim.all`. Walk↔layered boundary (zoom < 2) stays a swap (3D perspective
+  vs 2D wheel). Verified via the `explorer-layers` shoot harness (now a
+  continuous scroll held at a fraction): 3.0 landed, 3.1 with ring 4 just
+  emerging faint near center, 3.4/3.5 with ring 4 travelled ~¾ out — all render
+  clean, status reads "3.x of 4 layers". tsc + lint clean, 163 tests green.
+- **2026-07-14** — **Dropped the WOW/Cosmos feature + Explorer edges clickable
+  at every zoom level (Feature 1)**. (1) Roadmap/MEMORY: removed "THE WOW: the
+  graph engine — REPLAY + COSMOS" (user call). No separate WebGL showpiece — the
+  Explorer walk + continuous zoom IS the graph surface; landing hero uses the
+  live Explorer. `constellation.ts` (the LOD/cluster core kept for the Cosmos
+  seam) now has no consumer → dormant, delete after a quiet month;
+  `design/briefs/wow-graph-engine-brief.md` retired. (2) **Feature 1**: the
+  layered (zoomed-out) edges are now clickable — a fat transparent hit path per
+  edge opens the SAME `EdgeInspector` as the base walk. Layered edges are the
+  light `{from,to,predicate}` shape, so `layeredEdgeToEgo` rebuilds the full
+  `EgoEdge` (finds the fact on the subject entity) on click; cluster spokes
+  (empty predicate) route to expand instead. The inspector render lost its
+  `layers === null` gate. Layered edges carry NO predicate label (too much text
+  across rings) — the predicate shows only inside the inspector. `LayeredView`
+  gained `hoverEdge`/`selEdge`/`onEdgeHover`/`onEdgeClick` props (same contract
+  as the walk's `EdgeLayer`) — the base and layered edge code are now roughly
+  unified, which sets up the planned continuous-scroll zoom (Feature 2, on the
+  roadmap). Verified via the `explorer-layers` shoot harness (temporarily
+  extended to click an edge while zoomed out, then reverted): the fact inspector
+  opened over the layered view ("INV-900 —issued by→ Acme Group", 4 of 4
+  layers), edges lit coral on select, no labels drawn on the arcs. tsc + lint
+  clean, 163 tests green.
+- **2026-07-14** — **Explorer: clicking a card while zoomed out RECENTERS in
+  place at the same zoom level + dropped the "N hops"/"not linked yet" ring
+  labels + curved the layered edges** (user requests). (1) `walkTo` now branches
+  on `layers !== null`: while zoomed out it keeps the current ring count
+  (clamped to the new center's `maxHop`), re-blooms every ring from the NEW
+  center (`RingAnim{dir:"in", all:true}`) and updates the trail — instead of the
+  old `setLayers(null)` that snapped every click back to the fully-zoomed-in
+  walk. Zoom is now a property of the view, not reset by navigation. (2) Removed
+  the per-ring `<text>` depth badges ("1 hop"/"2 hops"/"not linked yet"), the
+  `unlinkedShown` corner note ("outermost ring = not connected to this node"),
+  and the "· 2 hops" fragment in the walk's status line — the concentric card
+  rings carry depth on their own. (3) Layered-view edges are now `<path>`
+  quadratic arcs whose control point is the chord midpoint pulled 40% toward the
+  origin (hierarchical-edge-bundling look that belongs to the concentric
+  layout), in a warmer taupe (`#D3C6AF`), replacing the grey straight `<line>`
+  chords. Verified via the `explorer-layers` shoot harness (temporarily extended
+  to click a card while zoomed out, then reverted): breadcrumb + side panel
+  recenter on the clicked node while the view STAYS at "4 of 5 layers", ring
+  labels gone, edges render as faint inward arcs. tsc + lint clean, 163 tests
+  green.
+- **2026-07-14** — **Explorer zoom-out: cards now SPREAD from their parent on
+  every layer (user: give the base walk's enter-from-parent motion to all
+  layers)**. The layered view previously just popped the newest ring in place
+  (`dm-rise-z` scale). Now each arriving `LayerCard` first paints at its
+  parent's projected slot (½ scale, transparent) then glides to its own ring —
+  the same flip `Node3D` uses on the walk. First reveal from the walk blooms
+  EVERY ring from the center in a hop-staggered cascade (`RingAnim.all`); a
+  single step-in only spreads the newest ring (inner rings glide-rescale).
+  Entry positions come from a memoized `enterMap` (stable refs → the fleet's
+  memo holds on hover), and an effect drops `ringAnim` to null after the
+  entrance so later hovers stay stable. Also hardened the settle flip with a
+  `setTimeout(80)` backstop beside the double-rAF, so a backgrounded tab (rAF
+  paused) still surfaces the cards. Verified in a throwaway probe (27-node
+  fan-out, then deleted): all cards settle visible at increasing per-hop
+  distances (hop1<hop2<hop3), enter-start is opacity 0 at the parent, and the
+  deep "+3 more" chip-expand still works. tsc + lint clean, 163 tests green.
+- **2026-07-14** — **Roadmap: local/OSS edition code-separation made a HARD
+  requirement (user call)**. Added to the "Local / open-source single-user
+  edition" track: the local build must ship ONLY the dashboard + 100%-local
+  storage and physically EXCLUDE the cloud backend (landing page, Neon Auth,
+  Neon/serverless storage, cloud channels, billing, cron/ops, MCP host) — a
+  build/packaging boundary, not a runtime `SINGLE_USER` flag (which would leave
+  the closed code in the bundle). Specified the CORE vs CLOSED split (core =
+  dashboard UI + pure cores + deterministic ingest + `lib/llm/*` + LOCAL
+  storage/db/worker adapters; closed = `lib/auth/*`, `@prisma/adapter-neon`,
+  landing, hosted channels, Stripe, cron, MCP host) and mechanical enforcement
+  (separate workspace/package + storage/auth/channel interfaces + a
+  dependency-boundary lint that fails if core imports the closed layer). Docs
+  only: `docs/ROADMAP.md`.
+- **2026-07-14** — **Bugfix: "+N more" fold cards were inert in the zoomed-out
+  layered Explorer (user: deep hop-3/hop-4 chips did nothing; only the walk's
+  primary ring expanded)**. Root cause: `LayerCard`'s click was hard-gated to
+  non-chips (`if (!chip && !isCenter) onWalk`), and `ClusterPanel` only
+  rendered while `layers === null` — so in the zoom-out view every chip at
+  every depth was dead; the walk view (`Node3D`) was the only place chips
+  expanded. Fix (`app/dashboard/explorer-view.tsx`): chips now fire an
+  `onExpand` → the shared `ClusterPanel`, `selectedCluster` resolves against
+  whichever graph is on screen (walk ego graph OR layered graph — both carry
+  `.entity` + `.clusterOf`), and the panel renders in both views. Verified in
+  a throwaway probe route (synthetic hub folding 10 companies into a "+3 more"
+  chip at hop 4, then deleted): clicking the hop-4 chip opens the member panel
+  (Company 7/8/9), a second click toggles it closed, and clicking a member
+  walks to it (breadcrumb Center Person / Company 8) — the exact
+  previously-dead case. tsc + lint clean, 163 tests green.
+- **2026-07-14** — **Roadmap: five user-directed tracks added (planning only,
+  no code)**: (1) MCP server/connectors — run datamodo on a Claude
+  SUBSCRIPTION: Claude-as-extractor over MCP read tools + a schema-validated
+  `submit_extraction` into the existing deterministic ingest pipeline, plus
+  in-Claude review resolution (reuse review-ping cores) and a keyless
+  `process_inbox` pull model; (2) Ollama as a keyless first-class provider
+  (local edition + cloud BYOK pointing at any OpenAI-compatible base URL);
+  (3) Review tab absorbs Timeline + gains a git-style history view (commit
+  log / blame / supersession diffs from the bitemporal vault) — REVISES the
+  2026-07-11 Review/Timeline IA split, decided not yet built; (4) chat review
+  bubbles get Review Studio's full PR fidelity via ONE shared review-card
+  core with two skins (chat ink+coral bubble; Studio restyled to brand);
+  (5) outbound SYNC — one-way push of projections into the user's own infra
+  (Sheets/Drive/SharePoint/OneDrive/their own Postgres/local fs), each
+  connector designed for both cloud and local editions. Details in
+  docs/ROADMAP.md "Next build tracks".
+- **2026-07-14** — **Layered zoom-out: hover + scroll perf pass (user: "still
+  a bit laggy; hover unresponsive when zoomed out")**. Root cause: every
+  hover round-tripped through React and re-rendered the WHOLE tree — ~100
+  layer cards AND the walk's hidden 3D scene still mounted beneath. Fixes:
+  (1) hover feedback (pop-to-readable + unblur + z-lift) is now PURE CSS
+  `:hover`/`:focus-visible` (a per-card `--pop` var) — zero React, zero
+  latency; (2) cards are a memoized `LayerCard` whose props only change on a
+  zoom step (stable callbacks via a goTo ref; riseStyle undefined-not-{}), so
+  a hover re-render reconciles only the SVG edge layer; card dimming on hover
+  dropped in the layered view (edge lighting carries the affordance);
+  (3) the walk's 3D scene UNMOUNTS while the layers cover it (edge geometry
+  re-measured on return); (4) no more `filter` transitions (blurred-layer
+  compositing is expensive at 3.4k-px widths — ring promotion snaps sharp);
+  (5) cadence tightened again: 120ms step spacing, NOTCH 85, glide 220ms,
+  rise 260ms, sink 240ms. Probe artifact fixed: harness/probes now re-query
+  the wheel target per event (the captured walk card detaches when the scene
+  unmounts — real pointers always hit attached elements). 163 tests, tsc,
+  lint == baseline, `next build`, cadence/step/animation probes green.
+- **2026-07-14** — **Roadmap: added "Address a specific agent in Chat" as a
+  Next build track** (planning only, no code). Explicit agent picker (dropdown)
+  + inline `@agent_name` autocomplete, each showing the agent's short
+  description; no-addressee drops default to the general datamodo agent. Logged
+  with pushback: the "classify the drop and route it" idea becomes a SUGGESTED
+  reroute confirmed via the existing Review flow, not silent auto-routing
+  (silent misrouting buries content in the wrong agent's private dataset;
+  ambiguity is common) — classify only the no-addressee path; true auto-routing
+  revisited later behind a per-user opt-in. Docs only: `docs/ROADMAP.md`.
+- **2026-07-14** — **Roadmap: added "Graph-first retrieval (GraphRAG)" as a
+  Next build track** (planning only, no code). Captures the strategy discussed
+  with the user: grounded answers should entity-link the query → traverse
+  `facts` (current claims via `valid_to IS NULL`, or as-of via
+  `valid_from/valid_to`; `superseded_by`+`confidence` for contradictions) as
+  primary context → fall back to `doc_chunks` scoped to the linked entities →
+  cite via `fact_sources`. Absorbs the older "Semantic (ANN) chunk search"
+  follow-up as its fallback leg; embeddings drop to an entity-linking aid, so a
+  free/local model suffices (per-row `embedding_model` already allows
+  incremental swaps). Docs only: `docs/ROADMAP.md` (+ date bump).
+- **2026-07-14** — **Layered zoom-out: scroll responsiveness (user: "it takes
+  time to load subsequent layers — weird friction")**. The friction was
+  pacing, not compute: (1) scroll events during the per-step cooldown were
+  DISCARDED — now they BANK into the accumulator, so a continuous scroll
+  steps at a steady cadence instead of demanding a fresh notch after every
+  pause; (2) step spacing 340→160ms; (3) animations tightened (rise 480→320ms
+  + 16ms stagger, glide 420→260ms, sink 320→240ms, edge re-fade lands at
+  ~400ms post-step instead of ~640ms); (4) real perf nit: the edge renderer
+  did two O(N) `find`s per line (O(E·N) per render) → Map lookup. Cadence
+  probe: walk→4 layers in ~0.9s and back in ~0.7s of continuous trackpad
+  scrolling (was ~600ms+ per step). 163 tests, tsc, lint == baseline,
+  `next build`, screenshots + step/animation probes green.
+- **2026-07-14** — **Layered zoom-out: ring spacing pass (user feedback on a
+  live 98-node graph: cards overlap in arcs while the ring has empty space;
+  the focus ring rendered SMALLER than the others)**. Two pure-core fixes in
+  `buildLayeredEgo` (both deterministic — bearings stay permanent, the walk's
+  shared angles stay in sync): (1) each ring's bearings BLEND toward even
+  full-circle spacing, strength ∝ ring fullness vs its circumference
+  (count/(9·k)) — busy rings use the whole circle, sparse rings keep pure
+  parent-wedge locality; (2) a HARD FLOOR: no two ring-neighbours closer than
+  half a uniform slot (order-preserving forward pass + seam squeeze). One
+  view fix: the crowd factor can no longer defeat the highlight — every other
+  ring is capped RELATIVE to the realized focus scale (0.82^Δ taper inward,
+  frontier 0.85×), so the newest sharp ring is always the biggest on screen.
+  +1 unit test (163 green), tsc, lint == baseline, `next build`, screenshots.
+- **2026-07-14** — **Layered zoom-out: focus-layer highlight**. User calls,
+  applied in order: (1) no blur GRADIENT — only the OUTERMOST ring (the
+  frontier/preview) carries hop-2's blur+0.9 opacity; it sharpens the moment
+  the next ring surfaces (otherwise far-out views blur into nothing);
+  (2) the HIGHLIGHTED layer is the last sharp ring — the one just revealed:
+  biggest cards (coral ring badge), sizes tapering 0.8×/ring DOWN toward the
+  center ("explored ground recedes; the reading focus is the newest ring").
+  The perspective-projection radii were replaced by CARD-DRIVEN radii: each
+  ring gap clears the card heights of its two neighbour rings (the focus ring
+  gets the room its big cards need, inner rings pack tight), then the wheel
+  fits the canvas — radial overlap impossible by construction, bearings
+  unchanged, layout still static between steps. Verified: 162 tests, tsc,
+  lint == baseline, `next build`, `explorer-layers` screenshot (focus ring
+  large + sharp, frontier blurred, taper toward center).
+- **2026-07-13** — **Graph zoom, FINAL shape: the Explorer's layered zoom-out
+  (physics map REPLACED)**. User reset after the calm pass: "the only thing
+  you can do is go from the explorer view and zoom out … the graph stays
+  centered … edges reappear at the same place … one axis … no wiggle
+  (impossible since all edges are fixed), just card size + new layers." Built
+  exactly that: new pure core `buildLayeredEgo` (`lib/datamodo/explorer.ts`) —
+  BFS rings around the walk's center to ANY depth, permanent bearings via
+  deterministic wedge subdivision (55% subtree-weight / 45% uniform blend so
+  fat branches can't squeeze siblings), per-parent "+N more" folding at every
+  depth, one dashed final ring for entities unreachable from the center;
+  5 new unit tests (160 total). `LayeredView` in `explorer-view.tsx`: scroll
+  out on the walk → rings fade in (ring spacing adapts to the busiest ring but
+  NEVER to the zoom — zooming is a pure rescale, wiggle geometrically
+  impossible), cards are the walk's own NodeCards scaling with the dial (hover
+  pops one readable), click walks there, scroll in returns to the walk; walk
+  chrome (breadcrumb/jump/panel) stays. REMOVED: the "◎ Map" pill,
+  `force-graph-view.tsx`, its 3 harnesses (physics/cluster-LOD map + calm
+  pass discarded); `constellation.ts` + tests stay DORMANT as the COSMOS seam
+  (concept-map policy). MEMORY.md design rule updated (graph zoom = one dial,
+  fixed bearings, no physics). Ring guide CIRCLES removed same day (user:
+  clutter) — the card rings carry the shape, only the tiny hop badges remain.
+  **Walk↔zoom continuity pass (same day)**: (1) card size is ∝ the scroll —
+  layered cards are exactly walk-sized at 2 layers and shrink with the same
+  factor the rings do (plus a K-independent crowd factor for busy rings), and
+  the layered ring radii MATCH the walk's rings (r1/r2 = DEPTH.r1/r2) at
+  entry, so scrolling out reads as a continuation, not a jump; (2) ONE bearing
+  per node shared by both views — new pure `layeredAngles` +
+  `depthLayout(..., angles)` override make the WALK sit its cards at the
+  layered bearings (walk-only "+N more" kind-chips take the circular mean of
+  their members'), so a card keeps its angle when the layers unfold;
+  (3) zoom went DISCRETE (final same-day revision, user call: "scroll enough
+  → one more layer; one easy recursive animation"): scroll notches accumulate
+  (110 deltaY) with a 340ms per-step cooldown; each step adds/removes exactly
+  ONE ring — the arriving ring's cards FALL from higher z (scale 1.75 +
+  transparent → land, 28ms stagger; edges + ring badge fade in with it), a
+  leaving ring lifts back off (ghost cards, animation ends inert), and the
+  layout between steps is completely static (pure rescale of fixed ratios).
+  Below the entry step (3 layers, or 2 if the graph is shallow) you're back
+  in the walk. Playwright probe asserts: steps are one-at-a-time (a 5-notch
+  burst inside the cooldown moves nothing), enter/exit animations attach only
+  to the stepping ring. **Depth rules pass (same day, user call: "each layer
+  = exactly the base view's rules, one more layer")**: every ring now obeys
+  the WALK's own depth grammar — ring k sits one layer deeper on the walk's
+  perspective math (`DEPTH.*` constants; a 2D projection of fixed radii/z, so
+  positions stay exact), rendering smaller with depth + the walk's cream fog;
+  the haze rule is RELATIVE to the view (user fix: "only the next layer is
+  blurry — no gradient or you see nothing far out"): ONLY the outermost ring
+  — the frontier — carries hop-2's blur/0.9 opacity, and it sharpens the
+  moment the next ring surfaces behind it; each step pulls the camera back ONE
+  layer-gap (200z); a new ring COMES UP from one layer deeper (small +
+  transparent → surfaces, staggered) instead of dropping from the camera, a
+  leaving ring sinks back; hovering a deep card unblurs + pops it readable;
+  the edge SVG re-fades per step (keyed) so lines never visibly detach from
+  the gliding cards. Verified: 162 tests, tsc, lint == baseline, `next
+  build`, harnesses incl. `explorer-layers` (two paced notches → 4-layer
+  screenshot showing the blur/haze gradient).
+- **2026-07-13** — **Map calm pass (user feedback: "everything wiggles")**:
+  split/merge transitions no longer shake the graph. Four sim rules in
+  `force-graph-view.tsx`: (1) entering siblings are placed DETERMINISTICALLY
+  on an evenly-spaced, overlap-free ellipse around the pinned anchor (the
+  walk's ego-ring, precomputed — the collision solver has nothing to explode);
+  (2) while fresh nodes land, VETERANS get ~10% force weight, so a split
+  nudges the neighbourhood instead of shaking the world; (3) velocities are
+  capped and alpha cools 0.96/tick (settle ≈1.5s, transitions reheat to only
+  0.25 — the global-reheat-on-split was removed); (4) pins + damping release
+  only when motion CEASES (alpha < 0.003) — releasing earlier let a
+  full-strength coda re-shake the layout (probe caught the anchor drifting
+  52 units; after the fix 0.04). Playwright probe asserts: anchor drift 0.04,
+  residual wiggle 0.44 world units over 600ms post-settle. All 10 harnesses,
+  155 tests, tsc, lint == baseline green.
+- **2026-07-13** — **Map continuity pass (user feedback on v1)**: (1) a
+  splitting cluster no longer "disappears" — its ANCHOR card inherits the
+  cluster's exact world position and is PINNED there while the sim settles
+  (members pop in around it, cross-links stay); merging is symmetric (the
+  cluster reappears where its hub was). Verified with a playwright probe:
+  0.00 world-units of anchor drift across a split. (2) Cards adopt the WALK's
+  visual language — kind chip row, kind-tinted paper tones, ink
+  company/dataset cards, dashed pseudo-cluster cards ("+N more inside") — so
+  the map reads as the walk zoomed out. (3) The deepest zoom needs NO click:
+  a lone entity card filling the screen center past `walkPx` makes the map
+  FALL INTO the real `ExplorerView` INLINE (dm-drop-in transition, "◎ Back to
+  map" chip bottom-center, camera pulled back on exit so it can't re-trigger);
+  clicking any card dives the same way. The `AnswerGraphModal` handoff was
+  replaced by this inline takeover (+`EntityPageModal` wired for "Full page
+  ›"). `LOD.leafSide` 34→56 so the dive threshold lands ~3× instead of ~8×.
+  New harness `force-graph-dive` (synthetic click → asserts the real walk
+  mounted); `force-graph-zoom` retuned. Verified: 155 tests, tsc, lint ==
+  baseline, `next build`, all 10 shoot harnesses, pin probe.
+- **2026-07-13** — **"◎ Map": the semantic-zoom constellation shipped** (the
+  ROADMAP "Constellation overview", built to the handoff
+  `design/mocks/SEMANTIC_ZOOM_README.md`). One graph where zoom = granularity:
+  zoomed out → a few big clusters; scroll in → clusters whose card crosses the
+  split threshold dissolve into sub-clusters → individual entity cards; click
+  any card (or zoom right onto one) → the REAL Explorer walk opens on it via
+  `AnswerGraphModal` — the walk was reused, never reimplemented. New pure core
+  `lib/datamodo/constellation.ts`: `buildConstellation` (recursive hub +
+  seeded label propagation; kind fallback for sparse sets; disconnected dust →
+  a dashed "everything else" bucket; fully deterministic), `visibleCut` (the
+  LOD tree cut — split/merge hysteresis built as a fixed point so the render
+  loop can't oscillate, hard 120-node cap expanding biggest-first), `cutEdges`
+  (real edges bundled up to visible reps with counts). Shared adjacency:
+  `buildAdjacency` extracted in `explorer.ts` and used by BOTH the walk and
+  the map (guardrail: one edge rule, no drift). View
+  `app/dashboard/force-graph-view.tsx` ports the constellation mock's physics
+  (area-scaled repulsion, link springs, center gravity, hard collision, force
+  sliders) over the visible cut only; positions publish to state from rAF
+  (React hooks lint clean); wheel-zoom-at-cursor, pan, drag cards;
+  reduced-motion settles silently. Wired as the "◎ Map" pill in Data
+  (`control-center.tsx`). UI intentionally v1-plain — polish is a Claude
+  Design pass. Verified: 11 new unit tests (155 total green), tsc, lint ==
+  baseline, `next build` green, and two shoot harnesses
+  (`force-graph`, `force-graph-zoom` — the latter fires real wheel events and
+  caught a bug where the wheel/resize listeners attached before the canvas
+  existed, i.e. zoom would have been dead on first load).
+  next split, not the folder's name**. When you select a folder, the trailing
+  content (files) column no longer repeats that folder's name in its header —
+  the folder is already selected and highlighted in the column to its left, so
+  the name was redundant. The header is now reserved for the NEXT split: it
+  shows only a "+" that turns the shown files into sub-folders (and the
+  standalone "+" rail only renders when there's no content column to host it).
+  `files-view.tsx`; verified via the files shoot harness (content header shows
+  the "+" with no folder name; the name appears once, in the folder column).
+- **2026-07-13** — **Chat goes full-width + a persistent "drop any doc" hint;
+  Files subtab rebuilt as a real explorer**. Chat: the thread/composer no
+  longer sit in a narrow 720px left column — the container is now full-width
+  (bubbles capped at `min(78/84%, 640/700px)` so they stay readable on a wide
+  canvas), and an always-visible dashed drop affordance sits above the composer
+  ("Drag & drop any doc here — or click to attach. PDFs, photos, spreadsheets,
+  notes, voice memos") so the drag/drop/paste capability is discoverable even
+  once the empty state is gone (`app/dashboard/chat-view.tsx`). Files subtab:
+  the cramped stacked "tree box above the grid" is replaced by a two-column
+  **explorer** — a persistent sticky sidebar folder tree (full-width rows,
+  hover feedback, rotating caret, nested indent guide-lines) + a breadcrumb
+  path (each segment clickable, opens ancestors) + the file grid in the main
+  pane (`app/dashboard/files-view.tsx`). The lens ENGINE is unchanged — folders
+  are still deterministic projections of the graph, still "nothing is ever
+  moved"; only the UI was rebuilt. Considered react-arborist/dnd-kit but a
+  drag-to-move tree contradicts the lens model (a file has no single home), so
+  we kept lenses and polished the surface. Verified: tsc green.
+  **Then (same day) — the tree is user-built, any depth**: the fixed two-level
+  stack ("lens + then") became an ORDERED classification PIPELINE the user
+  assembles step by step — a chip row "client › month › type" where each step
+  opens a searchable dimension picker (grouped Relationships / Concepts /
+  Attributes; hides dimensions already used); steps reorder (‹ ›) and remove
+  (×), and "+ add a level" appends with no depth cap. Because order = nesting
+  and the sidebar echoes the pipeline as a depth legend, every subfolder's
+  "why" is visible. Engine change: `buildLensTree` now recurses by DEPTH INDEX
+  instead of `stack.indexOf(lens)` (which silently collapsed a repeated
+  dimension) — a new 3-level unit test locks in arbitrary depth. Verified:
+  144/144 unit tests pass, tsc green.
+  **Then (same day) — rendered as a macOS Finder column view**: the sidebar
+  tree + separate chip-row builder collapsed into ONE surface — horizontal
+  **Miller columns**, one per pipeline step. Each column's HEADER *is* the
+  split control (click to change the dimension via the searchable picker;
+  ‹ › reorder; × remove), and its body lists that level's subfolders; selecting
+  a folder drills the next column open, so you see every subfolder at each step
+  side by side and folders nest left → right. An "+ add a level" ghost column
+  appends; the picker popover is fixed-positioned so it escapes the
+  horizontally-scrolling strip. **Then (same day) — made it TRUE Finder**: the
+  files now render INSIDE a trailing column (compact FileRows: mono type badge
+  + name + size + ↓, click opens the entity page) instead of a grid below; the
+  "+ add a level" shrank to a small plus pinned at the top of a slim rail; and
+  the breadcrumb / search / doc grid below were all removed — everything lives
+  in the columns. With no splits defined, one "All files" column lists
+  everything. Verified: 144/144 tests, tsc + eslint green.
+  **Bugfix (same day)**: adding a level looked like a no-op — the progressive
+  Finder view only rendered columns along the current selection, so a freshly
+  added split had no column until you happened to drill into it. Fix: EVERY
+  defined step now renders its own column, so the split label (header) is
+  visible immediately; a not-yet-drilled column shows an empty-state ("Pick a
+  folder in the column to the left to fill this split") instead of vanishing.
+  `addStep` just appends and preserves the selection. Added a Files shoot
+  harness (`scripts/shoot/harnesses/files.tsx`, mocked fetch) and drove it in
+  headless Chromium: "+ add a level" → "month" immediately shows the Client +
+  Month columns (Month with its empty-state), and drilling Client → Month leaf
+  shows the files column (MSA.pdf, Receipt June.jpg). Screenshot-verified.
+- **2026-07-12** — **The chat is two-way: pull requests land in the thread**.
+  Pending reviews now ride `GET /api/chat` as `questions` and render as
+  datamodo's own ink bubble — "✦ needs your OK", numbered, with ✓ yes / ✗ no
+  buttons per question; tapping posts `POST /api/chat/review` which applies
+  the SAME accept/reject side-effects as Review Studio and the WhatsApp
+  reply path, with an optimistic receipt line ("✓ approved — merge …") and
+  honest fallback on conflict. Closes the loop teased when the channel
+  pull-requests shipped. Verified: tests/tsc/lint/build green; shoot shows
+  the bubble with the demo account's two real pending decisions.
+- **2026-07-12** — **Chat brand pass (10x UI)**. Evaluated open-source chat
+  kits per the user's suggestion (chatscope ships its own theme;
+  reachat/prompt-kit are Tailwind/shadcn — all three fight the design
+  system); rebuilt hand-rolled on the app's own motion vocabulary instead.
+  Now: day separators (hairline + mono kicker), right-aligned paper bubbles
+  (dm-drop-in entrance, warm shadows), OPTIMISTIC sends with image
+  thumbnails in the bubble, attachment tray with real previews (image thumbs,
+  playable audio for voice notes) and per-item remove, drag-&-drop veil +
+  paste-to-attach, recording state (coral ring on the composer, pulsing dot,
+  mm:ss timer), pulsing "reading…" → "✓ filed" status per message, glyph
+  toolbar ⊕ ⏺ ∿ (no emoji — brand rule), coral square send button, empty
+  state with three try-it chips, auto-growing textarea. New screenshot
+  harness (`npm run shoot -- chat`, fetch stubbed). Verified: 143 tests,
+  tsc, lint==baseline, build, screenshot eyeballed on-brand.
+- **2026-07-12** — **The app is a channel: in-app Chat capture** (user
+  must-have). New "Chat" tab in the dashboard rail: a thread + composer that
+  sends straight into the SAME pipeline as email/WhatsApp — multiline text,
+  any-file attach (photos/PDF/docs, ≤8 files / 15 MB per message), a
+  dictaphone (MediaRecorder voice note → the existing transcription tier)
+  and live speech-to-text into the box (Web Speech API, feature-detected;
+  Chrome-family). `POST/GET /api/chat` is session-authed and attributes the
+  org explicitly (no link codes/shared secret — the session IS the
+  identity); items land as channel `upload` with `meta.via='app'` and get
+  the same post-response extraction kick as /api/ingest, so the thread's
+  status chips go ⟳ processing → ✓ filed live (4s poll while busy).
+  Verified: 143 tests, tsc, lint==baseline, build green. NOT verified live:
+  mic/dictation need a real browser + HTTPS; transcription stays dormant
+  until `TRANSCRIPTION_API_KEY`/`OPENAI_API_KEY` is set.
+- **2026-07-12** — **Channel pull-requests: the review comes to you** (user
+  must-have: "when a message creates validation needs, send the pull request
+  over the channel — click/reply to apply"). When extraction leaves decisions
+  behind for a message (pending knowledge_reviews and/or proposed rows) — and
+  only then — the pipeline pings the sender back over the originating
+  channel: numbered questions newest-first, "Reply '1 yes' / '2 no'", plus a
+  dashboard link. Replying in WhatsApp resolves the review with the real
+  accept/reject side-effects and confirms in-thread; the parser only accepts
+  short decision-shaped replies (unit-tested against real-message false
+  positives), so capture is never hijacked. Outbound is env-gated fail-soft:
+  WhatsApp (Twilio REST, new `TWILIO_WHATSAPP_FROM`), Slack
+  (chat.postMessage). New: pure `review-ping.ts` (+5 tests), shells
+  `review-inbox.ts`/`outbound.ts`, hook at end of `runExtractionForItem`,
+  reply interception in the WhatsApp webhook, `getBoundSource` in channels.
+  Also fixed: the heavy seed's merge review used kind 'merge' →
+  'entity_merge' (file + all three Neon branches updated). Verified: 143
+  tests, tsc, lint, build green. NOT live-fired (no Twilio/Slack creds):
+  the actual send + reply round-trip; email/Teams outbound don't exist yet
+  (roadmap).
+- **2026-07-12** — **Folders pivot to deterministic LENSES (no LLM), many
+  trees over the same docs** (user decision: "a folder is just a tag; derive
+  folders deterministically from the graph; suggest multiple trees"). New
+  pure core `lib/datamodo/folder-lenses.ts`: documents+notes collect their
+  tags from facts (linked clients/projects/people/topics, arrival month,
+  file type, channel); each lens is a deterministic grouping rule; lenses
+  stack two levels ("client / month"); a doc linked to two clients IS in
+  both folders. Files view reworked: lens chips (only ones that
+  discriminate), collapsible tree, folder click filters the grid, "↓ Export
+  tree" zips exactly the on-screen tree (multi-folder docs export in each
+  folder). The LLM folder-export modal + Build ▾ entry and the route's LLM
+  path are REMOVED (simplicity rule: the lens tree replaces them);
+  `parseFolderPlan` now allows one doc in several folders. Verified: 138
+  tests (6 new lens tests), tsc, lint==baseline, build green.
 - **2026-07-12** — **Ring grouping in the walk (WOW build-order step 1)** —
   user: "a company with 30 invoices doesn't need 30 spokes". `buildEgoGraph`
   gains `clusterTail`/`maxPerKind`: past 3 nodes of one kind (or past the ring

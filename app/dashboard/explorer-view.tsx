@@ -21,9 +21,9 @@
  * Motion values mirror the handoff's ExplorerGraph3D.MOTION.md.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { C } from "./ui";
-import { buildEgoGraph, depthLayout, DEPTH, type DepthPos, type EgoEdge } from "@/lib/datamodo/explorer";
+import { buildEgoGraph, buildLayeredEgo, depthLayout, layeredAngles, DEPTH, type DepthPos, type EgoEdge, type LayeredEgo, type LayerNode } from "@/lib/datamodo/explorer";
 import { EntityPageBody } from "./entity-page";
 import { buildNodeResolver } from "./markdown";
 import type { FactSourceView, KnowledgeEntityView } from "@/lib/datamodo/types";
@@ -212,6 +212,365 @@ function Node3D({ e, kindDef, pos, enterFrom, isCenter, isHover, isDim, cited, c
       }}
     >
       <NodeCard e={e} kindDef={kindDef} isCenter={isCenter} isHover={isHover} cited={cited} cluster={cluster} />
+    </div>
+  );
+}
+
+/* ===========================================================================
+   Ghost ring — a decorative THIRD layer of unreadable card silhouettes pushed
+   deep behind hop-2. Pure atmosphere: never interactive, no edges, washed out
+   by the depth fog. Deterministic (fixed spec, no randomness) and independent
+   of the center, so it stays put and grounds the space as you walk. 3D only —
+   the reduced-motion 2D radial drops it entirely.
+   =========================================================================== */
+const GHOST_SPEC = [
+  { w: 118, o: 0.5, dz: 0 },
+  { w: 104, o: 0.42, dz: -40 },
+  { w: 122, o: 0.48, dz: 20 },
+  { w: 110, o: 0.44, dz: -20 },
+  { w: 116, o: 0.52, dz: 0 },
+  { w: 100, o: 0.4, dz: -50 },
+  { w: 126, o: 0.46, dz: 10 },
+];
+function GhostRing({ w, h }: { w: number; h: number }) {
+  const r3x = w * DEPTH.r3x;
+  const r3y = h * DEPTH.r3y;
+  return (
+    <>
+      {GHOST_SPEC.map((g, i) => {
+        // Fan evenly, phase-shifted so ghosts peek BETWEEN the outer ring's
+        // bearings rather than hiding directly behind real nodes.
+        const deg = -90 + 25 + (i * 360) / GHOST_SPEC.length;
+        const rad = (deg * Math.PI) / 180;
+        const z = DEPTH.hop3Z + g.dz;
+        const blur = 2.4 + (-z - 410) / 70;
+        return (
+          <div key={i} aria-hidden style={{
+            position: "absolute", left: "50%", top: "50%", width: g.w,
+            transform: `translate(-50%,-50%) translate3d(${Math.cos(rad) * r3x}px, ${Math.sin(rad) * r3y}px, ${z}px)`,
+            transformStyle: "preserve-3d",
+            opacity: g.o, filter: `blur(${blur.toFixed(1)}px)`,
+            pointerEvents: "none", zIndex: 3, willChange: "transform",
+          }}>
+            <div style={{
+              background: "#FBF7EF", border: "1px solid #E2DAC9", borderRadius: 12,
+              padding: "9px 11px", boxShadow: "0 16px 40px -30px rgba(33,30,24,.35)",
+            }}>
+              <div style={{ width: "42%", height: 5, borderRadius: 3, background: "#E5DDCB", marginBottom: 7 }} />
+              <div style={{ width: "82%", height: 8, borderRadius: 3, background: "#D9CFB8", marginBottom: 5 }} />
+              <div style={{ width: "60%", height: 6, borderRadius: 3, background: "#E5DDCB" }} />
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/* ===========================================================================
+   Layered view — the walk's ZOOM-OUT (user decision 2026-07-13: no physics,
+   no free camera). One dial: scroll out and more BFS rings appear around the
+   SAME center; every node holds a permanent bearing (pure core wedge layout),
+   so zoom only rescales radii and grows/shrinks cards — nothing can wiggle,
+   and a node that leaves comes back to the exact same spot.
+   =========================================================================== */
+/** The one step animation: a ring ARRIVES from higher z (bigger + transparent
+ *  → lands at size) or LIFTS back off. Everything else is a static relayout. */
+export interface RingAnim { dir: "in" | "out"; ring: number; /** First reveal from the walk: spread EVERY ring from its parent, not just the newest. */ all?: boolean }
+
+/* One card of the layered view. MEMOIZED — hovering must not re-render a
+   hundred cards: the hover pop + unblur are pure CSS (:hover, zero React),
+   and this component's props only change on a zoom step. */
+const LayerCard = memo(function LayerCard({ n, kindDef, x, y, scale, pop, blur, op, z, isCenter, chip, trans, enterFrom, onHover, onWalk, onExpand }: {
+  n: LayerNode; kindDef?: KindDef;
+  x: number; y: number; scale: number; pop: number; blur: number; op: number; z: number;
+  isCenter: boolean; chip: boolean; trans: string;
+  /** Spread-from-parent entrance: freshly-arrived cards first paint at their
+   *  parent's slot (½ scale, transparent) then glide out to their own ring —
+   *  the SAME motion the base walk uses. `trans` already carries the enter
+   *  timing + per-ring delay for these cards; undefined = no entrance. */
+  enterFrom?: { x: number; y: number };
+  onHover: (id: string | null) => void; onWalk: (id: string) => void; onExpand: (id: string) => void;
+}) {
+  // Enter-from-parent (the walk's own mechanism): first paint at the parent's
+  // slot, then a double-rAF flip glides out to this card's own ring. `enterFrom`
+  // is a memoized, stable reference while the entrance plays, so reading it in
+  // render is safe; it clears to undefined once the anim settles.
+  const [settled, setSettled] = useState(!enterFrom);
+  useEffect(() => {
+    if (settled) return;
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => { r2 = requestAnimationFrame(() => setSettled(true)); });
+    // rAF is paused while the tab is hidden — a timer backstop guarantees the
+    // card still surfaces (settled is idempotent, so whichever fires first wins).
+    const fb = window.setTimeout(() => setSettled(true), 80);
+    return () => { cancelAnimationFrame(r1); cancelAnimationFrame(r2); window.clearTimeout(fb); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only flip
+  }, []);
+  const entering = !settled && !!enterFrom;
+  const tx = entering ? enterFrom!.x : x;
+  const ty = entering ? enterFrom!.y : y;
+  const sc = entering ? scale * 0.55 : scale;
+  // A chip expands its folded members in place; a real card walks; the center
+  // does neither. Chips are as clickable as any other card at every depth.
+  const act = isCenter ? undefined : chip ? () => onExpand(n.id) : () => onWalk(n.id);
+  return (
+    <div
+      className="dm-lcard"
+      role={isCenter ? undefined : "button"}
+      tabIndex={isCenter ? -1 : 0}
+      aria-label={isCenter ? `${n.entity.label} — you are here` : chip ? `${n.entity.label} — show grouped items` : `Walk to ${n.entity.label}`}
+      title={chip ? `${n.clusterOf!.length} grouped ${n.parent ? "under this branch" : "past the horizon"} — click to see them` : undefined}
+      onPointerEnter={() => onHover(n.id)}
+      onPointerLeave={() => onHover(null)}
+      onFocus={() => onHover(n.id)}
+      onBlur={() => onHover(null)}
+      onClick={() => act?.()}
+      onKeyDown={(ev) => { if (act && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); act(); } }}
+      style={{
+        position: "absolute", left: "50%", top: "50%", width: isCenter ? 190 : 150,
+        transform: `translate(-50%,-50%) translate(${tx}px, ${ty}px) scale(${sc})`,
+        opacity: entering ? 0 : op,
+        filter: blur ? `blur(${blur}px)` : undefined,
+        transition: trans,
+        cursor: isCenter ? "default" : "pointer",
+        outline: "none",
+        zIndex: z,
+        ["--pop" as string]: String(pop),
+      }}
+    >
+      <div className="dm-pop">
+        <NodeCard e={n.entity} kindDef={kindDef} isCenter={isCenter} isHover={false} cluster={chip} />
+      </div>
+    </div>
+  );
+});
+
+function LayeredView({ graph, zoom, anim, w, h, kindByName, hover, onHover, onWalk, onExpand, hoverEdge, selEdge, onEdgeHover, onEdgeClick, reduced }: {
+  graph: LayeredEgo;
+  /** CONTINUOUS ring count (float ≥ 2). floor = landed rings; the fraction
+   *  emerges the next ring from the center with its edges drawing outward. */
+  zoom: number;
+  /** The recenter bloom (clicking a card while zoomed); null while scrolling. */
+  anim: RingAnim | null;
+  w: number; h: number;
+  kindByName: Map<string, KindDef>;
+  hover: string | null;
+  onHover: (id: string | null) => void;
+  onWalk: (id: string) => void;
+  /** Expand a "+N more" chip's folded members into the panel. */
+  onExpand: (id: string) => void;
+  /** Edge interaction — the SAME contract as the base walk's EdgeLayer, so an
+   *  edge is clickable at every zoom level (Feature 1). Layered edges carry NO
+   *  predicate label (too much text across many rings); the click still opens
+   *  the fact inspector. `key` is `${from}~${to}~${predicate}`. */
+  hoverEdge: string | null;
+  selEdge: string | null;
+  onEdgeHover: (k: string | null) => void;
+  onEdgeClick: (e: LayeredEgo["edges"][number]) => void;
+  reduced: boolean;
+}) {
+  // CONTINUOUS zoom: `K` rings are landed, `f` emerges ring `K+1`. The wheel
+  // geometry is a pure function of an integer ring count (the ORIGINAL static
+  // math); we compute it for K and for K+1 and LERP by `f`. The landed rings
+  // smoothly shrink inward as the new ring grows (the camera pulls back); the
+  // emerging ring travels out FROM THE CENTER. Because ring K is the blurred
+  // frontier at count K but a sharp interior ring at count K+1, this LERP makes
+  // the old frontier "become less blurred and bigger" for free.
+  const K = Math.floor(zoom);
+  const f = zoom - K;
+  const eo = 1 - Math.pow(1 - f, 2); // emerge easing (decelerate as it lands)
+  const counts = new Map<number, number>();
+  for (const n of graph.nodes) counts.set(n.hop, (counts.get(n.hop) ?? 0) + 1);
+  // The static wheel for an integer ring count `KK` — every rule from the
+  // original discrete layout, now a reusable function.
+  const wheelGeom = (KK: number) => {
+    const focus = Math.max(1, KK - 1);
+    const ringScale = (hop: number) => (hop >= KK ? 0.72 : Math.max(0.45, Math.pow(0.8, focus - hop)));
+    const estH = (hop: number) => (hop === 0 ? 120 : 96) * ringScale(hop);
+    const radial: number[] = [0];
+    for (let k = 1; k <= KK + 1; k++) radial[k] = radial[k - 1] + (estH(k - 1) + estH(k)) / 2 + 16;
+    const fit = Math.min(1, (h / 2 - 44) / radial[KK]);
+    const sxF = Math.min((w / 2 - 130) / radial[KK], fit * 1.6);
+    const crowdOf = (k: number) => {
+      const c = counts.get(k) ?? 1;
+      return k === 0 ? 1 : Math.max(0.45, Math.min(1, (2 * Math.PI * radial[Math.min(k, KK + 1)] * sxF) / (c * 165 * ringScale(k) * fit)));
+    };
+    const rawS = (hop: number) => ringScale(hop) * crowdOf(hop);
+    const focusS = rawS(focus);
+    const scaleOf = (hop: number) => (hop === focus ? focusS : Math.min(rawS(hop), focusS * (hop > focus ? 0.85 : Math.pow(0.82, focus - hop)))) * fit;
+    const posOf = (hop: number, angleDeg: number) => {
+      const r = radial[Math.min(hop, KK + 1)] ?? 0;
+      const rad = (angleDeg * Math.PI) / 180;
+      return { x: Math.cos(rad) * r * sxF, y: Math.sin(rad) * r * fit };
+    };
+    const blurOf = (hop: number) => (reduced || hop < KK ? 0 : 1.4);
+    const opOf = (hop: number) => (hop < KK ? 1 : 0.9);
+    return { scaleOf, posOf, blurOf, opOf };
+  };
+  const gLo = wheelGeom(K);
+  const gHi = wheelGeom(K + 1);
+  const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+  // Blended accessors — landed rings LERP Lo↔Hi by f; the emerging ring K+1
+  // travels out from the center (radius 0) and grows, always full-blurred.
+  const posOf = (n: LayerNode) => {
+    if (n.hop <= K) {
+      const a = gLo.posOf(n.hop, n.angleDeg), b = gHi.posOf(n.hop, n.angleDeg);
+      return { x: lerp(a.x, b.x, f), y: lerp(a.y, b.y, f) };
+    }
+    const b = gHi.posOf(n.hop, n.angleDeg);
+    return { x: b.x * eo, y: b.y * eo };
+  };
+  const scaleOf = (hop: number) =>
+    hop <= K ? lerp(gLo.scaleOf(hop), gHi.scaleOf(hop), f) : lerp(gHi.scaleOf(hop) * 0.5, gHi.scaleOf(hop), eo);
+  const blurOf = (hop: number) =>
+    reduced ? 0 : hop <= K ? lerp(gLo.blurOf(hop), gHi.blurOf(hop), f) : gHi.blurOf(hop);
+  const opOf = (hop: number) =>
+    hop <= K ? lerp(gLo.opOf(hop), gHi.opOf(hop), f) : gHi.opOf(hop) * eo;
+  const hoverPopOf = (hop: number) => Math.min(2.6, Math.max(1.06, 0.9 / Math.max(0.05, scaleOf(hop))));
+  // The emerging ring (K+1) shows only once it has begun (f>0) and exists.
+  const E = f > 0 ? K + 1 : -1;
+  const shown = graph.nodes.filter((n) => n.hop <= K || n.hop === E);
+  const shownIds = new Set(shown.map((n) => n.id));
+  const exiting: LayerNode[] = [];
+  const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+  // A tiny transition smooths between wheel ticks without lagging the scroll;
+  // recenter-bloom cards override this with their own enter transition.
+  const trans = reduced ? "none" : `transform 70ms linear, opacity 90ms linear`;
+  // Arrival = each card SPREADS from its parent's slot out to its own ring —
+  // the base walk's enter-from-parent motion, applied to the zoom-out. On the
+  // FIRST reveal (anim.all) every ring blooms from the center in a hop-staggered
+  // cascade; on a single step-in only the newest ring spreads (inner rings just
+  // glide-rescale via `trans`). Memoized so hover re-renders reuse the SAME
+  // position objects → the fleet's props stay referentially stable.
+  const enterMap = useMemo(() => {
+    const m = new Map<string, { from: { x: number; y: number }; delay: number }>();
+    if (reduced || anim?.dir !== "in") return m;
+    const perHop = new Map<number, number>();
+    for (const n of graph.nodes) {
+      if (n.hop === 0 || n.hop > K) continue;
+      if (!anim.all && n.hop !== anim.ring) continue;
+      const parent = n.parent ? nodeById.get(n.parent) : null;
+      const from = parent ? posOf(parent) : { x: 0, y: 0 };
+      const idx = perHop.get(n.hop) ?? 0;
+      perHop.set(n.hop, idx + 1);
+      const delay = MOTION.enterDelay + (anim.all ? (n.hop - 1) * 80 : 0) + (idx % 10) * 16;
+      m.set(n.id, { from, delay });
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- posOf/nodeById are pure in these deps
+  }, [graph, K, anim, w, h, reduced]);
+  const enterTrans = (delay: number) =>
+    `transform ${MOTION.enter}ms ${MOTION.easeOut} ${delay}ms, opacity ${MOTION.enter}ms ${MOTION.easeOut} ${delay}ms`;
+
+  return (
+    <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "#F6F2E9", animation: reduced ? "none" : `dm-drop-in 260ms ${MOTION.easeOut}` }}>
+      <svg width="100%" height="100%" style={{ position: "absolute", inset: 0, overflow: "visible" }} aria-label="Zoomed-out layers — scroll to reveal more of your world">
+        {/* continuous: edges track the cards every frame, so no per-step key /
+            re-fade — the emerging layer's edges reveal by their outer endpoint
+            travelling out from the center (opacity ramps with the emergence). */}
+        <g transform={`translate(${w / 2}, ${h / 2})`}>
+          {/* edges — soft arcs that bow toward the center rather than grey
+              chords cutting across the wheel. Pulling the quadratic control
+              point toward the origin gives the hierarchical-edge-bundling look
+              that belongs to a concentric layout: radial (cross-ring) edges
+              stay near-straight, same-ring links bow gracefully through the
+              middle. Deeper edges haze out like their ring. CLICKABLE at every
+              zoom level (Feature 1) via a fat transparent hit path — same fact
+              inspector as the walk — but with NO predicate label (too much text
+              across many rings). Cluster spokes (predicate "") expand instead. */}
+          {graph.edges.map((e) => {
+            if (!shownIds.has(e.from) || !shownIds.has(e.to)) return null;
+            const na = nodeById.get(e.from);
+            const nb = nodeById.get(e.to);
+            if (!na || !nb) return null;
+            const a = posOf(na), b = posOf(nb);
+            const k = `${e.from}~${e.to}~${e.predicate}`;
+            const incident = hover !== null && (e.from === hover || e.to === hover);
+            const active = hoverEdge === k || selEdge === k;
+            const lit = incident || active;
+            const dim = (hover !== null || hoverEdge !== null || selEdge !== null) && !lit;
+            const depthOp = opOf(Math.max(na.hop, nb.hop)) * 0.55;
+            // Control point = the chord midpoint pulled 40% toward the center,
+            // so every thread curves inward along the rings.
+            const cx = ((a.x + b.x) / 2) * 0.6;
+            const cy = ((a.y + b.y) / 2) * 0.6;
+            const d = `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`;
+            return (
+              <g key={k} style={{ opacity: dim ? 0.08 : lit ? 0.95 : depthOp, transition: `opacity ${MOTION.edgeFade}ms ${MOTION.ease}` }}>
+                <path d={d} fill="none" stroke="transparent" strokeWidth={14}
+                  style={{ pointerEvents: "stroke", cursor: "pointer" }}
+                  onPointerEnter={() => onEdgeHover(k)} onPointerLeave={() => onEdgeHover(null)}
+                  onClick={(ev) => { ev.stopPropagation(); onEdgeClick(e); }} />
+                <path d={d} fill="none"
+                  stroke={lit ? C.accent : "#D3C6AF"} strokeWidth={active ? 2 : lit ? 1.6 : 1} strokeLinecap="round"
+                  style={{ pointerEvents: "none", transition: `stroke ${MOTION.hover}ms ${MOTION.ease}, stroke-width ${MOTION.hover}ms ${MOTION.ease}` }} />
+              </g>
+            );
+          })}
+        </g>
+      </svg>
+      {/* ONE recursive animation vocabulary: an arriving card SPREADS from its
+          parent's slot out to its ring (per-card transition, above); a leaving
+          ring sinks back down (dm-sink-z). The SVG above re-fades per step (key)
+          so lines never detach from the gliding cards. */}
+      <style>{`
+        @keyframes dm-sink-z { to { opacity: 0; transform: scale(0.55); } }
+        @keyframes dm-fade-in { from { opacity: 0; } }
+        .dm-lcard:hover, .dm-lcard:focus-visible { z-index: 60 !important; filter: none !important; }
+        .dm-pop { transition: transform 130ms cubic-bezier(0.16,1,0.3,1); }
+        .dm-lcard:hover .dm-pop, .dm-lcard:focus-visible .dm-pop { transform: scale(var(--pop, 1.1)); }
+      `}</style>
+      {/* the cards — the walk's own NodeCard at the walk's own depth. Each is
+          a MEMOIZED LayerCard whose props only change on a zoom step, so
+          hovering (CSS) and edge lighting (SVG) never re-render the fleet. */}
+      {shown.map((n) => {
+        const p = posOf(n);
+        const isCenter = n.hop === 0;
+        const en = enterMap.get(n.id);
+        return (
+          <LayerCard
+            key={n.id}
+            n={n}
+            kindDef={kindByName.get(n.entity.kind)}
+            x={p.x}
+            y={p.y}
+            scale={scaleOf(n.hop)}
+            pop={hoverPopOf(n.hop)}
+            blur={blurOf(n.hop)}
+            op={(n.linked ? 1 : 0.85) * opOf(n.hop)}
+            z={isCenter ? 45 : 44 - Math.min(n.hop, 20)}
+            isCenter={isCenter}
+            chip={Boolean(n.clusterOf)}
+            trans={en ? enterTrans(en.delay) : trans}
+            enterFrom={en?.from}
+            onHover={onHover}
+            onWalk={onWalk}
+            onExpand={onExpand}
+          />
+        );
+      })}
+      {/* the ring that just left — ghosts sinking back into the depth */}
+      {!reduced && exiting.map((n) => {
+        const p = posOf(n);
+        return (
+          <div key={`exit-${n.id}`} aria-hidden style={{
+            position: "absolute", left: "50%", top: "50%", width: 150,
+            transform: `translate(-50%,-50%) translate(${p.x}px, ${p.y}px) scale(${scaleOf(n.hop)})`,
+            transition: trans, pointerEvents: "none", zIndex: 43,
+            filter: blurOf(n.hop) ? `blur(${blurOf(n.hop)}px)` : "none",
+          }}>
+            <div style={{ animation: "dm-sink-z 240ms cubic-bezier(0.4,0,1,1) forwards" }}>
+              <NodeCard e={n.entity} kindDef={kindByName.get(n.entity.kind)} isCenter={false} isHover={false} cluster={Boolean(n.clusterOf)} />
+            </div>
+          </div>
+        );
+      })}
+      {/* the walk's cream depth fog — distance reads as haze here too */}
+      <div aria-hidden style={{
+        position: "absolute", inset: 0, pointerEvents: "none", zIndex: 47,
+        background: reduced ? "none" : "radial-gradient(120% 90% at 50% 46%, rgba(246,242,233,0) 42%, rgba(246,242,233,.45) 80%, rgba(239,233,220,.75) 100%)",
+      }} />
     </div>
   );
 }
@@ -440,8 +799,18 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   const [geom, setGeom] = useState<Record<string, EdgeGeom>>({});
   const [size, setSize] = useState({ w: 640, h: 560 });
   const [leaving, setLeaving] = useState<{ id: string; e: KnowledgeEntityView; last: DepthPos }[]>([]);
+  // The zoom-out is CONTINUOUS (Feature 2, 2026-07-14): null = the walk;
+  // otherwise a FLOAT ring count ≥ 2. floor(zoom) rings are fully landed; the
+  // fraction emerges the next ring from the center (blurred, edges drawing
+  // outward) — the scroll HOLDS wherever you stop (no auto-snap). `ringAnim`
+  // is now only the recenter bloom (clicking a card while zoomed); scrolling
+  // drives the fraction directly, not a one-shot animation.
+  const [layers, setLayers] = useState<number | null>(null);
+  const [ringAnim, setRingAnim] = useState<RingAnim | null>(null);
+  const [layerHover, setLayerHover] = useState<string | null>(null);
 
   const sceneRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
   const nodeEls = useRef(new Map<string, HTMLDivElement>());
   const settleUntil = useRef(0);
 
@@ -474,14 +843,68 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     () => buildEgoGraph(entities, center, citedSet.size ? { ...CAPS, prefer: citedSet } : CAPS),
     [entities, center, citedSet],
   );
+  // The zoom-out layers: same center, whole world, fixed bearings.
+  const layeredGraph = useMemo(() => buildLayeredEgo(entities, center), [entities, center]);
+  // ONE bearing per node, shared by the walk and the zoom-out — a card keeps
+  // its angle when the layers unfold.
+  const sharedAngles = useMemo(() => layeredAngles(layeredGraph, graph), [layeredGraph, graph]);
   const layout = useMemo(
-    () => (graph ? depthLayout(graph, size.w, size.h, reduced) : {}),
-    [graph, size.w, size.h, reduced],
+    () => (graph ? depthLayout(graph, size.w, size.h, reduced, sharedAngles) : {}),
+    [graph, size.w, size.h, reduced, sharedAngles],
   );
 
   // Entering nodes are computed at walk time (the event handler knows both the
   // old and the new neighborhood) — never from refs during render.
   const [enteringIds, setEnteringIds] = useState<Set<string>>(() => new Set());
+
+  // Once a spread-in entrance has played, drop the anim back to null so the
+  // layered fleet's props go referentially stable again (a lingering "in" anim
+  // would re-hand every entering card a fresh enterFrom on each hover render).
+  useEffect(() => {
+    if (ringAnim?.dir !== "in") return;
+    const spread = ringAnim.all ? Math.max(1, layeredGraph?.maxHop ?? 3) : 1;
+    const dur = MOTION.enter + MOTION.enterDelay + spread * 80 + 260;
+    const t = window.setTimeout(() => setRingAnim((a) => (a === ringAnim ? null : a)), dur);
+    return () => window.clearTimeout(t);
+  }, [ringAnim, layeredGraph]);
+
+  /* ---- the CONTINUOUS zoom dial (Feature 2): scroll maps DIRECTLY to a float
+     ring count. floor(zoom) rings are landed; the fraction emerges the next
+     ring from the center with its edges drawing outward. The scroll HOLDS
+     wherever you stop — no notches, no auto-snap. The walk↔layered boundary is
+     still a swap (3D perspective vs 2D wheel); everything from 2 rings up is
+     continuous. Functional state updates → no stale closure, so the listener
+     only re-binds when the graph changes. ---- */
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const g = layeredGraph;
+    if (!g) return;
+    const maxHop = g.maxHop;
+    // Is there anything past the walk's 2 hops to reveal? (deeper rings, or an
+    // unlinked outer ring) — otherwise the walk has no zoom-out.
+    const hasDepth = maxHop >= 3 || g.nodes.some((n) => !n.linked);
+    const SENS = 1 / 320; // deltaY → zoom units (~one ring per 320px of scroll)
+    const onWheel = (ev: WheelEvent) => {
+      ev.preventDefault();
+      const d = ev.deltaY * SENS;
+      setLayers((z) => {
+        if (z === null) {
+          // In the walk: only a downward (out) scroll leaves it, landing at
+          // 2 rings (= the walk's 2 hops) and immediately emerging ring 3.
+          if (d <= 0 || !hasDepth) return null;
+          setSelEdge(null); setSelCluster(null); setHoverEdge(null); setHoverNode(null);
+          setRingAnim(null);
+          return Math.min(maxHop, 2 + d);
+        }
+        const nz = z + d;
+        if (nz < 2) { setLayerHover(null); return null; } // scroll all the way in → the walk
+        return Math.min(maxHop, nz);
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [layeredGraph]);
 
   /* ---- edge geometry: measure the live projected node centers ---- */
   const measure = useCallback(() => {
@@ -533,12 +956,43 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     return () => window.removeEventListener("resize", on);
   }, [measure]);
 
+  // The walk's scene unmounts while zoomed out (no point reconciling a hidden
+  // 3D world under the layers) — re-measure its edge geometry on return.
+  useEffect(() => {
+    if (layers !== null) return;
+    settleUntil.current = performance.now() + 200;
+    const raf = requestAnimationFrame(measure);
+    return () => cancelAnimationFrame(raf);
+  }, [layers, measure]);
+
   /* ---- the walk ---- */
   // Diff old vs new neighborhood at the moment of the walk: who leaves gets a
   // receding snapshot, who arrives flies in from its parent. Then bump the
   // settle window so the edge overlay tracks the whole glide.
   const walkTo = (id: string, nextTrail: (t: string[]) => string[]) => {
     if (id === center || !byId.has(id) || !graph) return;
+    // Zoomed out? Clicking a card RE-CENTERS the layered view on it but keeps
+    // the zoom level you were at (user decision 2026-07-14: recenter in place,
+    // don't snap back to the fully-zoomed-in walk). The new center's world may
+    // be shallower, so clamp the ring count to what it can show.
+    if (layers !== null) {
+      const nextLayered = buildLayeredEgo(entities, id);
+      // Land on a fully-settled INTEGER ring count at the current depth (round
+      // the continuous zoom), clamped to what the new center can show.
+      const nextK = Math.min(Math.max(2, Math.round(layers)), nextLayered ? Math.max(2, nextLayered.maxHop) : Math.round(layers));
+      setSelEdge(null);
+      setSelCluster(null);
+      setHoverEdge(null);
+      setHoverNode(null);
+      setJump("");
+      setLayerHover(null);
+      setLayers(nextK);
+      // Bloom every ring out from the NEW center — the same reveal the first
+      // zoom-out uses, so the recenter reads as a reflow, not a reset.
+      setRingAnim({ dir: "in", ring: nextK, all: true });
+      setTrail(nextTrail);
+      return;
+    }
     const next = buildEgoGraph(entities, id, CAPS);
     if (next) {
       const staying = new Set(next.nodes.map((n) => n.id));
@@ -557,10 +1011,24 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     setHoverEdge(null);
     setHoverNode(null);
     setJump("");
+    setLayers(null); // walking always lands you back in the walk
+    setRingAnim(null);
+    setLayerHover(null);
     setTrail(nextTrail);
   };
   const goTo = (id: string) =>
     walkTo(id, (t) => (t.includes(id) ? t.slice(0, t.indexOf(id) + 1) : [...t, id].slice(-14)));
+  // Stable identity for the memoized LayerCards — goTo itself closes over
+  // fresh state every render, so route through a ref.
+  const goToRef = useRef(goTo);
+  useEffect(() => { goToRef.current = goTo; });
+  const layerWalk = useCallback((id: string) => goToRef.current(id), []);
+  // Expanding a folded "+N more" chip from the zoom-out view — toggle its
+  // member panel. Stable identity so the memoized LayerCards don't churn.
+  const layerExpand = useCallback((id: string) => {
+    setSelCluster((prev) => (prev === id ? null : id));
+    setSelEdge(null);
+  }, []);
   const back = () => {
     const prev = trail[trail.length - 2];
     if (prev) walkTo(prev, (t) => t.slice(0, -1));
@@ -580,20 +1048,48 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     return <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "28px 4px" }}>That node isn&apos;t in your knowledge yet.</div>;
   }
   const centerEntity = byId.get(center)!;
-  const selectedEdge = selEdge ? graph.edges.find((e) => edgeKey(e) === selEdge) ?? null : null;
-  const selectedCluster = selCluster ? graph.nodes.find((n) => n.id === selCluster && n.clusterOf) ?? null : null;
+  // A layered edge is the light {from,to,predicate} shape (no fact); rebuild the
+  // full EgoEdge from the subject's facts so the SAME EdgeInspector opens at
+  // every zoom level (Feature 1). Cluster spokes (predicate "") have no real
+  // fact → null, and are routed to expand instead of inspect.
+  const layeredEdgeToEgo = (le: { from: string; to: string; predicate: string }): EgoEdge | null => {
+    const from = byId.get(le.from), to = byId.get(le.to);
+    if (!from || !to) return null;
+    const fact = from.facts.find((f) => f.ref && f.refId === le.to && f.predicate === le.predicate);
+    if (!fact) return null;
+    return { from: le.from, to: le.to, predicate: le.predicate, fact, fromLabel: from.label, toLabel: to.label };
+  };
+  const selectedEdge: EgoEdge | null = !selEdge
+    ? null
+    : layers === null
+    ? graph.edges.find((e) => edgeKey(e) === selEdge) ?? null
+    : (() => {
+        const le = (layeredGraph?.edges ?? []).find((e) => `${e.from}~${e.to}~${e.predicate}` === selEdge);
+        return le ? layeredEdgeToEgo(le) : null;
+      })();
+  // The chip lives in whichever graph is on screen: the walk's ego graph, or
+  // the zoom-out's layered graph. Both node shapes carry `.entity` + `.clusterOf`.
+  const clusterPool: Array<{ id: string; clusterOf?: string[]; entity: KnowledgeEntityView }> =
+    layers === null ? graph.nodes : layeredGraph?.nodes ?? [];
+  const selectedCluster = selCluster ? clusterPool.find((n) => n.id === selCluster && n.clusterOf) ?? null : null;
 
   return (
     <div style={{ display: "flex", alignItems: "stretch", height: 620, background: "#F6F2E9", border: "1px solid #E7E0D2", borderRadius: 16, overflow: "hidden" }}>
       {/* ---- CANVAS ---- */}
-      <div style={{ position: "relative", flex: 1, minWidth: 0, overflow: "hidden" }}>
+      <div ref={canvasRef} style={{ position: "relative", flex: 1, minWidth: 0, overflow: "hidden" }}>
         {/* the depth field */}
         <div
           ref={sceneRef}
           onClick={(e) => { if (e.target === e.currentTarget) setSelEdge(null); }}
           style={{ position: "absolute", inset: 0, perspective: reduced ? "none" : `${DEPTH.perspective}px`, perspectiveOrigin: "50% 46%" }}
         >
-          <div style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d" }}>
+          {/* the walk's whole 3D world unmounts while the layers cover it —
+              a hidden hundred-element scene must not tax every hover render.
+              (Edge geometry re-measures on return; positions are unchanged.) */}
+          {layers === null && <div style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d" }}>
+            {/* decorative third layer — deep, unreadable card silhouettes */}
+            {!reduced && <GhostRing w={size.w} h={size.h} />}
+
             <EdgeLayer geom={geom} edges={graph.edges} layout={layout}
               hoverEdge={hoverEdge} selEdge={selEdge} focusNode={hoverNode} citedIds={citedSet}
               onHover={setHoverEdge}
@@ -673,7 +1169,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
                 </div>
               );
             })()}
-          </div>
+          </div>}
         </div>
 
         {/* cream depth fog — distance reads as haze, not just scale */}
@@ -681,6 +1177,33 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
           position: "absolute", inset: 0, pointerEvents: "none", zIndex: 8,
           background: reduced ? "none" : "radial-gradient(120% 90% at 50% 42%, rgba(246,242,233,0) 40%, rgba(246,242,233,.55) 78%, rgba(239,233,220,.85) 100%)",
         }} />
+
+        {/* zoomed out: the layers view covers the walk (z 40, under the chrome) */}
+        {layers !== null && layeredGraph && (
+          <LayeredView
+            graph={layeredGraph}
+            zoom={layers}
+            anim={ringAnim}
+            w={size.w}
+            h={size.h}
+            kindByName={kindByName}
+            hover={layerHover}
+            onHover={setLayerHover}
+            onWalk={layerWalk}
+            onExpand={layerExpand}
+            hoverEdge={hoverEdge}
+            selEdge={selEdge}
+            onEdgeHover={setHoverEdge}
+            onEdgeClick={(e) => {
+              // Cluster spokes (empty predicate) have no real fact → expand the
+              // folded members (the spoke is always chip→parent, so the chip is
+              // `from`); every other edge opens the fact inspector.
+              if (!e.predicate) { setSelCluster(e.from); setSelEdge(null); }
+              else { setSelEdge(`${e.from}~${e.to}~${e.predicate}`); setSelCluster(null); }
+            }}
+            reduced={reduced}
+          />
+        )}
 
         {/* breadcrumb + back (floating) */}
         <div style={{ position: "absolute", top: 14, left: 16, display: "flex", alignItems: "center", gap: 8, zIndex: 50, maxWidth: "62%" }}>
@@ -761,20 +1284,27 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
 
         {/* hints */}
         <div className="dm-mono" style={{ position: "absolute", left: 18, bottom: 13, ...micro, zIndex: 50, opacity: 0.8, pointerEvents: "none" }}>
-          click a neighbour to walk · click an edge to inspect the fact
+          {layers !== null
+            ? "scroll in to return to the walk · click a card to walk to it"
+            : "click to walk · click an edge for its fact · scroll out to zoom"}
         </div>
         <div className="dm-mono" style={{ position: "absolute", right: 18, bottom: 13, ...micro, zIndex: 50, opacity: 0.7, pointerEvents: "none" }}>
-          {reduced ? "2D radial · reduced motion" : "ego neighbourhood · 2 hops"} · {graph.nodes.length} nodes · {graph.edges.length} edges
+          {layers !== null && layeredGraph
+            ? `${layers.toFixed(1)} of ${Math.max(2, layeredGraph.maxHop)} layers · ${layeredGraph.nodes.length} nodes`
+            : `${reduced ? "2D radial · reduced motion" : "ego neighbourhood"} · ${graph.nodes.length} nodes · ${graph.edges.length} edges`}
         </div>
 
+        {/* The fact inspector works from either surface — the walk OR the
+            zoom-out (Feature 1): an edge is clickable at every zoom level. */}
         {selectedEdge && (
           <EdgeInspector edge={selectedEdge} onClose={() => setSelEdge(null)} onGoTo={(id) => { setSelEdge(null); goTo(id); }} />
         )}
+        {/* The panel works from either surface — the walk or the zoom-out. */}
         {selectedCluster && (
           <ClusterPanel
-            node={selectedCluster}
+            node={{ label: selectedCluster.entity.label, kind: selectedCluster.entity.kind, clusterOf: selectedCluster.clusterOf }}
             byId={byId}
-            kindDef={kindByName.get(selectedCluster.kind)}
+            kindDef={kindByName.get(selectedCluster.entity.kind)}
             onClose={() => setSelCluster(null)}
             onGoTo={(id) => { setSelCluster(null); goTo(id); }}
           />

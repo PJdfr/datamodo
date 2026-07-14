@@ -77,12 +77,12 @@ import { AnswerGraphModal } from "./answer-graph-modal";
 import { CategoriesModal } from "./categories-modal";
 import { BuildFromKnowledgeModal } from "./build-from-knowledge";
 import { DeriveTableModal } from "./derive-table-modal";
-import { FolderExportModal } from "./folder-export-modal";
+import { ChatView } from "./chat-view";
 
 /* ================================================================== */
 /* Component                                                           */
 /* ================================================================== */
-type Tab = "agents" | "data" | "review" | "search";
+type Tab = "agents" | "data" | "review" | "search" | "chat";
 // The Data tab is ONE FLAT toggle (IA rule 2026-07-11: no toggles inside
 // toggles). Tables/Cards/Concepts unified into the Tables surface (schema
 // diagram + cards drill-down); the Map was removed outright — walk only.
@@ -192,7 +192,6 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const hasContext = !!onboarding.businessContext;
   const [buildOpen, setBuildOpen] = useState(false);
   const [deriveOpen, setDeriveOpen] = useState(false);
-  const [folderExportOpen, setFolderExportOpen] = useState(false);
   const [dataView, setDataView] = useState<DataView>("tables");
   const [dataActionsOpen, setDataActionsOpen] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
@@ -258,7 +257,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const titles: Record<Tab, { t: string; sub: string }> = {
     agents: { t: "Agents", sub: populated ? `${activeCount} of ${uiAgents.length} running · watching your channels` : "No agents yet — create your first one" },
     data: { t: "Data", sub: {
-      explore: "Everything we know, walkable — stand on a node and look around",
+      explore: "Everything we know, walkable — stand on a node and look around; scroll out for the big picture",
       timeline: "What datamodo learned, in order — your data's story, not table edits",
       files: "Documents that arrived as attachments — filed by what they mention, originals kept",
       insights: "The numbers behind your knowledge — totals & breakdowns, computed live",
@@ -266,6 +265,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
     }[dataView] },
     review: { t: "Review", sub: reviewTotal ? `${reviewTotal} pending changes to confirm — merges, conflicts & new facts` : "Pending changes to confirm — merges, conflicts & new facts (your data's story lives in Data → Timeline)" },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
+    chat: { t: "Chat", sub: "The app is a channel too — text, photos, PDFs and voice notes, straight into the pipeline" },
   };
 
   const providerLabel = settings.aiProvider === "openai" ? "OpenAI" : settings.aiProvider === "openrouter" ? "OpenRouter" : "Claude";
@@ -311,6 +311,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
             { key: "data", label: "Data", count: uiTables.length ? String(uiTables.length) : null, icon: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></> },
             { key: "review", label: "Review", count: reviewTotal ? String(reviewTotal) : null, icon: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></> },
             { key: "search", label: "Search", count: null, icon: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></> },
+            { key: "chat", label: "Chat", count: null, icon: <><path d="M21 14a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></> },
           ] as const).map((item) => {
             const active = tab === item.key;
             return (
@@ -431,7 +432,6 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                         ["✦", "Spreadsheet → knowledge", "Import a sheet as entities & links", () => setImportGraphOpen(true)],
                         ["✦", "Build from knowledge", "Turn a category into a table", () => setBuildOpen(true)],
                         ["▤", "Derive a table", "Describe a table; we build it from your graph", () => setDeriveOpen(true)],
-                        ["▧", "Export as folders", "A folder structure built from your graph, as a .zip", () => setFolderExportOpen(true)],
                       ] as const).map(([glyph, label, hint, act]) => (
                         <button key={label} type="button" onClick={() => { setDataActionsOpen(false); act(); }}
                           style={{ display: "flex", alignItems: "baseline", gap: 8, width: "100%", textAlign: "left", padding: "9px 13px", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
@@ -470,6 +470,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           )}
           {tab === "review" && <ReviewStudio />}
           {tab === "search" && <SearchTab onOpenTable={setOpenTableId} />}
+          {tab === "chat" && <ChatView />}
         </div>
       </main>
 
@@ -500,7 +501,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                 <ModalStep3 purposeText={purposeText} setPurposeText={setPurposeText} tables={uiTables} purpose={purpose} setPurpose={setPurpose} freestyle={freestyle} setFreestyle={setFreestyle} targetTables={targetTables} setTargetTables={setTargetTables} toggle={toggle} />
               )}
               {step === 4 && (
-                <ModalStep4 channels={channels} mode={mode} purpose={purpose} freestyle={freestyle} targetTables={targetTables} runtimeDot={runtimeDot} runtimeLabel={runtimeLabel} />
+                <ModalStep4 name={name} setName={setName} channels={channels} mode={mode} purpose={purpose} freestyle={freestyle} targetTables={targetTables} runtimeDot={runtimeDot} runtimeLabel={runtimeLabel} />
               )}
             </div>
 
@@ -561,7 +562,6 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           onCreated={(id) => { setOpenTableId(id); router.refresh(); }}
         />
       )}
-      {folderExportOpen && <FolderExportModal onClose={() => setFolderExportOpen(false)} />}
     </div>
   );
 }
@@ -1216,11 +1216,13 @@ function ModalStep3({ purposeText, setPurposeText, tables, purpose, setPurpose, 
   );
 }
 
-function ModalStep4({ channels, mode, purpose, freestyle, targetTables, runtimeDot, runtimeLabel }: {
+function ModalStep4({ name, setName, channels, mode, purpose, freestyle, targetTables, runtimeDot, runtimeLabel }: {
+  name: string; setName: (v: string) => void;
   channels: string[]; mode: "auto" | "ping";
   purpose: "curate" | "auto"; freestyle: boolean; targetTables: string[];
   runtimeDot: string; runtimeLabel: string;
 }) {
+  const initial = name.trim().slice(0, 1).toUpperCase() || "A";
   const reviewChannels = channels.length ? channels.map((k) => CH_NAMES[k]).join(", ") : "None selected";
   const reviewMode = mode === "auto" ? "Automatic — reads everything" : "On ping — only when tagged";
   const reviewPurpose = purpose === "curate" ? "Curated to a purpose" : "Auto from context";
@@ -1236,8 +1238,8 @@ function ModalStep4({ channels, mode, purpose, freestyle, targetTables, runtimeD
       <h3 className="dm-display" style={{ fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em", margin: "0 0 4px" }}>Name your agent</h3>
       <p style={{ fontSize: 13.5, color: "#8A8477", margin: "0 0 18px" }}>Almost done.</p>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
-        <span className="dm-display" style={{ width: 46, height: 46, borderRadius: 13, background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 19, flexShrink: 0 }}>L</span>
-        <input type="text" defaultValue="Ledger" style={{ flex: 1, border: "1px solid #DDD5C5", borderRadius: 11, padding: "12px 14px", fontFamily: "inherit", fontSize: 15, fontWeight: 500, color: C.ink, background: "#fff", outline: "none" }} />
+        <span className="dm-display" style={{ width: 46, height: 46, borderRadius: 13, background: pickColor(name), color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 19, flexShrink: 0 }}>{initial}</span>
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ledger" style={{ flex: 1, border: "1px solid #DDD5C5", borderRadius: 11, padding: "12px 14px", fontFamily: "inherit", fontSize: 15, fontWeight: 500, color: C.ink, background: "#fff", outline: "none" }} />
       </div>
       <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 13, padding: "4px 16px" }}>
         {rows.map((r) => (

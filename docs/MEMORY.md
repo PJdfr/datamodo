@@ -5,7 +5,7 @@
 > how we work, what we decided and why. Siblings: [STATE.md](STATE.md) ·
 > [FLOW.md](FLOW.md) · [ROADMAP.md](ROADMAP.md).
 >
-> Last updated: 2026-07-12
+> Last updated: 2026-07-14
 
 ## What datamodo is (the aim)
 Turn unstructured personal communications into **structured, reviewable,
@@ -67,20 +67,14 @@ reviewable, nothing is ever silently lost or merged.
   note) are produced when the user asks (a button or a question), never by a
   background trigger. LLM spend maps 1:1 to user curiosity; no stale-synthesis
   bookkeeping.
-- **The WOW is the graph engine: REPLAY first, COSMOS as its final frame**
-  (decided 2026-07-11): one canvas/WebGL renderer, two modes. REPLAY = a
-  scenaristic chronological time-lapse of the vault building itself (the
-  bitemporal store makes it a query, not new infrastructure) — five acts:
-  first node · extraction bursts · the user's merge/deny decisions rendered
-  physically · nodes crystallizing into tables · settle into the Cosmos and
-  hand over the controls. COSMOS = the standing whole-vault view, scaled by
-  **level-of-detail clustering** (named stars ∝ degree; long tail collapses
-  into zoom-expandable cluster nodes — same idea de-overloads the walk's
-  rings via "+38 more" pseudo-nodes). The engine is the poster (dark mode
-  allowed); the walk stays the workbench; everything designed through Claude
-  Design (brief: design/briefs/wow-graph-engine-brief.md). Landing hero
-  autoplays the demo replay; a user's replay is private (export-as-video,
-  never public links).
+- ~~**The WOW is the graph engine: REPLAY + COSMOS**~~ **DROPPED 2026-07-14**
+  (user call: remove the Cosmos/WOW feature). There is NO separate canvas/WebGL
+  showpiece — the Explorer walk + its continuous zoom-out IS the graph surface,
+  and the landing hero uses that live Explorer over demo data. The old
+  `constellation.ts` LOD/cluster core (kept "for the Cosmos seam") now has no
+  consumer → dormant, delete after a quiet month;
+  `design/briefs/wow-graph-engine-brief.md` is retired. (Ring grouping, which
+  had shipped as build-order step 1, stays — it earns its keep in the walk.)
 
 ## Architecture decisions (and why)
 - **Neon + Prisma + Neon Auth** (migrated off Supabase 2026-07-09; zero users
@@ -121,8 +115,30 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
     `datasets.kind_id` → `kinds.id` (plural-name match is only a fallback for
     pre-migration rows).
   - **The Map is REMOVED, not merged** (user decision: useless next to the
-    walk). Explore = the ego walk only; no zoom-out. `entities.graph_pin` and
-    its PATCH endpoint remain dormant.
+    walk). `entities.graph_pin` and its PATCH endpoint remain dormant.
+    **Revised 2026-07-13: the walk gained a ZOOM-OUT, but as LAYERS, not a
+    separate map** — after two discarded physics/force-graph iterations the
+    standing rule is: graph zoom is ONE dial from the Explorer (scroll out =
+    more BFS rings around the same center), every node keeps a permanent
+    bearing (pure deterministic layout), NO physics, NO free camera — motion
+    that can wiggle is out. A separate map surface stays rejected.
+    **Revised 2026-07-14: clicking a card while zoomed out RECENTERS in place
+    at the SAME zoom level** (blooms the new center's rings) instead of snapping
+    back to the fully-zoomed-in walk — zoom is a property of the view, not reset
+    by navigation. Also: the ring "N hops"/"not linked yet" text badges are gone
+    (the concentric card rings carry the depth on their own), and the layered
+    edges are soft arcs bowing toward the center (bundled look) rather than grey
+    straight chords — and CLICKABLE at every zoom level (open the same fact
+    inspector as the walk; no predicate label when zoomed out).
+    **Revised 2026-07-14 (reverses the "zoom is DISCRETE" call): the zoom-out is
+    CONTINUOUS.** Scroll maps directly to a FLOAT ring count and HOLDS wherever
+    you stop (no notches, no auto-snap): `floor` rings landed, the fraction
+    emerges the next ring from the center (blurred, edges drawing outward) while
+    the old blurred frontier sharpens + grows. Still deterministic (fixed
+    bearings, layout = LERP of the two integer-ring wheels) — this is a
+    scroll-attached tween between discrete states, NOT physics; the "no wiggle,
+    fixed positions" rule holds. The walk↔layered boundary (below 2 rings) stays
+    a swap (3D vs 2D).
   - Rare build actions live behind one "✦ Build ▾" menu. Review owns the
     words "pending changes"; Timeline owns "what we learned".
 

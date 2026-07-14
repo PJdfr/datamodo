@@ -684,6 +684,27 @@ export async function runExtractionForItem(
       where: { id: row.id },
       data: { status: "analyzed", extraction_version: EXTRACTION_VERSION },
     });
+    // The PULL REQUEST comes to the user: if THIS message left decisions
+    // behind (reviews / proposed rows), ping them back over the channel it
+    // arrived on — reply "1 yes" approves right in the thread. Best-effort
+    // and env-gated (no Twilio/Slack creds = dormant); never fails the item.
+    try {
+      const { pendingQuestions, pendingProposalCount } = await import("./review-inbox");
+      const questions = await pendingQuestions(row.org_id, row.id);
+      const proposals = await pendingProposalCount(row.org_id, row.id);
+      if ((questions.length > 0 || proposals > 0) && row.sender) {
+        const { buildReviewPing } = await import("./review-ping");
+        const { sendChannelText } = await import("./outbound");
+        const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_SITE_URL || null;
+        const text = questions.length
+          ? buildReviewPing(questions, { reviewUrl: appUrl ? `${appUrl}/dashboard` : null, extraProposals: proposals })
+          : `datamodo — ${proposals} table change${proposals === 1 ? "" : "s"} from your message await review${appUrl ? `: ${appUrl}/dashboard` : "."}`;
+        const sent = await sendChannelText(row.channel as import("@/lib/ingest/types").IngestChannel, row.sender, text);
+        if (!sent.sent) console.log(`[extract] review ping skipped for item ${row.id}: ${sent.reason}`);
+      }
+    } catch (e) {
+      console.error(`[extract] review ping failed for item ${row.id}`, e);
+    }
     return { ...result, knowledge };
   } catch (e) {
     await prisma.items.update({

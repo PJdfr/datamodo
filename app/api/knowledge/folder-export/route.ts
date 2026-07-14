@@ -3,10 +3,8 @@ import { getSessionUser } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { listKnowledge } from "@/lib/datamodo/knowledge";
 import { readBlob } from "@/lib/ingest/store";
-import { llmForUser } from "@/lib/datamodo/llm-for-user";
 import { buildZip, type ZipEntry } from "@/lib/datamodo/zip";
 import {
-  buildFolderPrompt,
   collectExportables,
   parseFolderPlan,
   planFiles,
@@ -15,15 +13,14 @@ import {
   type FolderPlan,
 } from "@/lib/datamodo/folder-export";
 
-// "Export as folders" — a folder structure BUILT FROM THE GRAPH, preview/
-// confirm, on-demand only.
-// { prompt } → the LLM organizes an INVENTORY of exportable nodes (documents
-//   + body nodes; labels/kinds/links only, never contents) into a folder
-//   plan; we return the resolved tree for preview. Nothing is generated yet.
-// { plan, download: true } → the previewed plan becomes a .zip: true
-//   documents carry their ORIGINAL file (from blob storage, fail-soft to a
-//   markdown note when unavailable), every other node exports as markdown,
-//   plus a README describing the tree.
+// Folder-tree export — the Files view's lens tree (folders derived
+// DETERMINISTICALLY from the graph — no LLM) downloads as a .zip:
+// { plan: { name, placements }, download: true } → true documents carry
+// their ORIGINAL file (from blob storage, fail-soft to a markdown note when
+// unavailable), every other node exports as markdown, plus a README
+// describing the tree. The plan is re-sanitized server-side
+// (traversal-proof paths, unknown ids dropped, unplaced → unsorted/); a doc
+// may appear in several folders — folders are tags.
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
@@ -34,7 +31,7 @@ export async function POST(req: Request) {
   if (!org) return NextResponse.json({ error: "no org" }, { status: 403 });
 
   const body = (await req.json().catch(() => null)) as
-    | { prompt?: string; plan?: FolderPlan; download?: boolean }
+    | { plan?: FolderPlan; download?: boolean }
     | null;
   if (!body) return NextResponse.json({ error: "bad request" }, { status: 400 });
 
@@ -47,8 +44,9 @@ export async function POST(req: Request) {
     );
   }
 
-  // --- download: the previewed plan (re-sanitized) becomes a zip -----------
-  if (body.download) {
+  if (!body.download) return NextResponse.json({ error: "bad request" }, { status: 400 });
+
+  {
     const plan = parseFolderPlan(body.plan, nodes);
     const files = planFiles(plan, nodes);
     const byId = new Map(entities.map((e) => [e.id, e]));
@@ -90,31 +88,4 @@ export async function POST(req: Request) {
       },
     });
   }
-
-  // --- preview: prompt → plan → resolved tree, nothing generated -----------
-  const prompt = (body.prompt ?? "").trim();
-  if (!prompt) return NextResponse.json({ error: "describe how you want things organized" }, { status: 400 });
-
-  let raw: unknown;
-  try {
-    const llm = await llmForUser(user.id);
-    const { system, user: userPrompt } = buildFolderPrompt(prompt, nodes);
-    // The stronger model — a rare, user-initiated design moment.
-    raw = await llm.chatJSON<unknown>({ system, user: userPrompt, model: llm.models.escalate, maxTokens: 2400, temperature: 0 });
-  } catch (e) {
-    const msg = String((e as Error)?.message ?? e);
-    const friendly = msg.includes("key")
-      ? "no LLM key configured — add one in Settings (BYOK) or set the platform key"
-      : "the model couldn't design a structure — try rewording the request";
-    return NextResponse.json({ error: friendly }, { status: 502 });
-  }
-
-  const plan = parseFolderPlan(raw, nodes);
-  const files = planFiles(plan, nodes);
-  return NextResponse.json({
-    plan,
-    // entityId lets the preview tree open each file's node page in place.
-    files: files.map((f) => ({ path: f.path, label: f.label, mode: f.mode, entityId: f.entityId })),
-    total: files.length,
-  });
 }
