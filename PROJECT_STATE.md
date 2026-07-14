@@ -12,6 +12,43 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Layered zoom-out: hover + scroll perf pass (user: "still
+  a bit laggy; hover unresponsive when zoomed out")**. Root cause: every
+  hover round-tripped through React and re-rendered the WHOLE tree — ~100
+  layer cards AND the walk's hidden 3D scene still mounted beneath. Fixes:
+  (1) hover feedback (pop-to-readable + unblur + z-lift) is now PURE CSS
+  `:hover`/`:focus-visible` (a per-card `--pop` var) — zero React, zero
+  latency; (2) cards are a memoized `LayerCard` whose props only change on a
+  zoom step (stable callbacks via a goTo ref; riseStyle undefined-not-{}), so
+  a hover re-render reconciles only the SVG edge layer; card dimming on hover
+  dropped in the layered view (edge lighting carries the affordance);
+  (3) the walk's 3D scene UNMOUNTS while the layers cover it (edge geometry
+  re-measured on return); (4) no more `filter` transitions (blurred-layer
+  compositing is expensive at 3.4k-px widths — ring promotion snaps sharp);
+  (5) cadence tightened again: 120ms step spacing, NOTCH 85, glide 220ms,
+  rise 260ms, sink 240ms. Probe artifact fixed: harness/probes now re-query
+  the wheel target per event (the captured walk card detaches when the scene
+  unmounts — real pointers always hit attached elements). 163 tests, tsc,
+  lint == baseline, `next build`, cadence/step/animation probes green.
+- **2026-07-14** — **Roadmap: added "Address a specific agent in Chat" as a
+  Next build track** (planning only, no code). Explicit agent picker (dropdown)
+  + inline `@agent_name` autocomplete, each showing the agent's short
+  description; no-addressee drops default to the general datamodo agent. Logged
+  with pushback: the "classify the drop and route it" idea becomes a SUGGESTED
+  reroute confirmed via the existing Review flow, not silent auto-routing
+  (silent misrouting buries content in the wrong agent's private dataset;
+  ambiguity is common) — classify only the no-addressee path; true auto-routing
+  revisited later behind a per-user opt-in. Docs only: `docs/ROADMAP.md`.
+- **2026-07-14** — **Roadmap: added "Graph-first retrieval (GraphRAG)" as a
+  Next build track** (planning only, no code). Captures the strategy discussed
+  with the user: grounded answers should entity-link the query → traverse
+  `facts` (current claims via `valid_to IS NULL`, or as-of via
+  `valid_from/valid_to`; `superseded_by`+`confidence` for contradictions) as
+  primary context → fall back to `doc_chunks` scoped to the linked entities →
+  cite via `fact_sources`. Absorbs the older "Semantic (ANN) chunk search"
+  follow-up as its fallback leg; embeddings drop to an entity-linking aid, so a
+  free/local model suffices (per-row `embedding_model` already allows
+  incremental swaps). Docs only: `docs/ROADMAP.md` (+ date bump).
 - **2026-07-14** — **Layered zoom-out: scroll responsiveness (user: "it takes
   time to load subsequent layers — weird friction")**. The friction was
   pacing, not compute: (1) scroll events during the per-step cooldown were

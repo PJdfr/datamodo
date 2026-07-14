@@ -4,7 +4,7 @@
 > inventory when they ship; add what the work surfaced. Ordered by value.
 > Siblings: [STATE.md](STATE.md) · [FLOW.md](FLOW.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-13
+> Last updated: 2026-07-14
 
 ## Now (unblocks everything else)
 1. **Merge PR #35 → dev**, then set env: `OPENROUTER_VISION_MODEL` (+ ~$10
@@ -72,6 +72,49 @@
   graph grows; folder export straight to Drive/Dropbox.
 
 ## Next build tracks (pick after the above)
+- **Graph-first retrieval (GraphRAG) — answer from `facts`, vectors as fallback.**
+  Today grounded answers lean on vector similarity over `doc_chunks`; that
+  throws away the three tables that make us different (`entities`, `facts`,
+  `fact_sources`). Smarter flow over the schema we already have:
+  1. **Entity-link the query** — map mentions to `entities` via the existing
+     `embedding` + `canonical_label` trigram index (fuzzy "the Acme deal" →
+     canonical node). This is the only place embeddings do primary work.
+  2. **Traverse `facts`** 1–2 hops from those entities as the primary context —
+     structured `subject predicate object`/`value_*` triples, filtered to
+     current claims (`valid_to IS NULL`) or an as-of date via
+     `valid_from/valid_to`; `superseded_by` + `confidence` resolve
+     contradictions. Unlocks what chunk-similarity can't: aggregation
+     ("how many…"), multi-hop ("who owns the dataset Y depends on"), and
+     temporal ("what did we know as of March").
+  3. **`doc_chunks` fallback** — pull chunks only for the linked entities when
+     prose/narrative is needed, so vector search is scoped to a handful of
+     entities, not the whole corpus (faster + more precise).
+  4. **Cite for free** — `fact_sources` snippets → grounded answer with exact
+     provenance; dovetails with the shipped "◍ See in graph" highlight.
+  Absorbs the "Semantic (ANN) chunk search" follow-up below as its step-3 leg.
+  Embedding model stays free/local (`nomic-embed-text`/`bge-small`) — the
+  per-row `embedding_model` column already lets us swap without a big re-embed.
+- **Address a specific agent in Chat (agent picker + `@agent` + smart routing).**
+  Chat today talks to one implicit agent; let the user choose the recipient.
+  "Contacts" here = the user's OWN agents (individual-only product — no other
+  people), each already carrying a name + purpose we can surface.
+  1. **Explicit pick** — a dropdown of the user's agents AND inline `@agent_name`
+     autocomplete in the composer. Both show each agent's short description
+     inline (purpose reminder), so the user picks the right one without
+     leaving the box. This is the clear win — build it first.
+  2. **Default home** — a drop with no addressee goes to the **general datamodo
+     agent** (deterministic, predictable). No silent guessing about ownership.
+  3. **Suggested reroute, NOT silent auto-routing** *(the pushback)* — the
+     general agent may CLASSIFY a drop and, if it looks meant for a specific
+     agent, **suggest** the move ("This looks like it's for your Recruiting
+     agent — send it there?") surfaced in the existing Review/confirm flow, not
+     move it automatically. Rationale: silent misrouting drops a user's content
+     into the *wrong agent's private dataset* — surprising, hard to find,
+     erodes trust; and content is often ambiguous across agents. Confirm-before-
+     move matches the app's established pattern (spreadsheet-import preview,
+     channel reply-to-approve). Cost/latency note: only classify the no-addressee
+     path, not every message. (Revisit true auto-routing later behind a
+     per-user opt-in once classification precision is measured.)
 - **THE WOW: the graph engine — REPLAY + COSMOS, one renderer, two modes**
   (user decisions 2026-07-11: virality needs a visual that "feels like
   superpowers / science fiction", and the strongest version is a scenaristic

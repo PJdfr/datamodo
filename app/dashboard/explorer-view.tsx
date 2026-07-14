@@ -21,7 +21,7 @@
  * Motion values mirror the handoff's ExplorerGraph3D.MOTION.md.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { C } from "./ui";
 import { buildEgoGraph, buildLayeredEgo, depthLayout, layeredAngles, DEPTH, type DepthPos, type EgoEdge, type LayeredEgo, type LayerNode } from "@/lib/datamodo/explorer";
 import { EntityPageBody } from "./entity-page";
@@ -278,6 +278,50 @@ function GhostRing({ w, h }: { w: number; h: number }) {
  *  → lands at size) or LIFTS back off. Everything else is a static relayout. */
 export interface RingAnim { dir: "in" | "out"; ring: number }
 
+/* One card of the layered view. MEMOIZED — hovering must not re-render a
+   hundred cards: the hover pop + unblur are pure CSS (:hover, zero React),
+   and this component's props only change on a zoom step. */
+const LayerCard = memo(function LayerCard({ n, kindDef, x, y, scale, pop, blur, op, z, isCenter, chip, trans, riseStyle, onHover, onWalk }: {
+  n: LayerNode; kindDef?: KindDef;
+  x: number; y: number; scale: number; pop: number; blur: number; op: number; z: number;
+  isCenter: boolean; chip: boolean; trans: string;
+  riseStyle?: CSSProperties;
+  onHover: (id: string | null) => void; onWalk: (id: string) => void;
+}) {
+  return (
+    <div
+      className="dm-lcard"
+      role={chip ? undefined : "button"}
+      tabIndex={chip ? -1 : 0}
+      aria-label={isCenter ? `${n.entity.label} — you are here` : chip ? n.entity.label : `Walk to ${n.entity.label}`}
+      title={chip ? `${n.clusterOf!.length} more behind ${n.parent ? "this branch" : "the horizon"} — walk closer to expand` : undefined}
+      onPointerEnter={() => onHover(n.id)}
+      onPointerLeave={() => onHover(null)}
+      onFocus={() => onHover(n.id)}
+      onBlur={() => onHover(null)}
+      onClick={() => { if (!chip && !isCenter) onWalk(n.id); }}
+      onKeyDown={(ev) => { if (!chip && !isCenter && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); onWalk(n.id); } }}
+      style={{
+        position: "absolute", left: "50%", top: "50%", width: isCenter ? 190 : 150,
+        transform: `translate(-50%,-50%) translate(${x}px, ${y}px) scale(${scale})`,
+        opacity: op,
+        filter: blur ? `blur(${blur}px)` : undefined,
+        transition: trans,
+        cursor: chip || isCenter ? "default" : "pointer",
+        outline: "none",
+        zIndex: z,
+        ["--pop" as string]: String(pop),
+      }}
+    >
+      <div style={riseStyle}>
+        <div className="dm-pop">
+          <NodeCard e={n.entity} kindDef={kindDef} isCenter={isCenter} isHover={false} cluster={chip} />
+        </div>
+      </div>
+    </div>
+  );
+});
+
 function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk, reduced }: {
   graph: LayeredEgo;
   /** DISCRETE layer count — one scroll notch = one more ring. */
@@ -341,18 +385,19 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
   // The ring that just left keeps rendering as ghosts sinking back into the
   // depth (animation ends invisible + inert — no timer needed).
   const exiting = anim?.dir === "out" ? graph.nodes.filter((n) => n.hop === anim.ring) : [];
-  const nbrs = hover
-    ? new Set([hover, ...graph.edges.filter((e) => e.from === hover || e.to === hover).flatMap((e) => [e.from, e.to])])
-    : null;
   const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
-  const trans = reduced ? "none" : `transform 260ms ${MOTION.easeOut}, opacity 200ms ${MOTION.ease}, filter 200ms ${MOTION.ease}`;
+  // No `filter` transition: blurred-layer transitions are expensive to
+  // composite at scale — ring promotion snaps sharp, hover unblur is CSS.
+  const trans = reduced ? "none" : `transform 220ms ${MOTION.easeOut}, opacity 160ms ${MOTION.ease}`;
   const unlinkedShown = graph.nodes.some((n) => !n.linked && n.hop <= K);
   // Arrival = the ring COMES UP from one layer deeper (smaller + transparent
   // → surfaces to its slot), exactly how a new layer enters the walk's world.
-  const riseAnim = (hop: number, i: number): CSSProperties =>
+  // Undefined (not {}) for everyone else — keeps the memoized cards' props
+  // referentially stable.
+  const riseAnim = (hop: number, i: number): CSSProperties | undefined =>
     !reduced && anim?.dir === "in" && hop === anim.ring
-      ? { animation: `dm-rise-z 320ms ${MOTION.easeOut} both`, animationDelay: `${(i % 10) * 16}ms` }
-      : {};
+      ? { animation: `dm-rise-z 260ms ${MOTION.easeOut} both`, animationDelay: `${(i % 10) * 14}ms` }
+      : undefined;
 
   return (
     <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "#F6F2E9", animation: reduced ? "none" : `dm-drop-in 260ms ${MOTION.easeOut}` }}>
@@ -399,45 +444,35 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
         @keyframes dm-rise-z { from { opacity: 0; transform: scale(0.55); } }
         @keyframes dm-sink-z { to { opacity: 0; transform: scale(0.55); } }
         @keyframes dm-fade-in { from { opacity: 0; } }
+        .dm-lcard:hover, .dm-lcard:focus-visible { z-index: 60 !important; filter: none !important; }
+        .dm-pop { transition: transform 130ms cubic-bezier(0.16,1,0.3,1); }
+        .dm-lcard:hover .dm-pop, .dm-lcard:focus-visible .dm-pop { transform: scale(var(--pop, 1.1)); }
       `}</style>
-      {/* the cards — the walk's own NodeCard at the walk's own depth: deeper
-          rings render smaller (perspective), blurrier and hazier, exactly
-          like hop-2 behind hop-1. OUTER div owns placement (transitions on
-          the camera step); INNER div plays the one-shot rise. */}
+      {/* the cards — the walk's own NodeCard at the walk's own depth. Each is
+          a MEMOIZED LayerCard whose props only change on a zoom step, so
+          hovering (CSS) and edge lighting (SVG) never re-render the fleet. */}
       {shown.map((n, i) => {
         const p = posOf(n);
         const isCenter = n.hop === 0;
-        const chip = Boolean(n.clusterOf);
-        const dim = nbrs ? !nbrs.has(n.id) : false;
-        const hov = hover === n.id;
         return (
-          <div
+          <LayerCard
             key={n.id}
-            role={chip ? undefined : "button"}
-            tabIndex={chip ? -1 : 0}
-            aria-label={isCenter ? `${n.entity.label} — you are here` : chip ? n.entity.label : `Walk to ${n.entity.label}`}
-            title={chip ? `${n.clusterOf!.length} more behind ${n.parent ? "this branch" : "the horizon"} — walk closer to expand` : undefined}
-            onMouseEnter={() => onHover(n.id)}
-            onMouseLeave={() => onHover(null)}
-            onFocus={() => onHover(n.id)}
-            onBlur={() => onHover(null)}
-            onClick={() => { if (!chip && !isCenter) onWalk(n.id); }}
-            onKeyDown={(ev) => { if (!chip && !isCenter && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); onWalk(n.id); } }}
-            style={{
-              position: "absolute", left: "50%", top: "50%", width: isCenter ? 190 : 150,
-              transform: `translate(-50%,-50%) translate(${p.x}px, ${p.y}px) scale(${scaleOf(n.hop) * (hov && !isCenter ? hoverPopOf(n.hop) : 1)})`,
-              opacity: (dim ? 0.3 : n.linked ? 1 : 0.85) * opOf(n.hop),
-              filter: hov || blurOf(n.hop) === 0 ? "none" : `blur(${blurOf(n.hop)}px)`,
-              transition: trans,
-              cursor: chip || isCenter ? "default" : "pointer",
-              outline: "none",
-              zIndex: hov ? 46 : isCenter ? 45 : 44 - Math.min(n.hop, 20),
-            }}
-          >
-            <div style={riseAnim(n.hop, i)}>
-              <NodeCard e={n.entity} kindDef={kindByName.get(n.entity.kind)} isCenter={isCenter} isHover={hov} cluster={chip} />
-            </div>
-          </div>
+            n={n}
+            kindDef={kindByName.get(n.entity.kind)}
+            x={p.x}
+            y={p.y}
+            scale={scaleOf(n.hop)}
+            pop={hoverPopOf(n.hop)}
+            blur={blurOf(n.hop)}
+            op={(n.linked ? 1 : 0.85) * opOf(n.hop)}
+            z={isCenter ? 45 : 44 - Math.min(n.hop, 20)}
+            isCenter={isCenter}
+            chip={Boolean(n.clusterOf)}
+            trans={trans}
+            riseStyle={riseAnim(n.hop, i)}
+            onHover={onHover}
+            onWalk={onWalk}
+          />
         );
       })}
       {/* the ring that just left — ghosts sinking back into the depth */}
@@ -764,8 +799,8 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
       // instead of demanding a fresh notch after every pause.
       wheelAcc.current += ev.deltaY;
       const now = performance.now();
-      if (now - lastStep.current < 160) return; // brief spacing between steps
-      const NOTCH = 110; // accumulated deltaY per step
+      if (now - lastStep.current < 120) return; // brief spacing between steps
+      const NOTCH = 85; // accumulated deltaY per step
       const maxHop = layeredGraph.maxHop;
       const entry = Math.min(3, Math.max(2, maxHop)); // first step past the walk
       if (wheelAcc.current > NOTCH) {
@@ -844,6 +879,15 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     return () => window.removeEventListener("resize", on);
   }, [measure]);
 
+  // The walk's scene unmounts while zoomed out (no point reconciling a hidden
+  // 3D world under the layers) — re-measure its edge geometry on return.
+  useEffect(() => {
+    if (layers !== null) return;
+    settleUntil.current = performance.now() + 200;
+    const raf = requestAnimationFrame(measure);
+    return () => cancelAnimationFrame(raf);
+  }, [layers, measure]);
+
   /* ---- the walk ---- */
   // Diff old vs new neighborhood at the moment of the walk: who leaves gets a
   // receding snapshot, who arrives flies in from its parent. Then bump the
@@ -875,6 +919,11 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   };
   const goTo = (id: string) =>
     walkTo(id, (t) => (t.includes(id) ? t.slice(0, t.indexOf(id) + 1) : [...t, id].slice(-14)));
+  // Stable identity for the memoized LayerCards — goTo itself closes over
+  // fresh state every render, so route through a ref.
+  const goToRef = useRef(goTo);
+  useEffect(() => { goToRef.current = goTo; });
+  const layerWalk = useCallback((id: string) => goToRef.current(id), []);
   const back = () => {
     const prev = trail[trail.length - 2];
     if (prev) walkTo(prev, (t) => t.slice(0, -1));
@@ -907,7 +956,10 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
           onClick={(e) => { if (e.target === e.currentTarget) setSelEdge(null); }}
           style={{ position: "absolute", inset: 0, perspective: reduced ? "none" : `${DEPTH.perspective}px`, perspectiveOrigin: "50% 46%" }}
         >
-          <div style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d" }}>
+          {/* the walk's whole 3D world unmounts while the layers cover it —
+              a hidden hundred-element scene must not tax every hover render.
+              (Edge geometry re-measures on return; positions are unchanged.) */}
+          {layers === null && <div style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d" }}>
             {/* decorative third layer — deep, unreadable card silhouettes */}
             {!reduced && <GhostRing w={size.w} h={size.h} />}
 
@@ -990,7 +1042,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
                 </div>
               );
             })()}
-          </div>
+          </div>}
         </div>
 
         {/* cream depth fog — distance reads as haze, not just scale */}
@@ -1010,7 +1062,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
             kindByName={kindByName}
             hover={layerHover}
             onHover={setLayerHover}
-            onWalk={goTo}
+            onWalk={layerWalk}
             reduced={reduced}
           />
         )}

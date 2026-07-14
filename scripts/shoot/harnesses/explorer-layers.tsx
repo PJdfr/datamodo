@@ -44,10 +44,12 @@ createRoot(document.getElementById("root")!).render(
 // listener). Steps are DISCRETE with a per-step cooldown — two paced notches:
 // walk → 3 layers → 4 layers; the screenshot catches the last ring landing.
 window.setTimeout(() => {
-  const target = document.querySelector('[aria-label*="you are here"]');
-  if (!target) throw new Error("walk center card not found");
   for (let i = 0; i < 2; i++) {
     window.setTimeout(() => {
+      // Re-query per event: the walk's center card unmounts once the layers
+      // take over — a detached target would swallow the event.
+      const target = document.querySelector('[aria-label*="you are here"]');
+      if (!target) throw new Error("center card not found");
       target.dispatchEvent(new WheelEvent("wheel", { deltaY: 160, bubbles: true, cancelable: true }));
     }, i * 420);
   }
