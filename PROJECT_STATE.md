@@ -12,6 +12,27 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **GraphRAG: grounded answers start from `facts`** (roadmap
+  "Graph-first retrieval", all four steps): `/api/search?answer=1` now (1)
+  links the query to seed entities — new pure `lib/datamodo/graphrag.ts`
+  `linkQueryEntities` (label/natural-key coverage ≥ half the label, stricter
+  than keyword search by design) + `annLinkEntities` in knowledge.ts (ANN over
+  `entities.embedding`, current-space gate, sim ≥ 0.35) — then (2) traverses
+  the fact graph via `expandFromSeeds` (the ONE `buildAdjacency` rule;
+  neighbors ranked by seed-tie weight; seed-touching facts lead, then
+  confidence; hop-2 named by label), (3) SCOPES semantic chunk retrieval to
+  the linked neighborhood (`searchChunks` gained `vector` — one query
+  embedding shared across both legs — and `entityIds`; keyword recall stays
+  global), and (4) cites through the existing entity machinery unchanged
+  (evidence rides KnowledgeHit via `mergeKnowledgeHits`; MAX_ENTITY_SOURCES
+  6→8; UI result lists keep plain keyword hits — only the answer runs on
+  graph evidence). Fail-soft leg by leg. Verified: 4 new unit tests (179
+  pass), tsc, lint == baseline, `next build` green. NOT live-verified (no DB
+  or keys in the sandbox — `DATABASE_URL` is empty here; WS + HTTP smoke
+  attempts both dead-ended): the two raw-SQL legs (`annLinkEntities`, the
+  `= ANY(::uuid[])` chunk scope) follow knowledge.ts's proven ANN pattern and
+  degrade to keyword evidence on any error — first thing to eyeball in the
+  live-key pass.
 - **2026-07-14** — **Chat: address a specific agent** (roadmap track, parts 1+2
   — part 3 "suggested reroute" deferred until a live LLM key): the composer
   gained a "to" chip row (dropdown: ✦ datamodo general + each ACTIVE agent

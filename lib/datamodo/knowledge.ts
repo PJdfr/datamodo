@@ -593,6 +593,35 @@ async function upsertFact(
 /** The canonical text an entity is embedded from — ONE definition, shared by
  *  ingest and the re-embed job so a re-embedded vector lands in exactly the
  *  same place a fresh one would. */
+/**
+ * GraphRAG step 1, semantic leg: entities NEAR the query vector — the seeds
+ * text linking can't catch ("the design agency" → Brightwave). Same rules as
+ * resolution's ANN blocking: current embedding space only, recall not truth
+ * (seeds only anchor a traversal; nothing merges). Fail-soft: [] on any error.
+ */
+export async function annLinkEntities(
+  orgId: string,
+  vector: number[],
+  opts: { limit?: number; minSim?: number } = {},
+): Promise<string[]> {
+  const limit = opts.limit ?? 4;
+  const minSim = opts.minSim ?? 0.35;
+  try {
+    const vec = toVectorLiteral(vector);
+    const rows = await prisma.$queryRaw<{ id: string; sim: number }[]>`
+      SELECT id, (1 - (embedding <=> ${vec}::vector))::real AS sim
+        FROM entities
+       WHERE org_id = ${orgId}::uuid AND merged_into IS NULL
+         AND embedding IS NOT NULL AND embedding_model = ${embeddingsModel()}
+       ORDER BY embedding <=> ${vec}::vector
+       LIMIT ${limit}`;
+    return rows.filter((r) => r.sim >= minSim).map((r) => r.id);
+  } catch (e) {
+    console.error("[knowledge] ANN query linking failed", e);
+    return [];
+  }
+}
+
 export function embedTextForEntity(
   kind: string,
   label: string,
