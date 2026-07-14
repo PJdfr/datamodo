@@ -41,17 +41,18 @@ createRoot(document.getElementById("root")!).render(
 );
 
 // Scroll out over the walk (events bubble from the center card to the canvas
-// listener). Steps are DISCRETE with a per-step cooldown — two paced notches:
-// walk → 3 layers → 4 layers; the screenshot catches the last ring landing.
+// listener). Zoom is CONTINUOUS — each deltaY 160 adds 0.5 (SENS 1/320): walk
+// → 2.5 → 3.0 → 3.5, HELD at a fraction (no auto-snap) so the shot catches the
+// outermost ring emerging from the center with its edges drawing outward.
 window.setTimeout(() => {
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < 3; i++) {
     window.setTimeout(() => {
       // Re-query per event: the walk's center card unmounts once the layers
       // take over — a detached target would swallow the event.
       const target = document.querySelector('[aria-label*="you are here"]');
       if (!target) throw new Error("center card not found");
       target.dispatchEvent(new WheelEvent("wheel", { deltaY: 160, bubbles: true, cancelable: true }));
-    }, i * 420);
+    }, i * 300);
   }
 }, 400);
 flags.__mounted = true;

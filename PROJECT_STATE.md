@@ -12,6 +12,28 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Explorer zoom-out is now CONTINUOUS (Feature 2)** — reverses
+  the 2026-07-13 "zoom is DISCRETE" call (user ask). The wheel no longer steps
+  one ring per notch; scroll maps DIRECTLY to a float ring count (`layers` is now
+  a float; SENS ≈ one ring / 320px) and HOLDS wherever you stop — the user chose
+  hold-partial over settle-to-nearest. `floor(zoom)` rings are landed; the
+  fraction emerges the next ring FROM THE CENTER (radius 0 → target, always
+  full-blurred) with its edges drawing outward — the emerging edge's outer
+  endpoint travels out so it reveals center→rim, opacity ramping with the
+  emergence (`opOf` fades the emerging ring by the emerge easing). Geometry: the
+  original per-integer wheel math is now `wheelGeom(KK)`, computed for `floor`
+  and `floor+1` and LERPed by the fraction — landed rings shrink inward (camera
+  pulls back) as the new ring grows, and the old blurred frontier "becomes less
+  blurred and bigger" for free (ring K is the blurred frontier at count K but a
+  sharp interior at count K+1, so the LERP does it). Only the emerging layer
+  animates; landed rings/edges stay. The wheel handler is a continuous
+  functional `setLayers` (no `wheelAcc`/`lastStep`/cooldown); the `<g key={K}>`
+  per-step re-fade is gone (edges track every frame); recenter still blooms via
+  `RingAnim.all`. Walk↔layered boundary (zoom < 2) stays a swap (3D perspective
+  vs 2D wheel). Verified via the `explorer-layers` shoot harness (now a
+  continuous scroll held at a fraction): 3.0 landed, 3.1 with ring 4 just
+  emerging faint near center, 3.4/3.5 with ring 4 travelled ~¾ out — all render
+  clean, status reads "3.x of 4 layers". tsc + lint clean, 163 tests green.
 - **2026-07-14** — **Dropped the WOW/Cosmos feature + Explorer edges clickable
   at every zoom level (Feature 1)**. (1) Roadmap/MEMORY: removed "THE WOW: the
   graph engine — REPLAY + COSMOS" (user call). No separate WebGL showpiece — the

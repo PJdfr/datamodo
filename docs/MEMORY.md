@@ -128,7 +128,17 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
     by navigation. Also: the ring "N hops"/"not linked yet" text badges are gone
     (the concentric card rings carry the depth on their own), and the layered
     edges are soft arcs bowing toward the center (bundled look) rather than grey
-    straight chords.
+    straight chords — and CLICKABLE at every zoom level (open the same fact
+    inspector as the walk; no predicate label when zoomed out).
+    **Revised 2026-07-14 (reverses the "zoom is DISCRETE" call): the zoom-out is
+    CONTINUOUS.** Scroll maps directly to a FLOAT ring count and HOLDS wherever
+    you stop (no notches, no auto-snap): `floor` rings landed, the fraction
+    emerges the next ring from the center (blurred, edges drawing outward) while
+    the old blurred frontier sharpens + grows. Still deterministic (fixed
+    bearings, layout = LERP of the two integer-ring wheels) — this is a
+    scroll-attached tween between discrete states, NOT physics; the "no wiggle,
+    fixed positions" rule holds. The walk↔layered boundary (below 2 rings) stays
+    a swap (3D vs 2D).
   - Rare build actions live behind one "✦ Build ▾" menu. Review owns the
     words "pending changes"; Timeline owns "what we learned".
 

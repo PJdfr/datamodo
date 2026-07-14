@@ -57,28 +57,27 @@
   clicking a card while zoomed out RECENTERS in place at the same zoom level
   (was snapping back to the walk); dropped the "N hops"/"not linked yet" ring
   labels; layered edges are soft arcs bowing toward the center.
-- **Explorer edges at every zoom level (Feature 1 — clickable, label-less
-  when zoomed out)** *(user ask 2026-07-14)*: today only the base walk has
-  clickable edges that open the fact inspector + show the predicate name. Make
-  the LAYERED (zoomed-out) edges clickable too — same fact inspector — but
-  WITHOUT the predicate label (too much text across many rings; dropping it
-  keeps every zoom level legible). Goal beyond the feature itself: unify the
-  base-view and layered-view edge code so they are roughly the same, which
-  sets up the continuous scroll below.
-- **Explorer continuous scroll with progressive edge drawing (Feature 2)**
-  *(user ask 2026-07-14 — REVISES the 2026-07-13 "zoom is DISCRETE" decision)*:
-  replace the discrete one-notch-per-ring stepper with a CONTINUOUS scroll.
-  As you scroll out: the current frontier (blurred) items become less blurred
-  and bigger, while the new outermost ring appears FROM THE CENTER fully
-  blurred and travels outward. The new layer's edges are DRAWN progressively
-  with the scroll — starting from the cards nearest the center and extending to
-  the outer circles — rather than appearing in one shot. The scroll is
-  continuous but still "falls"/snaps at exact points: each snap point is the
-  moment a layer's edges finish drawing (one integer layer landed). Only the
-  newly-added layer's edges animate; already-landed layers stay drawn. Requires
-  interpolating the whole-wheel layout (radii/scale/blur) across a FRACTIONAL
-  ring count and a center-out path-reveal for the new edges. Builds on
-  Feature 1's unified edge code.
+- ~~**Explorer edges at every zoom level (Feature 1 — clickable, label-less
+  when zoomed out)**~~ ✅ 2026-07-14 *(user ask)*: the LAYERED (zoomed-out)
+  edges are clickable — a fat transparent hit path opens the SAME fact
+  inspector as the base walk (the light `{from,to,predicate}` layered edge is
+  rebuilt into a full `EgoEdge` from the subject's facts; cluster spokes
+  expand). No predicate label when zoomed out (too much text across rings).
+  `LayeredView` gained the walk's `EdgeLayer` edge contract — base + layered
+  edge code unified, which set up Feature 2.
+- ~~**Explorer continuous scroll with progressive edge drawing (Feature 2)**~~
+  ✅ 2026-07-14 *(user ask — reversed the 2026-07-13 "zoom is DISCRETE" call)*:
+  the discrete one-notch-per-ring stepper is now a CONTINUOUS scroll that maps
+  directly to a FLOAT ring count and HOLDS wherever you stop (no auto-snap —
+  user chose hold-partial over settle). `floor` rings are landed; the fraction
+  emerges the next ring FROM THE CENTER (radius 0 → target, full blur) with its
+  edges drawing outward (the emerging edge's outer endpoint travels out, so it
+  reveals center→rim; opacity ramps with emergence). Only the emerging layer
+  animates; landed rings stay. Layout = LERP of the two integer-ring wheels
+  (`wheelGeom(floor)`↔`wheelGeom(floor+1)`), so landed rings shrink inward as
+  the new ring grows and the old blurred frontier sharpens + grows for free.
+  Still deterministic (fixed bearings) — a scroll-attached tween, not physics.
+  Walk↔layered boundary (below 2 rings) stays a swap.
 - ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
   with ≥2 connected bodies of content → cited note into `body_md`.
 - ~~Audio tier~~ ✅ 2026-07-11 — audio attachments transcribe (fail-soft

@@ -346,11 +346,12 @@ const LayerCard = memo(function LayerCard({ n, kindDef, x, y, scale, pop, blur, 
   );
 });
 
-function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk, onExpand, hoverEdge, selEdge, onEdgeHover, onEdgeClick, reduced }: {
+function LayeredView({ graph, zoom, anim, w, h, kindByName, hover, onHover, onWalk, onExpand, hoverEdge, selEdge, onEdgeHover, onEdgeClick, reduced }: {
   graph: LayeredEgo;
-  /** DISCRETE layer count — one scroll notch = one more ring. */
-  K: number;
-  /** The ring that just stepped in/out — the only thing that animates. */
+  /** CONTINUOUS ring count (float ≥ 2). floor = landed rings; the fraction
+   *  emerges the next ring from the center with its edges drawing outward. */
+  zoom: number;
+  /** The recenter bloom (clicking a card while zoomed); null while scrolling. */
   anim: RingAnim | null;
   w: number; h: number;
   kindByName: Map<string, KindDef>;
@@ -369,60 +370,73 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
   onEdgeClick: (e: LayeredEgo["edges"][number]) => void;
   reduced: boolean;
 }) {
-  // EVERY layer obeys the base view's rules, relative to the CURRENT view:
-  // the outermost ring is the blurred frontier (hop-2's haze — a preview of
-  // what's deeper), and the HIGHLIGHTED layer is the last sharp one — the
-  // ring you just revealed. Its cards are the biggest; sizes taper DOWN
-  // toward the center (explored ground recedes, the reading focus is always
-  // the newest ring).
-  const focus = Math.max(1, K - 1);
-  const ringScale = (hop: number) =>
-    hop >= K ? 0.72 : Math.max(0.45, Math.pow(0.8, focus - hop));
-  const blurOf = (hop: number) => (reduced || hop < K ? 0 : 1.4);
-  const opOf = (hop: number) => (hop < K ? 1 : 0.9);
-  // Ring radii come from the cards that SIT on them: each gap clears the two
-  // neighbouring rings' card heights (the focus ring gets the room its big
-  // cards need; tapered inner rings pack tight), then the whole wheel fits
-  // the canvas. Radial overlap is impossible by construction; bearings stay
-  // fixed, so between steps the layout is static. (+1: the just-removed ring
-  // still needs a radius for its sink-out ghosts.)
-  const estH = (hop: number) => (hop === 0 ? 120 : 96) * ringScale(hop);
-  const radial: number[] = [0];
-  for (let k = 1; k <= K + 1; k++) radial[k] = radial[k - 1] + (estH(k - 1) + estH(k)) / 2 + 16;
-  const fit = Math.min(1, (h / 2 - 44) / radial[K]);
-  const sxF = Math.min((w / 2 - 130) / radial[K], fit * 1.6);
+  // CONTINUOUS zoom: `K` rings are landed, `f` emerges ring `K+1`. The wheel
+  // geometry is a pure function of an integer ring count (the ORIGINAL static
+  // math); we compute it for K and for K+1 and LERP by `f`. The landed rings
+  // smoothly shrink inward as the new ring grows (the camera pulls back); the
+  // emerging ring travels out FROM THE CENTER. Because ring K is the blurred
+  // frontier at count K but a sharp interior ring at count K+1, this LERP makes
+  // the old frontier "become less blurred and bigger" for free.
+  const K = Math.floor(zoom);
+  const f = zoom - K;
+  const eo = 1 - Math.pow(1 - f, 2); // emerge easing (decelerate as it lands)
   const counts = new Map<number, number>();
   for (const n of graph.nodes) counts.set(n.hop, (counts.get(n.hop) ?? 0) + 1);
-  // A busy ring's cards shrink a little further so they leave each other room.
-  const crowdOf = (k: number) => {
-    const c = counts.get(k) ?? 1;
-    return k === 0
-      ? 1
-      : Math.max(0.45, Math.min(1, (2 * Math.PI * radial[Math.min(k, K + 1)] * sxF) / (c * 165 * ringScale(k) * fit)));
+  // The static wheel for an integer ring count `KK` — every rule from the
+  // original discrete layout, now a reusable function.
+  const wheelGeom = (KK: number) => {
+    const focus = Math.max(1, KK - 1);
+    const ringScale = (hop: number) => (hop >= KK ? 0.72 : Math.max(0.45, Math.pow(0.8, focus - hop)));
+    const estH = (hop: number) => (hop === 0 ? 120 : 96) * ringScale(hop);
+    const radial: number[] = [0];
+    for (let k = 1; k <= KK + 1; k++) radial[k] = radial[k - 1] + (estH(k - 1) + estH(k)) / 2 + 16;
+    const fit = Math.min(1, (h / 2 - 44) / radial[KK]);
+    const sxF = Math.min((w / 2 - 130) / radial[KK], fit * 1.6);
+    const crowdOf = (k: number) => {
+      const c = counts.get(k) ?? 1;
+      return k === 0 ? 1 : Math.max(0.45, Math.min(1, (2 * Math.PI * radial[Math.min(k, KK + 1)] * sxF) / (c * 165 * ringScale(k) * fit)));
+    };
+    const rawS = (hop: number) => ringScale(hop) * crowdOf(hop);
+    const focusS = rawS(focus);
+    const scaleOf = (hop: number) => (hop === focus ? focusS : Math.min(rawS(hop), focusS * (hop > focus ? 0.85 : Math.pow(0.82, focus - hop)))) * fit;
+    const posOf = (hop: number, angleDeg: number) => {
+      const r = radial[Math.min(hop, KK + 1)] ?? 0;
+      const rad = (angleDeg * Math.PI) / 180;
+      return { x: Math.cos(rad) * r * sxF, y: Math.sin(rad) * r * fit };
+    };
+    const blurOf = (hop: number) => (reduced || hop < KK ? 0 : 1.4);
+    const opOf = (hop: number) => (hop < KK ? 1 : 0.9);
+    return { scaleOf, posOf, blurOf, opOf };
   };
+  const gLo = wheelGeom(K);
+  const gHi = wheelGeom(K + 1);
+  const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+  // Blended accessors — landed rings LERP Lo↔Hi by f; the emerging ring K+1
+  // travels out from the center (radius 0) and grows, always full-blurred.
   const posOf = (n: LayerNode) => {
-    const r = radial[Math.min(n.hop, K + 1)] ?? 0;
-    const rad = (n.angleDeg * Math.PI) / 180;
-    return { x: Math.cos(rad) * r * sxF, y: Math.sin(rad) * r * fit };
+    if (n.hop <= K) {
+      const a = gLo.posOf(n.hop, n.angleDeg), b = gHi.posOf(n.hop, n.angleDeg);
+      return { x: lerp(a.x, b.x, f), y: lerp(a.y, b.y, f) };
+    }
+    const b = gHi.posOf(n.hop, n.angleDeg);
+    return { x: b.x * eo, y: b.y * eo };
   };
-  // The crowd factor must never DEFEAT the highlight: whatever the focus
-  // ring's crowding costs it, every other ring is capped BELOW the realized
-  // focus scale (taper inward, frontier just under) — the newest sharp ring
-  // is always the biggest thing on screen.
-  const rawS = (hop: number) => ringScale(hop) * crowdOf(hop);
-  const focusS = rawS(focus);
   const scaleOf = (hop: number) =>
-    (hop === focus ? focusS : Math.min(rawS(hop), focusS * (hop > focus ? 0.85 : Math.pow(0.82, focus - hop)))) * fit;
-  const hoverPopOf = (hop: number) => Math.min(2.6, Math.max(1.06, 0.9 / scaleOf(hop)));
-  const shown = graph.nodes.filter((n) => n.hop <= K);
+    hop <= K ? lerp(gLo.scaleOf(hop), gHi.scaleOf(hop), f) : lerp(gHi.scaleOf(hop) * 0.5, gHi.scaleOf(hop), eo);
+  const blurOf = (hop: number) =>
+    reduced ? 0 : hop <= K ? lerp(gLo.blurOf(hop), gHi.blurOf(hop), f) : gHi.blurOf(hop);
+  const opOf = (hop: number) =>
+    hop <= K ? lerp(gLo.opOf(hop), gHi.opOf(hop), f) : gHi.opOf(hop) * eo;
+  const hoverPopOf = (hop: number) => Math.min(2.6, Math.max(1.06, 0.9 / Math.max(0.05, scaleOf(hop))));
+  // The emerging ring (K+1) shows only once it has begun (f>0) and exists.
+  const E = f > 0 ? K + 1 : -1;
+  const shown = graph.nodes.filter((n) => n.hop <= K || n.hop === E);
   const shownIds = new Set(shown.map((n) => n.id));
-  // The ring that just left keeps rendering as ghosts sinking back into the
-  // depth (animation ends invisible + inert — no timer needed).
-  const exiting = anim?.dir === "out" ? graph.nodes.filter((n) => n.hop === anim.ring) : [];
+  const exiting: LayerNode[] = [];
   const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
-  // No `filter` transition: blurred-layer transitions are expensive to
-  // composite at scale — ring promotion snaps sharp, hover unblur is CSS.
-  const trans = reduced ? "none" : `transform 220ms ${MOTION.easeOut}, opacity 160ms ${MOTION.ease}`;
+  // A tiny transition smooths between wheel ticks without lagging the scroll;
+  // recenter-bloom cards override this with their own enter transition.
+  const trans = reduced ? "none" : `transform 70ms linear, opacity 90ms linear`;
   // Arrival = each card SPREADS from its parent's slot out to its own ring —
   // the base walk's enter-from-parent motion, applied to the zoom-out. On the
   // FIRST reveal (anim.all) every ring blooms from the center in a hop-staggered
@@ -452,10 +466,10 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
   return (
     <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "#F6F2E9", animation: reduced ? "none" : `dm-drop-in 260ms ${MOTION.easeOut}` }}>
       <svg width="100%" height="100%" style={{ position: "absolute", inset: 0, overflow: "visible" }} aria-label="Zoomed-out layers — scroll to reveal more of your world">
-        {/* keyed per step: the lines re-fade in once the cards' glide lands,
-            so edges never visibly detach from moving cards */}
-        <g key={K} transform={`translate(${w / 2}, ${h / 2})`}
-          style={reduced ? undefined : { animation: "dm-fade-in 160ms 240ms both" }}>
+        {/* continuous: edges track the cards every frame, so no per-step key /
+            re-fade — the emerging layer's edges reveal by their outer endpoint
+            travelling out from the center (opacity ramps with the emergence). */}
+        <g transform={`translate(${w / 2}, ${h / 2})`}>
           {/* edges — soft arcs that bow toward the center rather than grey
               chords cutting across the wheel. Pulling the quadratic control
               point toward the origin gives the hierarchical-edge-bundling look
@@ -785,13 +799,15 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   const [geom, setGeom] = useState<Record<string, EdgeGeom>>({});
   const [size, setSize] = useState({ w: 640, h: 560 });
   const [leaving, setLeaving] = useState<{ id: string; e: KnowledgeEntityView; last: DepthPos }[]>([]);
-  // The zoom-out: null = the walk; an INTEGER = how many rings are out.
-  // One scroll notch = one ring — discrete steps, one animation each.
+  // The zoom-out is CONTINUOUS (Feature 2, 2026-07-14): null = the walk;
+  // otherwise a FLOAT ring count ≥ 2. floor(zoom) rings are fully landed; the
+  // fraction emerges the next ring from the center (blurred, edges drawing
+  // outward) — the scroll HOLDS wherever you stop (no auto-snap). `ringAnim`
+  // is now only the recenter bloom (clicking a card while zoomed); scrolling
+  // drives the fraction directly, not a one-shot animation.
   const [layers, setLayers] = useState<number | null>(null);
   const [ringAnim, setRingAnim] = useState<RingAnim | null>(null);
   const [layerHover, setLayerHover] = useState<string | null>(null);
-  const wheelAcc = useRef(0);
-  const lastStep = useRef(0);
 
   const sceneRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -852,51 +868,43 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     return () => window.clearTimeout(t);
   }, [ringAnim, layeredGraph]);
 
-  /* ---- the zoom stepper: scroll enough → ONE more ring falls in; scroll
-     back → it lifts off (below the walk's 2 hops → the walk itself). The
-     layout between steps is static — one recursive animation per step. ---- */
+  /* ---- the CONTINUOUS zoom dial (Feature 2): scroll maps DIRECTLY to a float
+     ring count. floor(zoom) rings are landed; the fraction emerges the next
+     ring from the center with its edges drawing outward. The scroll HOLDS
+     wherever you stop — no notches, no auto-snap. The walk↔layered boundary is
+     still a swap (3D perspective vs 2D wheel); everything from 2 rings up is
+     continuous. Functional state updates → no stale closure, so the listener
+     only re-binds when the graph changes. ---- */
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
+    const g = layeredGraph;
+    if (!g) return;
+    const maxHop = g.maxHop;
+    // Is there anything past the walk's 2 hops to reveal? (deeper rings, or an
+    // unlinked outer ring) — otherwise the walk has no zoom-out.
+    const hasDepth = maxHop >= 3 || g.nodes.some((n) => !n.linked);
+    const SENS = 1 / 320; // deltaY → zoom units (~one ring per 320px of scroll)
     const onWheel = (ev: WheelEvent) => {
       ev.preventDefault();
-      if (!layeredGraph) return;
-      // ALWAYS accumulate — events during the per-step spacing are banked,
-      // not discarded, so a continuous scroll steps at a steady cadence
-      // instead of demanding a fresh notch after every pause.
-      wheelAcc.current += ev.deltaY;
-      const now = performance.now();
-      if (now - lastStep.current < 120) return; // brief spacing between steps
-      const NOTCH = 85; // accumulated deltaY per step
-      const maxHop = layeredGraph.maxHop;
-      const entry = Math.min(3, Math.max(2, maxHop)); // first step past the walk
-      if (wheelAcc.current > NOTCH) {
-        wheelAcc.current = 0;
-        // Nothing beyond the walk's 2 hops and nothing unlinked → no zoom-out.
-        if (layers === null && maxHop < 3 && !layeredGraph.nodes.some((n) => !n.linked)) return;
-        const next = layers === null ? entry : Math.min(maxHop, layers + 1);
-        if (next === layers) return;
-        setSelEdge(null); setSelCluster(null); setHoverEdge(null); setHoverNode(null);
-        setLayers(next);
-        // First reveal from the walk (layers null) → bloom EVERY ring from the
-        // center; a subsequent step only spreads the newly-arrived ring.
-        setRingAnim({ dir: "in", ring: next, all: layers === null });
-        lastStep.current = now;
-      } else if (wheelAcc.current < -NOTCH) {
-        wheelAcc.current = 0;
-        if (layers === null) return;
-        if (layers <= entry) {
-          setLayers(null); setRingAnim(null); setLayerHover(null);
-        } else {
-          setLayers(layers - 1);
-          setRingAnim({ dir: "out", ring: layers });
+      const d = ev.deltaY * SENS;
+      setLayers((z) => {
+        if (z === null) {
+          // In the walk: only a downward (out) scroll leaves it, landing at
+          // 2 rings (= the walk's 2 hops) and immediately emerging ring 3.
+          if (d <= 0 || !hasDepth) return null;
+          setSelEdge(null); setSelCluster(null); setHoverEdge(null); setHoverNode(null);
+          setRingAnim(null);
+          return Math.min(maxHop, 2 + d);
         }
-        lastStep.current = now;
-      }
+        const nz = z + d;
+        if (nz < 2) { setLayerHover(null); return null; } // scroll all the way in → the walk
+        return Math.min(maxHop, nz);
+      });
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [layeredGraph, layers]);
+  }, [layeredGraph]);
 
   /* ---- edge geometry: measure the live projected node centers ---- */
   const measure = useCallback(() => {
@@ -969,7 +977,9 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     // be shallower, so clamp the ring count to what it can show.
     if (layers !== null) {
       const nextLayered = buildLayeredEgo(entities, id);
-      const nextK = nextLayered ? Math.min(layers, Math.max(2, nextLayered.maxHop)) : layers;
+      // Land on a fully-settled INTEGER ring count at the current depth (round
+      // the continuous zoom), clamped to what the new center can show.
+      const nextK = Math.min(Math.max(2, Math.round(layers)), nextLayered ? Math.max(2, nextLayered.maxHop) : Math.round(layers));
       setSelEdge(null);
       setSelCluster(null);
       setHoverEdge(null);
@@ -1172,7 +1182,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
         {layers !== null && layeredGraph && (
           <LayeredView
             graph={layeredGraph}
-            K={layers}
+            zoom={layers}
             anim={ringAnim}
             w={size.w}
             h={size.h}
@@ -1280,7 +1290,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
         </div>
         <div className="dm-mono" style={{ position: "absolute", right: 18, bottom: 13, ...micro, zIndex: 50, opacity: 0.7, pointerEvents: "none" }}>
           {layers !== null && layeredGraph
-            ? `${layers} of ${Math.max(2, layeredGraph.maxHop)} layers · ${layeredGraph.nodes.length} nodes`
+            ? `${layers.toFixed(1)} of ${Math.max(2, layeredGraph.maxHop)} layers · ${layeredGraph.nodes.length} nodes`
             : `${reduced ? "2D radial · reduced motion" : "ego neighbourhood"} · ${graph.nodes.length} nodes · ${graph.edges.length} edges`}
         </div>
 
