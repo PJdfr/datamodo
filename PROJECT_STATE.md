@@ -12,6 +12,13 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Explorer: removed edge predicate labels on the base walk
+  too** (user call, revised from the original "base keeps names, zoom-out drops
+  them"). Now NO zoom level draws a predicate label on edges — the walk's
+  `EdgeLayer` dropped its `<text>` render (and the `showLabel`/`hop`/`layout`
+  plumbing that fed it); the direction dot stays. The predicate name shows only
+  in the fact inspector on click. Verified via the `explorer` shoot (walk edges
+  now clean, no "issued by"/"works for" text). tsc + lint clean.
 - **2026-07-14** — **Explorer continuous scroll: rAF-eased so it actually
   animates** (user: "the continuous scroll doesn't really animate / doesn't draw
   the edges continuously"). The first Feature-2 cut mapped wheel deltas straight

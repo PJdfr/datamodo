@@ -622,8 +622,8 @@ function ClusterPanel({ node, byId, kindDef, onClose, onGoTo }: {
    =========================================================================== */
 interface EdgeGeom { x1: number; y1: number; x2: number; y2: number; mx: number; my: number; op: number }
 
-function EdgeLayer({ geom, edges, layout, hoverEdge, selEdge, focusNode, citedIds, onHover, onClick }: {
-  geom: Record<string, EdgeGeom>; edges: EgoEdge[]; layout: Record<string, DepthPos>;
+function EdgeLayer({ geom, edges, hoverEdge, selEdge, focusNode, citedIds, onHover, onClick }: {
+  geom: Record<string, EdgeGeom>; edges: EgoEdge[];
   hoverEdge: string | null; selEdge: string | null; focusNode: string | null;
   /** Nodes an answer cited: an edge joining two of them stays lit coral. */
   citedIds: Set<string>;
@@ -635,13 +635,11 @@ function EdgeLayer({ geom, edges, layout, hoverEdge, selEdge, focusNode, citedId
         const k = edgeKey(e);
         const g = geom[k];
         if (!g) return null;
-        const hop = Math.max(layout[e.from]?.hop ?? 1, layout[e.to]?.hop ?? 1);
         const active = hoverEdge === k || selEdge === k;
         const incidentFocus = Boolean(focusNode && (e.from === focusNode || e.to === focusNode));
         const cited = citedIds.has(e.from) && citedIds.has(e.to);
         const lit = active || incidentFocus || cited;
         const dim = Boolean(hoverEdge || selEdge || focusNode) && !lit;
-        const showLabel = active || cited || (incidentFocus && !hoverEdge && !selEdge) || (!focusNode && !hoverEdge && !selEdge && hop <= 1);
         const dx = g.x2 - g.x1, dy = g.y2 - g.y1, len = Math.hypot(dx, dy) || 1;
         const off = Math.min(11, len * 0.4);
         return (
@@ -655,15 +653,11 @@ function EdgeLayer({ geom, edges, layout, hoverEdge, selEdge, focusNode, citedId
               strokeWidth={active ? 2.4 : lit ? 1.9 : 1.2}
               strokeLinecap="round"
               style={{ transition: `stroke ${MOTION.hover}ms ${MOTION.ease}, stroke-width ${MOTION.hover}ms ${MOTION.ease}` }} />
-            {/* direction dot just inside the object end: subject —predicate→ object */}
+            {/* direction dot just inside the object end: subject —predicate→ object.
+                No predicate LABEL at any zoom level (user call 2026-07-14): the
+                name lives only in the fact inspector you get on click. */}
             <circle cx={g.x2 - (dx / len) * off} cy={g.y2 - (dy / len) * off} r={active ? 3 : 2.2}
               fill={lit ? C.accent : "#DDD5C5"} style={{ transition: `fill ${MOTION.hover}ms ${MOTION.ease}` }} />
-            {showLabel && (
-              <text x={g.mx} y={g.my} textAnchor="middle" dominantBaseline="middle" className="dm-mono"
-                style={{ fontSize: 9.5, letterSpacing: "0.04em", fill: lit ? C.accent : "#8A8477", paintOrder: "stroke", stroke: "#F6F2E9", strokeWidth: 4, pointerEvents: "none" }}>
-                {e.predicate.replace(/_/g, " ")}
-              </text>
-            )}
           </g>
         );
       })}
@@ -1128,7 +1122,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
             {/* decorative third layer — deep, unreadable card silhouettes */}
             {!reduced && <GhostRing w={size.w} h={size.h} />}
 
-            <EdgeLayer geom={geom} edges={graph.edges} layout={layout}
+            <EdgeLayer geom={geom} edges={graph.edges}
               hoverEdge={hoverEdge} selEdge={selEdge} focusNode={hoverNode} citedIds={citedSet}
               onHover={setHoverEdge}
               onClick={(e) => {

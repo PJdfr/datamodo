@@ -129,7 +129,9 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
     (the concentric card rings carry the depth on their own), and the layered
     edges are soft arcs bowing toward the center (bundled look) rather than grey
     straight chords — and CLICKABLE at every zoom level (open the same fact
-    inspector as the walk; no predicate label when zoomed out).
+    inspector as the walk). NO predicate labels are drawn on edges at ANY zoom
+    level (user call 2026-07-14, revised from "base keeps them"): the name lives
+    only in the fact inspector you get on click.
     **Revised 2026-07-14 (reverses the "zoom is DISCRETE" call): the zoom-out is
     CONTINUOUS.** Scroll maps directly to a FLOAT ring count and HOLDS wherever
     you stop (no notches, no auto-snap): `floor` rings landed, the fraction
