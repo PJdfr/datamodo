@@ -7,9 +7,10 @@
 > Last updated: 2026-07-14
 
 ## Now (unblocks everything else)
-1. **Merge PR #35 → dev**, then set env: `OPENROUTER_VISION_MODEL` (+ ~$10
-   OpenRouter credit for a reliable paid extract model), `OPENAI_API_KEY` (or
-   `EMBEDDINGS_API_KEY`) to wake embeddings, then one authed
+1. **Set env** (the old "merge PR #35" step is long done): a REAL
+   `OPENROUTER_API_KEY` (+ ~$10 credit for a reliable paid extract model) and
+   `OPENROUTER_VISION_MODEL`, `OPENAI_API_KEY` (or `EMBEDDINGS_API_KEY`) to
+   wake embeddings + semantic search, then one authed
    `POST /api/jobs/extract-requeue` (re-runs items on pipeline v2).
 2. **Live-fire verification pass on dev** — the biggest genuine gap: grounded
    answers, generated notes, doc classification, vision tier, audio tier, and
@@ -349,7 +350,13 @@
 - ~~Category proposals via Review~~ ✅ 2026-07-11 — growth loop ⑤: ≥3 entities
   of an unregistered kind → ONE `category_proposal` review with an AI-drafted
   template; accept creates the category, decline never re-asks.
-- Semantic (ANN) chunk search behind the same `searchChunks` shape.
+- ~~Semantic (ANN) chunk search behind the same `searchChunks` shape~~ ✅
+  2026-07-14 — keyword UNION ANN recall over chunk embeddings (query embedded
+  once; current-space filter; semantic extends recall but never outranks
+  exact matches; both-paths passages boosted — pure merge in
+  `passage-rank.ts`). Fail-soft: keyword-only without a key. Wakes up the
+  moment the real embeddings key lands. (GraphRAG step 3 later SCOPES this
+  to linked entities.)
 - Dossier: PDF rendering behind the same `buildDossier`.
 - Graph: persist collapsed-kind state if users ask for it (deliberately
   session-local today).

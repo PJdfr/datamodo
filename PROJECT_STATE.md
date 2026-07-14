@@ -12,6 +12,19 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Semantic (ANN) passage search** (roadmap small follow-up;
+  prep for the live-key pass): `searchChunks` now runs TWO recall legs in
+  parallel — the existing keyword scan plus, when `opts.query` is set and an
+  embeddings key exists, one `embedTexts([query])` call + pgvector ANN over
+  `doc_chunks.embedding` (current-`embedding_model` space only, sim floor
+  0.2). New pure core `lib/datamodo/passage-rank.ts` (`mergePassages`): dedupe
+  by (entity, seq); both-paths passages add scores (similarity boosts the
+  keyword rank); semantic-only hits score < 1 so they NEVER outrank an exact
+  match — semantic extends recall, keyword keeps precision. `ChunkHit` moved
+  to the pure module (chunks.ts re-exports). `/api/search` passes the raw
+  query. Fail-soft end to end: no key / no vectors / API error → keyword-only.
+  Verified: 4 new unit tests (171 pass), tsc, lint == baseline. NOT live-fired
+  (no embeddings key in sandbox — it activates with the real key).
 - **2026-07-14** — **⊛ Graph custom-rendering pass** (user ask: "you can
   customize fully"): nodes are now CARDS, not discs — a custom WebGL node
   program (`graph-card-program.ts`, subclasses sigma's `NodeCircleProgram`,

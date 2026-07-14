@@ -32,7 +32,9 @@ export async function GET(req: Request) {
     listKnowledge(org.id).catch(() => []),
   ]);
   const entities = searchKnowledge(kviews, result.terms);
-  const passages = await searchChunks(org.id, result.terms).catch(() => []);
+  // Passages recall two ways: exact terms + semantic ANN over the raw query
+  // (fail-soft — keyword-only without an embeddings key).
+  const passages = await searchChunks(org.id, result.terms, { query: q }).catch(() => []);
   const answer = wantAnswer ? await answerQuestion(user.id, q, result.hits, entities, passages) : null;
   return NextResponse.json({ ...result, entities, passages, answer });
 }
