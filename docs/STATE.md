@@ -92,6 +92,7 @@
 | Queue pill: "⟳ processing N items" in the topbar (hidden when idle; fast-polls while draining; stuck items surface) | `app/dashboard/queue-pill.tsx`, `GET app/api/jobs/queue-status` |
 | Onboarding / business context (steers extraction) | `app/dashboard/onboarding-modal.tsx`, `lib/datamodo/settings.ts` |
 | BYOK (user's own OpenRouter/OpenAI/Anthropic key) | `lib/datamodo/llm-for-user.ts`, SettingsModal in `app/dashboard/ui.tsx` |
+| **MCP server, phase 1 (2026-07-14)** — the vault as tools on the user's own Claude subscription: streamable-HTTP endpoint with READ `list_kinds` / `search_entities` / `get_context` / `pending_reviews` and WRITE `submit_extraction` (strict zod contract; source captured as an `upload` item `meta.via="mcp"` marked `analyzed`; then the SAME deterministic `ingestExtraction` — Claude extracts, the server resolves/dedups/supersedes/reviews) / `resolve_review`. Auth: per-user HMAC-derived bearer tokens (no schema change; rotate `MCP_TOKEN_SECRET` to revoke); Settings → "✦ Connect Claude" reveals URL + token + the `claude mcp add` line. OAuth + `process_inbox` = phase 2 | `app/api/mcp/[transport]/route.ts`, pure `lib/datamodo/mcp-token.ts` + `lib/datamodo/mcp-extraction.ts`, `app/api/mcp-token`, `McpConnectCard` in `control-center.tsx`; deps `mcp-handler`, `@modelcontextprotocol/sdk`, `zod` |
 | Landing page + SEO | `app/page.tsx`, `components/landing/`, `app/landing.css`, `app/robots.ts`, `app/sitemap.ts` |
 
 ## Environment variables
@@ -111,6 +112,8 @@
 **Channels:** `TWILIO_AUTH_TOKEN`, `TWILIO_ACCOUNT_SID`, `TWILIO_WHATSAPP_WEBHOOK_URL`, `TWILIO_WHATSAPP_FROM` (the shared bot number — outbound review pings are dormant without it); `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN` (also powers outbound review pings); `MICROSOFT_APP_ID` (+ dev-only `TEAMS_DEV_SKIP_AUTH`); `APP_URL` (review-ping deep links, falls back to `NEXT_PUBLIC_SITE_URL`).
 
 **Billing (dormant):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_MAX`.
+
+**MCP (optional):** `MCP_TOKEN_SECRET` (falls back to `NEON_AUTH_COOKIE_SECRET` — always set in real deployments; rotating it revokes every issued token).
 
 **Web:** `NEXT_PUBLIC_SITE_URL` (sitemap/OG).
 

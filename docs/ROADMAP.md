@@ -130,21 +130,24 @@
 
 ## Next build tracks (pick after the above)
 - **MCP server / connectors — run datamodo on a Claude SUBSCRIPTION, no API
-  key** (user ask 2026-07-14: "@datamodo in Claude Desktop… would it work?" —
-  yes). The architecture already splits extraction (LLM) from ingestion
-  (deterministic `ingestExtraction`: canonicalization, resolution, dedup,
-  supersession, reviews) — so a remote MCP server inverts who runs the model:
-  Claude-on-the-user's-sub IS the extractor. Tools: READ `list_kinds`,
-  `search_entities` (resolution candidates), `get_context`, `query_graph`
-  (dovetails with GraphRAG below), `pending_reviews`; WRITE
-  `submit_extraction` (strict Extraction JSON schema → the SAME server
-  pipeline), `resolve_review` (reuse `review-ping.ts` parse/apply verbatim —
-  the in-chat "1 yes/2 no" PR loop, but in Claude). Bonus pull model:
-  keyless deployments queue inbound items raw and a `process_inbox` tool
-  hands them to Claude to extract on the sub — cron-less extraction. Hosting:
-  Streamable-HTTP endpoint in Next.js (`/api/mcp`, Vercel MCP adapter),
-  OAuth per user (claude.ai connectors + Claude Desktop both support remote
-  servers). Honest caveats, revised after discussion: the two-model
+  key** (user ask 2026-07-14). **PHASE 1 ✅ SHIPPED 2026-07-14**: Streamable-
+  HTTP endpoint `app/api/mcp/[transport]` (`mcp-handler` + `@modelcontext-
+  protocol/sdk`, stateless — no Redis/SSE) with the core loop: READ
+  `list_kinds` · `search_entities` (resolution candidates — GraphRAG's
+  `linkQueryEntities` seeds first) · `get_context` (graph-first evidence) ·
+  `pending_reviews`; WRITE `submit_extraction` (strict zod contract in
+  `mcp-extraction.ts` — dangling localIds/bad dates bounce back with fixable
+  messages; the source lands as an `upload` item `meta.via="mcp"` marked
+  `analyzed` so the cron never re-extracts it; then the SAME deterministic
+  `ingestExtraction` — adjudication fail-soft without a server key) ·
+  `resolve_review` (same side-effects core). AUTH phase 1: per-user
+  HMAC-DERIVED bearer tokens (`mcp-token.ts` — zero schema change, stateless;
+  trade-off: revocation = rotate `MCP_TOKEN_SECRET`); Settings → "✦ Connect
+  Claude" reveals URL + token + the `claude mcp add` one-liner. Verified
+  against a running server: initialize/tools-list/401s. PHASE 2, still open:
+  OAuth (claude.ai connectors' dynamic client registration + per-user
+  revocation), `query_graph`, the pull-model `process_inbox` (cron-less
+  extraction), MCP `sampling` for the escalation policy. Honest caveats, revised after discussion: the two-model
   confidence escalation is NOT really lost — (a) it existed for OUR API
   cost, and sub inference runs permanently on a frontier model anyway;
   (b) MCP `sampling/createMessage` lets the SERVER request client
