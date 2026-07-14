@@ -1,5 +1,5 @@
 import type { ChatJsonRequest, LlmModels, LlmProvider } from "./types";
-import { parseLoose, sleep } from "./util";
+import { parseLoose, sleep } from "./util.ts";
 
 export interface AnthropicConfig {
   apiKey: string | undefined;

@@ -6,14 +6,27 @@
 //
 // Env: EMBEDDINGS_API_KEY (falls back to OPENAI_API_KEY),
 //      EMBEDDINGS_BASE_URL (default https://api.openai.com/v1),
-//      EMBEDDINGS_MODEL   (default text-embedding-3-small).
+//      EMBEDDINGS_MODEL   (default text-embedding-3-small),
+//      EMBEDDINGS_DIMENSIONS (optional — sent as the OpenAI `dimensions`
+//      param for Matryoshka models that can emit shorter vectors).
+//
+// KEYLESS servers (Ollama, LocalAI): a custom EMBEDDINGS_BASE_URL counts as
+// configured even without a key — the auth header is simply omitted.
+// ⚠ Dimension contract: entities.embedding / doc_chunks.embedding are
+// vector(1536) — the server's model must return 1536-dim vectors (or accept
+// `dimensions: 1536`). A mismatched model (nomic-embed-text = 768) fails soft
+// at store time; widening the column is the local-edition follow-up.
 
 const BASE_URL = () => (process.env.EMBEDDINGS_BASE_URL?.trim() || "https://api.openai.com/v1").replace(/\/$/, "");
 const API_KEY = () => process.env.EMBEDDINGS_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim() || "";
 const MODEL = () => process.env.EMBEDDINGS_MODEL?.trim() || "text-embedding-3-small";
+const DIMENSIONS = () => {
+  const n = Number(process.env.EMBEDDINGS_DIMENSIONS?.trim() || "");
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+};
 
 export function embeddingsConfigured(): boolean {
-  return API_KEY().length > 0;
+  return API_KEY().length > 0 || Boolean(process.env.EMBEDDINGS_BASE_URL?.trim());
 }
 
 /** The deployment's embedding SPACE id (the model name). Vectors from
@@ -32,10 +45,12 @@ export async function embedTexts(texts: string[]): Promise<number[][] | null> {
   if (texts.length === 0) return [];
   if (!embeddingsConfigured()) return null;
   try {
+    const key = API_KEY();
+    const dims = DIMENSIONS();
     const res = await fetch(`${BASE_URL()}/embeddings`, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${API_KEY()}` },
-      body: JSON.stringify({ model: MODEL(), input: texts.map((t) => t.slice(0, 8000)) }),
+      headers: { "content-type": "application/json", ...(key ? { authorization: `Bearer ${key}` } : {}) },
+      body: JSON.stringify({ model: MODEL(), input: texts.map((t) => t.slice(0, 8000)), ...(dims ? { dimensions: dims } : {}) }),
     });
     if (!res.ok) {
       console.error(`[embeddings] ${res.status} ${await res.text().then((t) => t.slice(0, 200)).catch(() => "")}`);

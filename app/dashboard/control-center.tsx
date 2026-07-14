@@ -269,9 +269,14 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
     chat: { t: "Chat", sub: "The app is a channel too — text, photos, PDFs and voice notes, straight into the pipeline" },
   };
 
-  const providerLabel = settings.aiProvider === "openai" ? "OpenAI" : settings.aiProvider === "openrouter" ? "OpenRouter" : "Claude";
-  const runtimeLabel = cloud ? "Datamodo cloud" : `Your ${providerLabel} key`;
-  const runtimeSub = cloud ? "We run every agent for you." : (settings.byokKeySet ? `Runs on your ${providerLabel} API key.` : "Add your API key to start.");
+  const providerLabel = settings.aiProvider === "openai" ? "OpenAI" : settings.aiProvider === "openrouter" ? "OpenRouter" : settings.aiProvider === "ollama" ? "Ollama" : "Claude";
+  const ollama = settings.aiProvider === "ollama";
+  const runtimeLabel = cloud ? "Datamodo cloud" : ollama ? "Your Ollama server" : `Your ${providerLabel} key`;
+  const runtimeSub = cloud
+    ? "We run every agent for you."
+    : settings.byokKeySet
+    ? (ollama ? "Runs on your own Ollama server — keyless." : `Runs on your ${providerLabel} API key.`)
+    : (ollama ? "Add your server URL to start." : "Add your API key to start.");
   const runtimeDot = cloud ? C.green : (settings.byokKeySet ? C.gold : C.accent);
   const plan = planLimits(settings.plan);
 
@@ -1952,7 +1957,7 @@ function SettingsModal({ settings, onClose, onSaved }: { settings: UserSettings;
         <button type="button" onClick={() => setMode("byok")} style={modeCard(mode === "byok")}>
           <div style={{ textAlign: "left" }}>
             <div style={{ fontWeight: 600, fontSize: 14.5 }}>Bring your own key</div>
-            <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Analyse with your own Claude or OpenAI API key — you pay the provider directly.</div>
+            <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Analyse with your own Claude/OpenAI/OpenRouter key — or your own Ollama server, no key at all.</div>
           </div>
           <span style={radioDot(mode === "byok")} />
         </button>
@@ -1961,11 +1966,17 @@ function SettingsModal({ settings, onClose, onSaved }: { settings: UserSettings;
       {mode === "byok" && (
         <div style={{ marginTop: 14, padding: "14px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
           <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 8 }}>Provider</div>
-          <Segmented value={provider} onChange={setProvider} options={[{ v: "anthropic", label: "Claude" }, { v: "openai", label: "OpenAI" }, { v: "openrouter", label: "OpenRouter" }]} />
-          <div className="dm-mono" style={{ ...fieldLabel, margin: "14px 0 8px" }}>API key</div>
-          <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={settings.byokKeySet ? "•••••••• (saved — paste to replace)" : provider === "openai" ? "sk-…" : provider === "openrouter" ? "sk-or-…" : "sk-ant-…"} style={fieldInput} />
+          <Segmented value={provider} onChange={setProvider} options={[{ v: "anthropic", label: "Claude" }, { v: "openai", label: "OpenAI" }, { v: "openrouter", label: "OpenRouter" }, { v: "ollama", label: "Ollama" }]} />
+          <div className="dm-mono" style={{ ...fieldLabel, margin: "14px 0 8px" }}>{provider === "ollama" ? "Server URL" : "API key"}</div>
+          {provider === "ollama" ? (
+            <input type="text" value={key} onChange={(e) => setKey(e.target.value)} placeholder={settings.byokKeySet ? "saved — paste to replace" : "http://localhost:11434 — or your tunnel URL"} style={fieldInput} />
+          ) : (
+            <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={settings.byokKeySet ? "•••••••• (saved — paste to replace)" : provider === "openai" ? "sk-…" : provider === "openrouter" ? "sk-or-…" : "sk-ant-…"} style={fieldInput} />
+          )}
           <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 8, lineHeight: 1.5 }}>
-            This is an <b>API key</b> (billed per use), not your ChatGPT Plus / Claude Pro subscription — those don’t grant API access. Get one from {provider === "openai" ? "platform.openai.com" : provider === "openrouter" ? "openrouter.ai/keys" : "console.anthropic.com"}. OpenRouter gives you one key across many models. Signing in to authorise your account is on the roadmap.
+            {provider === "ollama"
+              ? <>No API key needed — models run on <b>your own machine</b>. The URL must be reachable from datamodo&apos;s servers: on the same box use localhost; otherwise expose it via a tunnel (Tailscale funnel, ngrok, cloudflared). Pull a JSON-capable model first (ollama pull llama3.1).</>
+              : <>This is an <b>API key</b> (billed per use), not your ChatGPT Plus / Claude Pro subscription — those don&apos;t grant API access. Get one from {provider === "openai" ? "platform.openai.com" : provider === "openrouter" ? "openrouter.ai/keys" : "console.anthropic.com"}. OpenRouter gives you one key across many models. Signing in to authorise your account is on the roadmap.</>}
           </div>
         </div>
       )}

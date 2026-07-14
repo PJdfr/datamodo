@@ -1,9 +1,10 @@
-// Provider-agnostic LLM interface. Datamodo always talks to SOME hosted model
-// via an API key — OpenRouter, OpenAI, or Anthropic — so all call sites depend
-// on this interface, never a concrete provider. Pick one with getLlmProvider()
-// (see ./index.ts); the `provider` arg / LLM_PROVIDER env routes to the impl.
+// Provider-agnostic LLM interface. Datamodo talks to SOME OpenAI-shaped model
+// server — OpenRouter, OpenAI, Anthropic, or a keyless Ollama — so all call
+// sites depend on this interface, never a concrete provider. Pick one with
+// getLlmProvider() (see ./index.ts); the `provider` arg / LLM_PROVIDER env
+// routes to the impl.
 
-export type ProviderName = "openrouter" | "openai" | "anthropic";
+export type ProviderName = "openrouter" | "openai" | "anthropic" | "ollama";
 
 /** One image attached to a chat request (the vision tier). */
 export interface ChatImage {
