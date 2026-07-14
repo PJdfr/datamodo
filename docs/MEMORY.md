@@ -5,7 +5,7 @@
 > how we work, what we decided and why. Siblings: [STATE.md](STATE.md) ·
 > [FLOW.md](FLOW.md) · [ROADMAP.md](ROADMAP.md).
 >
-> Last updated: 2026-07-13
+> Last updated: 2026-07-14
 
 ## What datamodo is (the aim)
 Turn unstructured personal communications into **structured, reviewable,
@@ -128,6 +128,13 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
     more BFS rings around the same center), every node keeps a permanent
     bearing (pure deterministic layout), NO physics, NO free camera — motion
     that can wiggle is out. A separate map surface stays rejected.
+    **Revised 2026-07-14: clicking a card while zoomed out RECENTERS in place
+    at the SAME zoom level** (blooms the new center's rings) instead of snapping
+    back to the fully-zoomed-in walk — zoom is a property of the view, not reset
+    by navigation. Also: the ring "N hops"/"not linked yet" text badges are gone
+    (the concentric card rings carry the depth on their own), and the layered
+    edges are soft arcs bowing toward the center (bundled look) rather than grey
+    straight chords.
   - Rare build actions live behind one "✦ Build ▾" menu. Review owns the
     words "pending changes"; Timeline owns "what we learned".
 

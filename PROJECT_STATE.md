@@ -12,6 +12,26 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Explorer: clicking a card while zoomed out RECENTERS in
+  place at the same zoom level + dropped the "N hops"/"not linked yet" ring
+  labels + curved the layered edges** (user requests). (1) `walkTo` now branches
+  on `layers !== null`: while zoomed out it keeps the current ring count
+  (clamped to the new center's `maxHop`), re-blooms every ring from the NEW
+  center (`RingAnim{dir:"in", all:true}`) and updates the trail — instead of the
+  old `setLayers(null)` that snapped every click back to the fully-zoomed-in
+  walk. Zoom is now a property of the view, not reset by navigation. (2) Removed
+  the per-ring `<text>` depth badges ("1 hop"/"2 hops"/"not linked yet"), the
+  `unlinkedShown` corner note ("outermost ring = not connected to this node"),
+  and the "· 2 hops" fragment in the walk's status line — the concentric card
+  rings carry depth on their own. (3) Layered-view edges are now `<path>`
+  quadratic arcs whose control point is the chord midpoint pulled 40% toward the
+  origin (hierarchical-edge-bundling look that belongs to the concentric
+  layout), in a warmer taupe (`#D3C6AF`), replacing the grey straight `<line>`
+  chords. Verified via the `explorer-layers` shoot harness (temporarily extended
+  to click a card while zoomed out, then reverted): breadcrumb + side panel
+  recenter on the clicked node while the view STAYS at "4 of 5 layers", ring
+  labels gone, edges render as faint inward arcs. tsc + lint clean, 163 tests
+  green.
 - **2026-07-14** — **Explorer zoom-out: cards now SPREAD from their parent on
   every layer (user: give the base walk's enter-from-parent motion to all
   layers)**. The layered view previously just popped the newest ring in place

@@ -415,7 +415,6 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
   // No `filter` transition: blurred-layer transitions are expensive to
   // composite at scale — ring promotion snaps sharp, hover unblur is CSS.
   const trans = reduced ? "none" : `transform 220ms ${MOTION.easeOut}, opacity 160ms ${MOTION.ease}`;
-  const unlinkedShown = graph.nodes.some((n) => !n.linked && n.hop <= K);
   // Arrival = each card SPREADS from its parent's slot out to its own ring —
   // the base walk's enter-from-parent motion, applied to the zoom-out. On the
   // FIRST reveal (anim.all) every ring blooms from the center in a hop-staggered
@@ -449,19 +448,12 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
             so edges never visibly detach from moving cards */}
         <g key={K} transform={`translate(${w / 2}, ${h / 2})`}
           style={reduced ? undefined : { animation: "dm-fade-in 160ms 240ms both" }}>
-          {/* ring badges — depth markers only, no drawn circles (user call:
-              the guides read as clutter; the card rings carry the shape) */}
-          {Array.from({ length: K }, (_, i) => i + 1).map((k) => {
-            const isUnlinkedRing = graph.nodes.some((n) => !n.linked && n.hop === k);
-            return (
-              <text key={k} x={0} y={-radial[k] * fit - 10} textAnchor="middle" className="dm-mono"
-                style={{ fontSize: 9, letterSpacing: "0.08em", fill: k === focus ? C.accent : "#B7AF9F", opacity: opOf(k) }}>
-                {isUnlinkedRing ? "not linked yet" : `${k} hop${k === 1 ? "" : "s"}`}
-              </text>
-            );
-          })}
-          {/* edges — projected endpoints, drawn under the cards; deeper edges
-              haze out like their ring */}
+          {/* edges — soft arcs that bow toward the center rather than grey
+              chords cutting across the wheel. Pulling the quadratic control
+              point toward the origin gives the hierarchical-edge-bundling look
+              that belongs to a concentric layout: radial (cross-ring) edges
+              stay near-straight, same-ring links bow gracefully through the
+              middle. Deeper edges haze out like their ring. */}
           {graph.edges.map((e) => {
             if (!shownIds.has(e.from) || !shownIds.has(e.to)) return null;
             const na = nodeById.get(e.from);
@@ -470,10 +462,15 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
             const a = posOf(na), b = posOf(nb);
             const lit = hover !== null && (e.from === hover || e.to === hover);
             const depthOp = opOf(Math.max(na.hop, nb.hop)) * 0.55;
+            // Control point = the chord midpoint pulled 40% toward the center,
+            // so every thread curves inward along the rings.
+            const cx = ((a.x + b.x) / 2) * 0.6;
+            const cy = ((a.y + b.y) / 2) * 0.6;
             return (
-              <line key={`${e.from}~${e.to}~${e.predicate}`}
-                x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                stroke={lit ? C.accent : "#D8D0BF"} strokeWidth={lit ? 1.6 : 1} strokeLinecap="round"
+              <path key={`${e.from}~${e.to}~${e.predicate}`}
+                d={`M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`}
+                fill="none"
+                stroke={lit ? C.accent : "#D3C6AF"} strokeWidth={lit ? 1.6 : 1} strokeLinecap="round"
                 style={{ opacity: hover ? (lit ? 0.95 : 0.08) : depthOp }} />
             );
           })}
@@ -540,11 +537,6 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
         position: "absolute", inset: 0, pointerEvents: "none", zIndex: 47,
         background: reduced ? "none" : "radial-gradient(120% 90% at 50% 46%, rgba(246,242,233,0) 42%, rgba(246,242,233,.45) 80%, rgba(239,233,220,.75) 100%)",
       }} />
-      {unlinkedShown && (
-        <div className="dm-mono" style={{ position: "absolute", right: 18, bottom: 32, ...micro, zIndex: 48, pointerEvents: "none" }}>
-          outermost ring = not connected to this node
-        </div>
-      )}
     </div>
   );
 }
@@ -951,6 +943,26 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   // settle window so the edge overlay tracks the whole glide.
   const walkTo = (id: string, nextTrail: (t: string[]) => string[]) => {
     if (id === center || !byId.has(id) || !graph) return;
+    // Zoomed out? Clicking a card RE-CENTERS the layered view on it but keeps
+    // the zoom level you were at (user decision 2026-07-14: recenter in place,
+    // don't snap back to the fully-zoomed-in walk). The new center's world may
+    // be shallower, so clamp the ring count to what it can show.
+    if (layers !== null) {
+      const nextLayered = buildLayeredEgo(entities, id);
+      const nextK = nextLayered ? Math.min(layers, Math.max(2, nextLayered.maxHop)) : layers;
+      setSelEdge(null);
+      setSelCluster(null);
+      setHoverEdge(null);
+      setHoverNode(null);
+      setJump("");
+      setLayerHover(null);
+      setLayers(nextK);
+      // Bloom every ring out from the NEW center — the same reveal the first
+      // zoom-out uses, so the recenter reads as a reflow, not a reset.
+      setRingAnim({ dir: "in", ring: nextK, all: true });
+      setTrail(nextTrail);
+      return;
+    }
     const next = buildEgoGraph(entities, id, CAPS);
     if (next) {
       const staying = new Set(next.nodes.map((n) => n.id));
@@ -1221,7 +1233,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
         <div className="dm-mono" style={{ position: "absolute", right: 18, bottom: 13, ...micro, zIndex: 50, opacity: 0.7, pointerEvents: "none" }}>
           {layers !== null && layeredGraph
             ? `${layers} of ${Math.max(2, layeredGraph.maxHop)} layers · ${layeredGraph.nodes.length} nodes`
-            : `${reduced ? "2D radial · reduced motion" : "ego neighbourhood · 2 hops"} · ${graph.nodes.length} nodes · ${graph.edges.length} edges`}
+            : `${reduced ? "2D radial · reduced motion" : "ego neighbourhood"} · ${graph.nodes.length} nodes · ${graph.edges.length} edges`}
         </div>
 
         {selectedEdge && layers === null && (
