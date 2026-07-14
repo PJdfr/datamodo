@@ -12,6 +12,32 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **MCP server, phase 1** (roadmap's biggest track; the
+  strategic "run datamodo on a Claude subscription" play): streamable-HTTP
+  MCP endpoint at `app/api/mcp/[transport]` (`mcp-handler` 1.1 +
+  `@modelcontextprotocol/sdk` 1.29 + `zod` 4; stateless — no Redis, SSE off).
+  Six tools closing the extract-loop the architecture was built for: READ
+  `list_kinds` (the registry steers the client extractor), `search_entities`
+  (resolution candidates — GraphRAG text-linking seeds ranked first),
+  `get_context` (graph-first evidence as text), `pending_reviews`; WRITE
+  `submit_extraction` — strict zod contract (`mcp-extraction.ts`; dangling
+  localIds / bad dates bounce back as fixable messages), source captured via
+  the normal `ingest()` as an `upload` item (`meta.via="mcp"`) then marked
+  `analyzed` + stamped `EXTRACTION_VERSION` so the cron tick never re-extracts
+  it, then the SAME deterministic `ingestExtraction` (adjudication fail-soft
+  without a server LLM key — ambiguity becomes review proposals, never
+  auto-merges) — and `resolve_review` (same accept/reject side-effects core).
+  AUTH: per-user HMAC-derived bearer tokens (`mcp-token.ts`,
+  `dmk_<user>.<mac>` — zero schema change, stateless, constant-time verify;
+  documented trade-off: per-user revocation waits for OAuth phase 2, rotate
+  `MCP_TOKEN_SECRET` to revoke all); `GET /api/mcp-token` + Settings
+  "✦ Connect Claude" card reveal URL/token/`claude mcp add` one-liner.
+  Verified: 4 new unit tests (190 pass — token roundtrip/tamper/forge,
+  extraction contract), tsc, lint == baseline, build green, AND a live
+  protocol probe against `next start`: initialize → serverInfo "datamodo",
+  tools/list → all six, no/tampered token → 401. NOT verified: a real Claude
+  client end-to-end (needs a deployed URL) and tool calls against a live DB
+  (sandbox has none) — first MCP checks after the dev deploy.
 - **2026-07-14** — **Review = ALL change: Timeline moved under Review + a
   git-style Commit log** (roadmap, user call same day — revises the
   2026-07-11 "Review owns pending / Timeline owns learned" split). The Review

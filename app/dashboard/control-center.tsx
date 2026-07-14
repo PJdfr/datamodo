@@ -2002,7 +2002,58 @@ function SettingsModal({ settings, onClose, onSaved }: { settings: UserSettings;
           </div>
         </div>
       )}
+
+      {/* Connect Claude (MCP): the vault as tools on the user's own Claude
+          subscription — Claude extracts, the server pipeline stays the vault. */}
+      <McpConnectCard />
     </ModalShell>
+  );
+}
+
+/* Connect Claude (MCP) — lazy: details fetch only when asked for (the token
+ * is derived server-side; showing it writes nothing). */
+function McpConnectCard() {
+  const [conn, setConn] = useState<{ url: string; token: string } | null>(null);
+  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  const reveal = async () => {
+    setState("loading");
+    try {
+      const res = await fetch("/api/mcp-token");
+      if (!res.ok) throw new Error();
+      setConn(await res.json());
+      setState("idle");
+    } catch {
+      setState("error");
+    }
+  };
+  const mono: React.CSSProperties = { fontSize: 11, color: "#3A352C", background: "#fff", border: "1px solid #ECE5D8", borderRadius: 8, padding: "7px 10px", overflowWrap: "anywhere", userSelect: "all" };
+  return (
+    <div style={{ marginTop: 18, padding: "14px 16px", border: "1px solid #E7E0D2", borderRadius: 12, background: "#fff" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}><span style={{ color: C.accent }}>✦</span> Connect Claude</div>
+          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Use your vault from Claude — it reads your graph, files extractions, and resolves reviews over MCP. Runs on your Claude subscription, no API key.</div>
+        </div>
+        {!conn && (
+          <Hov onClick={state === "loading" ? undefined : () => void reveal()} base={{ ...ghostBtn, flexShrink: 0 }} hover={{ background: "#FBF8F1" }}>
+            {state === "loading" ? "…" : "Show connection"}
+          </Hov>
+        )}
+      </div>
+      {state === "error" && <div className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginTop: 10 }}>MCP isn&apos;t configured on this deployment yet.</div>}
+      {conn && (
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>Server URL</div>
+          <div className="dm-mono" style={mono}>{conn.url}</div>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>Bearer token — treat it like a password</div>
+          <div className="dm-mono" style={mono}>{conn.token}</div>
+          <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", lineHeight: 1.6 }}>
+            Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url} --header &quot;Authorization: Bearer {conn.token}&quot;</span>
+            <br />Sign-in-with-datamodo (OAuth, for claude.ai connectors) is on the roadmap.
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
