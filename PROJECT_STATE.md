@@ -12,6 +12,18 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Layered zoom-out: scroll responsiveness (user: "it takes
+  time to load subsequent layers — weird friction")**. The friction was
+  pacing, not compute: (1) scroll events during the per-step cooldown were
+  DISCARDED — now they BANK into the accumulator, so a continuous scroll
+  steps at a steady cadence instead of demanding a fresh notch after every
+  pause; (2) step spacing 340→160ms; (3) animations tightened (rise 480→320ms
+  + 16ms stagger, glide 420→260ms, sink 320→240ms, edge re-fade lands at
+  ~400ms post-step instead of ~640ms); (4) real perf nit: the edge renderer
+  did two O(N) `find`s per line (O(E·N) per render) → Map lookup. Cadence
+  probe: walk→4 layers in ~0.9s and back in ~0.7s of continuous trackpad
+  scrolling (was ~600ms+ per step). 163 tests, tsc, lint == baseline,
+  `next build`, screenshots + step/animation probes green.
 - **2026-07-14** — **Layered zoom-out: ring spacing pass (user feedback on a
   live 98-node graph: cards overlap in arcs while the ring has empty space;
   the focus ring rendered SMALLER than the others)**. Two pure-core fixes in

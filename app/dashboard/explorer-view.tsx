@@ -344,22 +344,23 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
   const nbrs = hover
     ? new Set([hover, ...graph.edges.filter((e) => e.from === hover || e.to === hover).flatMap((e) => [e.from, e.to])])
     : null;
-  const trans = reduced ? "none" : `transform 420ms ${MOTION.easeOut}, opacity 300ms ${MOTION.ease}, filter 300ms ${MOTION.ease}`;
+  const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const trans = reduced ? "none" : `transform 260ms ${MOTION.easeOut}, opacity 200ms ${MOTION.ease}, filter 200ms ${MOTION.ease}`;
   const unlinkedShown = graph.nodes.some((n) => !n.linked && n.hop <= K);
   // Arrival = the ring COMES UP from one layer deeper (smaller + transparent
   // → surfaces to its slot), exactly how a new layer enters the walk's world.
   const riseAnim = (hop: number, i: number): CSSProperties =>
     !reduced && anim?.dir === "in" && hop === anim.ring
-      ? { animation: `dm-rise-z 480ms ${MOTION.easeOut} both`, animationDelay: `${(i % 12) * 26}ms` }
+      ? { animation: `dm-rise-z 320ms ${MOTION.easeOut} both`, animationDelay: `${(i % 10) * 16}ms` }
       : {};
 
   return (
     <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "#F6F2E9", animation: reduced ? "none" : `dm-drop-in 260ms ${MOTION.easeOut}` }}>
       <svg width="100%" height="100%" style={{ position: "absolute", inset: 0, overflow: "visible" }} aria-label="Zoomed-out layers — scroll to reveal more of your world">
-        {/* keyed per step: the lines re-fade in once the cards' 420ms camera
-            glide lands, so edges never visibly detach from moving cards */}
+        {/* keyed per step: the lines re-fade in once the cards' glide lands,
+            so edges never visibly detach from moving cards */}
         <g key={K} transform={`translate(${w / 2}, ${h / 2})`}
-          style={reduced ? undefined : { animation: "dm-fade-in 240ms 400ms both" }}>
+          style={reduced ? undefined : { animation: "dm-fade-in 160ms 240ms both" }}>
           {/* ring badges — depth markers only, no drawn circles (user call:
               the guides read as clutter; the card rings carry the shape) */}
           {Array.from({ length: K }, (_, i) => i + 1).map((k) => {
@@ -374,9 +375,10 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
           {/* edges — projected endpoints, drawn under the cards; deeper edges
               haze out like their ring */}
           {graph.edges.map((e) => {
-            const na = graph.nodes.find((n) => n.id === e.from);
-            const nb = graph.nodes.find((n) => n.id === e.to);
-            if (!na || !nb || !shownIds.has(e.from) || !shownIds.has(e.to)) return null;
+            if (!shownIds.has(e.from) || !shownIds.has(e.to)) return null;
+            const na = nodeById.get(e.from);
+            const nb = nodeById.get(e.to);
+            if (!na || !nb) return null;
             const a = posOf(na), b = posOf(nb);
             const lit = hover !== null && (e.from === hover || e.to === hover);
             const depthOp = opOf(Math.max(na.hop, nb.hop)) * 0.55;
@@ -448,7 +450,7 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
             transition: trans, pointerEvents: "none", zIndex: 43,
             filter: blurOf(n.hop) ? `blur(${blurOf(n.hop)}px)` : "none",
           }}>
-            <div style={{ animation: "dm-sink-z 320ms cubic-bezier(0.4,0,1,1) forwards" }}>
+            <div style={{ animation: "dm-sink-z 240ms cubic-bezier(0.4,0,1,1) forwards" }}>
               <NodeCard e={n.entity} kindDef={kindByName.get(n.entity.kind)} isCenter={false} isHover={false} cluster={Boolean(n.clusterOf)} />
             </div>
           </div>
@@ -757,10 +759,13 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     const onWheel = (ev: WheelEvent) => {
       ev.preventDefault();
       if (!layeredGraph) return;
-      const now = performance.now();
-      if (now - lastStep.current < 340) return; // let the ring land first
-      const NOTCH = 110; // accumulated deltaY per step
+      // ALWAYS accumulate — events during the per-step spacing are banked,
+      // not discarded, so a continuous scroll steps at a steady cadence
+      // instead of demanding a fresh notch after every pause.
       wheelAcc.current += ev.deltaY;
+      const now = performance.now();
+      if (now - lastStep.current < 160) return; // brief spacing between steps
+      const NOTCH = 110; // accumulated deltaY per step
       const maxHop = layeredGraph.maxHop;
       const entry = Math.min(3, Math.max(2, maxHop)); // first step past the walk
       if (wheelAcc.current > NOTCH) {
