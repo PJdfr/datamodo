@@ -12,6 +12,26 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **⊛ Graph: the whole-vault sigma.js surface shipped as a new
+  Data sub-tab next to ◍ Explore** (user ask; the roadmap's "Explorer v2
+  experiment" spike). graphology holds the graph, sigma.js draws it (WebGL);
+  NOT centered on one node — the entire vault at once, user-chosen layout
+  (✦ Organic/ForceAtlas2 · ◯ Circle · ◉ By kind/circlepack, all deterministic).
+  New pure core `lib/datamodo/vault-graph.ts` (`buildVaultGraph` — every entity
+  a node incl. isolated ones, ONE edge per pair carrying every directed
+  predicate; reuses `buildAdjacency`) + `app/dashboard/graph-view.tsx` (lazy
+  sigma/graphology imports, kind-colored dots sized by degree, coral focus
+  dims the rest, node panel with "◍ Walk from here"/"open ›", edge click →
+  link inspector, kind legend, WebGL fail-soft). Existing Explorer untouched;
+  keep/kill side-by-side call stays open (ROADMAP). Deps added: `graphology`,
+  `graphology-layout`, `graphology-layout-forceatlas2`, `sigma`. Verified:
+  4 new unit tests (167 pass), tsc clean, lint == baseline (fixed a
+  setState-in-effect and an unescaped-entity error the first cut introduced),
+  `next build` green (page-data collection needs dummy `NEON_AUTH_*` in the
+  sandbox — env, not code), new `graph` shoot harness ✓ + scripted checks of
+  all three layouts, node click (panel + focus dimming) and edge click (link
+  inspector) in headless Chromium. Not verified live: real-vault scale (the
+  FA2 worker is a known follow-up).
 - **2026-07-14** — **Explorer: removed edge predicate labels on the base walk
   too** (user call, revised from the original "base keeps names, zoom-out drops
   them"). Now NO zoom level draws a predicate label on edges — the walk's
