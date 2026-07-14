@@ -434,9 +434,10 @@ function LayeredView({ graph, zoom, anim, w, h, kindByName, hover, onHover, onWa
   const shownIds = new Set(shown.map((n) => n.id));
   const exiting: LayerNode[] = [];
   const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
-  // A tiny transition smooths between wheel ticks without lagging the scroll;
-  // recenter-bloom cards override this with their own enter transition.
-  const trans = reduced ? "none" : `transform 70ms linear, opacity 90ms linear`;
+  // No transform transition: the rAF zoom loop moves cards AND edges together
+  // every frame, so a CSS tween would only make the edges lag the cards.
+  // (Recenter-bloom cards override this with their own enter transition.)
+  const trans = reduced ? "none" : `opacity 90ms linear`;
   // Arrival = each card SPREADS from its parent's slot out to its own ring —
   // the base walk's enter-from-parent motion, applied to the zoom-out. On the
   // FIRST reveal (anim.all) every ring blooms from the center in a hop-staggered
@@ -621,8 +622,8 @@ function ClusterPanel({ node, byId, kindDef, onClose, onGoTo }: {
    =========================================================================== */
 interface EdgeGeom { x1: number; y1: number; x2: number; y2: number; mx: number; my: number; op: number }
 
-function EdgeLayer({ geom, edges, layout, hoverEdge, selEdge, focusNode, citedIds, onHover, onClick }: {
-  geom: Record<string, EdgeGeom>; edges: EgoEdge[]; layout: Record<string, DepthPos>;
+function EdgeLayer({ geom, edges, hoverEdge, selEdge, focusNode, citedIds, onHover, onClick }: {
+  geom: Record<string, EdgeGeom>; edges: EgoEdge[];
   hoverEdge: string | null; selEdge: string | null; focusNode: string | null;
   /** Nodes an answer cited: an edge joining two of them stays lit coral. */
   citedIds: Set<string>;
@@ -634,13 +635,11 @@ function EdgeLayer({ geom, edges, layout, hoverEdge, selEdge, focusNode, citedId
         const k = edgeKey(e);
         const g = geom[k];
         if (!g) return null;
-        const hop = Math.max(layout[e.from]?.hop ?? 1, layout[e.to]?.hop ?? 1);
         const active = hoverEdge === k || selEdge === k;
         const incidentFocus = Boolean(focusNode && (e.from === focusNode || e.to === focusNode));
         const cited = citedIds.has(e.from) && citedIds.has(e.to);
         const lit = active || incidentFocus || cited;
         const dim = Boolean(hoverEdge || selEdge || focusNode) && !lit;
-        const showLabel = active || cited || (incidentFocus && !hoverEdge && !selEdge) || (!focusNode && !hoverEdge && !selEdge && hop <= 1);
         const dx = g.x2 - g.x1, dy = g.y2 - g.y1, len = Math.hypot(dx, dy) || 1;
         const off = Math.min(11, len * 0.4);
         return (
@@ -654,15 +653,11 @@ function EdgeLayer({ geom, edges, layout, hoverEdge, selEdge, focusNode, citedId
               strokeWidth={active ? 2.4 : lit ? 1.9 : 1.2}
               strokeLinecap="round"
               style={{ transition: `stroke ${MOTION.hover}ms ${MOTION.ease}, stroke-width ${MOTION.hover}ms ${MOTION.ease}` }} />
-            {/* direction dot just inside the object end: subject —predicate→ object */}
+            {/* direction dot just inside the object end: subject —predicate→ object.
+                No predicate LABEL at any zoom level (user call 2026-07-14): the
+                name lives only in the fact inspector you get on click. */}
             <circle cx={g.x2 - (dx / len) * off} cy={g.y2 - (dy / len) * off} r={active ? 3 : 2.2}
               fill={lit ? C.accent : "#DDD5C5"} style={{ transition: `fill ${MOTION.hover}ms ${MOTION.ease}` }} />
-            {showLabel && (
-              <text x={g.mx} y={g.my} textAnchor="middle" dominantBaseline="middle" className="dm-mono"
-                style={{ fontSize: 9.5, letterSpacing: "0.04em", fill: lit ? C.accent : "#8A8477", paintOrder: "stroke", stroke: "#F6F2E9", strokeWidth: 4, pointerEvents: "none" }}>
-                {e.predicate.replace(/_/g, " ")}
-              </text>
-            )}
           </g>
         );
       })}
@@ -813,6 +808,13 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const nodeEls = useRef(new Map<string, HTMLDivElement>());
   const settleUntil = useRef(0);
+  // Continuous-zoom animator (Feature 2, smoothed 2026-07-14): the wheel feeds a
+  // TARGET; a rAF loop eases the DISPLAYED zoom (`layers`) toward it each frame,
+  // so cards AND edges travel together and the emerging ring's edges visibly
+  // draw outward — instead of jumping one wheel-tick at a time.
+  const zoomTarget = useRef<number | null>(null);
+  const zoomDisp = useRef<number | null>(null);
+  const zoomRaf = useRef(0);
 
   // Live reduced-motion preference (listener callbacks are async).
   useEffect(() => {
@@ -868,13 +870,34 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     return () => window.clearTimeout(t);
   }, [ringAnim, layeredGraph]);
 
-  /* ---- the CONTINUOUS zoom dial (Feature 2): scroll maps DIRECTLY to a float
-     ring count. floor(zoom) rings are landed; the fraction emerges the next
-     ring from the center with its edges drawing outward. The scroll HOLDS
-     wherever you stop — no notches, no auto-snap. The walk↔layered boundary is
-     still a swap (3D perspective vs 2D wheel); everything from 2 rings up is
-     continuous. Functional state updates → no stale closure, so the listener
-     only re-binds when the graph changes. ---- */
+  /* ---- the CONTINUOUS zoom dial (Feature 2): scroll feeds a TARGET ring count;
+     a rAF loop EASES the displayed zoom toward it so the reveal is a smooth
+     animation (cards + edges travel together, the new ring's edges draw from
+     the center outward) rather than a per-tick jump. floor(zoom) rings are
+     landed; the fraction emerges the next ring. The scroll HOLDS wherever you
+     stop — no auto-snap. Walk↔layered boundary (below 2 rings) is still a swap.
+     Below 2 (≈1.4) means the walk; the loop reads/writes refs so it never
+     fights React state. ---- */
+  const animateZoomRef = useRef<() => void>(() => {});
+  const animateZoom = useCallback(() => {
+    const maxHop = layeredGraph?.maxHop ?? 2;
+    const WALK = 1.4; // the "below 2" sentinel the ease interpolates through
+    const tv = zoomTarget.current === null ? WALK : zoomTarget.current;
+    const dv = zoomDisp.current === null ? WALK : zoomDisp.current;
+    let nv = dv + (tv - dv) * 0.2; // ~exponential ease (~300ms to settle @60fps)
+    if (Math.abs(tv - nv) < 0.012) nv = tv;
+    // Keep the RAW float in zoomDisp so the ease progresses through the <2 zone;
+    // only the RENDER maps sub-2 to the walk (null). (Storing null here would
+    // pin dv back at WALK and the ease-up could never cross 2.)
+    zoomDisp.current = nv;
+    const render = nv < 2 ? null : Math.min(maxHop, nv);
+    setLayers(render);
+    if (render === null) setLayerHover(null);
+    if (nv === tv) { zoomRaf.current = 0; if (tv === WALK) zoomDisp.current = null; return; } // settled
+    zoomRaf.current = requestAnimationFrame(() => animateZoomRef.current());
+  }, [layeredGraph]);
+  useEffect(() => { animateZoomRef.current = animateZoom; }, [animateZoom]);
+
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
@@ -884,26 +907,29 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     // Is there anything past the walk's 2 hops to reveal? (deeper rings, or an
     // unlinked outer ring) — otherwise the walk has no zoom-out.
     const hasDepth = maxHop >= 3 || g.nodes.some((n) => !n.linked);
-    const SENS = 1 / 320; // deltaY → zoom units (~one ring per 320px of scroll)
+    const SENS = 1 / 300; // deltaY → target zoom units (~one ring per 300px)
     const onWheel = (ev: WheelEvent) => {
       ev.preventDefault();
       const d = ev.deltaY * SENS;
-      setLayers((z) => {
-        if (z === null) {
-          // In the walk: only a downward (out) scroll leaves it, landing at
-          // 2 rings (= the walk's 2 hops) and immediately emerging ring 3.
-          if (d <= 0 || !hasDepth) return null;
-          setSelEdge(null); setSelCluster(null); setHoverEdge(null); setHoverNode(null);
-          setRingAnim(null);
-          return Math.min(maxHop, 2 + d);
-        }
-        const nz = z + d;
-        if (nz < 2) { setLayerHover(null); return null; } // scroll all the way in → the walk
-        return Math.min(maxHop, nz);
-      });
+      const cur = zoomTarget.current;
+      if (cur === null) {
+        // In the walk: only a downward (out) scroll leaves it, targeting the
+        // layered view; the animator eases the frontier ring out from center.
+        if (d <= 0 || !hasDepth) return;
+        setSelEdge(null); setSelCluster(null); setHoverEdge(null); setHoverNode(null);
+        setRingAnim(null);
+        zoomTarget.current = Math.min(maxHop, 2 + d);
+      } else {
+        const nz = cur + d;
+        zoomTarget.current = nz < 2 ? null : Math.min(maxHop, nz);
+      }
+      if (!zoomRaf.current) zoomRaf.current = requestAnimationFrame(() => animateZoomRef.current());
     };
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      if (zoomRaf.current) { cancelAnimationFrame(zoomRaf.current); zoomRaf.current = 0; }
+    };
   }, [layeredGraph]);
 
   /* ---- edge geometry: measure the live projected node centers ---- */
@@ -986,6 +1012,10 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
       setHoverNode(null);
       setJump("");
       setLayerHover(null);
+      // Snap the animator to the recentered integer depth so it doesn't ease
+      // away from the fresh bloom.
+      if (zoomRaf.current) { cancelAnimationFrame(zoomRaf.current); zoomRaf.current = 0; }
+      zoomTarget.current = nextK; zoomDisp.current = nextK;
       setLayers(nextK);
       // Bloom every ring out from the NEW center — the same reveal the first
       // zoom-out uses, so the recenter reads as a reflow, not a reset.
@@ -1011,7 +1041,9 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
     setHoverEdge(null);
     setHoverNode(null);
     setJump("");
-    setLayers(null); // walking always lands you back in the walk
+    if (zoomRaf.current) { cancelAnimationFrame(zoomRaf.current); zoomRaf.current = 0; }
+    zoomTarget.current = null; zoomDisp.current = null;
+    setLayers(null); // walking (from the walk) always lands you back in the walk
     setRingAnim(null);
     setLayerHover(null);
     setTrail(nextTrail);
@@ -1090,7 +1122,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
             {/* decorative third layer — deep, unreadable card silhouettes */}
             {!reduced && <GhostRing w={size.w} h={size.h} />}
 
-            <EdgeLayer geom={geom} edges={graph.edges} layout={layout}
+            <EdgeLayer geom={geom} edges={graph.edges}
               hoverEdge={hoverEdge} selEdge={selEdge} focusNode={hoverNode} citedIds={citedSet}
               onHover={setHoverEdge}
               onClick={(e) => {
