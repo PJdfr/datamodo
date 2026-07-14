@@ -12,6 +12,16 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Roadmap: added an "Explorer v2 experiment" item** (user
+  ask) — try a SECOND explorer built on graphology (graph data structure +
+  algorithms) rendered by sigma.js (WebGL, thousands of nodes), PARALLEL to and
+  not replacing the existing hand-rolled DOM+SVG explorer (separate route/toggle
+  for a side-by-side keep/kill call). Fills the whole-vault-scale niche the
+  dropped Cosmos was meant to, but as a real tool. Open questions captured in
+  ROADMAP: WebGL discs vs our natural-shape cards (nodes likely stay dots that
+  open the existing panel on click), reproducing the brand look in sigma's
+  node/edge programs, and feeding it from `entities`/`facts` while keeping the
+  click→walk + edge→fact-inspector interactions. Docs-only change.
 - **2026-07-14** — **Explorer zoom-out is now CONTINUOUS (Feature 2)** — reverses
   the 2026-07-13 "zoom is DISCRETE" call (user ask). The wheel no longer steps
   one ring per notch; scroll maps DIRECTLY to a float ring count (`layers` is now

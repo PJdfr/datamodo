@@ -78,6 +78,32 @@
   the new ring grows and the old blurred frontier sharpens + grows for free.
   Still deterministic (fixed bearings) — a scroll-attached tween, not physics.
   Walk↔layered boundary (below 2 rings) stays a swap.
+- **Explorer v2 experiment — a Sigma.js + graphology renderer, PARALLEL to
+  (not replacing) the existing explorer** *(user ask 2026-07-14)*. Try a second
+  explorer built on **graphology** (the graph data structure + algorithms — load
+  `entities`/`facts` into a `Graph`, get degree/community/pathfinding for free)
+  rendered by **sigma.js** (WebGL canvas, handles thousands of nodes at 60fps
+  where our hand-rolled DOM+SVG walk tops out at a modest ring count). Keep the
+  CURRENT explorer intact and shipped — this is a separate surface/route (e.g.
+  an "Explore (beta)" toggle or `/dashboard/explorer2`) so we can compare, not a
+  rewrite. What it buys us: whole-vault scale in one view (the niche the dropped
+  Cosmos was meant to fill — but as a real tool, not a bespoke animation),
+  force/circular/BFS layouts from graphology-layout libs, and cheap zoom/pan.
+  What it costs / open questions to answer in the experiment: (1) sigma draws
+  nodes as WebGL discs + labels, NOT our rich natural-shape DOM cards — decide
+  whether nodes stay dots that open the existing side-panel/entity-page on
+  click (likely yes — keep the card richness in the panel, the canvas is the
+  map), or whether a hybrid (DOM overlay for the focused node) is worth it;
+  (2) our brand look (cream/ink/coral, curved bundled edges, depth blur) must be
+  reproduced in sigma's node/edge programs (custom renderers) or it'll look
+  generic; (3) reconcile with the pure cores — feed it from `entities`/`facts`
+  directly (graphology as the in-memory index) rather than `buildEgoGraph`, and
+  keep the click→walk/recenter and edge→fact-inspector interactions. Deliverable
+  of the experiment: a spike that renders the demo vault at scale, a side-by-side
+  read on feel vs the DOM explorer, and a keep/kill call. New deps:
+  `graphology` (+ `graphology-layout*`, `graphology-communities-louvain`) and
+  `sigma`. If it wins, it could become the standing whole-vault surface with the
+  ego-walk as the drill-in; if it loses on brand/feel, we keep the DOM explorer.
 - ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
   with ≥2 connected bodies of content → cited note into `body_md`.
 - ~~Audio tier~~ ✅ 2026-07-11 — audio attachments transcribe (fail-soft
