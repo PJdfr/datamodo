@@ -48,6 +48,12 @@ export async function GET() {
   // that goes out over WhatsApp/Slack, rendered natively here.
   const { pendingQuestions } = await import("@/lib/datamodo/review-inbox");
   const questions = await pendingQuestions(org.id).catch(() => []);
+  // Full PR fidelity: the same typed review items Review Studio renders, so
+  // the bubble shows the EVIDENCE (diff, sides, facts), not just a question.
+  const { listPendingReviews } = await import("@/lib/datamodo/reviews");
+  const allReviews = await listPendingReviews(org.id).catch(() => []);
+  const wanted = new Set(questions.map((q) => q.id));
+  const reviews = allReviews.filter((r) => wanted.has(r.id));
 
   // The recipient list for the composer's picker / @mentions — active agents
   // with their purpose one-liner (a paused agent shouldn't take new mail).
@@ -71,6 +77,7 @@ export async function GET() {
       agent: (i.meta as { agent_name?: string } | null)?.agent_name ?? null,
     })),
     questions,
+    reviews,
     agents: agents.map((a) => ({ id: a.id, name: a.name, purposeText: a.purpose_text })),
   });
 }

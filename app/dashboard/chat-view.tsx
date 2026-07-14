@@ -20,7 +20,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { C } from "./ui";
+import { ReviewCardBody, INK_SKIN } from "./review-card";
 import { activeMention, matchAgents, stripMention, type ChatAgentRef, type MentionSpan } from "@/lib/datamodo/chat-address";
+import type { ReviewItem } from "@/lib/datamodo/review-types";
 
 interface ChatAttachment { filename: string | null; contentType: string | null; bytes: number }
 interface ChatMessage {
@@ -158,14 +160,20 @@ function Bubble({ m }: { m: ChatMessage }) {
   );
 }
 
-/* ---- datamodo's bubble: the pull request, tap-to-approve ---------------- */
+/* ---- datamodo's bubble: the pull request, tap-to-approve ----------------
+ * Full PR fidelity (2026-07-14): each numbered question carries the SAME
+ * evidence body Review Studio renders (review-card.tsx), in the ink skin —
+ * the diff, the sides, the facts — so a decision here is as informed as one
+ * made in the Review tab. Same accept/decline side-effects core. */
 interface PingQuestion { id: string; question: string }
 
-function ReviewBubble({ questions, onDecide, resolved }: {
+function ReviewBubble({ questions, reviews, onDecide, resolved }: {
   questions: PingQuestion[];
+  reviews: ReviewItem[];
   onDecide: (id: string, accept: boolean) => void;
   resolved: { id: string; line: string }[];
 }) {
+  const itemById = new Map(reviews.map((r) => [r.id, r]));
   return (
     <div style={{ alignSelf: "flex-start", maxWidth: "min(84%, 700px)", display: "flex", flexDirection: "column", gap: 4, animation: "dm-drop-in .34s cubic-bezier(0.16,1,0.3,1)" }}>
       <div style={{
@@ -179,23 +187,33 @@ function ReviewBubble({ questions, onDecide, resolved }: {
             datamodo · {questions.length === 1 ? "one thing needs" : `${questions.length} things need`} your ok
           </span>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {questions.map((q, i) => (
-            <div key={q.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <span className="dm-mono" style={{ fontSize: 10.5, color: "#9C958A", flexShrink: 0 }}>{i + 1}.</span>
-              <span style={{ fontSize: 13.5, lineHeight: 1.45, flex: 1, minWidth: 180 }}>{q.question}</span>
-              <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
-                <button type="button" onClick={() => onDecide(q.id, true)}
-                  style={{ fontSize: 12, fontWeight: 600, color: "#FFF8F4", background: C.accent, border: "none", borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontFamily: "inherit" }}>
-                  ✓ yes
-                </button>
-                <button type="button" onClick={() => onDecide(q.id, false)}
-                  style={{ fontSize: 12, fontWeight: 500, color: "#F1ECE1", background: "transparent", border: "1px solid #3A352C", borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontFamily: "inherit" }}>
-                  ✗ no
-                </button>
-              </span>
-            </div>
-          ))}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {questions.map((q, i) => {
+            const item = itemById.get(q.id);
+            return (
+              <div key={q.id}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span className="dm-mono" style={{ fontSize: 10.5, color: "#9C958A", flexShrink: 0 }}>{i + 1}.</span>
+                  <span style={{ fontSize: 13.5, lineHeight: 1.45, flex: 1, minWidth: 180 }}>{q.question}</span>
+                  <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
+                    <button type="button" onClick={() => onDecide(q.id, true)}
+                      style={{ fontSize: 12, fontWeight: 600, color: "#FFF8F4", background: C.accent, border: "none", borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontFamily: "inherit" }}>
+                      ✓ yes
+                    </button>
+                    <button type="button" onClick={() => onDecide(q.id, false)}
+                      style={{ fontSize: 12, fontWeight: 500, color: "#F1ECE1", background: "transparent", border: "1px solid #3A352C", borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontFamily: "inherit" }}>
+                      ✗ no
+                    </button>
+                  </span>
+                </div>
+                {item && (
+                  <div style={{ margin: "8px 0 0 20px" }}>
+                    <ReviewCardBody item={item} skin={INK_SKIN} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
         {resolved.length > 0 && (
           <div style={{ marginTop: questions.length ? 10 : 0, paddingTop: questions.length ? 9 : 0, borderTop: questions.length ? "1px solid #3A352C" : "none", display: "flex", flexDirection: "column", gap: 4 }}>
@@ -216,6 +234,7 @@ function ReviewBubble({ questions, onDecide, resolved }: {
 export function ChatView() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [questions, setQuestions] = useState<PingQuestion[]>([]);
+  const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [resolved, setResolved] = useState<{ id: string; line: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
@@ -259,6 +278,7 @@ export function ChatView() {
       // Server truth replaces everything except still-unconfirmed optimistic bubbles.
       setMessages((prev) => [...(json.messages ?? []), ...prev.filter((m) => m.local)]);
       setQuestions(json.questions ?? []);
+      setReviews(json.reviews ?? []);
       setAgents(json.agents ?? []);
     } catch { /* keep the current thread */ }
   }, []);
@@ -529,7 +549,7 @@ export function ChatView() {
             </div>
           ))}
           {(questions.length > 0 || resolved.length > 0) && (
-            <ReviewBubble questions={questions} onDecide={(id, accept) => void decide(id, accept)} resolved={resolved} />
+            <ReviewBubble questions={questions} reviews={reviews} onDecide={(id, accept) => void decide(id, accept)} resolved={resolved} />
           )}
           <div ref={bottom} />
         </div>

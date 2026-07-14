@@ -12,6 +12,23 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Review cards: one core, two skins — chat bubbles get full
+  PR fidelity** (roadmap "Chat review bubbles", user call same day): new
+  `app/dashboard/review-card.tsx` renders every review kind's EVIDENCE body
+  once (`ReviewCardBody`: merge side-by-side + match% + reason · conflict
+  was→now diff · extraction snippet+facts · off-template facts · category
+  proposal samples+drafted template) with a `ReviewSkin` parameter —
+  `PAPER_SKIN` for Review Studio, `INK_SKIN` for the chat's datamodo bubble
+  (warm ink, ONE coral accent, status tones lifted for dark contrast).
+  Review Studio's five kind cards refactored to `CardShell` (kind header +
+  shared body + kind footer/actions) — net ~100 lines deleted; the chat's
+  "✦ needs your OK" bubble now shows the full evidence under each numbered
+  question (GET /api/chat returns the typed `ReviewItem`s from
+  `listPendingReviews`, filtered to the ping questions; ✓ yes/✗ no and the
+  side-effects core unchanged). Verified: tsc, lint == baseline, 179 tests,
+  build green, `chat` + `review` shoots ✓, scripted expand-a-row checks on
+  Studio (merge body + conflict diff render from the shared core, no page
+  errors). Channel pings (WhatsApp text) unchanged — text-only by nature.
 - **2026-07-14** — **GraphRAG: grounded answers start from `facts`** (roadmap
   "Graph-first retrieval", all four steps): `/api/search?answer=1` now (1)
   links the query to seed entities — new pure `lib/datamodo/graphrag.ts`
