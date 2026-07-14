@@ -12,6 +12,27 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **⊛ Graph custom-rendering pass** (user ask: "you can
+  customize fully"): nodes are now CARDS, not discs — a custom WebGL node
+  program (`graph-card-program.ts`, subclasses sigma's `NodeCircleProgram`,
+  swaps the circle SDF for a rounded-rect: paper fill + kind-colored frame,
+  with PICKING_MODE kept flat so clicks hit the card shape) plus matching
+  canvas-2D label/hover drawers (label seats against the card edge; hover is
+  a paper rounded-rect halo with a warm ink shadow). Edges CURVE
+  (`@sigma/edge-curve`, new dep). Clicking a card opens the Explorer's
+  natural-shape SIDE PANEL on the right (same grammar: kind kicker, "◍ Walk"
+  hand-off, "Full page ›", `EntityPageBody` flat variant — record table,
+  relationships, full markdown body; wikilinks/relationship chips recenter
+  the graph and glide the camera via `fly` on the selection). The link
+  inspector became a proper `LinkInspector` component with clickable
+  endpoints. **Bug found + fixed while verifying: sigma 3.0.3's
+  `stagePadding` setting misaligns the picking framebuffer — EVERY click
+  reads as stage (repro'd in an isolated bisect: base✓ / +stagePadding✗) —
+  so the override is gone (default 30).** Also reshaped `select`/`goTo` so
+  render-created handlers never read refs (react-hooks/refs). Verified:
+  tests 167 pass, tsc clean, lint == baseline, build green, `graph` shoot ✓,
+  scripted headless checks: card+curve rendering, node click → markdown
+  panel, wikilink → panel nav + camera glide, curved-edge click → inspector.
 - **2026-07-14** — **⊛ Graph: the whole-vault sigma.js surface shipped as a new
   Data sub-tab next to ◍ Explore** (user ask; the roadmap's "Explorer v2
   experiment" spike). graphology holds the graph, sigma.js draws it (WebGL);

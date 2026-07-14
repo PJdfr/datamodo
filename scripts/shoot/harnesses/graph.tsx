@@ -18,7 +18,11 @@ const ent = (id: string, kind: string, label: string, facts: KnowledgeFactView[]
 // Two companies sharing people/projects, invoice fans, and unlinked notes —
 // enough structure for the force layout to show real clusters.
 const world: KnowledgeEntityView[] = [
-  ent("acme", "company", "Acme Group", [], 14),
+  {
+    ...ent("acme", "company", "Acme Group", [], 14),
+    naturalKeys: { domain: "acme.example" },
+    bodyMd: "## About\nAcme commissions the **Q3 Rebrand** and pays through [[INV-900]].\n\n- Main contact: [[Elena Voss]]\n- Billing cycle: `net-30`\n\n> Forwarded contracts live in the files view.",
+  },
   ent("bright", "company", "Brightwave", [], 8),
   ...Array.from({ length: 10 }, (_, i) => ent(`inv${i}`, "invoice", `INV-${900 + i}`, [rel("issued_by", i < 7 ? "acme" : "bright")], 1)),
   ent("elena", "person", "Elena Voss", [rel("works_for", "acme"), rel("partner_of", "bright")], 3),
