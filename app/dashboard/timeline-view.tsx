@@ -9,8 +9,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { C, CountUp } from "./ui";
-import type { TimelineEvent, TimelineEntityRef } from "@/lib/datamodo/timeline";
+import { C, CountUp, relTime } from "./ui";
+import type { CommitDiffLine, TimelineCommit, TimelineEvent, TimelineEntityRef } from "@/lib/datamodo/timeline";
 
 const TYPE_META: Record<TimelineEvent["type"], { glyph: string; tone: string; label: string }> = {
   message: { glyph: "✉", tone: C.blue, label: "message" },
@@ -315,6 +315,106 @@ export function EntityHistory({ entityId, onOpen }: {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ==========================================================================
+   COMMIT LOG — the Review tab's git-style history (roadmap "Review = ALL
+   change", 2026-07-14). Each extraction run is a COMMIT: the message is the
+   commit message, the facts it wrote are the diff (`+ added`, `~ was → now`).
+   Pure query over the bitemporal vault (buildCommitLog) — nothing stored.
+   ========================================================================== */
+
+function DiffLine({ l }: { l: CommitDiffLine }) {
+  const change = l.op === "change";
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "3px 12px", fontSize: 12, minWidth: 0 }}>
+      <span className="dm-mono" style={{ fontSize: 11, fontWeight: 700, color: change ? C.gold : C.green, flexShrink: 0, width: 10 }}>{change ? "~" : "+"}</span>
+      <span style={{ color: "#57534A", flexShrink: 0 }}>{l.subject?.label ?? "?"}</span>
+      <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", flexShrink: 0 }}>{l.predicate.replace(/_/g, " ")}</span>
+      {change && l.was !== undefined && (
+        <>
+          <span style={{ color: "#B44536", textDecoration: "line-through", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.was}</span>
+          <span style={{ color: "#C9BCA6", flexShrink: 0 }}>→</span>
+        </>
+      )}
+      <span style={{ color: l.ref ? C.accent : C.ink, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.ref ? `→ ${l.value}` : l.value}</span>
+    </div>
+  );
+}
+
+function CommitCard({ c }: { c: TimelineCommit }) {
+  const [expanded, setExpanded] = useState(false);
+  const PREVIEW = 6;
+  const lines = expanded ? c.lines : c.lines.slice(0, PREVIEW);
+  const tint = CHANNEL_TINT[c.channel] ?? "#8A8477";
+  return (
+    <div style={{ border: "1px solid #E7E0D2", borderRadius: 13, background: "#fff", overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", background: "#FBF8F1", borderBottom: "1px solid #EFE9DC", flexWrap: "wrap" }}>
+        <span className="dm-mono" title={c.itemId} style={{ fontSize: 10.5, color: "#A39B8B", background: "#fff", border: "1px solid #ECE5D8", borderRadius: 6, padding: "1px 7px" }}>{c.itemId.slice(0, 7)}</span>
+        <span style={{ width: 6, height: 6, borderRadius: "50%", background: tint, flexShrink: 0 }} />
+        <span className="dm-mono" style={{ fontSize: 10, color: "#8A8477", textTransform: "uppercase", letterSpacing: "0.05em" }}>{c.channel}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: C.ink, flex: 1, minWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title}</span>
+        <span className="dm-mono" style={{ fontSize: 10.5, flexShrink: 0 }}>
+          {c.added > 0 && <span style={{ color: C.green }}>+{c.added}</span>}
+          {c.added > 0 && c.changed > 0 && <span style={{ color: "#C9BCA6" }}> </span>}
+          {c.changed > 0 && <span style={{ color: C.gold }}>~{c.changed}</span>}
+        </span>
+        <span className="dm-mono" style={{ fontSize: 10, color: "#B7AF9F", flexShrink: 0 }}>{relTime(c.ts)}</span>
+      </div>
+      <div style={{ padding: "6px 0" }}>
+        {c.sender && <div className="dm-mono" style={{ fontSize: 10, color: "#B7AF9F", padding: "2px 12px 4px" }}>from {c.sender}</div>}
+        {lines.map((l, i) => <DiffLine key={i} l={l} />)}
+        {c.lines.length > PREVIEW && (
+          <button type="button" onClick={() => setExpanded((e) => !e)} className="dm-mono"
+            style={{ fontSize: 10.5, color: C.accent, background: "none", border: "none", cursor: "pointer", padding: "5px 12px", fontFamily: "inherit" }}>
+            {expanded ? "collapse" : `show ${c.lines.length - PREVIEW} more`}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function CommitLogView() {
+  const [commits, setCommits] = useState<TimelineCommit[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/knowledge/timeline?view=commits");
+        const json = await res.json();
+        if (alive) setCommits(json.commits ?? []);
+      } catch {
+        if (alive) setCommits([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  if (commits === null) {
+    return <div className="dm-mono" style={{ color: "#A39B8B", fontSize: 13, padding: "40px 4px" }}>Assembling your history…</div>;
+  }
+  if (commits.length === 0) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "72px 20px" }}>
+        <div style={{ width: 64, height: 64, borderRadius: 18, background: "#FBF8F1", border: "1px solid #ECE5D8", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 20, fontSize: 24 }}>⎇</div>
+        <h2 className="dm-display" style={{ fontWeight: 700, fontSize: 24, letterSpacing: "-0.03em", margin: "0 0 8px" }}>No commits yet</h2>
+        <p style={{ fontSize: 14.5, color: "#57534A", maxWidth: "46ch", margin: 0, lineHeight: 1.55 }}>Every message that adds or changes facts lands here as a commit — your data&apos;s git log, derived from the vault, nothing stored twice.</p>
+      </div>
+    );
+  }
+  const totalAdd = commits.reduce((n, c) => n + c.added, 0);
+  const totalChg = commits.reduce((n, c) => n + c.changed, 0);
+  return (
+    <div style={{ maxWidth: 860 }}>
+      <div className="dm-mono" style={{ fontSize: 11, color: "#8A8477", margin: "0 2px 12px" }}>
+        {commits.length} commit{commits.length === 1 ? "" : "s"} · <span style={{ color: C.green }}>+{totalAdd}</span> <span style={{ color: C.gold }}>~{totalChg}</span> — every run that changed your graph, newest first
+      </div>
+      <div className="dm-stagger" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {commits.map((c) => <CommitCard key={c.itemId} c={c} />)}
+      </div>
     </div>
   );
 }

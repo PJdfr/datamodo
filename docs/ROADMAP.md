@@ -189,14 +189,18 @@
   time; widening the column is a local-edition follow-up (needs DDL). Not
   live-fired against a real Ollama daemon (none in the sandbox) — transport
   verified with stubbed-fetch unit tests.
-- **Review tab = ALL change, pending and past** (user call 2026-07-14 —
-  REVISES the 2026-07-11 IA split "Review owns pending / Timeline owns what
-  we learned"): move the Timeline subtab under Review, and add a GIT-style
-  history view — the bitemporal vault makes it a query, not new storage:
-  extraction runs group into "commits", fact `valid_from/valid_to/
-  superseded_by` are the diffs, dataset row versioning already exists.
-  Surfaces: commit log (per message/run), per-entity blame (the entity page's
-  "◷ History" collapsed block grows into this), diff view for supersessions.
+- ~~**Review tab = ALL change, pending and past**~~ ✅ 2026-07-14 (user call
+  same day — REVISED the 2026-07-11 IA split): Review now has its own flat
+  toggle — **✓ Pending · ⎇ Commits · ◷ Timeline** (Timeline MOVED here from
+  Data; the Data toggle shrank accordingly). ⎇ Commits is the GIT-style
+  history: pure `buildCommitLog` in `timeline.ts` (one commit per extraction
+  run; the facts it wrote are the diff — a supersession renders `~ was → now`,
+  the rest `+ added`; runs that wrote nothing aren't commits; `entityId`
+  filter ready for blame), served by `?view=commits` on the timeline route,
+  rendered by `CommitLogView` (short-id chip · channel · +N ~M counts ·
+  expandable diff lines). Still open from this track: per-entity BLAME (grow
+  the entity page's "◷ History" block from the commit log's entity filter)
+  and a richer supersession diff view.
 - ~~**Chat review bubbles: full PR fidelity**~~ ✅ 2026-07-14 (user call same
   day): ONE review-card core now renders every review's EVIDENCE —
   `ReviewCardBody` in `app/dashboard/review-card.tsx` (merge side-by-side +

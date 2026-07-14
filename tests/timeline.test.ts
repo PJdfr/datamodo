@@ -4,6 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildCommitLog,
   buildTimeline,
   formatFactValue,
   type TimelineEntityInput,
@@ -158,4 +159,39 @@ test("buildTimeline: timeBasis 'sent' uses sentAt with receivedAt fallback", () 
   const byId = new Map(sent.map((e) => [e.itemId, e.ts]));
   assert.equal(byId.get("m1"), "2026-06-01T08:00:00.000Z"); // sender's clock
   assert.equal(byId.get("m2"), "2026-07-03T09:00:00.000Z"); // fallback
+});
+
+// --- Commit log (Review → Commits) -------------------------------------------
+
+test("buildCommitLog: one commit per extraction run; adds and changes counted", () => {
+  const entities = [E("acme", "company", "Acme"), E("inv", "invoice", "INV-1")];
+  const facts = [
+    // Run 1 wrote the amount; run 2 corrected it (supersession).
+    F({ id: "f1", subjectEntityId: "inv", predicate: "amount", valueText: "$100", validTo: "2026-07-03T09:00:00.000Z", supersededBy: "f2", sourceItemId: "m1" }),
+    F({ id: "f2", subjectEntityId: "inv", predicate: "amount", valueText: "$90", sourceItemId: "m2" }),
+    F({ id: "f3", subjectEntityId: "inv", predicate: "issued_by", objectEntityId: "acme", sourceItemId: "m1" }),
+  ];
+  const items = [I("m1", "2026-07-02T09:00:00.000Z"), I("m2", "2026-07-03T09:00:00.000Z", { subject: "Corrected invoice" })];
+  const log = buildCommitLog(entities, facts, items);
+
+  assert.deepEqual(log.map((c) => c.itemId), ["m2", "m1"], "newest first");
+  const fix = log[0];
+  assert.equal(fix.title, "Corrected invoice");
+  assert.deepEqual([fix.added, fix.changed], [0, 1]);
+  assert.deepEqual(fix.lines[0], { op: "change", subject: { id: "inv", kind: "invoice", label: "INV-1" }, predicate: "amount", value: "$90", was: "$100", ref: false });
+  const first = log[1];
+  assert.deepEqual([first.added, first.changed], [2, 0]);
+  assert.equal(first.lines.find((l) => l.predicate === "issued_by")?.value, "Acme", "relationship values name the entity");
+});
+
+test("buildCommitLog: messages that wrote nothing are not commits; entity filter narrows", () => {
+  const entities = [E("acme", "company", "Acme"), E("bob", "person", "Bob")];
+  const facts = [
+    F({ id: "f1", subjectEntityId: "acme", predicate: "industry", valueText: "logistics", sourceItemId: "m1" }),
+    F({ id: "f2", subjectEntityId: "bob", predicate: "role", valueText: "cto", sourceItemId: "m2" }),
+  ];
+  const items = [I("m1", "2026-07-02T09:00:00.000Z"), I("m2", "2026-07-03T09:00:00.000Z"), I("m3", "2026-07-04T09:00:00.000Z")];
+  assert.equal(buildCommitLog(entities, facts, items).length, 2, "m3 wrote nothing → no commit");
+  const only = buildCommitLog(entities, facts, items, { entityId: "bob" });
+  assert.deepEqual(only.map((c) => c.itemId), ["m2"]);
 });
