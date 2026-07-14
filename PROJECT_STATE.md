@@ -12,6 +12,21 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Explorer continuous scroll: rAF-eased so it actually
+  animates** (user: "the continuous scroll doesn't really animate / doesn't draw
+  the edges continuously"). The first Feature-2 cut mapped wheel deltas straight
+  to `layers`, so each tick JUMPED (only a 70ms card tween) and the edges snapped
+  rather than drew. Now the wheel feeds a TARGET (`zoomTarget` ref) and a rAF
+  loop (`animateZoom`) eases the displayed `layers` toward it (~0.2/frame), so
+  cards AND edges move together every frame and the emerging ring's edges draw
+  outward continuously; it still HOLDS at whatever fraction you stop at. The
+  card transform CSS-transition was dropped (rAF drives it; a tween would only
+  lag the edges). Fixed a stuck-below-2 bug found via the shoot harness: the
+  animator keeps the raw float in `zoomDisp` (only the RENDER maps sub-2 → walk),
+  so an ease-up from the walk crosses 2 instead of pinning at the sentinel.
+  `walkTo` recenter/back paths sync the zoom refs so the animator never fights
+  React state. Verified via `explorer-layers` shoot: eases to the accumulated
+  target (3.6 of 4 layers), ring 4 emerging. tsc + lint clean.
 - **2026-07-14** — **Roadmap: added an "Explorer v2 experiment" item** (user
   ask) — try a SECOND explorer built on graphology (graph data structure +
   algorithms) rendered by sigma.js (WebGL, thousands of nodes), PARALLEL to and
