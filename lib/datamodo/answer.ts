@@ -29,7 +29,9 @@ export interface GroundedAnswer {
 // Keep the prompt lean: a handful of the best hits is plenty for grounding and
 // keeps latency/cost down. Search already ranked them.
 const MAX_ROW_SOURCES = 8;
-const MAX_ENTITY_SOURCES = 6;
+// Graph-first retrieval merges traversal evidence into the entity list
+// (seeds + neighbors), so it gets a little more room than keyword-only did.
+const MAX_ENTITY_SOURCES = 8;
 const MAX_PASSAGE_SOURCES = 5;
 
 const cell = (v: string) => (v.length > 80 ? v.slice(0, 80) + "…" : v);

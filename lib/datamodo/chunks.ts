@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { embedTexts, embeddingsConfigured, embeddingsModel, toVectorLiteral } from "@/lib/llm/embeddings";
 import type { DocChunk } from "./document-extraction";
@@ -64,7 +65,19 @@ const ANN_MIN_SIM = 0.2;
 export async function searchChunks(
   orgId: string,
   terms: string[],
-  opts: { limit?: number; scan?: number; query?: string } = {},
+  opts: {
+    limit?: number;
+    scan?: number;
+    query?: string;
+    /** Pre-computed query embedding (GraphRAG shares ONE embed call across
+     *  entity linking + chunk retrieval). `null` = embedding already failed
+     *  upstream, skip the semantic leg; undefined = embed here. */
+    vector?: number[] | null;
+    /** GraphRAG step 3: restrict SEMANTIC retrieval to these documents (the
+     *  linked entities' neighborhood) — scoped beats corpus-wide both on
+     *  precision and speed. Keyword recall stays global. */
+    entityIds?: string[];
+  } = {},
 ): Promise<ChunkHit[]> {
   const limit = opts.limit ?? 6;
   const scan = opts.scan ?? 300;
@@ -92,11 +105,16 @@ export async function searchChunks(
   };
 
   const semanticLeg = async (): Promise<PassageCandidate[]> => {
-    if (!query || !embeddingsConfigured()) return [];
+    if (opts.vector === null) return []; // caller already tried and failed to embed
+    if (!query && !opts.vector) return [];
+    if (!opts.vector && !embeddingsConfigured()) return [];
     try {
-      const vectors = await embedTexts([query]);
-      if (!vectors) return [];
-      const vec = toVectorLiteral(vectors[0]);
+      const vector = opts.vector ?? (await embedTexts([query!]))?.[0];
+      if (!vector) return [];
+      const vec = toVectorLiteral(vector);
+      const scope = opts.entityIds?.length
+        ? Prisma.sql`AND dc.entity_id = ANY(${opts.entityIds}::uuid[])`
+        : Prisma.empty;
       const rows = await prisma.$queryRaw<{ entity_id: string; seq: number; page: number | null; text: string; canonical_label: string; sim: number }[]>`
         SELECT dc.entity_id, dc.seq, dc.page, dc.text, e.canonical_label,
                (1 - (dc.embedding <=> ${vec}::vector))::real AS sim
@@ -105,6 +123,7 @@ export async function searchChunks(
          WHERE dc.org_id = ${orgId}::uuid
            AND dc.embedding IS NOT NULL
            AND dc.embedding_model = ${embeddingsModel()}
+           ${scope}
          ORDER BY dc.embedding <=> ${vec}::vector
          LIMIT ${limit * 3}`;
       return rows

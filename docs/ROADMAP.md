@@ -213,28 +213,32 @@
   twice — cloud edition (OAuth per user) and local edition (fs paths, no
   OAuth). Two-way sync only later, and only where review-gating can protect
   the vault.
-- **Graph-first retrieval (GraphRAG) — answer from `facts`, vectors as fallback.**
-  Today grounded answers lean on vector similarity over `doc_chunks`; that
-  throws away the three tables that make us different (`entities`, `facts`,
-  `fact_sources`). Smarter flow over the schema we already have:
-  1. **Entity-link the query** — map mentions to `entities` via the existing
-     `embedding` + `canonical_label` trigram index (fuzzy "the Acme deal" →
-     canonical node). This is the only place embeddings do primary work.
-  2. **Traverse `facts`** 1–2 hops from those entities as the primary context —
-     structured `subject predicate object`/`value_*` triples, filtered to
-     current claims (`valid_to IS NULL`) or an as-of date via
-     `valid_from/valid_to`; `superseded_by` + `confidence` resolve
-     contradictions. Unlocks what chunk-similarity can't: aggregation
-     ("how many…"), multi-hop ("who owns the dataset Y depends on"), and
-     temporal ("what did we know as of March").
-  3. **`doc_chunks` fallback** — pull chunks only for the linked entities when
-     prose/narrative is needed, so vector search is scoped to a handful of
-     entities, not the whole corpus (faster + more precise).
-  4. **Cite for free** — `fact_sources` snippets → grounded answer with exact
-     provenance; dovetails with the shipped "◍ See in graph" highlight.
-  Absorbs the "Semantic (ANN) chunk search" follow-up below as its step-3 leg.
-  Embedding model stays free/local (`nomic-embed-text`/`bge-small`) — the
-  per-row `embedding_model` column already lets us swap without a big re-embed.
+- ~~**Graph-first retrieval (GraphRAG) — answer from `facts`, vectors as
+  fallback.**~~ ✅ 2026-07-14 — grounded answers (`/api/search?answer=1`) now
+  start from the graph, not from chunk similarity:
+  1. ~~Entity-link the query~~ ✅ — TEXT leg (`linkQueryEntities`, pure: label/
+     natural-key coverage, deliberately stricter than keyword search — a seed
+     must be NAMED) + SEMANTIC leg (`annLinkEntities` in knowledge.ts: ANN over
+     `entities.embedding`, current-space filter, sim ≥ 0.35; ONE query
+     embedding shared with the chunk leg).
+  2. ~~Traverse `facts`~~ ✅ — `expandFromSeeds` (pure, the ONE `buildAdjacency`
+     rule): seeds' facts + best neighbors' facts (ranked by seed-tie weight),
+     seed-touching facts first then by confidence; a neighbor's edges name
+     hop-2 entities by label. Rides the existing KnowledgeHit shape into
+     `buildAnswerContext` (merged via `mergeKnowledgeHits` — seeds outrank
+     keyword hits, keyword-only hits survive; entity budget 6→8). Current
+     claims only (listKnowledge already filters `valid_to IS NULL`); an
+     explicit as-of date is a later step.
+  3. ~~`doc_chunks` scoped fallback~~ ✅ — `searchChunks` takes the shared
+     query `vector` + `entityIds` scope (the linked neighborhood); semantic
+     chunk retrieval is scoped, keyword recall stays global.
+  4. ~~Cite for free~~ ✅ — evidence rides the existing entity-citation
+     machinery, so chips, "◍ See in graph", and provenance drill-down all
+     work unchanged.
+  Everything fails soft to the plain keyword evidence (no key → text-linking
+  still works). NOT live-fired (sandbox has no DB/keys); embedding model
+  stays swappable per the one-space rule. Later: as-of-date answers,
+  `fact_sources` snippets inline in the context.
 - **Address a specific agent in Chat (agent picker + `@agent` + smart routing).**
   Chat today talks to one implicit agent; let the user choose the recipient.
   "Contacts" here = the user's OWN agents (individual-only product — no other
