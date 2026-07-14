@@ -7,13 +7,15 @@
 // Env: TRANSCRIPTION_API_KEY (falls back to OPENAI_API_KEY),
 //      TRANSCRIPTION_BASE_URL (default https://api.openai.com/v1),
 //      TRANSCRIPTION_MODEL   (default whisper-1).
+// KEYLESS servers (a local whisper server): a custom TRANSCRIPTION_BASE_URL
+// counts as configured even without a key — the auth header is omitted.
 
 const BASE_URL = () => (process.env.TRANSCRIPTION_BASE_URL?.trim() || "https://api.openai.com/v1").replace(/\/$/, "");
 const API_KEY = () => process.env.TRANSCRIPTION_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim() || "";
 const MODEL = () => process.env.TRANSCRIPTION_MODEL?.trim() || "whisper-1";
 
 export function transcriptionConfigured(): boolean {
-  return API_KEY().length > 0;
+  return API_KEY().length > 0 || Boolean(process.env.TRANSCRIPTION_BASE_URL?.trim());
 }
 
 /** Transcribe one audio attachment. Returns the transcript text, or null
@@ -32,9 +34,10 @@ export async function transcribeAudio(args: {
     form.append("file", new Blob([new Uint8Array(args.bytes)], { type: args.mediaType }), name);
     form.append("model", MODEL());
     form.append("response_format", "json");
+    const key = API_KEY();
     const res = await fetch(`${BASE_URL()}/audio/transcriptions`, {
       method: "POST",
-      headers: { authorization: `Bearer ${API_KEY()}` },
+      headers: key ? { authorization: `Bearer ${key}` } : {},
       body: form,
     });
     if (!res.ok) {

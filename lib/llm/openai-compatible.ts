@@ -1,5 +1,5 @@
 import type { ChatJsonRequest, LlmModels, LlmProvider, ProviderName } from "./types";
-import { parseLoose, sleep } from "./util";
+import { parseLoose, sleep } from "./util.ts";
 
 export interface OpenAICompatibleConfig {
   name: ProviderName;
@@ -7,6 +7,9 @@ export interface OpenAICompatibleConfig {
   apiKey: string | undefined;
   models: LlmModels;
   extraHeaders?: Record<string, string>;
+  /** Keyless servers (Ollama, LocalAI): no key is fine — the auth header is
+   *  simply omitted. A key, when given anyway, still rides along (proxies). */
+  keyless?: boolean;
 }
 
 /**
@@ -25,7 +28,7 @@ export class OpenAICompatibleProvider implements LlmProvider {
   }
 
   async chatJSON<T>(req: ChatJsonRequest): Promise<T> {
-    if (!this.cfg.apiKey) throw new Error(`${this.name}: API key not set`);
+    if (!this.cfg.apiKey && !this.cfg.keyless) throw new Error(`${this.name}: API key not set`);
 
     const call = (withSchema: boolean): Promise<Response> => {
       // Vision: images ride along as data-URI parts of the user message.
@@ -56,7 +59,7 @@ export class OpenAICompatibleProvider implements LlmProvider {
       return fetch(`${this.cfg.baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${this.cfg.apiKey}`,
+          ...(this.cfg.apiKey ? { authorization: `Bearer ${this.cfg.apiKey}` } : {}),
           "content-type": "application/json",
           ...(this.cfg.extraHeaders ?? {}),
         },

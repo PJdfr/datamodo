@@ -173,15 +173,22 @@
   local edition ships: it open-sources the hard deterministic core —
   distribution vs exclusivity; the cloud moat is then channels + hosting +
   accumulated data.
-- **Ollama as a first-class provider (keyless)** — for the local edition AND
-  cloud users pointing BYOK at their own Ollama server. Ollama speaks the
-  OpenAI-compatible API, and `lib/llm/*` is provider-agnostic with base-URL
-  overrides already: mostly (1) allow keyless config when a base URL is set
-  (env + BYOK settings + `llm-for-user`), (2) an "Ollama" preset in Settings
-  (base URL, model pickers), (3) embeddings via `nomic-embed-text` (the
-  GraphRAG entry below already assumes it), transcription optional via a
-  local whisper server. Fail-soft design means missing pieces degrade, never
-  break.
+- ~~**Ollama as a first-class provider (keyless)**~~ ✅ 2026-07-14 — for the
+  local edition AND cloud users pointing BYOK at their own server: (1)
+  `getLlmProvider("ollama")` rides the OpenAI-compatible provider with
+  `keyless: true` (no auth header without a key; a key still rides along for
+  authed proxies), `LLM_PROVIDER=ollama` + `OLLAMA_BASE_URL`/`OLLAMA_API_KEY`/
+  `OLLAMA_*_MODEL` env (defaults llama3.1 / llava), bare URLs normalized to
+  `/v1`; (2) Settings gained the "Ollama" provider option — the BYOK field
+  becomes a SERVER URL (same stored column, different meaning; `llm-for-user`
+  routes it as `baseUrl`), with tunnel guidance in the helper text; (3)
+  embeddings + transcription count a custom BASE_URL as configured without a
+  key (keyless local servers), and `EMBEDDINGS_DIMENSIONS` passes the OpenAI
+  `dimensions` param. ⚠ Embedding dimension contract: the columns are
+  `vector(1536)` — a 768-dim model (nomic-embed-text) fails soft at store
+  time; widening the column is a local-edition follow-up (needs DDL). Not
+  live-fired against a real Ollama daemon (none in the sandbox) — transport
+  verified with stubbed-fetch unit tests.
 - **Review tab = ALL change, pending and past** (user call 2026-07-14 —
   REVISES the 2026-07-11 IA split "Review owns pending / Timeline owns what
   we learned"): move the Timeline subtab under Review, and add a GIT-style

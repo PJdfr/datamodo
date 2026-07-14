@@ -16,7 +16,7 @@
 | ORM | Prisma 7 + `@prisma/adapter-neon` | `prisma/schema.prisma`, `lib/prisma.ts` |
 | Auth | Neon Auth (Better Auth), app-layer authz (`org_id` scoping, no RLS) | `lib/auth/*`, `app/api/auth/[...path]`, `proxy.ts` |
 | Blobs | S3-generic adapter → Cloudflare R2 bucket `ingest` (eu) | `lib/storage/blob.ts` |
-| LLM | Provider-agnostic interface: OpenRouter (default) / OpenAI / Anthropic; BYOK per user | `lib/llm/*`, `lib/datamodo/llm-for-user.ts` |
+| LLM | Provider-agnostic interface: OpenRouter (default) / OpenAI / Anthropic / **Ollama (keyless, 2026-07-14)**; BYOK per user (for Ollama the BYOK field holds the user's SERVER URL) | `lib/llm/*`, `lib/datamodo/llm-for-user.ts` |
 | Email inbound | Cloudflare Email Worker → `POST /api/ingest` | `workers/email-ingest/` |
 | Jobs | GitHub Actions cron → `extract-tick` (+ `after()` self-kick on ingest) | `.github/workflows/extract-cron.yml`, `app/api/jobs/*` |
 | Hosting | Vercel (Production=prod branch, Preview=dev branch) | — |
@@ -98,11 +98,11 @@
 
 **Core (required to run):** `DATABASE_URL` (Neon pooled), `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`.
 
-**LLM (extraction, answers, adjudication):** `LLM_PROVIDER` (`openrouter`|`openai`|`anthropic`, default openrouter) + per provider: `OPENROUTER_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`; model overrides `*_EXTRACT_MODEL`, `*_ESCALATE_MODEL`, `*_VISION_MODEL` (vision REQUIRED on OpenRouter — free default can't see); `OPENROUTER_BASE_URL`/`OPENAI_BASE_URL`, `OPENROUTER_APP_URL`.
+**LLM (extraction, answers, adjudication):** `LLM_PROVIDER` (`openrouter`|`openai`|`anthropic`|`ollama`, default openrouter) + per provider: `OPENROUTER_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` (`ollama` is KEYLESS — `OLLAMA_BASE_URL` default `http://localhost:11434/v1`, optional `OLLAMA_API_KEY` for authed proxies); model overrides `*_EXTRACT_MODEL`, `*_ESCALATE_MODEL`, `*_VISION_MODEL` (vision REQUIRED on OpenRouter — free default can't see; Ollama defaults llama3.1/llava); `OPENROUTER_BASE_URL`/`OPENAI_BASE_URL`, `OPENROUTER_APP_URL`.
 
-**Embeddings (optional, fail-soft):** `EMBEDDINGS_API_KEY` (falls back to `OPENAI_API_KEY`), `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_MODEL` — ⚠️ the model defines the deployment's ONE embedding space (never BYOK); changing it requires `POST /api/jobs/embed-requeue` until `remaining` is 0.
+**Embeddings (optional, fail-soft):** `EMBEDDINGS_API_KEY` (falls back to `OPENAI_API_KEY`), `EMBEDDINGS_BASE_URL` (a custom URL counts as configured WITHOUT a key — keyless local servers), `EMBEDDINGS_MODEL`, `EMBEDDINGS_DIMENSIONS` (optional OpenAI `dimensions` param) — ⚠️ the model defines the deployment's ONE embedding space (never BYOK); it must emit 1536-dim vectors (the column type); changing it requires `POST /api/jobs/embed-requeue` until `remaining` is 0.
 
-**Transcription (optional, fail-soft — the audio tier is dormant without it):** `TRANSCRIPTION_API_KEY` (falls back to `OPENAI_API_KEY`), `TRANSCRIPTION_BASE_URL` (default `https://api.openai.com/v1`), `TRANSCRIPTION_MODEL` (default `whisper-1`).
+**Transcription (optional, fail-soft — the audio tier is dormant without it):** `TRANSCRIPTION_API_KEY` (falls back to `OPENAI_API_KEY`), `TRANSCRIPTION_BASE_URL` (default `https://api.openai.com/v1`; a custom URL counts as configured without a key), `TRANSCRIPTION_MODEL` (default `whisper-1`).
 
 **Blobs (R2/S3):** `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `BLOB_BUCKET`.
 

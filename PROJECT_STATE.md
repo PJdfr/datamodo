@@ -12,6 +12,24 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Ollama as a first-class keyless provider** (roadmap):
+  `ProviderName`/`AiProvider` gained `"ollama"` — `getLlmProvider("ollama")`
+  reuses the OpenAI-compatible provider with a new `keyless` flag (no
+  authorization header when keyless AND no key; an `OLLAMA_API_KEY`/BYOK key
+  still rides along for authenticated proxies). Bare pasted URLs normalize to
+  `/v1` (`normalizeOllamaUrl` — custom proxy paths survive). BYOK: the Ollama
+  preset in Settings turns the key field into a SERVER URL (same
+  `byok_key` column, no migration — `ai_provider` is a plain text column);
+  `llmForUser` routes it as `baseUrl`. Embeddings + transcription now count a
+  custom `*_BASE_URL` as configured without a key, and embeddings pass an
+  optional `EMBEDDINGS_DIMENSIONS` through as the OpenAI `dimensions` param.
+  Documented dimension contract: columns are `vector(1536)`; a 768-dim model
+  fails soft at store time (column widening = local-edition follow-up, needs
+  DDL). Also gave `lib/llm/*` internal imports explicit `.ts` extensions so
+  the layer is unit-testable under node strip-types. Verified: 5 new
+  stubbed-fetch tests (184 pass — keyless header behavior, URL routing,
+  key-required still enforced), tsc, lint == baseline, build green. NOT
+  live-fired against a real Ollama daemon (none in the sandbox).
 - **2026-07-14** — **Review cards: one core, two skins — chat bubbles get full
   PR fidelity** (roadmap "Chat review bubbles", user call same day): new
   `app/dashboard/review-card.tsx` renders every review kind's EVIDENCE body
