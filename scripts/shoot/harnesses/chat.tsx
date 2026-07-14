@@ -29,10 +29,28 @@ const messages = [
   },
 ];
 
-// The pull request rides the thread as datamodo's own bubble (tap-to-approve).
+// The pull request rides the thread as datamodo's own bubble (tap-to-approve),
+// with the SAME evidence bodies Review Studio renders (full PR fidelity).
 const questions = [
   { id: "q1", question: 'Merge "ACME Incorporated" into "Acme Group"?' },
   { id: "q2", question: 'Create the category "Subscription" (3 things waiting)?' },
+];
+const iso2 = new Date(Date.now() - 3600_000).toISOString();
+const reviews = [
+  {
+    id: "q1", kind: "entity_merge", impact: 12, confidence: 0.9, createdAt: iso2,
+    parsed: { label: "ACME Incorporated", type: "company", source: "Email", attrs: [{ k: "email domain", v: "acme.com" }, { k: "connected", v: "1 fact" }] },
+    canonical: { label: "Acme Group", type: "company", attrs: [{ k: "domain", v: "acme.com" }, { k: "connected", v: "12 facts" }] },
+    reason: "Same email domain (acme.com); “ACME Incorporated” reads as the legal form of the canonical name.",
+  },
+  {
+    id: "q2", kind: "category_proposal", impact: 4, confidence: null, createdAt: iso2,
+    proposedKind: "subscription", label: "Subscription", count: 3,
+    sampleLabels: ["Figma Org plan", "Notion Team", "Vercel Pro"],
+    fields: [{ key: "plan", label: "Plan", type: "text" }, { key: "monthly_cost", label: "Monthly cost", type: "number" }],
+    relations: [{ predicate: "billed_by", label: "Billed by", targetKind: "company" }],
+    description: "A recurring service the user pays for.",
+  },
 ];
 
 // Recipients for the composer's "to" picker / @mentions.
@@ -42,7 +60,7 @@ const agents = [
 ];
 
 window.fetch = (async () =>
-  new Response(JSON.stringify({ messages, questions, agents }), { headers: { "content-type": "application/json" } })) as typeof fetch;
+  new Response(JSON.stringify({ messages, questions, reviews, agents }), { headers: { "content-type": "application/json" } })) as typeof fetch;
 
 const flags = window as unknown as { __mounted: boolean };
 flags.__mounted = false;

@@ -190,14 +190,20 @@
   superseded_by` are the diffs, dataset row versioning already exists.
   Surfaces: commit log (per message/run), per-entity blame (the entity page's
   "◷ History" collapsed block grows into this), diff view for supersessions.
-- **Chat review bubbles: full PR fidelity** (user call 2026-07-14): the
-  in-chat "✦ needs your OK" bubbles are too simplistic next to Review
-  Studio's PR component — but the chat's ink+coral bubble DESIGN is the
-  keeper (Studio's is richer yet less on-brand). Unify: ONE review-card core
-  (diff/impact/evidence/side-effects rendering) with two skins — the chat
-  bubble skin (ink + ONE coral accent) and the Studio page skin restyled
-  toward the same brand language. Same accept/decline side-effects core as
-  today (`review-inbox.ts`).
+- ~~**Chat review bubbles: full PR fidelity**~~ ✅ 2026-07-14 (user call same
+  day): ONE review-card core now renders every review's EVIDENCE —
+  `ReviewCardBody` in `app/dashboard/review-card.tsx` (merge side-by-side +
+  match% + reason, conflict was→now diff, extraction snippet+facts,
+  off-template facts, category proposal samples+drafted template) — under two
+  SKINS: `PAPER_SKIN` (Review Studio, white on cream) and `INK_SKIN` (the
+  chat bubble — the design keeper: warm ink, ONE coral accent, tones lifted
+  for dark-surface contrast). Studio's five cards became header + shared
+  body + footer (`CardShell`); the chat bubble shows the full evidence under
+  each numbered question (`GET /api/chat` now also returns the typed
+  `ReviewItem`s via `listPendingReviews`, matched to the questions).
+  Surfaces keep their own chrome and action labels; accept/decline
+  side-effects core unchanged (`review-inbox.ts`). The two renderings can no
+  longer drift.
 - **Outbound sync — push datamodo's projections into the USER'S infra**
   (user ask 2026-07-14). Philosophy fit: the vault is the product and every
   view is a projection — external systems are just MORE projection targets.
