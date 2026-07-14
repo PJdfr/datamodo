@@ -327,7 +327,14 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
     const rad = (n.angleDeg * Math.PI) / 180;
     return { x: Math.cos(rad) * r * sxF, y: Math.sin(rad) * r * fit };
   };
-  const scaleOf = (hop: number) => ringScale(hop) * fit * crowdOf(hop);
+  // The crowd factor must never DEFEAT the highlight: whatever the focus
+  // ring's crowding costs it, every other ring is capped BELOW the realized
+  // focus scale (taper inward, frontier just under) — the newest sharp ring
+  // is always the biggest thing on screen.
+  const rawS = (hop: number) => ringScale(hop) * crowdOf(hop);
+  const focusS = rawS(focus);
+  const scaleOf = (hop: number) =>
+    (hop === focus ? focusS : Math.min(rawS(hop), focusS * (hop > focus ? 0.85 : Math.pow(0.82, focus - hop)))) * fit;
   const hoverPopOf = (hop: number) => Math.min(2.6, Math.max(1.06, 0.9 / scaleOf(hop)));
   const shown = graph.nodes.filter((n) => n.hop <= K);
   const shownIds = new Set(shown.map((n) => n.id));

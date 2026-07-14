@@ -300,3 +300,27 @@ test("layeredAngles: a walk-only '+N more' kind-chip takes the circular mean of 
   const memberAngles = chip.clusterOf!.map((id) => angles.get(id)).filter((x): x is number => x !== undefined);
   assert.ok(memberAngles.length > 0);
 });
+
+test("buildLayeredEgo: a crowded ring spreads over the FULL circle; a sparse one keeps parent locality", () => {
+  // Two hubs off the center: one bushy (7 kept kids + chip), one thin (2 kids).
+  const world = [
+    ent("c", "company", "Center", [], 20),
+    ent("busy", "company", "Busy Hub", [rel("partner_of", "c")], 12),
+    ent("thin", "company", "Thin Hub", [rel("partner_of", "c")], 3),
+    ...Array.from({ length: 10 }, (_, i) => ent(`b${i}`, "invoice", `B-${i}`, [rel("issued_by", "busy")], 1)),
+    ent("t0", "person", "T Zero", [rel("works_for", "thin")], 1),
+    ent("t1", "person", "T One", [rel("works_for", "thin")], 1),
+  ];
+  const g = buildLayeredEgo(world, "c", { maxChildren: 7 })!;
+  // Ring 2 = 7 busy kids + chip + 2 thin kids = 10 ≥ comfort(2·9=18)? t=0.55 → blended.
+  const ring2 = g.nodes.filter((n) => n.hop === 2).map((n) => n.angleDeg).sort((a, b) => a - b);
+  assert.ok(ring2.length >= 9);
+  // Blended spacing: the largest angular gap on the ring shrinks well below
+  // what pure per-parent wedges would leave (thin hub's sector was ~half the
+  // circle for 2 nodes). With blending, no gap should exceed ~2.5× uniform.
+  const gaps = ring2.map((a, i) => (i === 0 ? a + 360 - ring2[ring2.length - 1] : a - ring2[i - 1]));
+  const uniform = 360 / ring2.length;
+  assert.ok(Math.max(...gaps) < uniform * 2.5, `max gap ${Math.max(...gaps).toFixed(0)}° vs uniform ${uniform.toFixed(0)}°`);
+  // Determinism still holds after the blend.
+  assert.deepEqual(g, buildLayeredEgo([...world], "c", { maxChildren: 7 }));
+});

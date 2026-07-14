@@ -12,6 +12,19 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Layered zoom-out: ring spacing pass (user feedback on a
+  live 98-node graph: cards overlap in arcs while the ring has empty space;
+  the focus ring rendered SMALLER than the others)**. Two pure-core fixes in
+  `buildLayeredEgo` (both deterministic — bearings stay permanent, the walk's
+  shared angles stay in sync): (1) each ring's bearings BLEND toward even
+  full-circle spacing, strength ∝ ring fullness vs its circumference
+  (count/(9·k)) — busy rings use the whole circle, sparse rings keep pure
+  parent-wedge locality; (2) a HARD FLOOR: no two ring-neighbours closer than
+  half a uniform slot (order-preserving forward pass + seam squeeze). One
+  view fix: the crowd factor can no longer defeat the highlight — every other
+  ring is capped RELATIVE to the realized focus scale (0.82^Δ taper inward,
+  frontier 0.85×), so the newest sharp ring is always the biggest on screen.
+  +1 unit test (163 green), tsc, lint == baseline, `next build`, screenshots.
 - **2026-07-14** — **Layered zoom-out: focus-layer highlight**. User calls,
   applied in order: (1) no blur GRADIENT — only the OUTERMOST ring (the
   frontier/preview) carries hop-2's blur+0.9 opacity; it sharpens the moment

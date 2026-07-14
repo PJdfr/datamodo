@@ -451,6 +451,61 @@ export function buildLayeredEgo(
   };
   place(rootT, -90, 270);
 
+  // Ring-level spacing: pure wedge placement keeps children near their
+  // parent, but a BUSY ring bunches inside a few parents' sectors while the
+  // rest of the circle sits empty. Blend each ring's bearings toward even
+  // full-circle spacing — the fuller the ring is relative to its
+  // circumference (∝ hop), the stronger the blend — keeping the wedge ORDER
+  // so branches never cross. Still a pure function of the graph: bearings
+  // stay permanent, and the walk (which shares them) stays in sync.
+  const RING_COMFORT = 9; // ring 1 holds about this many cards comfortably
+  const byHop = new Map<number, LayerNode[]>();
+  for (const n of nodes) {
+    if (n.hop < 1) continue;
+    if (!byHop.has(n.hop)) byHop.set(n.hop, []);
+    byHop.get(n.hop)!.push(n);
+  }
+  for (const [k, ring] of byHop) {
+    const t = Math.min(1, ring.length / (RING_COMFORT * k));
+    if (t <= 0.35 || ring.length < 3) continue; // sparse: keep parent locality
+    const ordered = [...ring].sort((a, b) => a.angleDeg - b.angleDeg || a.id.localeCompare(b.id));
+    const step = 360 / ordered.length;
+    // Anchor the uniform grid at the circular-mean offset so nodes move as
+    // little as possible from their wedge bearing.
+    let ox = 0, oy = 0;
+    ordered.forEach((n, i) => {
+      const d = ((n.angleDeg - i * step) * Math.PI) / 180;
+      ox += Math.cos(d);
+      oy += Math.sin(d);
+    });
+    const offset = (Math.atan2(oy, ox) * 180) / Math.PI;
+    ordered.forEach((n, i) => {
+      const delta = ((offset + i * step - n.angleDeg + 540) % 360) - 180;
+      n.angleDeg += delta * t;
+    });
+  }
+  // Hard floor on every ring: no two neighbours closer than HALF a uniform
+  // slot. The blend above borrows the big empties; this guarantees local
+  // separation even where locality kept nodes bunched. Order-preserving,
+  // deterministic.
+  for (const [, ring] of byHop) {
+    if (ring.length < 3) continue;
+    const ordered = [...ring].sort((a, b) => a.angleDeg - b.angleDeg || a.id.localeCompare(b.id));
+    const g = (360 / ordered.length) * 0.5;
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 1; i < ordered.length; i++) {
+        if (ordered[i].angleDeg - ordered[i - 1].angleDeg < g) ordered[i].angleDeg = ordered[i - 1].angleDeg + g;
+      }
+      // The seam (last → first, wrapping) needs the gap too — compress the
+      // whole fan a touch when the pushes ate it.
+      const span = ordered[ordered.length - 1].angleDeg - ordered[0].angleDeg;
+      if (span > 360 - g) {
+        const squeeze = (360 - g) / span;
+        for (const n of ordered) n.angleDeg = ordered[0].angleDeg + (n.angleDeg - ordered[0].angleDeg) * squeeze;
+      }
+    }
+  }
+
   // The unlinked ring: everything with no path to the center, evenly spaced.
   let maxHop = linkedMax;
   const unlinked = sortIds(entities.map((e) => e.id).filter((id) => !visited.has(id)));
