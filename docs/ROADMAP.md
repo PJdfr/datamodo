@@ -50,7 +50,10 @@
   month). Left for the design pass: layered-view typography at small card
   scales, ring-label collisions, maybe a mini-map dial. Fixed 2026-07-14:
   "+N more" chips at any depth in the zoom-out now expand their members (were
-  inert past the primary ring — only the walk expanded them).
+  inert past the primary ring — only the walk expanded them). Enhanced
+  2026-07-14: layered cards SPREAD from their parent on entry (the walk's
+  enter-from-parent motion, applied to every ring — first reveal blooms all
+  rings from center; a step-in spreads just the newest).
 - ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
   with ≥2 connected bodies of content → cited note into `body_md`.
 - ~~Audio tier~~ ✅ 2026-07-11 — audio attachments transcribe (fail-soft
@@ -269,6 +272,38 @@
   source-available FSL/BSL (read/run/modify for yourself; competing-service
   use prohibited; Sentry/n8n precedent) or AGPL + trademark; (3) the
   channel/ops layer stays closed in every scenario.
+  **Code-separation — HARD REQUIREMENT (user call 2026-07-14): the local build
+  ships ONLY the local surface; the cloud backend is never in the artifact.**
+  A local/OSS user gets the **dashboard app + 100%-local storage and NOTHING
+  else** — no landing/marketing page, no Neon Auth, no Neon/serverless storage,
+  no cloud channel adapters, no billing/Stripe, no cron/ops. A runtime flag
+  (`SINGLE_USER=1`) is NOT sufficient: it leaves the closed code sitting in the
+  bundle where it can be read, imported, or re-enabled. The boundary must be at
+  BUILD/PACKAGING level so the excluded code is physically absent from the
+  local artifact — not shipped, not visible, not reachable. Required structure,
+  to design BEFORE the split ships:
+  - **Split the tree into an OSS-eligible CORE and a CLOSED cloud layer.** Core
+    (can be open/local): the dashboard UI + pure cores (`lib/datamodo/*`
+    explorer/graph/kinds/etc.), the deterministic ingest pipeline
+    (`ingestExtraction` and friends), the provider-agnostic `lib/llm/*` with
+    keyless/Ollama config, and LOCAL adapters — fs blob storage
+    (`lib/storage/*`), `@prisma/adapter-pg` for a local Postgres/SQLite, the
+    local worker loop, BYOB connectors. Closed (cloud-only, NEVER in the local
+    build): the landing/marketing routes, Neon Auth (`lib/auth/*`), Neon
+    serverless storage + `@prisma/adapter-neon`, the hosted channel adapters
+    (WhatsApp/Slack/Teams webhooks) and outbound providers, billing/Stripe,
+    cron/ops endpoints, and the MCP server host.
+  - **Enforce it mechanically**, not by convention: separate workspace/package
+    (or a generated OSS subtree) so the closed layer is a dependency the local
+    build simply does not include; a storage/auth/channel INTERFACE the core
+    imports, with the cloud implementations living only in the closed package
+    and the local implementations in core; a build that fails if core imports
+    anything from the closed layer (lint boundary / dependency-cruiser rule).
+    Net: `git`-cloning or unzipping the local edition reveals the dashboard and
+    local adapters only — the cloud/auth/landing code isn't there to see.
+  This boundary is also what makes the licensing question above tractable: you
+  can only open (or ship a binary of) the CORE if the core is already cleanly
+  severable from the closed cloud layer.
 
 ## Smaller follow-ups (grab when nearby)
 - ~~Model unification, phase 2~~ ✅ 2026-07-11 — `datasets.kind_id` binds a

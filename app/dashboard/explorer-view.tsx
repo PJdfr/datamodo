@@ -276,18 +276,41 @@ function GhostRing({ w, h }: { w: number; h: number }) {
    =========================================================================== */
 /** The one step animation: a ring ARRIVES from higher z (bigger + transparent
  *  → lands at size) or LIFTS back off. Everything else is a static relayout. */
-export interface RingAnim { dir: "in" | "out"; ring: number }
+export interface RingAnim { dir: "in" | "out"; ring: number; /** First reveal from the walk: spread EVERY ring from its parent, not just the newest. */ all?: boolean }
 
 /* One card of the layered view. MEMOIZED — hovering must not re-render a
    hundred cards: the hover pop + unblur are pure CSS (:hover, zero React),
    and this component's props only change on a zoom step. */
-const LayerCard = memo(function LayerCard({ n, kindDef, x, y, scale, pop, blur, op, z, isCenter, chip, trans, riseStyle, onHover, onWalk, onExpand }: {
+const LayerCard = memo(function LayerCard({ n, kindDef, x, y, scale, pop, blur, op, z, isCenter, chip, trans, enterFrom, onHover, onWalk, onExpand }: {
   n: LayerNode; kindDef?: KindDef;
   x: number; y: number; scale: number; pop: number; blur: number; op: number; z: number;
   isCenter: boolean; chip: boolean; trans: string;
-  riseStyle?: CSSProperties;
+  /** Spread-from-parent entrance: freshly-arrived cards first paint at their
+   *  parent's slot (½ scale, transparent) then glide out to their own ring —
+   *  the SAME motion the base walk uses. `trans` already carries the enter
+   *  timing + per-ring delay for these cards; undefined = no entrance. */
+  enterFrom?: { x: number; y: number };
   onHover: (id: string | null) => void; onWalk: (id: string) => void; onExpand: (id: string) => void;
 }) {
+  // Enter-from-parent (the walk's own mechanism): first paint at the parent's
+  // slot, then a double-rAF flip glides out to this card's own ring. `enterFrom`
+  // is a memoized, stable reference while the entrance plays, so reading it in
+  // render is safe; it clears to undefined once the anim settles.
+  const [settled, setSettled] = useState(!enterFrom);
+  useEffect(() => {
+    if (settled) return;
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => { r2 = requestAnimationFrame(() => setSettled(true)); });
+    // rAF is paused while the tab is hidden — a timer backstop guarantees the
+    // card still surfaces (settled is idempotent, so whichever fires first wins).
+    const fb = window.setTimeout(() => setSettled(true), 80);
+    return () => { cancelAnimationFrame(r1); cancelAnimationFrame(r2); window.clearTimeout(fb); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only flip
+  }, []);
+  const entering = !settled && !!enterFrom;
+  const tx = entering ? enterFrom!.x : x;
+  const ty = entering ? enterFrom!.y : y;
+  const sc = entering ? scale * 0.55 : scale;
   // A chip expands its folded members in place; a real card walks; the center
   // does neither. Chips are as clickable as any other card at every depth.
   const act = isCenter ? undefined : chip ? () => onExpand(n.id) : () => onWalk(n.id);
@@ -306,8 +329,8 @@ const LayerCard = memo(function LayerCard({ n, kindDef, x, y, scale, pop, blur, 
       onKeyDown={(ev) => { if (act && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); act(); } }}
       style={{
         position: "absolute", left: "50%", top: "50%", width: isCenter ? 190 : 150,
-        transform: `translate(-50%,-50%) translate(${x}px, ${y}px) scale(${scale})`,
-        opacity: op,
+        transform: `translate(-50%,-50%) translate(${tx}px, ${ty}px) scale(${sc})`,
+        opacity: entering ? 0 : op,
         filter: blur ? `blur(${blur}px)` : undefined,
         transition: trans,
         cursor: isCenter ? "default" : "pointer",
@@ -316,10 +339,8 @@ const LayerCard = memo(function LayerCard({ n, kindDef, x, y, scale, pop, blur, 
         ["--pop" as string]: String(pop),
       }}
     >
-      <div style={riseStyle}>
-        <div className="dm-pop">
-          <NodeCard e={n.entity} kindDef={kindDef} isCenter={isCenter} isHover={false} cluster={chip} />
-        </div>
+      <div className="dm-pop">
+        <NodeCard e={n.entity} kindDef={kindDef} isCenter={isCenter} isHover={false} cluster={chip} />
       </div>
     </div>
   );
@@ -395,14 +416,31 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
   // composite at scale — ring promotion snaps sharp, hover unblur is CSS.
   const trans = reduced ? "none" : `transform 220ms ${MOTION.easeOut}, opacity 160ms ${MOTION.ease}`;
   const unlinkedShown = graph.nodes.some((n) => !n.linked && n.hop <= K);
-  // Arrival = the ring COMES UP from one layer deeper (smaller + transparent
-  // → surfaces to its slot), exactly how a new layer enters the walk's world.
-  // Undefined (not {}) for everyone else — keeps the memoized cards' props
-  // referentially stable.
-  const riseAnim = (hop: number, i: number): CSSProperties | undefined =>
-    !reduced && anim?.dir === "in" && hop === anim.ring
-      ? { animation: `dm-rise-z 260ms ${MOTION.easeOut} both`, animationDelay: `${(i % 10) * 14}ms` }
-      : undefined;
+  // Arrival = each card SPREADS from its parent's slot out to its own ring —
+  // the base walk's enter-from-parent motion, applied to the zoom-out. On the
+  // FIRST reveal (anim.all) every ring blooms from the center in a hop-staggered
+  // cascade; on a single step-in only the newest ring spreads (inner rings just
+  // glide-rescale via `trans`). Memoized so hover re-renders reuse the SAME
+  // position objects → the fleet's props stay referentially stable.
+  const enterMap = useMemo(() => {
+    const m = new Map<string, { from: { x: number; y: number }; delay: number }>();
+    if (reduced || anim?.dir !== "in") return m;
+    const perHop = new Map<number, number>();
+    for (const n of graph.nodes) {
+      if (n.hop === 0 || n.hop > K) continue;
+      if (!anim.all && n.hop !== anim.ring) continue;
+      const parent = n.parent ? nodeById.get(n.parent) : null;
+      const from = parent ? posOf(parent) : { x: 0, y: 0 };
+      const idx = perHop.get(n.hop) ?? 0;
+      perHop.set(n.hop, idx + 1);
+      const delay = MOTION.enterDelay + (anim.all ? (n.hop - 1) * 80 : 0) + (idx % 10) * 16;
+      m.set(n.id, { from, delay });
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- posOf/nodeById are pure in these deps
+  }, [graph, K, anim, w, h, reduced]);
+  const enterTrans = (delay: number) =>
+    `transform ${MOTION.enter}ms ${MOTION.easeOut} ${delay}ms, opacity ${MOTION.enter}ms ${MOTION.easeOut} ${delay}ms`;
 
   return (
     <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "#F6F2E9", animation: reduced ? "none" : `dm-drop-in 260ms ${MOTION.easeOut}` }}>
@@ -441,12 +479,11 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
           })}
         </g>
       </svg>
-      {/* ONE recursive animation vocabulary: a new ring COMES UP from one
-          layer deeper (small + transparent → surfaces); a leaving ring sinks
-          back down. The SVG above re-fades per step (key) so lines never
-          detach from the gliding cards. */}
+      {/* ONE recursive animation vocabulary: an arriving card SPREADS from its
+          parent's slot out to its ring (per-card transition, above); a leaving
+          ring sinks back down (dm-sink-z). The SVG above re-fades per step (key)
+          so lines never detach from the gliding cards. */}
       <style>{`
-        @keyframes dm-rise-z { from { opacity: 0; transform: scale(0.55); } }
         @keyframes dm-sink-z { to { opacity: 0; transform: scale(0.55); } }
         @keyframes dm-fade-in { from { opacity: 0; } }
         .dm-lcard:hover, .dm-lcard:focus-visible { z-index: 60 !important; filter: none !important; }
@@ -456,9 +493,10 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
       {/* the cards — the walk's own NodeCard at the walk's own depth. Each is
           a MEMOIZED LayerCard whose props only change on a zoom step, so
           hovering (CSS) and edge lighting (SVG) never re-render the fleet. */}
-      {shown.map((n, i) => {
+      {shown.map((n) => {
         const p = posOf(n);
         const isCenter = n.hop === 0;
+        const en = enterMap.get(n.id);
         return (
           <LayerCard
             key={n.id}
@@ -473,8 +511,8 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
             z={isCenter ? 45 : 44 - Math.min(n.hop, 20)}
             isCenter={isCenter}
             chip={Boolean(n.clusterOf)}
-            trans={trans}
-            riseStyle={riseAnim(n.hop, i)}
+            trans={en ? enterTrans(en.delay) : trans}
+            enterFrom={en?.from}
             onHover={onHover}
             onWalk={onWalk}
             onExpand={onExpand}
@@ -791,6 +829,17 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   // old and the new neighborhood) — never from refs during render.
   const [enteringIds, setEnteringIds] = useState<Set<string>>(() => new Set());
 
+  // Once a spread-in entrance has played, drop the anim back to null so the
+  // layered fleet's props go referentially stable again (a lingering "in" anim
+  // would re-hand every entering card a fresh enterFrom on each hover render).
+  useEffect(() => {
+    if (ringAnim?.dir !== "in") return;
+    const spread = ringAnim.all ? Math.max(1, layeredGraph?.maxHop ?? 3) : 1;
+    const dur = MOTION.enter + MOTION.enterDelay + spread * 80 + 260;
+    const t = window.setTimeout(() => setRingAnim((a) => (a === ringAnim ? null : a)), dur);
+    return () => window.clearTimeout(t);
+  }, [ringAnim, layeredGraph]);
+
   /* ---- the zoom stepper: scroll enough → ONE more ring falls in; scroll
      back → it lifts off (below the walk's 2 hops → the walk itself). The
      layout between steps is static — one recursive animation per step. ---- */
@@ -817,7 +866,9 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
         if (next === layers) return;
         setSelEdge(null); setSelCluster(null); setHoverEdge(null); setHoverNode(null);
         setLayers(next);
-        setRingAnim({ dir: "in", ring: next });
+        // First reveal from the walk (layers null) → bloom EVERY ring from the
+        // center; a subsequent step only spreads the newly-arrived ring.
+        setRingAnim({ dir: "in", ring: next, all: layers === null });
         lastStep.current = now;
       } else if (wheelAcc.current < -NOTCH) {
         wheelAcc.current = 0;

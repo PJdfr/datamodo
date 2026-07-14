@@ -12,6 +12,35 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Explorer zoom-out: cards now SPREAD from their parent on
+  every layer (user: give the base walk's enter-from-parent motion to all
+  layers)**. The layered view previously just popped the newest ring in place
+  (`dm-rise-z` scale). Now each arriving `LayerCard` first paints at its
+  parent's projected slot (½ scale, transparent) then glides to its own ring —
+  the same flip `Node3D` uses on the walk. First reveal from the walk blooms
+  EVERY ring from the center in a hop-staggered cascade (`RingAnim.all`); a
+  single step-in only spreads the newest ring (inner rings glide-rescale).
+  Entry positions come from a memoized `enterMap` (stable refs → the fleet's
+  memo holds on hover), and an effect drops `ringAnim` to null after the
+  entrance so later hovers stay stable. Also hardened the settle flip with a
+  `setTimeout(80)` backstop beside the double-rAF, so a backgrounded tab (rAF
+  paused) still surfaces the cards. Verified in a throwaway probe (27-node
+  fan-out, then deleted): all cards settle visible at increasing per-hop
+  distances (hop1<hop2<hop3), enter-start is opacity 0 at the parent, and the
+  deep "+3 more" chip-expand still works. tsc + lint clean, 163 tests green.
+- **2026-07-14** — **Roadmap: local/OSS edition code-separation made a HARD
+  requirement (user call)**. Added to the "Local / open-source single-user
+  edition" track: the local build must ship ONLY the dashboard + 100%-local
+  storage and physically EXCLUDE the cloud backend (landing page, Neon Auth,
+  Neon/serverless storage, cloud channels, billing, cron/ops, MCP host) — a
+  build/packaging boundary, not a runtime `SINGLE_USER` flag (which would leave
+  the closed code in the bundle). Specified the CORE vs CLOSED split (core =
+  dashboard UI + pure cores + deterministic ingest + `lib/llm/*` + LOCAL
+  storage/db/worker adapters; closed = `lib/auth/*`, `@prisma/adapter-neon`,
+  landing, hosted channels, Stripe, cron, MCP host) and mechanical enforcement
+  (separate workspace/package + storage/auth/channel interfaces + a
+  dependency-boundary lint that fails if core imports the closed layer). Docs
+  only: `docs/ROADMAP.md`.
 - **2026-07-14** — **Bugfix: "+N more" fold cards were inert in the zoomed-out
   layered Explorer (user: deep hop-3/hop-4 chips did nothing; only the walk's
   primary ring expanded)**. Root cause: `LayerCard`'s click was hard-gated to
