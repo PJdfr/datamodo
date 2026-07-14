@@ -12,6 +12,25 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Chat: address a specific agent** (roadmap track, parts 1+2
+  — part 3 "suggested reroute" deferred until a live LLM key): the composer
+  gained a "to" chip row (dropdown: ✦ datamodo general + each ACTIVE agent
+  with its purpose one-liner, ✓ on the current pick, × to clear) and inline
+  `@agent` autocomplete (new pure core `lib/datamodo/chat-address.ts`:
+  `activeMention` caret-aware span — never matches emails, never spans lines;
+  `matchAgents` prefix > word-prefix > substring; `stripMention`; ↑↓/Enter/
+  Tab/Esc keyboard, popover owns Enter while open). Recipient is sticky; sent
+  bubbles carry a "→ agent" chip. POST /api/chat accepts `agentId` (validated
+  against the org), stores `meta.agent_id`/`agent_name`; GET returns active
+  agents + each message's addressee. `runExtractionForItem` now resolves
+  `meta.agent_id` → the agent's `purpose_text` and finally FEEDS the dormant
+  `agentPurpose` prompt plumbing — addressing changes what extraction looks
+  for. No addressee = general agent, deterministic (roadmap's "no silent
+  guessing" rule). Also swapped the optimistic-bubble id from `Date.now()` to
+  a ref counter (react-hooks/purity). Verified: 4 new unit tests (175 pass),
+  tsc, lint == baseline, `chat` shoot ✓ + scripted headless checks (dropdown
+  pick, @mention popover, Enter-pick strips the token and sets the sticky
+  recipient). NOT live-fired: the purpose→extraction steer needs the real key.
 - **2026-07-14** — **Semantic (ANN) passage search** (roadmap small follow-up;
   prep for the live-key pass): `searchChunks` now runs TWO recall legs in
   parallel — the existing keyword scan plus, when `opts.query` is set and an

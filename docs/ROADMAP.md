@@ -239,13 +239,20 @@
   Chat today talks to one implicit agent; let the user choose the recipient.
   "Contacts" here = the user's OWN agents (individual-only product — no other
   people), each already carrying a name + purpose we can surface.
-  1. **Explicit pick** — a dropdown of the user's agents AND inline `@agent_name`
-     autocomplete in the composer. Both show each agent's short description
-     inline (purpose reminder), so the user picks the right one without
-     leaving the box. This is the clear win — build it first.
-  2. **Default home** — a drop with no addressee goes to the **general datamodo
-     agent** (deterministic, predictable). No silent guessing about ownership.
-  3. **Suggested reroute, NOT silent auto-routing** *(the pushback)* — the
+  1. ~~**Explicit pick**~~ ✅ 2026-07-14 — a "to" chip row in the composer
+     (dropdown: ✦ datamodo general first, then each ACTIVE agent with its
+     purpose one-liner) AND inline `@agent` autocomplete (pure mention core
+     `chat-address.ts`: caret-aware span, prefix > word-prefix > substring
+     ranking, ↑↓/Enter/Tab/Esc keyboard; picking strips the token). The
+     recipient is sticky across sends; sent bubbles show a "→ agent" chip.
+     The addressee STEERS EXTRACTION: items store `meta.agent_id` and
+     `runExtractionForItem` resolves that agent's `purpose_text` into the
+     prompt (the dormant `agentPurpose` plumbing, finally fed).
+  2. ~~**Default home**~~ ✅ 2026-07-14 — no addressee = the **general
+     datamodo agent** (deterministic, no meta, no steering). No silent
+     guessing about ownership.
+  3. **Suggested reroute, NOT silent auto-routing** *(the pushback; NOT built
+     — needs a live classify call, revisit after the key lands)* — the
      general agent may CLASSIFY a drop and, if it looks meant for a specific
      agent, **suggest** the move ("This looks like it's for your Recruiting
      agent — send it there?") surfaced in the existing Review/confirm flow, not

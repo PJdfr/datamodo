@@ -29,7 +29,7 @@ export async function GET() {
     where: { org_id: org.id, channel: "upload", meta: { path: ["via"], equals: "app" } },
     orderBy: { received_at: "desc" },
     take: 50,
-    select: { id: true, body_preview: true, status: true, error: true, received_at: true },
+    select: { id: true, body_preview: true, status: true, error: true, received_at: true, meta: true },
   });
   const ids = items.map((i) => i.id);
   const atts = ids.length
@@ -49,6 +49,16 @@ export async function GET() {
   const { pendingQuestions } = await import("@/lib/datamodo/review-inbox");
   const questions = await pendingQuestions(org.id).catch(() => []);
 
+  // The recipient list for the composer's picker / @mentions — active agents
+  // with their purpose one-liner (a paused agent shouldn't take new mail).
+  const agents = await prisma.agents
+    .findMany({
+      where: { org_id: org.id, status: "active" },
+      orderBy: { created_at: "asc" },
+      select: { id: true, name: true, purpose_text: true },
+    })
+    .catch(() => [] as { id: string; name: string; purpose_text: string | null }[]);
+
   return NextResponse.json({
     messages: items.reverse().map((i) => ({
       id: i.id,
@@ -57,8 +67,11 @@ export async function GET() {
       error: i.error,
       at: i.received_at.toISOString(),
       attachments: byItem.get(i.id) ?? [],
+      // The addressee, for the bubble's "→ agent" chip (null = general).
+      agent: (i.meta as { agent_name?: string } | null)?.agent_name ?? null,
     })),
     questions,
+    agents: agents.map((a) => ({ id: a.id, name: a.name, purposeText: a.purpose_text })),
   });
 }
 
@@ -70,9 +83,20 @@ export async function POST(req: Request) {
   if (!org) return NextResponse.json({ error: "no org" }, { status: 403 });
 
   const body = (await req.json().catch(() => null)) as
-    | { text?: string; attachments?: IngestAttachment[] }
+    | { text?: string; attachments?: IngestAttachment[]; agentId?: string }
     | null;
   if (!body) return NextResponse.json({ error: "bad request" }, { status: 400 });
+
+  // Optional addressee: a message CAN name one of the user's agents (picker /
+  // @mention); its purpose then steers extraction. No addressee = the general
+  // datamodo agent — deterministic, never guessed.
+  let agent: { id: string; name: string } | null = null;
+  if (body.agentId) {
+    agent = await prisma.agents
+      .findFirst({ where: { id: body.agentId, org_id: org.id }, select: { id: true, name: true } })
+      .catch(() => null);
+    if (!agent) return NextResponse.json({ error: "unknown agent" }, { status: 400 });
+  }
 
   const text = (body.text ?? "").trim();
   const attachments = (body.attachments ?? [])
@@ -95,7 +119,7 @@ export async function POST(req: Request) {
       sender: user.email || "you",
       bodyText: text || undefined,
       attachments: attachments.length ? attachments : undefined,
-      meta: { via: "app" },
+      meta: agent ? { via: "app", agent_id: agent.id, agent_name: agent.name } : { via: "app" },
     });
     // Same post-response extraction kick as /api/ingest — chat should feel
     // live, not wait for the cron sweep.

@@ -35,8 +35,14 @@ const questions = [
   { id: "q2", question: 'Create the category "Subscription" (3 things waiting)?' },
 ];
 
+// Recipients for the composer's "to" picker / @mentions.
+const agents = [
+  { id: "a1", name: "Invoices", purposeText: "billing docs, amounts, due dates" },
+  { id: "a2", name: "Recruiting", purposeText: "candidates, interviews, offers" },
+];
+
 window.fetch = (async () =>
-  new Response(JSON.stringify({ messages, questions }), { headers: { "content-type": "application/json" } })) as typeof fetch;
+  new Response(JSON.stringify({ messages, questions, agents }), { headers: { "content-type": "application/json" } })) as typeof fetch;
 
 const flags = window as unknown as { __mounted: boolean };
 flags.__mounted = false;
