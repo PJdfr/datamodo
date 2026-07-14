@@ -12,6 +12,38 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Chat: address a specific agent** (roadmap track, parts 1+2
+  — part 3 "suggested reroute" deferred until a live LLM key): the composer
+  gained a "to" chip row (dropdown: ✦ datamodo general + each ACTIVE agent
+  with its purpose one-liner, ✓ on the current pick, × to clear) and inline
+  `@agent` autocomplete (new pure core `lib/datamodo/chat-address.ts`:
+  `activeMention` caret-aware span — never matches emails, never spans lines;
+  `matchAgents` prefix > word-prefix > substring; `stripMention`; ↑↓/Enter/
+  Tab/Esc keyboard, popover owns Enter while open). Recipient is sticky; sent
+  bubbles carry a "→ agent" chip. POST /api/chat accepts `agentId` (validated
+  against the org), stores `meta.agent_id`/`agent_name`; GET returns active
+  agents + each message's addressee. `runExtractionForItem` now resolves
+  `meta.agent_id` → the agent's `purpose_text` and finally FEEDS the dormant
+  `agentPurpose` prompt plumbing — addressing changes what extraction looks
+  for. No addressee = general agent, deterministic (roadmap's "no silent
+  guessing" rule). Also swapped the optimistic-bubble id from `Date.now()` to
+  a ref counter (react-hooks/purity). Verified: 4 new unit tests (175 pass),
+  tsc, lint == baseline, `chat` shoot ✓ + scripted headless checks (dropdown
+  pick, @mention popover, Enter-pick strips the token and sets the sticky
+  recipient). NOT live-fired: the purpose→extraction steer needs the real key.
+- **2026-07-14** — **Semantic (ANN) passage search** (roadmap small follow-up;
+  prep for the live-key pass): `searchChunks` now runs TWO recall legs in
+  parallel — the existing keyword scan plus, when `opts.query` is set and an
+  embeddings key exists, one `embedTexts([query])` call + pgvector ANN over
+  `doc_chunks.embedding` (current-`embedding_model` space only, sim floor
+  0.2). New pure core `lib/datamodo/passage-rank.ts` (`mergePassages`): dedupe
+  by (entity, seq); both-paths passages add scores (similarity boosts the
+  keyword rank); semantic-only hits score < 1 so they NEVER outrank an exact
+  match — semantic extends recall, keyword keeps precision. `ChunkHit` moved
+  to the pure module (chunks.ts re-exports). `/api/search` passes the raw
+  query. Fail-soft end to end: no key / no vectors / API error → keyword-only.
+  Verified: 4 new unit tests (171 pass), tsc, lint == baseline. NOT live-fired
+  (no embeddings key in sandbox — it activates with the real key).
 - **2026-07-14** — **⊛ Graph custom-rendering pass** (user ask: "you can
   customize fully"): nodes are now CARDS, not discs — a custom WebGL node
   program (`graph-card-program.ts`, subclasses sigma's `NodeCircleProgram`,
