@@ -281,33 +281,36 @@ export interface RingAnim { dir: "in" | "out"; ring: number }
 /* One card of the layered view. MEMOIZED — hovering must not re-render a
    hundred cards: the hover pop + unblur are pure CSS (:hover, zero React),
    and this component's props only change on a zoom step. */
-const LayerCard = memo(function LayerCard({ n, kindDef, x, y, scale, pop, blur, op, z, isCenter, chip, trans, riseStyle, onHover, onWalk }: {
+const LayerCard = memo(function LayerCard({ n, kindDef, x, y, scale, pop, blur, op, z, isCenter, chip, trans, riseStyle, onHover, onWalk, onExpand }: {
   n: LayerNode; kindDef?: KindDef;
   x: number; y: number; scale: number; pop: number; blur: number; op: number; z: number;
   isCenter: boolean; chip: boolean; trans: string;
   riseStyle?: CSSProperties;
-  onHover: (id: string | null) => void; onWalk: (id: string) => void;
+  onHover: (id: string | null) => void; onWalk: (id: string) => void; onExpand: (id: string) => void;
 }) {
+  // A chip expands its folded members in place; a real card walks; the center
+  // does neither. Chips are as clickable as any other card at every depth.
+  const act = isCenter ? undefined : chip ? () => onExpand(n.id) : () => onWalk(n.id);
   return (
     <div
       className="dm-lcard"
-      role={chip ? undefined : "button"}
-      tabIndex={chip ? -1 : 0}
-      aria-label={isCenter ? `${n.entity.label} — you are here` : chip ? n.entity.label : `Walk to ${n.entity.label}`}
-      title={chip ? `${n.clusterOf!.length} more behind ${n.parent ? "this branch" : "the horizon"} — walk closer to expand` : undefined}
+      role={isCenter ? undefined : "button"}
+      tabIndex={isCenter ? -1 : 0}
+      aria-label={isCenter ? `${n.entity.label} — you are here` : chip ? `${n.entity.label} — show grouped items` : `Walk to ${n.entity.label}`}
+      title={chip ? `${n.clusterOf!.length} grouped ${n.parent ? "under this branch" : "past the horizon"} — click to see them` : undefined}
       onPointerEnter={() => onHover(n.id)}
       onPointerLeave={() => onHover(null)}
       onFocus={() => onHover(n.id)}
       onBlur={() => onHover(null)}
-      onClick={() => { if (!chip && !isCenter) onWalk(n.id); }}
-      onKeyDown={(ev) => { if (!chip && !isCenter && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); onWalk(n.id); } }}
+      onClick={() => act?.()}
+      onKeyDown={(ev) => { if (act && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); act(); } }}
       style={{
         position: "absolute", left: "50%", top: "50%", width: isCenter ? 190 : 150,
         transform: `translate(-50%,-50%) translate(${x}px, ${y}px) scale(${scale})`,
         opacity: op,
         filter: blur ? `blur(${blur}px)` : undefined,
         transition: trans,
-        cursor: chip || isCenter ? "default" : "pointer",
+        cursor: isCenter ? "default" : "pointer",
         outline: "none",
         zIndex: z,
         ["--pop" as string]: String(pop),
@@ -322,7 +325,7 @@ const LayerCard = memo(function LayerCard({ n, kindDef, x, y, scale, pop, blur, 
   );
 });
 
-function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk, reduced }: {
+function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk, onExpand, reduced }: {
   graph: LayeredEgo;
   /** DISCRETE layer count — one scroll notch = one more ring. */
   K: number;
@@ -333,6 +336,8 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
   hover: string | null;
   onHover: (id: string | null) => void;
   onWalk: (id: string) => void;
+  /** Expand a "+N more" chip's folded members into the panel. */
+  onExpand: (id: string) => void;
   reduced: boolean;
 }) {
   // EVERY layer obeys the base view's rules, relative to the CURRENT view:
@@ -472,6 +477,7 @@ function LayeredView({ graph, K, anim, w, h, kindByName, hover, onHover, onWalk,
             riseStyle={riseAnim(n.hop, i)}
             onHover={onHover}
             onWalk={onWalk}
+            onExpand={onExpand}
           />
         );
       })}
@@ -924,6 +930,12 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   const goToRef = useRef(goTo);
   useEffect(() => { goToRef.current = goTo; });
   const layerWalk = useCallback((id: string) => goToRef.current(id), []);
+  // Expanding a folded "+N more" chip from the zoom-out view — toggle its
+  // member panel. Stable identity so the memoized LayerCards don't churn.
+  const layerExpand = useCallback((id: string) => {
+    setSelCluster((prev) => (prev === id ? null : id));
+    setSelEdge(null);
+  }, []);
   const back = () => {
     const prev = trail[trail.length - 2];
     if (prev) walkTo(prev, (t) => t.slice(0, -1));
@@ -944,7 +956,11 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
   }
   const centerEntity = byId.get(center)!;
   const selectedEdge = selEdge ? graph.edges.find((e) => edgeKey(e) === selEdge) ?? null : null;
-  const selectedCluster = selCluster ? graph.nodes.find((n) => n.id === selCluster && n.clusterOf) ?? null : null;
+  // The chip lives in whichever graph is on screen: the walk's ego graph, or
+  // the zoom-out's layered graph. Both node shapes carry `.entity` + `.clusterOf`.
+  const clusterPool: Array<{ id: string; clusterOf?: string[]; entity: KnowledgeEntityView }> =
+    layers === null ? graph.nodes : layeredGraph?.nodes ?? [];
+  const selectedCluster = selCluster ? clusterPool.find((n) => n.id === selCluster && n.clusterOf) ?? null : null;
 
   return (
     <div style={{ display: "flex", alignItems: "stretch", height: 620, background: "#F6F2E9", border: "1px solid #E7E0D2", borderRadius: 16, overflow: "hidden" }}>
@@ -1063,6 +1079,7 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
             hover={layerHover}
             onHover={setLayerHover}
             onWalk={layerWalk}
+            onExpand={layerExpand}
             reduced={reduced}
           />
         )}
@@ -1159,11 +1176,12 @@ export function ExplorerView({ entities, initialId, kindByName, onOpenPage, high
         {selectedEdge && layers === null && (
           <EdgeInspector edge={selectedEdge} onClose={() => setSelEdge(null)} onGoTo={(id) => { setSelEdge(null); goTo(id); }} />
         )}
-        {selectedCluster && layers === null && (
+        {/* The panel works from either surface — the walk or the zoom-out. */}
+        {selectedCluster && (
           <ClusterPanel
-            node={selectedCluster}
+            node={{ label: selectedCluster.entity.label, kind: selectedCluster.entity.kind, clusterOf: selectedCluster.clusterOf }}
             byId={byId}
-            kindDef={kindByName.get(selectedCluster.kind)}
+            kindDef={kindByName.get(selectedCluster.entity.kind)}
             onClose={() => setSelCluster(null)}
             onGoTo={(id) => { setSelCluster(null); goTo(id); }}
           />

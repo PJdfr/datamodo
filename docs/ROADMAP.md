@@ -48,7 +48,9 @@
   scroll-in returns to the walk. The `constellation.ts` cluster/LOD core is
   DORMANT — it is the COSMOS seam (resurrect there or delete after a quiet
   month). Left for the design pass: layered-view typography at small card
-  scales, ring-label collisions, maybe a mini-map dial.
+  scales, ring-label collisions, maybe a mini-map dial. Fixed 2026-07-14:
+  "+N more" chips at any depth in the zoom-out now expand their members (were
+  inert past the primary ring — only the walk expanded them).
 - ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
   with ≥2 connected bodies of content → cited note into `body_md`.
 - ~~Audio tier~~ ✅ 2026-07-11 — audio attachments transcribe (fail-soft
@@ -72,6 +74,90 @@
   graph grows; folder export straight to Drive/Dropbox.
 
 ## Next build tracks (pick after the above)
+- **MCP server / connectors — run datamodo on a Claude SUBSCRIPTION, no API
+  key** (user ask 2026-07-14: "@datamodo in Claude Desktop… would it work?" —
+  yes). The architecture already splits extraction (LLM) from ingestion
+  (deterministic `ingestExtraction`: canonicalization, resolution, dedup,
+  supersession, reviews) — so a remote MCP server inverts who runs the model:
+  Claude-on-the-user's-sub IS the extractor. Tools: READ `list_kinds`,
+  `search_entities` (resolution candidates), `get_context`, `query_graph`
+  (dovetails with GraphRAG below), `pending_reviews`; WRITE
+  `submit_extraction` (strict Extraction JSON schema → the SAME server
+  pipeline), `resolve_review` (reuse `review-ping.ts` parse/apply verbatim —
+  the in-chat "1 yes/2 no" PR loop, but in Claude). Bonus pull model:
+  keyless deployments queue inbound items raw and a `process_inbox` tool
+  hands them to Claude to extract on the sub — cron-less extraction. Hosting:
+  Streamable-HTTP endpoint in Next.js (`/api/mcp`, Vercel MCP adapter),
+  OAuth per user (claude.ai connectors + Claude Desktop both support remote
+  servers). Honest caveats, revised after discussion: the two-model
+  confidence escalation is NOT really lost — (a) it existed for OUR API
+  cost, and sub inference runs permanently on a frontier model anyway;
+  (b) MCP `sampling/createMessage` lets the SERVER request client
+  completions with model-preference hints — the proper home for the
+  escalation policy where clients support it (progressive enhancement;
+  Claude Desktop support limited today; Claude Code subagents can do literal
+  two-model passes); (c) `submit_extraction` can soft-reject with "re-examine
+  these low-confidence parts" → the tool loop IS the escalation. What truly
+  remains: client-reported confidence is uncalibrated → the server re-scores
+  deterministically (template conformity, resolution ambiguity) when routing
+  to Review; embeddings still want a server key (fail-soft to trigram).
+  **Monetization framing (user question 2026-07-14: "what makes users pay if
+  they can use the MCP directly?")**: MCP is a CLIENT, not the product —
+  every tool call hits our hosted vault, so sub-powered users are the
+  cheapest to serve (zero inference cost; LLM margin was already given away
+  by BYOK). Pay-for, in defensibility order: (1) ALWAYS-ON CAPTURE (inbox
+  address, WhatsApp/Slack/Teams bots, cron — server-side by nature, the
+  habit loop, the cleanest paywall line); (2) the trustworthy vault
+  (resolution, bitemporality, provenance, reviews — a chat-with-memory can't
+  answer "unpaid Acme invoices as of March, with sources"; switching cost
+  compounds with data); (3) the surfaces (tables/explorer/lenses/insights/
+  sync); (4) hosting convenience. Natural packaging: Free = MCP + small
+  capped vault (acquisition funnel through every Claude subscriber); Pro =
+  channels + volume + outbound sync; Cloud-LLM tier stays for the key-less;
+  local+Ollama edition = open-core valve. Known trade to decide when the
+  local edition ships: it open-sources the hard deterministic core —
+  distribution vs exclusivity; the cloud moat is then channels + hosting +
+  accumulated data.
+- **Ollama as a first-class provider (keyless)** — for the local edition AND
+  cloud users pointing BYOK at their own Ollama server. Ollama speaks the
+  OpenAI-compatible API, and `lib/llm/*` is provider-agnostic with base-URL
+  overrides already: mostly (1) allow keyless config when a base URL is set
+  (env + BYOK settings + `llm-for-user`), (2) an "Ollama" preset in Settings
+  (base URL, model pickers), (3) embeddings via `nomic-embed-text` (the
+  GraphRAG entry below already assumes it), transcription optional via a
+  local whisper server. Fail-soft design means missing pieces degrade, never
+  break.
+- **Review tab = ALL change, pending and past** (user call 2026-07-14 —
+  REVISES the 2026-07-11 IA split "Review owns pending / Timeline owns what
+  we learned"): move the Timeline subtab under Review, and add a GIT-style
+  history view — the bitemporal vault makes it a query, not new storage:
+  extraction runs group into "commits", fact `valid_from/valid_to/
+  superseded_by` are the diffs, dataset row versioning already exists.
+  Surfaces: commit log (per message/run), per-entity blame (the entity page's
+  "◷ History" collapsed block grows into this), diff view for supersessions.
+- **Chat review bubbles: full PR fidelity** (user call 2026-07-14): the
+  in-chat "✦ needs your OK" bubbles are too simplistic next to Review
+  Studio's PR component — but the chat's ink+coral bubble DESIGN is the
+  keeper (Studio's is richer yet less on-brand). Unify: ONE review-card core
+  (diff/impact/evidence/side-effects rendering) with two skins — the chat
+  bubble skin (ink + ONE coral accent) and the Studio page skin restyled
+  toward the same brand language. Same accept/decline side-effects core as
+  today (`review-inbox.ts`).
+- **Outbound sync — push datamodo's projections into the USER'S infra**
+  (user ask 2026-07-14). Philosophy fit: the vault is the product and every
+  view is a projection — external systems are just MORE projection targets.
+  Phase 1 is ONE-WAY push (no two-way conflict handling): (a) tables →
+  Google Sheets, or the user's OWN database (Postgres first — we already
+  speak it; generic via a connection string); (b) folder-lens trees + original
+  files → Google Drive / OneDrive / SharePoint / local filesystem (the
+  shipped `folder-export` .zip pipeline is the seam — same plan, different
+  writer; absorbs the "folder export straight to Drive/Dropbox" follow-up);
+  (c) dossiers/notes as markdown. Design rules: every connector is a WRITER
+  behind one interface (like `lib/storage/blob.ts`); idempotent re-push
+  (upsert by stable ids, never duplicate); and EACH connector is designed
+  twice — cloud edition (OAuth per user) and local edition (fs paths, no
+  OAuth). Two-way sync only later, and only where review-gating can protect
+  the vault.
 - **Graph-first retrieval (GraphRAG) — answer from `facts`, vectors as fallback.**
   Today grounded answers lean on vector similarity over `doc_chunks`; that
   throws away the three tables that make us different (`entities`, `facts`,
@@ -168,6 +254,21 @@
   PROJECT_STATE "-3"): fs blobs, `@prisma/adapter-pg`, `SINGLE_USER=1`, worker
   loop, BYOB connectors (IMAP first, Telegram, Slack Socket Mode, dead-drop
   relay for WhatsApp/Teams). ~1 week; a strategic call on timing.
+  **Licensing framing (user concern 2026-07-14: "if we release the code,
+  technical users + AI agents replicate the product fast")**: precision
+  matters — agents can replicate from the LANDING PAGE already (this repo
+  itself was agent-built in ~a week), so source was never the moat; the real
+  moats are operational channel assets (approved WhatsApp number, email
+  deliverability, OAuth apps — ops, not code), brand/distribution, each
+  user's accumulated vault, and shipping velocity. What source release
+  actually risks is self-hosting by our own technical segment (mostly
+  never-payers). Sequencing decided-in-principle: (1) MCP free tier FIRST —
+  distribution through every Claude subscriber with a CLOSED backend;
+  (2) local edition later, and NOT necessarily open source: options are a
+  closed packaged binary/Docker (most of the promise, zero source), or
+  source-available FSL/BSL (read/run/modify for yourself; competing-service
+  use prohibited; Sentry/n8n precedent) or AGPL + trademark; (3) the
+  channel/ops layer stays closed in every scenario.
 
 ## Smaller follow-ups (grab when nearby)
 - ~~Model unification, phase 2~~ ✅ 2026-07-11 — `datasets.kind_id` binds a

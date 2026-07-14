@@ -12,6 +12,37 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Bugfix: "+N more" fold cards were inert in the zoomed-out
+  layered Explorer (user: deep hop-3/hop-4 chips did nothing; only the walk's
+  primary ring expanded)**. Root cause: `LayerCard`'s click was hard-gated to
+  non-chips (`if (!chip && !isCenter) onWalk`), and `ClusterPanel` only
+  rendered while `layers === null` — so in the zoom-out view every chip at
+  every depth was dead; the walk view (`Node3D`) was the only place chips
+  expanded. Fix (`app/dashboard/explorer-view.tsx`): chips now fire an
+  `onExpand` → the shared `ClusterPanel`, `selectedCluster` resolves against
+  whichever graph is on screen (walk ego graph OR layered graph — both carry
+  `.entity` + `.clusterOf`), and the panel renders in both views. Verified in
+  a throwaway probe route (synthetic hub folding 10 companies into a "+3 more"
+  chip at hop 4, then deleted): clicking the hop-4 chip opens the member panel
+  (Company 7/8/9), a second click toggles it closed, and clicking a member
+  walks to it (breadcrumb Center Person / Company 8) — the exact
+  previously-dead case. tsc + lint clean, 163 tests green.
+- **2026-07-14** — **Roadmap: five user-directed tracks added (planning only,
+  no code)**: (1) MCP server/connectors — run datamodo on a Claude
+  SUBSCRIPTION: Claude-as-extractor over MCP read tools + a schema-validated
+  `submit_extraction` into the existing deterministic ingest pipeline, plus
+  in-Claude review resolution (reuse review-ping cores) and a keyless
+  `process_inbox` pull model; (2) Ollama as a keyless first-class provider
+  (local edition + cloud BYOK pointing at any OpenAI-compatible base URL);
+  (3) Review tab absorbs Timeline + gains a git-style history view (commit
+  log / blame / supersession diffs from the bitemporal vault) — REVISES the
+  2026-07-11 Review/Timeline IA split, decided not yet built; (4) chat review
+  bubbles get Review Studio's full PR fidelity via ONE shared review-card
+  core with two skins (chat ink+coral bubble; Studio restyled to brand);
+  (5) outbound SYNC — one-way push of projections into the user's own infra
+  (Sheets/Drive/SharePoint/OneDrive/their own Postgres/local fs), each
+  connector designed for both cloud and local editions. Details in
+  docs/ROADMAP.md "Next build tracks".
 - **2026-07-14** — **Layered zoom-out: hover + scroll perf pass (user: "still
   a bit laggy; hover unresponsive when zoomed out")**. Root cause: every
   hover round-tripped through React and re-rendered the WHOLE tree — ~100
