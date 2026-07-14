@@ -85,21 +85,26 @@
   and the USER picks the layout (✦ Organic = ForceAtlas2 · ◯ Circle ·
   ◉ By kind = circlepack), all deterministic (circular seed, no randomness).
   Unlike the Explorer it is NOT centered on one node. The open questions
-  resolved: (1) nodes stay DOTS (kind-colored, sized by degree, labels appear
-  by size/on focus) — the card richness lives in the click panel, whose
-  "◍ Walk from here" hands the node to the Explorer and "open ›" opens the
-  entity page; (2) the brand look came from sigma settings + reducers (cream
-  canvas, warm `#E1D9C8` edges, coral-lit focus neighborhood that dims the
-  rest) — no custom GL programs needed at this fidelity; (3) it feeds from
-  `entities`/`facts` via a new pure core `buildVaultGraph` that reuses the ONE
-  `buildAdjacency` rule. Edge click opens a light link inspector (every
-  predicate on the pair, directions kept; NO labels drawn on edges — standing
-  rule). Fails soft to a message without WebGL. New deps: `graphology`,
-  `graphology-layout`, `graphology-layout-forceatlas2`, `sigma` (louvain
-  skipped — kind colors carry the reading). Still open from the experiment:
-  the side-by-side KEEP/KILL call (both surfaces are live to compare), a
-  worker for ForceAtlas2 at real whole-vault scale, and whether the walk's
-  arcs/blur vocabulary is worth porting into custom node/edge programs.
+  resolved: (1) nodes are tiny CARDS, not dots (custom-rendering pass, user
+  ask same day: a custom WebGL node program draws rounded rectangles — paper
+  fill, kind-colored frame, the walk's card grammar in miniature — with
+  matching canvas label/hover drawers), and the FULL card richness lives in
+  the Explorer's own natural-shape SIDE PANEL on the right (record table,
+  relationships, markdown body with live wikilinks via `EntityPageBody`;
+  "◍ Walk" hands the node to the Explorer, "Full page ›" opens the page);
+  (2) the brand look = sigma settings + reducers (cream canvas, warm curved
+  edges via `@sigma/edge-curve`, coral-lit focus neighborhood that dims the
+  rest) + the card program; (3) it feeds from `entities`/`facts` via a new
+  pure core `buildVaultGraph` that reuses the ONE `buildAdjacency` rule. Edge
+  click opens a light link inspector (every predicate on the pair, endpoints
+  clickable; NO labels drawn on edges — standing rule). Fails soft without
+  WebGL. Gotcha for posterity: sigma 3.0.3's `stagePadding` setting misaligns
+  the picking buffer — every click reads as stage — so it stays at default.
+  New deps: `graphology`, `graphology-layout`, `graphology-layout-forceatlas2`,
+  `sigma`, `@sigma/edge-curve` (louvain skipped — kind colors carry the
+  reading). Still open from the experiment: the side-by-side KEEP/KILL call
+  (both surfaces are live to compare) and a worker for ForceAtlas2 at real
+  whole-vault scale.
 - ~~On-demand synthesis~~ ✅ 2026-07-11 — "✦ Synthesize" on any entity page
   with ≥2 connected bodies of content → cited note into `body_md`.
 - ~~Audio tier~~ ✅ 2026-07-11 — audio attachments transcribe (fail-soft
