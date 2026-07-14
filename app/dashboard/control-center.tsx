@@ -70,7 +70,7 @@ import { OnboardingModal } from "./onboarding-modal";
 import { ImportGraphModal } from "./import-graph-modal";
 import { KnowledgeView } from "./knowledge-view";
 import { InsightsView } from "./insights-view";
-import { TimelineView } from "./timeline-view";
+import { CommitLogView, TimelineView } from "./timeline-view";
 import { FilesView } from "./files-view";
 import { AnswerCard } from "./answer-card";
 import { AnswerGraphModal } from "./answer-graph-modal";
@@ -86,7 +86,10 @@ type Tab = "agents" | "data" | "review" | "search" | "chat";
 // The Data tab is ONE FLAT toggle (IA rule 2026-07-11: no toggles inside
 // toggles). Tables/Cards/Concepts unified into the Tables surface (schema
 // diagram + cards drill-down); the Map was removed outright — walk only.
-type DataView = "tables" | "explore" | "graph" | "timeline" | "files" | "insights";
+type DataView = "tables" | "explore" | "graph" | "files" | "insights";
+/** Review = ALL change (user call 2026-07-14): pending decisions + the past —
+ *  a git-style commit log and the story timeline (moved here from Data). */
+type ReviewView = "pending" | "commits" | "timeline";
 export type ControlCenterProps = {
   fullName: string;
   initial: string;
@@ -193,6 +196,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const [buildOpen, setBuildOpen] = useState(false);
   const [deriveOpen, setDeriveOpen] = useState(false);
   const [dataView, setDataView] = useState<DataView>("tables");
+  const [reviewView, setReviewView] = useState<ReviewView>("pending");
   const [dataActionsOpen, setDataActionsOpen] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
   const manageAgent = agents.find((a) => a.id === manageAgentId) ?? null;
@@ -259,12 +263,15 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
     data: { t: "Data", sub: {
       explore: "Everything we know, walkable — stand on a node and look around; scroll out for the big picture",
       graph: "Your whole vault as one map — every entity and link at once; pick the layout that reads best",
-      timeline: "What datamodo learned, in order — your data's story, not table edits",
       files: "Documents that arrived as attachments — filed by what they mention, originals kept",
       insights: "The numbers behind your knowledge — totals & breakdowns, computed live",
       tables: "Your data as a database — every category is a table, connected like a schema; click one to browse its records",
     }[dataView] },
-    review: { t: "Review", sub: reviewTotal ? `${reviewTotal} pending changes to confirm — merges, conflicts & new facts` : "Pending changes to confirm — merges, conflicts & new facts (your data's story lives in Data → Timeline)" },
+    review: { t: "Review", sub: {
+      pending: reviewTotal ? `${reviewTotal} pending changes to confirm — merges, conflicts & new facts` : "Pending changes to confirm — merges, conflicts & new facts",
+      commits: "Every extraction run as a commit — what each message added or changed, newest first",
+      timeline: "What datamodo learned, in order — your data's story, not table edits",
+    }[reviewView] },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
     chat: { t: "Chat", sub: "The app is a channel too — text, photos, PDFs and voice notes, straight into the pipeline" },
   };
@@ -425,7 +432,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           {tab === "data" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "▦ Tables" }, { v: "explore", label: "◍ Explore" }, { v: "graph", label: "⊛ Graph" }, { v: "timeline", label: "Timeline" }, { v: "files", label: "Files" }, { v: "insights", label: "Insights" }]} />
+                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "▦ Tables" }, { v: "explore", label: "◍ Explore" }, { v: "graph", label: "⊛ Graph" }, { v: "files", label: "Files" }, { v: "insights", label: "Insights" }]} />
                 {/* Rare actions live behind ONE menu, not three peers (simplicity rule). */}
                 <div style={{ position: "relative" }}>
                   <Hov onClick={() => setDataActionsOpen((o) => !o)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
@@ -464,7 +471,6 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                   onTablesChanged={() => router.refresh()}
                 />
               )}
-              {dataView === "timeline" && <TimelineView />}
               {dataView === "files" && <FilesView />}
               {dataView === "insights" && <InsightsView />}
               {dataView === "tables" && (uiTables.length || createTableOpen ? (
@@ -474,7 +480,23 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
               ) : <DataEmpty openModal={() => setCreateTableOpen(true)} />)}
             </>
           )}
-          {tab === "review" && <ReviewStudio />}
+          {tab === "review" && (
+            <>
+              {/* Review owns ALL change: what needs a decision AND what already
+                  happened — one flat toggle (commit log + the story timeline,
+                  moved here from Data per the 2026-07-14 call). */}
+              <div style={{ marginBottom: 14 }}>
+                <Segmented value={reviewView} onChange={setReviewView} options={[
+                  { v: "pending", label: `✓ Pending${reviewTotal ? ` · ${reviewTotal}` : ""}` },
+                  { v: "commits", label: "⎇ Commits" },
+                  { v: "timeline", label: "◷ Timeline" },
+                ]} />
+              </div>
+              {reviewView === "pending" && <ReviewStudio />}
+              {reviewView === "commits" && <CommitLogView />}
+              {reviewView === "timeline" && <TimelineView />}
+            </>
+          )}
           {tab === "search" && <SearchTab onOpenTable={setOpenTableId} />}
           {tab === "chat" && <ChatView />}
         </div>

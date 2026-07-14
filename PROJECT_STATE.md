@@ -12,6 +12,23 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Review = ALL change: Timeline moved under Review + a
+  git-style Commit log** (roadmap, user call same day — revises the
+  2026-07-11 "Review owns pending / Timeline owns learned" split). The Review
+  tab gained its own flat toggle (✓ Pending · ⎇ Commits · ◷ Timeline — the
+  Data toggle lost its Timeline pill; per-entity "◷ History" on entity pages
+  unchanged). NEW: `buildCommitLog` in the pure timeline core — one commit
+  per extraction run (source item), its facts as the diff: a fact that
+  superseded an older one renders `~ was → now` (via the `supersededBy` back
+  reference), the rest `+ added`; changes sort before adds; runs that wrote
+  nothing aren't commits; `entityId` filter is the seam for per-entity blame
+  later. Served by `GET /api/knowledge/timeline?view=commits` (route
+  refactored to fetch inputs once, project twice); rendered by
+  `CommitLogView` (short-id chip, channel dot, `+N ~M` counts, expandable
+  diff lines, "show N more"). Verified: 2 new unit tests (186 pass), tsc,
+  lint == baseline, build green, new `commits` shoot ✓ (headers, strikethrough
+  was→now, relationship values coral). Remaining from the track: per-entity
+  blame view + richer supersession diff.
 - **2026-07-14** — **Ollama as a first-class keyless provider** (roadmap):
   `ProviderName`/`AiProvider` gained `"ollama"` — `getLlmProvider("ollama")`
   reuses the OpenAI-compatible provider with a new `keyless` flag (no

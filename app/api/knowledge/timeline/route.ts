@@ -3,10 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import {
+  buildCommitLog,
   buildTimeline,
   type BuildTimelineOptions,
   type TimelineEntityInput,
-  type TimelineEvent,
   type TimelineFactInput,
   type TimelineItemInput,
 } from "@/lib/datamodo/timeline";
@@ -23,7 +23,11 @@ const iso = (d: Date | string | null): string | null => {
   return Number.isNaN(dt.getTime()) ? null : dt.toISOString();
 };
 
-async function listTimeline(orgId: string, opts: BuildTimelineOptions): Promise<TimelineEvent[]> {
+async function fetchInputs(orgId: string): Promise<{
+  entityInputs: TimelineEntityInput[];
+  factInputs: TimelineFactInput[];
+  itemInputs: TimelineItemInput[];
+}> {
   const [ents, facts, items] = await Promise.all([
     prisma.entities.findMany({
       where: { org_id: orgId, merged_into: null },
@@ -88,19 +92,29 @@ async function listTimeline(orgId: string, opts: BuildTimelineOptions): Promise<
     sentAt: iso(it.sent_at),
   }));
 
-  return buildTimeline(entityInputs, factInputs, itemInputs, opts);
+  return { entityInputs, factInputs, itemInputs };
 }
 
 export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const org = await getActiveOrg(user.id);
-  if (!org) return NextResponse.json({ events: [] });
+  if (!org) return NextResponse.json({ events: [], commits: [] });
   const url = new URL(req.url);
   const entityId = url.searchParams.get("entity");
+  const { entityInputs, factInputs, itemInputs } = await fetchInputs(org.id);
+
+  // ?view=commits — the git-style history (Review → Commits): one commit per
+  // extraction run, facts as the diff. Same inputs, different pure projection.
+  if (url.searchParams.get("view") === "commits") {
+    const commits = buildCommitLog(entityInputs, factInputs, itemInputs, { entityId: entityId || null });
+    return NextResponse.json({ commits });
+  }
+
   // ?basis=sent puts messages at the moment they were SENT (forwarded email
   // carries the original date) instead of when they reached the inbox.
   const timeBasis = url.searchParams.get("basis") === "sent" ? ("sent" as const) : ("received" as const);
-  const events = await listTimeline(org.id, { entityId: entityId || null, timeBasis });
+  const opts: BuildTimelineOptions = { entityId: entityId || null, timeBasis };
+  const events = buildTimeline(entityInputs, factInputs, itemInputs, opts);
   return NextResponse.json({ events });
 }

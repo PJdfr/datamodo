@@ -103,12 +103,14 @@ progressive disclosure over adding parallel options: before adding a toggle,
 button, or view, ask what it replaces or where it nests. Views multiply only
 when each answers a genuinely different question; controls the user rarely
 needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
-- **Applied 2026-07-11, final same-day revision (IA shape — keep it this
-  way):** the Data tab is **ONE FLAT toggle** — ▦ Tables · ◍ Explore ·
-  ⊛ Graph · Timeline · Files · Insights. NO toggles inside toggles.
+- **Applied 2026-07-11, revised 2026-07-14 (IA shape — keep it this way):**
+  the Data tab is **ONE FLAT toggle** — ▦ Tables · ◍ Explore · ⊛ Graph ·
+  Files · Insights. NO toggles inside toggles.
   (⊛ Graph added 2026-07-14: the sigma.js whole-vault experiment runs as a
   PEER of Explore — one is "stand on a node", the other "see everything" —
-  pending the roadmap's keep/kill call.)
+  pending the roadmap's keep/kill call. Timeline MOVED under Review the same
+  day — user call: **Review owns ALL change, pending and past** — where it
+  sits in Review's own flat toggle: ✓ Pending · ⎇ Commits · ◷ Timeline.)
   - **Tables, Cards and Concepts are ONE feature and ONE object** (user
     decision): a category IS a table IS a concept-form. The Tables surface is
     a Supabase-style schema diagram (kind cards = columns + FK relation rows,
