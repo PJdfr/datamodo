@@ -180,11 +180,13 @@ program
     }
 
     // Boot the built Next server if present, else `next start` (dev/repo).
+    // On Windows the npm shim is `npx.cmd`; Node's spawn can't resolve bare "npx".
+    const npx = process.platform === "win32" ? "npx.cmd" : "npx";
     const standalone = path.join(APP_ROOT, ".next", "standalone", "server.js");
     const hasStandalone = await fs.access(standalone).then(() => true, () => false);
     const [cmd, args] = hasStandalone
       ? [process.execPath, [standalone]]
-      : ["npx", ["next", "start", "-p", String(cfg.port), "-H", cfg.host]];
+      : [npx, ["next", "start", "-p", String(cfg.port), "-H", cfg.host]];
 
     console.log(`datamodo → http://${cfg.host}:${cfg.port}  (single-user · ${db ? "embedded db" : "your database"} · local files)`);
     const child = spawn(cmd, args, { cwd: APP_ROOT, env: serveEnv(cfg), stdio: "inherit" });
