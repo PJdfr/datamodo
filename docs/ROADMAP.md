@@ -4,7 +4,7 @@
 > inventory when they ship; add what the work surfaced. Ordered by value.
 > Siblings: [STATE.md](STATE.md) · [FLOW.md](FLOW.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-14
+> Last updated: 2026-07-15
 
 ## Now (unblocks everything else)
 1. **Set env** (the old "merge PR #35" step is long done): a REAL
@@ -380,8 +380,16 @@
     package (today `serve` runs `next start` in the repo / expects a prebuilt
     `.next/standalone` in the package); local embeddings still want the
     `vector(1536)` column re-declared for a 768-d model at install.
-  - **Phase 3 — BYOB connectors**: IMAP first, Telegram, Slack Socket Mode,
-    dead-drop relay for WhatsApp/Teams (the cloud webhooks don't apply locally).
+  - **Phase 3 — BYOB connectors** (local has no public URL for webhooks, so it
+    PULLS): ~~**IMAP** ✅ 2026-07-15~~ — `datamodo connect` stores a `0600`
+    `connectors.json`; `datamodo serve` runs an in-process imapflow poller that
+    watches each mailbox (60 s tick, UID high-water mark on first sight so no
+    backfill), downloads each new message's raw RFC822 and POSTs it to a
+    local-only route (`/api/local/imap`) which parses (mailparser) + maps
+    (`lib/local/connectors/imap.ts`) + ingests through the SAME pipeline. Pure
+    map + runtime cores unit-tested with a fake IMAP client; live IMAP not in
+    CI. STILL TODO: Telegram, Slack Socket Mode, dead-drop relay for
+    WhatsApp/Teams; a dashboard UI to add/list connectors (today CLI-only).
   Original design notes (PROJECT_STATE "-3"): fs blobs, `@prisma/adapter-pg`,
   `SINGLE_USER=1`, worker loop. ~1 week beyond phase 1; a strategic call on timing.
   **Licensing framing (user concern 2026-07-14: "if we release the code,

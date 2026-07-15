@@ -1,6 +1,7 @@
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { ingest, IngestError } from "@/lib/ingest/store";
+import { kickExtraction } from "@/lib/ingest/kick";
 import type { IngestEnvelope } from "@/lib/ingest/types";
 
 // The capture core needs Node built-ins (crypto, zlib) and the service key.
@@ -39,23 +40,7 @@ export async function POST(req: Request) {
     // the cron sweep (GitHub's scheduler can lag hours on a quiet repo). The
     // claim is atomic (SKIP LOCKED), so racing a concurrent cron tick is safe;
     // the cron remains the sweeper for retries and anything missed here.
-    if (!result.deduped) {
-      after(async () => {
-        try {
-          const { claimStoredItems, runExtractionForItem } = await import("@/lib/datamodo/extract");
-          const ids = await claimStoredItems(3);
-          for (const id of ids) {
-            try {
-              await runExtractionForItem(id);
-            } catch (err) {
-              console.error(`[ingest] post-capture extraction failed for ${id}`, err);
-            }
-          }
-        } catch (err) {
-          console.error("[ingest] post-capture extraction kick failed", err);
-        }
-      });
-    }
+    if (!result.deduped) kickExtraction();
     return NextResponse.json(result, { status: result.deduped ? 200 : 201 });
   } catch (e) {
     if (e instanceof IngestError) {

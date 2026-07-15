@@ -23,12 +23,14 @@
 import { Command } from "commander";
 import { promises as fs } from "node:fs";
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { startEmbeddedDb } from "../lib/local/embedded-db.mjs";
+import { startConnectors, loadConnectors, parseConnectors } from "../lib/local/connectors/imap-poll.mjs";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
@@ -58,9 +60,40 @@ function serveEnv(cfg) {
     PORT: String(cfg.port),
     HOSTNAME: cfg.host,
     NEON_AUTH_COOKIE_SECRET: process.env.NEON_AUTH_COOKIE_SECRET || "local-single-user-no-remote-auth",
+    // Shared secret the in-process IMAP poller uses to POST captured mail to
+    // the local /api/local/imap route (same trust boundary as the cloud webhook).
+    INGEST_WEBHOOK_SECRET: cfg.ingestSecret,
   };
   if (cfg.databaseUrl) env.DATABASE_URL = cfg.databaseUrl;
   return env;
+}
+
+/** A stable per-install ingest secret, persisted so restarts reuse it (and the
+ *  poller + route always agree). */
+async function ensureIngestSecret(dataDir) {
+  const file = path.join(dataDir, ".ingest-secret");
+  try {
+    const existing = (await fs.readFile(file, "utf8")).trim();
+    if (existing) return existing;
+  } catch { /* create below */ }
+  const secret = randomBytes(32).toString("hex");
+  await fs.writeFile(file, secret);
+  await fs.chmod(file, 0o600).catch(() => {});
+  return secret;
+}
+
+/** Wait until the dashboard responds (any HTTP status) or time out. */
+async function waitForServer(url, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(url, { method: "HEAD" });
+      return true;
+    } catch {
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  }
+  return false;
 }
 
 const program = new Command();
@@ -105,6 +138,7 @@ program
   .action(async (opts) => {
     const cfg = resolveConfig(opts);
     await fs.mkdir(cfg.blobDir, { recursive: true });
+    cfg.ingestSecret = await ensureIngestSecret(cfg.dataDir);
 
     // Zero-setup database: boot the embedded Postgres unless the user pointed
     // DATABASE_URL at their own server.
@@ -125,10 +159,90 @@ program
 
     console.log(`datamodo → http://${cfg.host}:${cfg.port}  (single-user · ${db ? "embedded db" : "your database"} · local files)`);
     const child = spawn(cmd, args, { cwd: APP_ROOT, env: serveEnv(cfg), stdio: "inherit" });
-    const shutdown = async () => { await db?.stop(); };
+
+    // BYOB capture: once the dashboard is up, poll any configured mailboxes
+    // (connectors.json) and feed new mail through the same pipeline. Best-effort
+    // — a connector problem never takes the dashboard down.
+    let connectors = null;
+    (async () => {
+      const base = `http://${cfg.host === "0.0.0.0" ? "127.0.0.1" : cfg.host}:${cfg.port}`;
+      if (!(await waitForServer(base))) return;
+      try {
+        connectors = await startConnectors({
+          dataDir: cfg.dataDir,
+          endpoint: `${base}/api/local/imap`,
+          secret: cfg.ingestSecret,
+        });
+      } catch (e) {
+        console.error(`datamodo: IMAP connectors failed to start — ${e?.message ?? e}`);
+      }
+    })();
+
+    const shutdown = async () => { connectors?.stop(); await db?.stop(); };
     child.on("exit", async (code) => { await shutdown(); process.exit(code ?? 0); });
     process.on("SIGINT", async () => { child.kill("SIGINT"); await shutdown(); process.exit(0); });
   });
+
+program
+  .command("connect")
+  .description("Connect a mailbox to pull mail from over IMAP (BYOB capture)")
+  .option("-d, --data-dir <path>", "where datamodo keeps your vault + files")
+  .option("--host <host>", "IMAP host, e.g. imap.gmail.com")
+  .option("--port <port>", "IMAP port", String(993))
+  .option("--user <user>", "mailbox login (usually your email)")
+  .option("--pass <password>", "mailbox password or app-specific password")
+  .option("--mailbox <name>", "folder to watch", "INBOX")
+  .option("--id <id>", "stable connector id (defaults to user@host)")
+  .option("--insecure", "use plaintext/STARTTLS (port 143) instead of implicit TLS")
+  .option("--list", "list configured connectors")
+  .option("--remove <id>", "remove a connector by id")
+  .action(async (opts) => {
+    const cfg = resolveConfig(opts);
+    await fs.mkdir(cfg.dataDir, { recursive: true });
+    const file = path.join(cfg.dataDir, "connectors.json");
+
+    if (opts.list) {
+      const list = await loadConnectors(cfg.dataDir);
+      if (!list.length) return console.log("No connectors configured. Add one:\n  datamodo connect --host imap.example.com --user you@example.com --pass ****");
+      for (const c of list) console.log(`  ${c.id}  →  ${c.user}@${c.host}:${c.port} (${c.mailbox})`);
+      return;
+    }
+
+    const existing = await loadConnectors(cfg.dataDir);
+
+    if (opts.remove) {
+      const next = existing.filter((c) => c.id !== opts.remove);
+      if (next.length === existing.length) return console.error(`No connector with id "${opts.remove}".`);
+      await writeConnectors(file, next);
+      return console.log(`✓ removed ${opts.remove}`);
+    }
+
+    if (!opts.host || !opts.user || !opts.pass) {
+      return console.error("Need --host, --user and --pass (or use --list / --remove).");
+    }
+    const entry = {
+      kind: "imap",
+      id: opts.id,
+      host: opts.host,
+      port: Number(opts.port) || 993,
+      secure: !opts.insecure,
+      user: opts.user,
+      password: opts.pass,
+      mailbox: opts.mailbox || "INBOX",
+    };
+    // Validate the merged set (also assigns the derived id + rejects dupes).
+    const merged = parseConnectors([...existing, entry]);
+    await writeConnectors(file, merged);
+    const added = merged[merged.length - 1];
+    console.log(`✓ connected ${added.id}  (${added.user}@${added.host})`);
+    console.log("  New mail will be captured while `datamodo serve` is running.");
+  });
+
+/** Write connectors.json with the credentials file locked down to the owner. */
+async function writeConnectors(file, connectors) {
+  await fs.writeFile(file, JSON.stringify({ connectors }, null, 2));
+  await fs.chmod(file, 0o600).catch(() => {});
+}
 
 program.parseAsync(process.argv).catch((e) => {
   console.error(e?.message ?? e);

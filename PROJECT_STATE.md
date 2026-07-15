@@ -12,6 +12,36 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-15** — **Local edition, phase 3a: IMAP BYOB connector** (roadmap
+  "Phase 3 — BYOB connectors, IMAP first"). A self-hosted install has no public
+  URL, so the cloud webhooks don't apply — instead it PULLS from the user's own
+  mailbox. `datamodo connect --host imap.gmail.com --user you@… --pass <app-pw>
+  [--mailbox INBOX] [--insecure]` writes a `0600` `connectors.json` (with
+  `--list` / `--remove <id>`); `datamodo serve` then, once the dashboard is up,
+  runs an in-process poller (imapflow) that watches each mailbox on a 60 s tick.
+  First sight of a connector records the UID high-water mark and captures
+  nothing (so connecting an old mailbox doesn't backfill years of mail); from
+  then on each NEW message's raw RFC822 is downloaded and POSTed to a new
+  local-only route `POST /api/local/imap` (gated on `isLocalMode()` + a
+  per-install `INGEST_WEBHOOK_SECRET` persisted at `~/.datamodo/.ingest-secret`),
+  which parses it (mailparser), maps it to an `IngestEnvelope`, resolves the
+  single local org, and feeds it through the SAME `ingest()` + extraction-kick
+  path as every other channel. Per-connector UID cursor lives in
+  `connectors-state.json`; the message-id (namespaced by connector) is the
+  idempotency key; a rejected ingest doesn't advance the cursor (retried next
+  tick). Split by runtime: the mapping (`lib/local/connectors/imap.ts`, TS) is
+  used by the route; config-parse + cursor + poll (`imap-poll.mjs`, plain JS)
+  are used by the CLI, which can't import TS. The `after()` extraction kick was
+  extracted into a shared `lib/ingest/kick.ts` used by both `/api/ingest` and
+  the new route. New deps: `imapflow`, `mailparser` (+ `@types/mailparser`);
+  `mailparser` added to `serverExternalPackages`. Verified: `tsc` clean, lint
+  at baseline (7/16), 224 tests pass (13 new, incl. the poll loop against a
+  FAKE IMAP client + fetch — no network), `next build` green (the
+  `/api/local/imap` route compiles), and the `connect` add/list/remove CLI
+  path smoke-tested (derived id, `0600` perms). NOT verified: a live IMAP
+  session (no server in CI) — flagged, consistent with prior local phases.
+  Still TODO in phase 3: Telegram, Slack Socket Mode, WhatsApp/Teams dead-drop,
+  and a dashboard UI to manage connectors (today CLI-only).
 - **2026-07-15** — **Local edition: no login** (user ask: "also for the local,
   remove the auth, the user do not even need a login"). In local mode the app
   no longer has any auth surface — you open localhost and land directly in the

@@ -5,7 +5,7 @@
 > the always-current infographic: stages × features × stack in one picture.
 > Siblings: [STATE.md](STATE.md) · [ROADMAP.md](ROADMAP.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-12
+> Last updated: 2026-07-15
 
 ## The one-picture version
 
@@ -20,6 +20,7 @@ subgraph SENDS["1 · THE USER SENDS<br/>gesture-based capture, never account slu
   XL["▦ Spreadsheet upload<br/><i>xlsx → table or<br/>→ knowledge graph</i>"]
   NT["✎ Prose dump<br/><i>subject 'note:' forces<br/>a generated note</i>"]
   APP["▣ In-app Chat<br/><i>type · attach · dictate ·<br/>voice-note, in the dashboard</i>"]
+  IMAP["📥 IMAP pull <i>(local edition)</i><br/><i>datamodo connect — watches<br/>your own mailbox, no webhook</i>"]
 end
 
 subgraph LISTEN["2 · WE LISTEN<br/>adapters normalize to one envelope"]
@@ -27,8 +28,10 @@ subgraph LISTEN["2 · WE LISTEN<br/>adapters normalize to one envelope"]
   CFW["Cloudflare Email Worker<br/><code>workers/email-ingest</code>"]
   WH["Signed webhooks<br/><code>/api/webhooks/{whatsapp,slack,teams}</code><br/>Twilio HMAC · Slack v0 · Teams JWT"]
   ING["<b>POST /api/ingest</b> → <code>ingest()</code><br/><code>lib/ingest/store.ts</code> · x-ingest-secret"]
+  IMAPP["IMAP poller (imapflow, in <code>serve</code>)<br/>→ <code>POST /api/local/imap</code> → mailparser<br/><code>lib/local/connectors/*</code> · local-only"]
   CFW --> ING
   WH --> ING
+  IMAPP --> ING
 end
 
 subgraph STORE["3 · WE STORE RAW<br/>nothing is ever lost"]
