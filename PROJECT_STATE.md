@@ -12,6 +12,29 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-15** — **`datamodo serve` auto-builds — kills the `DATAMODO_LOCAL=1`
+  footgun.** The manual `DATAMODO_LOCAL=1 npm run build` step bit users three
+  times (PowerShell `$env:` syntax, forgetting it, and — on Mac — running a
+  plain `npm run build` that then prerendered `/dashboard` in cloud mode and
+  crashed on `Missing required config: cookies.secret`). Fix: `serve` now
+  **auto-builds on first run** when `.next/BUILD_ID` is absent, running
+  `next build` with `DATAMODO_LOCAL=1` set internally (via `runNextBuild`), so
+  the user never sets the flag or fights cross-shell env syntax. Added a
+  `datamodo build` subcommand for manual rebuilds (e.g. after `git pull`).
+  Hoisted a `cliEntry(pkg)` helper (resolves a dep's JS bin, run via
+  `process.execPath`) now shared by the build + `next start` spawns. The whole
+  local flow collapses to `npm install` → `node bin/datamodo.mjs serve`.
+  VERIFIED end-to-end on Linux: `rm -rf .next` then `serve` auto-built (41/41
+  pages, no `cookies.secret` error) → embedded DB ready → dashboard HTTP 200,
+  with no manual build and no env var. README updated to the one-command flow.
+  **Robustness follow-up (same PR):** the "is there a build?" check keys on
+  `.next/prerender-manifest.json` (written at the END of a successful build +
+  required by `next start`), NOT `BUILD_ID` (written early) — so a PARTIAL
+  `.next` left by a failed/interrupted build (exactly the earlier cloud-mode
+  `cookies.secret` crash → `next start` ENOENT on `prerender-manifest.json`) is
+  treated as "needs rebuild"; serve then clears the stale `.next` and rebuilds
+  clean. Verified by simulating a BUILD_ID-only `.next` → serve recovered to
+  HTTP 200.
 - **2026-07-15** — **Windows fix (round 2): `spawn EINVAL` → run CLIs via
   `node`, not `npx`.** Round 1 (below) switched the spawns to `npx.cmd` on
   Windows, but modern Node then throws `EINVAL` — it refuses to spawn a `.cmd`

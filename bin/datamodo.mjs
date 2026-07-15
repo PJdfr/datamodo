@@ -158,6 +158,49 @@ function freePort() {
   });
 }
 
+/** Resolve a locally-installed CLI's JS entry (…/<pkg>/<bin>) so we can run it
+ *  with `node <entry>` — portable, and free of the npx/.cmd/shell pitfalls that
+ *  break spawning on Windows. */
+function cliEntry(pkgName) {
+  const p = require(`${pkgName}/package.json`);
+  const bin = typeof p.bin === "string" ? p.bin : p.bin[pkgName];
+  return path.join(path.dirname(require.resolve(`${pkgName}/package.json`)), bin);
+}
+
+/** True once a COMPLETE production build exists. We check prerender-manifest.json
+ *  — written at the very END of a successful build and required by `next start`
+ *  — rather than BUILD_ID (written early during compile). A build that failed or
+ *  was interrupted leaves BUILD_ID but not this, so it's correctly seen as
+ *  "needs (re)build" instead of crashing `next start` on a missing manifest. */
+function hasBuild() {
+  return fs.access(path.join(APP_ROOT, ".next", "prerender-manifest.json")).then(() => true, () => false);
+}
+
+/** Run `next build` in LOCAL mode. Setting DATAMODO_LOCAL=1 here is what keeps
+ *  the build from prerendering /dashboard in cloud mode (which needs Neon Auth
+ *  secrets) — the #1 setup footgun. We set it for the user so they never have to
+ *  remember it (or fight `$env:` / inline-env syntax across shells). */
+function runNextBuild() {
+  return new Promise((res, rej) => {
+    console.log("datamodo: building the app (first run — this takes a minute)…");
+    const p = spawn(process.execPath, [cliEntry("next"), "build"], {
+      cwd: APP_ROOT,
+      env: { ...process.env, DATAMODO_LOCAL: "1", NEXT_TELEMETRY_DISABLED: "1" },
+      stdio: "inherit",
+    });
+    p.on("exit", (code) => (code === 0 ? res() : rej(new Error(`next build failed (exit ${code})`))));
+    p.on("error", rej);
+  });
+}
+
+program
+  .command("build")
+  .description("Build the app for local use (sets DATAMODO_LOCAL for you)")
+  .action(async () => {
+    await runNextBuild();
+    console.log("✓ built — now run: datamodo serve");
+  });
+
 program
   .command("serve")
   .description("Run the dashboard on localhost (single-user, embedded database)")
@@ -168,6 +211,17 @@ program
     const cfg = resolveConfig(opts);
     await fs.mkdir(cfg.blobDir, { recursive: true });
     cfg.ingestSecret = await ensureIngestSecret(cfg.dataDir);
+
+    // Auto-build on first run (or after a clean) so the user never has to run
+    // `next build` by hand — and never has to remember DATAMODO_LOCAL=1, which
+    // is the difference between a working local build and a /dashboard prerender
+    // crash asking for cloud auth secrets. A prebuilt package skips this.
+    if (!(await hasBuild())) {
+      // Clear any partial `.next` from a failed/interrupted build first — a
+      // half-written build makes `next start` crash on a missing manifest.
+      await fs.rm(path.join(APP_ROOT, ".next"), { recursive: true, force: true });
+      await runNextBuild();
+    }
 
     // Zero-setup database: boot the embedded Postgres unless the user pointed
     // DATABASE_URL at their own server.
@@ -184,14 +238,9 @@ program
     // breaks on Windows (bare "npx" → ENOENT; npx.cmd → EINVAL without a shell).
     const standalone = path.join(APP_ROOT, ".next", "standalone", "server.js");
     const hasStandalone = await fs.access(standalone).then(() => true, () => false);
-    const nextBin = () => {
-      const pkg = require("next/package.json");
-      const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin.next;
-      return path.join(path.dirname(require.resolve("next/package.json")), bin);
-    };
     const [cmd, args] = hasStandalone
       ? [process.execPath, [standalone]]
-      : [process.execPath, [nextBin(), "start", "-p", String(cfg.port), "-H", cfg.host]];
+      : [process.execPath, [cliEntry("next"), "start", "-p", String(cfg.port), "-H", cfg.host]];
 
     console.log(`datamodo → http://${cfg.host}:${cfg.port}  (single-user · ${db ? "embedded db" : "your database"} · local files)`);
     const child = spawn(cmd, args, { cwd: APP_ROOT, env: serveEnv(cfg), stdio: "inherit" });
