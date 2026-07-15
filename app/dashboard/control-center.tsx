@@ -57,6 +57,7 @@ import type { UserSettings, OnboardingContext } from "@/lib/datamodo/settings";
 import type { SearchResult, SearchHit, KnowledgeHit } from "@/lib/datamodo/search";
 import type { GroundedAnswer } from "@/lib/datamodo/answer";
 import type { ChunkHit } from "@/lib/datamodo/chunks";
+import { safeTableName } from "@/lib/datamodo/sync-postgres";
 import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
 import {
   Hov, C, LOGO, CH_NAMES, navStyle, modeCard, radioDot, bar, toggleTrack, toggleKnob,
@@ -1470,6 +1471,59 @@ function diffSnapshots(
 
 /** Rich version-history panel: a timeline with per-version change counts, an
  *  inline preview of what the table looked like, and one-click restore. */
+/* Outbound sync (phase 1): push this table's rows into the user's OWN
+ * Postgres — idempotent upsert by the datamodo row id. Every view is a
+ * projection; an external DB is just another projection target. The
+ * connection string is used for the request only, never stored. */
+function SyncOutPanel({ datasetId, tableName }: { datasetId: string; tableName: string }) {
+  const [conn, setConn] = useState("");
+  const [target, setTarget] = useState(() => safeTableName(tableName));
+  const [state, setState] = useState<"idle" | "syncing">("idle");
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const sync = async () => {
+    setState("syncing"); setResult(null);
+    try {
+      const res = await fetch("/api/sync/postgres", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ datasetId, connectionString: conn.trim(), table: target.trim() || undefined }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) setResult({ ok: true, msg: `Synced ${json.synced} row${json.synced === 1 ? "" : "s"} into "${json.table}".` });
+      else setResult({ ok: false, msg: json.error ?? "Sync failed." });
+    } catch {
+      setResult({ ok: false, msg: "Couldn't reach the sync endpoint." });
+    } finally {
+      setState("idle");
+    }
+  };
+
+  return (
+    <div style={{ marginBottom: 14, padding: "14px 16px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Push to your own Postgres</div>
+      <div style={{ fontSize: 12, color: "#8A8477", marginTop: 2, marginBottom: 12, lineHeight: 1.5 }}>
+        One-way, idempotent — re-syncing upserts by each row&apos;s datamodo id, never duplicates. The connection string is used once and never stored.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div>
+          <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 6 }}>Connection string</div>
+          <input type="password" value={conn} onChange={(e) => setConn(e.target.value)} placeholder="postgres://user:pass@host:5432/dbname" style={fieldInput} />
+        </div>
+        <div>
+          <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 6 }}>Target table</div>
+          <input type="text" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="datamodo_table" style={fieldInput} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 2 }}>
+          <Hov onClick={state === "syncing" || !conn.trim() ? undefined : () => void sync()} base={{ ...primaryBtn(state === "syncing" || !conn.trim()), padding: "9px 16px", fontSize: 13 }} hover={{ background: C.accentPress }}>
+            {state === "syncing" ? "Syncing…" : "↑ Sync now"}
+          </Hov>
+          {result && <span className="dm-mono" style={{ fontSize: 11.5, color: result.ok ? C.green : C.accent }}>{result.msg}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HistoryPanel({ datasetId, onRestore, pending }: { datasetId: string; onRestore: (id: string) => void; pending: boolean }) {
   const [snaps, setSnaps] = useState<SnapshotFull[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -1682,7 +1736,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
   const [colType, setColType] = useState("text");
   const [colDefault, setColDefault] = useState("");
   // Tables are edited + synced here; review happens at the FACT level (Review tab).
-  const [panel, setPanel] = useState<"none" | "history">("none");
+  const [panel, setPanel] = useState<"none" | "history" | "syncout">("none");
   const cols = table.columns;
 
   // Version selector: "latest" (live, editable) or a past snapshot (read-only).
@@ -1811,15 +1865,20 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
         </>}
         <Hov onClick={() => setPanel((p) => p === "history" ? "none" : "history")} base={panel === "history" ? { ...ghostBtn, background: "#EFE9DC" } : ghostBtn} hover={{ background: "#FBF8F1" }}>History ({table.history.length})</Hov>
         {!viewingPast && (
-          <ImportSheetButton
-            datasetId={table.id}
-            label="⇅ Sync a sheet"
-            style={{ ...ghostBtn, marginLeft: "auto" }}
-            hoverStyle={{ background: "#FBF8F1" }}
-            onDone={() => { setPanel("none"); onChanged(); }}
-          />
+          <>
+            <Hov onClick={() => setPanel((p) => p === "syncout" ? "none" : "syncout")} base={panel === "syncout" ? { ...ghostBtn, background: "#EFE9DC", marginLeft: "auto" } : { ...ghostBtn, marginLeft: "auto" }} hover={{ background: "#FBF8F1" }}>↑ Sync out</Hov>
+            <ImportSheetButton
+              datasetId={table.id}
+              label="⇅ Sync a sheet"
+              style={ghostBtn}
+              hoverStyle={{ background: "#FBF8F1" }}
+              onDone={() => { setPanel("none"); onChanged(); }}
+            />
+          </>
         )}
       </div>
+
+      {!viewingPast && panel === "syncout" && <SyncOutPanel datasetId={table.id} tableName={table.name} />}
 
       {!viewingPast && panel === "history" && <HistoryPanel datasetId={table.id} onRestore={(id) => run(() => restoreSnapshotAction(id), () => { setPanel("none"); refresh(); })} pending={pending} />}
 
