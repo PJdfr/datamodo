@@ -89,9 +89,17 @@ test("localDataDir: env → parent of BLOB_DIR → ~/.datamodo", () => {
   assert.equal(localDataDir({ HOME: "/home/me" }), "/home/me/.datamodo");
 });
 
-test("LOCAL_USER: a stable single identity", () => {
+test("LOCAL_USER: a stable, VALID uuid identity", () => {
   assert.equal(LOCAL_USER.email, "you@localhost");
-  assert.ok(LOCAL_USER.id.length >= 32, "a stable id so a re-serve reuses the same vault");
+  // Must be a real UUID — it's the primary key Postgres queries against. A
+  // non-hex char (e.g. the earlier "d0m0d") makes every keyed query throw
+  // "invalid input syntax for type uuid", breaking org resolution / agents /
+  // chat in the local edition. Enforce the format so that can't recur.
+  assert.match(
+    LOCAL_USER.id,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    "LOCAL_USER.id must be a valid (hex-only) UUID",
+  );
 });
 
 test("fs blob adapter: round-trips + is traversal-proof", async () => {
