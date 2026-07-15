@@ -266,25 +266,39 @@ export function EntityHistory({ entityId, onOpen }: {
   onOpen?: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  // "story" = the timeline events; "blame" = which commit added/changed each
+  // of THIS entity's facts (buildCommitLog narrows commit lines to the entity).
+  const [mode, setMode] = useState<"story" | "blame">("story");
   const [events, setEvents] = useState<TimelineEvent[] | null>(null);
+  const [commits, setCommits] = useState<TimelineCommit[] | null>(null);
 
   useEffect(() => {
-    if (!open || events !== null) return;
+    if (!open) return;
     let alive = true;
     (async () => {
       try {
-        const res = await fetch(`/api/knowledge/timeline?entity=${encodeURIComponent(entityId)}`);
-        const json = await res.json();
-        if (alive) setEvents(json.events ?? []);
+        if (mode === "story" && events === null) {
+          const res = await fetch(`/api/knowledge/timeline?entity=${encodeURIComponent(entityId)}`);
+          const json = await res.json();
+          if (alive) setEvents(json.events ?? []);
+        } else if (mode === "blame" && commits === null) {
+          const res = await fetch(`/api/knowledge/timeline?view=commits&entity=${encodeURIComponent(entityId)}`);
+          const json = await res.json();
+          if (alive) setCommits(json.commits ?? []);
+        }
       } catch {
-        if (alive) setEvents([]);
+        if (alive) { if (mode === "story") setEvents([]); else setCommits([]); }
       }
     })();
     return () => { alive = false; };
-  }, [open, events, entityId]);
+  }, [open, mode, events, commits, entityId]);
 
   const todayYear = new Date().getFullYear();
   const shown = (events ?? []).slice(0, 30);
+  const tab = (v: "story" | "blame"): React.CSSProperties => ({
+    fontSize: 10, fontFamily: "inherit", cursor: "pointer", border: "none", borderRadius: 6, padding: "3px 9px",
+    background: mode === v ? "#EFE9DC" : "transparent", color: mode === v ? C.ink : "#A39B8B", letterSpacing: "0.04em",
+  });
 
   return (
     <div style={{ background: "#fff", border: "1px solid #ECE5D8", borderRadius: 12, overflow: "hidden", marginTop: 16 }}>
@@ -295,23 +309,42 @@ export function EntityHistory({ entityId, onOpen }: {
         className="dm-mono"
         style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", textAlign: "left", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", padding: "10px 12px" }}
       >
-        ◷ History — everything about this, in order
+        ◷ History — {mode === "blame" ? "which run changed what" : "everything about this, in order"}
         <span style={{ marginLeft: "auto", display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }}>›</span>
       </button>
       {open && (
         <div style={{ padding: "0 10px 8px" }}>
-          {events === null && <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", padding: "4px 4px 8px" }}>Assembling…</div>}
-          {events !== null && shown.length === 0 && (
-            <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", padding: "4px 4px 8px" }}>No dated events yet.</div>
-          )}
-          {shown.map((ev, i) => (
-            <div key={i} style={{ borderTop: i === 0 ? "none" : "1px solid #F4EFE4" }}>
-              <div className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F", padding: "6px 4px 0" }}>{dayLabel(ev.ts.slice(0, 10), todayYear)}</div>
-              <EventRow ev={ev} onFilter={onOpen ? (r) => onOpen(r.id) : () => {}} />
-            </div>
-          ))}
-          {events !== null && events.length > shown.length && (
-            <div className="dm-mono" style={{ fontSize: 10, color: "#B7AF9F", padding: "6px 4px" }}>{events.length - shown.length} older moments in the Timeline view</div>
+          <div className="dm-mono" style={{ display: "flex", gap: 4, padding: "0 2px 6px" }}>
+            <button type="button" style={tab("story")} onClick={() => setMode("story")}>◷ story</button>
+            <button type="button" style={tab("blame")} onClick={() => setMode("blame")}>⎇ blame</button>
+          </div>
+
+          {mode === "story" ? (
+            <>
+              {events === null && <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", padding: "4px 4px 8px" }}>Assembling…</div>}
+              {events !== null && shown.length === 0 && (
+                <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", padding: "4px 4px 8px" }}>No dated events yet.</div>
+              )}
+              {shown.map((ev, i) => (
+                <div key={i} style={{ borderTop: i === 0 ? "none" : "1px solid #F4EFE4" }}>
+                  <div className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F", padding: "6px 4px 0" }}>{dayLabel(ev.ts.slice(0, 10), todayYear)}</div>
+                  <EventRow ev={ev} onFilter={onOpen ? (r) => onOpen(r.id) : () => {}} />
+                </div>
+              ))}
+              {events !== null && events.length > shown.length && (
+                <div className="dm-mono" style={{ fontSize: 10, color: "#B7AF9F", padding: "6px 4px" }}>{events.length - shown.length} older moments in the Timeline view</div>
+              )}
+            </>
+          ) : (
+            <>
+              {commits === null && <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", padding: "4px 4px 8px" }}>Assembling…</div>}
+              {commits !== null && commits.length === 0 && (
+                <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", padding: "4px 4px 8px" }}>No recorded changes to this yet.</div>
+              )}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingBottom: 4 }}>
+                {(commits ?? []).slice(0, 20).map((c) => <CommitCard key={c.itemId} c={c} />)}
+              </div>
+            </>
           )}
         </div>
       )}

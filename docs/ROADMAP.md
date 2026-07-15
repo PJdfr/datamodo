@@ -152,7 +152,14 @@
   body_md), and `submit_extraction` gained an optional `itemId` to attach to
   a queued item (org-validated) and mark it `analyzed`. STILL open: OAuth
   (claude.ai connectors' dynamic client registration + per-user revocation),
-  `query_graph`, MCP `sampling` for the escalation policy. Honest caveats, revised after discussion: the two-model
+  `query_graph`, MCP `sampling` for the escalation policy.
+- ~~**Per-entity blame** (Review track follow-up)~~ ✅ 2026-07-14 — the entity
+  page's "◷ History" disclosure gained a **story ⇄ blame** toggle: blame is
+  the commit log filtered to that entity (`?view=commits&entity=`;
+  `buildCommitLog` narrows each commit's lines to facts touching it), reusing
+  the Commits view's `CommitCard` — so you see exactly which run added or
+  changed each of an entity's facts. Verified via the `entity-blame` shoot.
+  The richer standalone supersession-diff view is still open. Honest caveats, revised after discussion: the two-model
   confidence escalation is NOT really lost — (a) it existed for OUR API
   cost, and sub inference runs permanently on a frontier model anyway;
   (b) MCP `sampling/createMessage` lets the SERVER request client
