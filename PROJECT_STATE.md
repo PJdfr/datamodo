@@ -12,6 +12,25 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Outbound sync, phase 1: push a table to the user's own
+  Postgres** (roadmap). Philosophy fit — every view is a projection, so an
+  external DB is just another target. One-way, idempotent: upsert keyed on the
+  datamodo row id (a `dm_id text PRIMARY KEY` + `dm_synced_at`), so re-syncing
+  converges the user's table to datamodo instead of duplicating. Pure SQL core
+  `lib/datamodo/sync-postgres.ts` (`buildSyncPlan` — quoted `CREATE TABLE IF
+  NOT EXISTS` + `ADD COLUMN IF NOT EXISTS` (additive, never drops) + a fully
+  parameterized `ON CONFLICT DO UPDATE`; `safeTableName` sanitizes to a legal
+  identifier; `rowParams` coerces by column type, all-junk numbers → NULL not
+  0). Shell `sync-outbound.ts` defines `OutboundWriter` (the ONE-interface seam
+  future Sheets/Drive/fs writers implement) + `postgresWriter` (uses `pg`, new
+  dep; SSL opportunistic, statement timeout, friendly error mapping).
+  `POST /api/sync/postgres` (org-scoped; conn string per-request, never
+  stored). UI: a "↑ Sync out" panel in the table editor (`SyncOutPanel`).
+  Verified: 6 new unit tests (196 pass), tsc, lint == baseline, build green,
+  AND **live-fired against a throwaway local Postgres**: two pushes of
+  overlapping rows → the table holds 3 rows not 5 (upsert proven), amounts
+  updated, name sanitized "Unpaid Invoices!" → unpaid_invoices, blank/"n/a"
+  cells → NULL. (First outbound feature actually run end-to-end this session.)
 - **2026-07-14** — **MCP server, phase 2 (pull model + reads)**: three
   additions to the endpoint. `process_inbox` — raw `stored`/`failed` items
   with their loaded text (`loadItemText` now exported), read-only so cron and

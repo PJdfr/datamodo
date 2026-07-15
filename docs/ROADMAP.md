@@ -226,18 +226,21 @@
 - **Outbound sync — push datamodo's projections into the USER'S infra**
   (user ask 2026-07-14). Philosophy fit: the vault is the product and every
   view is a projection — external systems are just MORE projection targets.
-  Phase 1 is ONE-WAY push (no two-way conflict handling): (a) tables →
-  Google Sheets, or the user's OWN database (Postgres first — we already
-  speak it; generic via a connection string); (b) folder-lens trees + original
-  files → Google Drive / OneDrive / SharePoint / local filesystem (the
-  shipped `folder-export` .zip pipeline is the seam — same plan, different
-  writer; absorbs the "folder export straight to Drive/Dropbox" follow-up);
-  (c) dossiers/notes as markdown. Design rules: every connector is a WRITER
-  behind one interface (like `lib/storage/blob.ts`); idempotent re-push
-  (upsert by stable ids, never duplicate); and EACH connector is designed
-  twice — cloud edition (OAuth per user) and local edition (fs paths, no
-  OAuth). Two-way sync only later, and only where review-gating can protect
-  the vault.
+  **PHASE 1 (Postgres writer) ✅ SHIPPED 2026-07-14**: a table → the user's
+  OWN Postgres, ONE-WAY, idempotent (upsert by the datamodo row id — a
+  re-sync converges, never duplicates). Every connector is a WRITER behind
+  ONE interface (`OutboundWriter` in `sync-outbound.ts`, the roadmap's
+  `blob.ts`-style seam); the pure SQL core (`sync-postgres.ts`:
+  `buildSyncPlan`/`rowParams`/`safeTableName`) generates quoted DDL + a fully
+  parameterized upsert (no interpolation; identifiers are datamodo-controlled
+  column keys, values are bound params). `POST /api/sync/postgres` (conn
+  string used per-request, never stored) + a "↑ Sync out" panel in the table
+  editor. LIVE-VERIFIED against a real Postgres: two pushes → 3 rows not 5
+  (upsert), typed columns, blanks→NULL. STILL open: (a) Sheets writer + a
+  saved/reusable connection; (b) folder-lens trees → Drive/OneDrive/fs (the
+  `folder-export` .zip pipeline is that seam); (c) dossiers/notes as markdown;
+  each connector designed twice (cloud OAuth / local fs). Two-way sync only
+  later, review-gated.
 - ~~**Graph-first retrieval (GraphRAG) — answer from `facts`, vectors as
   fallback.**~~ ✅ 2026-07-14 — grounded answers (`/api/search?answer=1`) now
   start from the graph, not from chunk similarity:
