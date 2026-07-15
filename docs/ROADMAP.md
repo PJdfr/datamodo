@@ -418,6 +418,24 @@
   this requirement (the cloud code is still present, just dormant). The
   build-level split below is still required before an OSS artifact ships; it
   is a SEPARATE step, not superseded by phase 1.
+  - ~~**Step A — clean local build, no cloud eval** ✅ 2026-07-15~~ (user call
+    "go for A"): the cheap, one-repo half. Neon Auth is now LAZY
+    (`getAuth()` in `lib/auth/server.ts` — dynamic-imports better-auth on first
+    use instead of at module load), so **`DATAMODO_LOCAL=1 npm run build` needs
+    ZERO env secrets** (was: placeholder `NEON_AUTH_COOKIE_SECRET` required
+    because the `/api/auth` route evaluated `createNeonAuth` during page-data
+    collection) and the local runtime never constructs better-auth. Cloud-only
+    routes (`/api/auth`, `/api/billing/*`, `/api/webhooks/{whatsapp,slack,teams}`)
+    now 404 under `isLocalMode()`. This is BUNDLE/eval-level dormancy + a clean
+    build — it does NOT make cloud code physically absent from the source (that
+    is still steps B/C). Not done in A (needs the workspace split): the neon
+    Prisma adapter is still statically imported by `lib/prisma.ts` (sync
+    singleton — harmless dormant weight, no secret/eval), and cloud route files
+    still exist in the tree (compiled but inert).
+  - **Step B/C — physical severance (still required for OSS):** a workspace
+    with a shared `core` package the local build consumes, cloud package kept
+    private (B), or a build-time prune that emits an OSS subtree (C). Only these
+    make `git`-cloning the local edition reveal local code only.
   A local/OSS user gets the **dashboard app + 100%-local storage and NOTHING
   else** — no landing/marketing page, no Neon Auth, no Neon/serverless storage,
   no cloud channel adapters, no billing/Stripe, no cron/ops. A runtime flag

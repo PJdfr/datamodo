@@ -123,9 +123,9 @@ from a clone.
 git clone <this-repo> datamodo && cd datamodo
 npm install
 
-# Build once. The placeholder secret is only needed because the cloud auth route
-# is still compiled in (the build-level cloud/local code split is on the roadmap).
-NEON_AUTH_COOKIE_SECRET=placeholder npm run build
+# Build once — no env vars needed (cloud auth/billing/webhook code is lazy and
+# never evaluated in local mode).
+DATAMODO_LOCAL=1 npm run build
 
 # Run it. Boots an embedded Postgres (pglite — no Docker, no DB install) and the
 # dashboard. First run builds the schema automatically.

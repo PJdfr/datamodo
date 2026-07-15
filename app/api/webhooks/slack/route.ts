@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { ingest } from "@/lib/ingest/store";
 import { isHandleBound, redeemChannelLinkCode } from "@/lib/datamodo/channels";
+import { isLocalMode } from "@/lib/local/config";
 import type { IngestAttachment, IngestEnvelope } from "@/lib/ingest/types";
 
 // Slack inbound adapter (Events API). One shared Slack app serves every user;
@@ -53,6 +54,8 @@ async function fetchFile(f: SlackFile): Promise<IngestAttachment | null> {
 }
 
 export async function POST(req: Request) {
+  // Cloud-only: local capture is IMAP-pull (see /api/local/imap), no webhook.
+  if (isLocalMode()) return new NextResponse("Not found", { status: 404 });
   const secret = process.env.SLACK_SIGNING_SECRET;
   if (!secret) {
     console.error("[slack] SLACK_SIGNING_SECRET not set");

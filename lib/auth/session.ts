@@ -1,4 +1,4 @@
-import { auth } from "./server";
+import { getAuth } from "./server";
 import { prisma } from "@/lib/prisma";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { provisionInbox } from "@/lib/datamodo/inbox";
@@ -13,7 +13,7 @@ export type SessionUser = { id: string; email: string; name: string | null };
  *  same as any first sign-in. */
 export async function getSessionUser(): Promise<SessionUser | null> {
   if (isLocalMode()) return { ...LOCAL_USER };
-  const { data: session } = await auth.getSession();
+  const { data: session } = await (await getAuth()).getSession();
   const u = session?.user;
   if (!u) return null;
   return { id: u.id, email: u.email ?? "", name: u.name ?? null };

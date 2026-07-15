@@ -12,6 +12,36 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-15** — **Cloud/local split, step A: clean local build, no cloud
+  eval** (user call "go for A" — the cheap one-repo half of the code-separation
+  requirement). Investigation first: cloud deps are remarkably well-contained —
+  `@neondatabase/auth` only in `lib/auth/{server,client}.ts`, the neon Prisma
+  adapter only in `lib/prisma.ts`, `stripe` constructed lazily INSIDE the 2
+  billing route handlers (settings.ts does NOT import the SDK — earlier grep was
+  a false positive on the `setPlanFromStripe` name), and the whole better-auth
+  engine reached by only 4 files. The one thing that broke the local build /
+  forced a placeholder secret was **Neon Auth built at module load**
+  (`createNeonAuth` reads `NEON_AUTH_*` and throws without it; the `/api/auth`
+  route evaluated it during page-data collection). Fix: `lib/auth/server.ts` now
+  exports **`getAuth()`** — a lazy singleton that dynamic-imports better-auth on
+  first real call — and its 4 importers (`session.ts`, `app/auth/actions.ts`,
+  `proxy.ts` now async, `/api/auth/[...path]` now per-request + `isLocalMode()`
+  404) were updated. Result, VERIFIED: **`DATAMODO_LOCAL=1 npm run build`
+  succeeds with ZERO env vars** (previously required a placeholder
+  `NEON_AUTH_COOKIE_SECRET`) and the `[neon-auth]` cookie warnings are gone; the
+  local runtime never constructs better-auth. Cloud build WITH its secret still
+  passes (no CI regression); cloud build without it fails at `/dashboard`
+  prerender as expected (cloud legitimately needs cloud config). Also guarded
+  the pure-cloud routes with `isLocalMode()` → 404: `/api/billing/{checkout,
+  webhook}`, `/api/webhooks/{whatsapp,slack,teams}`. HONEST SCOPE: this is
+  bundle/eval-level dormancy + a clean secret-free local build — it does NOT
+  make cloud code physically absent from the source (the neon Prisma adapter is
+  still statically imported by the sync `prisma` singleton; cloud route files
+  still exist, compiled but inert). Physical severance is steps B/C (workspace
+  split / build-time prune) and remains required before OSS. Verified: `tsc`
+  clean, lint at baseline (7/16), 228 tests pass, local build zero-secret green,
+  cloud build with secret green. Docs: ROADMAP (step A done + B/C framed),
+  README (build step drops the placeholder).
 - **2026-07-15** — **Local edition: local embeddings that actually work**
   (fulfils the 2026-07-14 "local = local embeddings" decision, which was
   recorded but never wired — user asked point-blank "if I do npm install will
