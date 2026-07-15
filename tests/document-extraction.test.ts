@@ -8,6 +8,7 @@ import {
   attachmentTextKind,
   buildDocumentExtraction,
   extractAttachmentText,
+  isLikelyScannedPdf,
   sheetToText,
   MAX_DOC_CHARS,
   MAX_SHEET_ROWS,
@@ -199,4 +200,26 @@ test("dangling inner refs are dropped, not folded", () => {
   assert.ok(!x.facts.some((f) => f.predicate === "amount"));
   assert.ok(!x.facts.some((f) => f.predicate === "partner_of"));
   assert.ok(x.facts.some((f) => f.predicate === "industry" && f.subjectLocalId === "d:e1"));
+});
+
+// --- Scanned-PDF detection (routes to the vision tier) -----------------------
+
+test("isLikelyScannedPdf: an empty/near-empty text layer over N pages is a scan", () => {
+  assert.equal(isLikelyScannedPdf({ text: "", pages: 1 }), true, "no text at all");
+  assert.equal(isLikelyScannedPdf({ text: "   \n  ", pages: 2 }), true, "whitespace only");
+  assert.equal(isLikelyScannedPdf({ text: "3", pages: 1 }), true, "a stray OCR char");
+  // A real text PDF clears the bar (>= 24 chars/page).
+  assert.equal(isLikelyScannedPdf({ text: "This invoice is from Acme Group for four thousand dollars.", pages: 1 }), false);
+});
+
+test("isLikelyScannedPdf: not a PDF (no page count) is never 'scanned'", () => {
+  assert.equal(isLikelyScannedPdf({ text: "", pages: null }), false);
+  assert.equal(isLikelyScannedPdf({ text: "", pages: 0 }), false);
+});
+
+test("isLikelyScannedPdf: scales with page count — sparse text over many pages still scans", () => {
+  // 30 chars total over 20 pages = 1.5 chars/page → well under the threshold.
+  assert.equal(isLikelyScannedPdf({ text: "x".repeat(30), pages: 20 }), true);
+  // 30 chars on a single page → over the 24/page bar → real text.
+  assert.equal(isLikelyScannedPdf({ text: "x".repeat(30), pages: 1 }), false);
 });

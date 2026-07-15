@@ -12,6 +12,22 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Scanned-PDF OCR** (roadmap; the vision tier's v1 cut,
+  now closed). A PDF whose text layer comes back empty/near-empty is a SCAN
+  (pixels, not text) — `isLikelyScannedPdf` (pure, < ~24 non-space chars ×
+  page count) detects it; `rasterizePdfFirstPage` renders page 1 to a PNG via
+  `unpdf`'s `renderPageAsImage` + native `@napi-rs/canvas` (new dep;
+  `serverExternalPackages` in `next.config.ts` keeps the `.node` binary out of
+  the bundler), and `documents.ts` feeds it to the SAME `extractFromImage`
+  vision tier a photo uses. Fail-soft end to end: no text AND not scanned → as
+  before; scanned but no canvas / no vision key / bad bytes → `metadata_only`
+  (the rasterizer returns null, never throws). `indexing` = full for a 1-page
+  scan, partial when the PDF has more pages (v1 reads page 1 — most
+  receipts/invoices are one page; multi-page is the follow-up). Verified:
+  3 new unit tests on the detector (199 pass), tsc, lint == baseline, build
+  green, AND live-fired the rasterizer — a real PDF → a 9004-char base64 PNG
+  with a valid PNG header, garbage input → null. Not run against the LLM
+  vision model (no key) — the wiring past the raster is the proven photo path.
 - **2026-07-14** — **Per-entity blame** (Review-track follow-up): the entity
   page's "◷ History" disclosure (`EntityHistory`) gained a **story ⇄ blame**
   toggle. Blame is the git-style commit log filtered to that entity
