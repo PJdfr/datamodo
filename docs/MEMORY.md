@@ -200,3 +200,17 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
     1536; 768 for the Ollama default) — so a 768-dim model is no longer
     rejected at store time. Space is still stamped once + requeue-on-change.
     All fail-soft: no Ollama/model → embeddings return null → keyword fallback.
+- **Local edition compute (decided 2026-07-15, packaging brief):** the local
+  default is a **host Ollama** (`serve` sets `LLM_PROVIDER=ollama`; macOS can
+  never run GPU inference in a container, so Ollama lives on the host
+  everywhere and only a Linux/NVIDIA compose profile may containerize it).
+  **LOCAL ↔ BYOK is a Settings toggle, never a reinstall** — stored
+  `computeMode` keeps its cloud meaning ("cloud" = platform default, which
+  locally IS the machine's Ollama). First-run sizing (RAM → tier → pull) only
+  SEEDS `llm.json`; the dashboard stays the owner of model choice.
+- **`neon/schema.sql` must stay loadable into an EMPTY database** (fixed
+  2026-07-15: FKs of hand-added tables live in the end-of-file FK section, no
+  psql-only meta-commands). It is the ONE faithful schema source: cloud
+  branches, the embedded pglite fresh build, and Docker initdb all consume it —
+  don't reintroduce inline REFERENCES on tables created before their targets'
+  PKs exist.

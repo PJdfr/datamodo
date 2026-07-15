@@ -1970,7 +1970,9 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
   const [billing, startBilling] = useTransition();
   const [billingMsg, setBillingMsg] = useState<string | null>(null);
   const limits = planLimits(settings.plan);
-  const cloudLocked = !limits.cloudCompute;
+  // Local edition: computeMode "cloud" MEANS "local — models on this machine"
+  // (the platform default is the host Ollama), and there is no plan gate.
+  const cloudLocked = !limits.cloudCompute && !local;
 
   const save = () => run(
     () => updateComputeSettingsAction({ computeMode: mode, aiProvider: provider, byokKey: key ? key : undefined }),
@@ -2008,7 +2010,8 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
         </>
       )}
     >
-      {/* Plan */}
+      {/* Plan — cloud only; the local edition has no plans or billing. */}
+      {!local && (
       <div style={{ border: "1px solid #E7E0D2", borderRadius: 12, background: "#fff", padding: "14px 16px", marginBottom: 18 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
           <div>
@@ -2027,14 +2030,16 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
         </div>
         {billingMsg && <div className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginTop: 10 }}>{billingMsg}</div>}
       </div>
+      )}
 
-      {/* Compute mode */}
+      {/* Compute mode. Local edition: LOCAL (this machine's Ollama) ↔ BYOK is a
+          toggle — switching is never a reinstall. */}
       <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 10 }}>How should your data be analysed?</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <button type="button" disabled={cloudLocked} onClick={() => !cloudLocked && setMode("cloud")} style={{ ...modeCard(mode === "cloud"), opacity: cloudLocked ? 0.55 : 1, cursor: cloudLocked ? "not-allowed" : "pointer" }}>
           <div style={{ textAlign: "left" }}>
-            <div style={{ fontWeight: 600, fontSize: 14.5 }}>Datamodo cloud {cloudLocked && <span className="dm-mono" style={{ fontSize: 10, color: C.accent, marginLeft: 6 }}>Pro</span>}</div>
-            <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>We run the models for you. {cloudLocked ? "Upgrade to enable." : "Nothing to configure."}</div>
+            <div style={{ fontWeight: 600, fontSize: 14.5 }}>{local ? "Local — on this machine" : <>Datamodo cloud {cloudLocked && <span className="dm-mono" style={{ fontSize: 10, color: C.accent, marginLeft: 6 }}>Pro</span>}</>}</div>
+            <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>{local ? "Models run on your own machine via Ollama. Private, free, works offline." : <>We run the models for you. {cloudLocked ? "Upgrade to enable." : "Nothing to configure."}</>}</div>
           </div>
           <span style={radioDot(mode === "cloud")} />
         </button>
@@ -2046,6 +2051,14 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
           <span style={radioDot(mode === "byok")} />
         </button>
       </div>
+
+      {/* Local compute config: the Ollama server + which models read what.
+          Everything the first-run wizard seeded stays editable here. */}
+      {local && mode === "cloud" && (
+        <div style={{ marginTop: 14, padding: "14px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
+          <LocalAiFields />
+        </div>
+      )}
 
       {mode === "byok" && (
         <div style={{ marginTop: 14, padding: "14px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
@@ -2062,8 +2075,9 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
               ? <>No API key needed — models run on <b>your own machine</b>. The URL must be reachable from datamodo&apos;s servers: on the same box use localhost; otherwise expose it via a tunnel (Tailscale funnel, ngrok, cloudflared). Pull a JSON-capable model first (ollama pull llama3.1).</>
               : <>This is an <b>API key</b> (billed per use), not your ChatGPT Plus / Claude Pro subscription — those don&apos;t grant API access. Get one from {provider === "openai" ? "platform.openai.com" : provider === "openrouter" ? "openrouter.ai/keys" : "console.anthropic.com"}. OpenRouter gives you one key across many models. Signing in to authorise your account is on the roadmap.</>}
           </div>
-          {/* Local edition: pick the exact model names here instead of env vars. */}
-          {local && <LocalModelsFields />}
+          {/* Local edition: pick the exact model names here instead of env vars.
+              (URL/status hidden — in BYOK the server/key field above says where.) */}
+          {local && <LocalAiFields showUrl={false} showStatus={false} />}
         </div>
       )}
 
@@ -2194,21 +2208,33 @@ function ConnectorsCard() {
   );
 }
 
-/* Local edition — pick the model NAMES here instead of env vars. The URL/key
- * above says WHERE; this says WHICH model handles text vs. images/scanned PDFs.
- * Saved to ~/.datamodo/llm.json; blank falls back to the env var, then default. */
-function LocalModelsFields() {
+/* Local edition — the local-AI config, all persisted to ~/.datamodo/llm.json
+ * (the same store the first-run wizard seeds): the Ollama server URL (WHERE)
+ * and the model names (WHICH model handles text vs. images/scanned PDFs).
+ * Blank falls back to the env var, then the built-in default. Shows live
+ * reachability + the models installed on the server (suggested via datalist). */
+function LocalAiFields({ showUrl = true, showStatus = true }: { showUrl?: boolean; showStatus?: boolean }) {
   const [extract, setExtract] = useState("");
   const [vision, setVision] = useState("");
+  const [url, setUrl] = useState("");
+  const [status, setStatus] = useState<{ url: string; reachable: boolean; tags: string[] } | null>(null);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    let live = true;
+  const load = (live?: { on: boolean }) => {
     fetch("/api/local/llm-models")
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (live && j?.models) { setExtract(j.models.extract ?? ""); setVision(j.models.vision ?? ""); } })
+      .then((j) => {
+        if (live && !live.on) return;
+        if (j?.models) { setExtract(j.models.extract ?? ""); setVision(j.models.vision ?? ""); setUrl(j.models.url ?? ""); }
+        if (j?.ollama) setStatus(j.ollama);
+      })
       .catch(() => { /* leave blank → defaults */ });
-    return () => { live = false; };
+  };
+
+  useEffect(() => {
+    const live = { on: true };
+    load(live);
+    return () => { live.on = false; };
   }, []);
 
   const save = async () => {
@@ -2216,25 +2242,46 @@ function LocalModelsFields() {
       const res = await fetch("/api/local/llm-models", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ models: { extract, vision } }),
+        body: JSON.stringify({ models: { extract, vision, url } }),
       });
-      if (res.ok) { setSaved(true); window.setTimeout(() => setSaved(false), 1600); }
+      if (res.ok) {
+        setSaved(true);
+        window.setTimeout(() => setSaved(false), 1600);
+        load(); // re-probe: a URL change should update reachability + tags
+      }
     } catch { /* best-effort */ }
   };
 
   return (
-    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #ECE5D8" }}>
-      <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 8 }}>
+    <div style={showUrl ? undefined : { marginTop: 12, paddingTop: 12, borderTop: "1px solid #ECE5D8" }}>
+      {showUrl && (
+        <>
+          <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 8 }}>Ollama server</div>
+          <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} onBlur={() => void save()}
+            placeholder={status?.url ?? "http://localhost:11434  (blank = default)"} autoComplete="off" style={fieldInput} />
+        </>
+      )}
+      {showStatus && status && (
+        <div className="dm-mono" style={{ fontSize: 11, marginTop: 8, color: status.reachable ? C.green : C.accent }}>
+          {status.reachable
+            ? <>✓ Ollama reachable · {status.tags.length} model{status.tags.length === 1 ? "" : "s"} installed</>
+            : <>✗ Ollama not reachable at {status.url} — start it (or install from ollama.com), or switch to “Bring your own key”. Messages are still stored & filed meanwhile.</>}
+        </div>
+      )}
+      <div className="dm-mono" style={{ ...fieldLabel, margin: "14px 0 8px" }}>
         Models {saved && <span style={{ color: C.green, marginLeft: 6 }}>✓ saved</span>}
       </div>
+      <datalist id="dm-ollama-tags">
+        {(status?.tags ?? []).map((t) => <option key={t} value={t.replace(/:latest$/, "")} />)}
+      </datalist>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <input type="text" value={extract} onChange={(e) => setExtract(e.target.value)} onBlur={() => void save()}
+        <input type="text" value={extract} onChange={(e) => setExtract(e.target.value)} onBlur={() => void save()} list="dm-ollama-tags"
           placeholder="Text model — e.g. llama3.1  (blank = default)" autoComplete="off" style={fieldInput} />
-        <input type="text" value={vision} onChange={(e) => setVision(e.target.value)} onBlur={() => void save()}
+        <input type="text" value={vision} onChange={(e) => setVision(e.target.value)} onBlur={() => void save()} list="dm-ollama-tags"
           placeholder="Vision / scanned-PDF model — e.g. llama3.2-vision  (blank = llava)" autoComplete="off" style={fieldInput} />
       </div>
       <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 8, lineHeight: 1.5 }}>
-        Which model reads text vs. images & scanned PDFs. Pull them first (e.g. <span style={{ userSelect: "all" }}>ollama pull llama3.2-vision</span>). Blank uses the built-in default (or an env var if you set one).
+        Which model reads text vs. images & scanned PDFs. <span style={{ userSelect: "all" }}>datamodo setup</span> sizes and pulls these for your machine; pull others with <span style={{ userSelect: "all" }}>ollama pull llama3.2-vision</span>. Blank uses the built-in default (or an env var if you set one).
       </div>
     </div>
   );

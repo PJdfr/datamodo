@@ -380,6 +380,20 @@
     package (today `serve` runs `next start` in the repo / expects a prebuilt
     `.next/standalone` in the package); local embeddings still want the
     `vector(1536)` column re-declared for a 768-d model at install.
+  - ~~**First-run sizing (RAM → model tier → pull)** ✅ 2026-07-15~~ (packaging
+    brief §5): `datamodo setup` + auto on first `serve` — cgroup-aware RAM
+    detect → tier table (pure `lib/local/sizing.mjs`) → Ollama `/api/pull`
+    with progress → seeds `llm.json`; fail-soft hint without Ollama.
+  - ~~**LOCAL ↔ BYOK settings toggle** ✅ 2026-07-15~~ (brief §3/§8): one
+    install, switchable compute — local Settings shows "Local — on this
+    machine" (Ollama URL + models, live reachability + installed-model
+    suggestions) vs BYOK; no plan/billing card locally.
+  - ~~**Real-Postgres local runtime** ✅ 2026-07-15~~ (brief §4): a
+    user/compose `DATABASE_URL` gets a pooled adapter (no `max:1`, no retry
+    shim — gated to `DATAMODO_EMBEDDED_DB`); `neon/schema.sql` now loads into
+    an empty DB, the embedded fresh build uses it faithfully (functions +
+    triggers + hnsw; `prisma db push` = upgrade diff only), and Docker initdb
+    can mount it.
   - **Phase 3 — BYOB connectors** (local has no public URL for webhooks, so it
     PULLS): ~~**IMAP** ✅ 2026-07-15~~ — `datamodo connect` stores a `0600`
     `connectors.json`; `datamodo serve` runs an in-process imapflow poller that

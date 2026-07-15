@@ -9,9 +9,48 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-14
+> Last updated: 2026-07-15
 
 ## Recent changes
+- **2026-07-15** — **Local packaging phase 1: real-Postgres runtime + first-run
+  model sizing + LOCAL↔BYOK settings toggle** (packaging brief §2/§3/§5;
+  overnight build). (1) **`neon/schema.sql` now loads top-to-bottom into an
+  EMPTY database** — dropped the psql-only `\restrict` meta-commands and moved
+  the 3 inline `REFERENCES` on `doc_chunks`/`kinds` (hand-added tables) into the
+  end-of-file FK section (same auto-generated constraint names, so deployed DBs
+  match). This unblocks Docker initdb AND lets the embedded DB build the schema
+  **faithfully from schema.sql** on a fresh vault (functions + triggers + hnsw
+  included — the "prisma db push partial schema" gap is gone; push remains only
+  as the app-upgrade diff path, and a `reset all` clears the dump's session SETs
+  since pglite is one shared session). (2) **Real-Postgres local runtime**: the
+  pglite `max:1`/read-retry shim in `lib/prisma.ts` is now gated on
+  `DATAMODO_EMBEDDED_DB=1` (set by `serve` only when it boots pglite); a
+  user-supplied `DATABASE_URL` gets a normal pooled `@prisma/adapter-pg`.
+  (3) **First-run sizing wizard** — `datamodo setup` (and auto on first
+  `serve`): detects RAM (`os.totalmem` capped by the cgroup limit in
+  containers), maps to a model tier (4/8/16/32 GB → llama3.2:3b …
+  qwen2.5:14b + llava/llama3.2-vision + nomic-embed-text; pure core
+  `lib/local/sizing.mjs`, unit-tested), pulls via Ollama `/api/pull` with
+  progress, seeds `~/.datamodo/llm.json` (the dashboard-editable store);
+  fail-soft with an install hint when Ollama is absent. (4) **LOCAL ↔ BYOK is a
+  Settings toggle**: local Settings hides the cloud plan/billing card, the
+  compute cards read "Local — on this machine" vs "Bring your own key"
+  (stored `computeMode` unchanged: "cloud" means platform-default = host
+  Ollama locally; plan gate bypassed under `isLocalMode`), and a new
+  `LocalAiFields` panel edits the **Ollama server URL** (new `url` field in
+  `llm.json`, http(s)-validated) + text/vision models with live reachability +
+  installed-model suggestions (`GET /api/local/llm-models` now probes
+  `/api/tags`). `serve` defaults `LLM_PROVIDER=ollama`. (5) **Mock Ollama**
+  (`scripts/mock-ollama.mjs`): tags/pull/chat(JSON+vision)/embeddings
+  (deterministic 768-d) — lets the whole pipeline run E2E where weights can't
+  (CI/sandboxes). VERIFIED: schema.sql loads clean into empty pglite (22
+  tables/6 triggers/all stored fns); embedded-db integration tests incl. the
+  new upgrade-path test (data kept, hnsw restored); wizard live against the
+  mock (detect 15.7 GB → "plus", `--ram 8` → standard, 3 pulls, idempotent
+  re-run) and against nothing (hint + seeded llm.json); 250 unit tests, tsc
+  clean, lint == baseline, local `next build` green. NOT verifiable in this
+  sandbox: real model pulls (egress policy blocks ollama.com/registry.ollama.ai,
+  huggingface, Docker Hub blobs — see the session report).
 - **2026-07-15** — **Local edition: pick LLM model names from the dashboard**
   (user: "why can't we set these from the dashboard, not the terminal? we can
   do both"). Previously the Ollama model ids were ENV-ONLY

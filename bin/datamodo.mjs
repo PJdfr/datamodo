@@ -31,6 +31,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { startEmbeddedDb } from "../lib/local/embedded-db.mjs";
 import { startConnectors, loadConnectors, addConnector, removeConnector } from "../lib/local/connectors/imap-poll.mjs";
+import { runFirstRunSetup } from "../lib/local/setup.mjs";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
@@ -90,10 +91,16 @@ function serveEnv(cfg) {
     // Shared secret the in-process IMAP poller uses to POST captured mail to
     // the local /api/local/imap route (same trust boundary as the cloud webhook).
     INGEST_WEBHOOK_SECRET: cfg.ingestSecret,
+    // The local default compute is a host Ollama (keyless, private). BYOK is a
+    // Settings toggle on top of this — never a reinstall.
+    LLM_PROVIDER: process.env.LLM_PROVIDER || "ollama",
     // Offline-first semantic search (no-op when a cloud embeddings key is set).
     ...embeddingDefaults(),
   };
   if (cfg.databaseUrl) env.DATABASE_URL = cfg.databaseUrl;
+  // Tells lib/prisma.ts to apply the pglite single-connection workaround. A
+  // real Postgres (user DATABASE_URL / compose) gets a normal pool instead.
+  if (cfg.embeddedDb) env.DATAMODO_EMBEDDED_DB = "1";
   return env;
 }
 
@@ -205,15 +212,46 @@ program
   });
 
 program
+  .command("setup")
+  .description("Size the local AI to this machine: RAM budget → model tier → pull")
+  .option("-d, --data-dir <path>", "where datamodo keeps your vault + files")
+  .option("--ram <gb>", "RAM budget in GB (default: detected)")
+  .option("--ollama-url <url>", "Ollama server (default http://localhost:11434)")
+  .option("-y, --yes", "accept the detected tier without asking")
+  .option("--force", "re-run even if models are already configured")
+  .action(async (opts) => {
+    const cfg = resolveConfig(opts);
+    await fs.mkdir(cfg.dataDir, { recursive: true });
+    const r = await runFirstRunSetup({
+      dataDir: cfg.dataDir,
+      interactive: !opts.yes,
+      ram: opts.ram,
+      ollamaUrl: opts.ollamaUrl,
+      force: Boolean(opts.force),
+    });
+    if (!r.ran && r.reason === "configured") {
+      console.log("Models are already configured (~/.datamodo/llm.json) — use --force to re-size, or edit them in Settings.");
+    }
+  });
+
+program
   .command("serve")
   .description("Run the dashboard on localhost (single-user, embedded database)")
   .option("-d, --data-dir <path>", "where datamodo keeps your vault + files")
   .option("-p, --port <port>", "port to serve on", String(DEFAULT_PORT))
   .option("-H, --host <host>", "host to bind", "127.0.0.1")
+  .option("--skip-setup", "don't run the first-run model sizing")
   .action(async (opts) => {
     const cfg = resolveConfig(opts);
     await fs.mkdir(cfg.blobDir, { recursive: true });
     cfg.ingestSecret = await ensureIngestSecret(cfg.dataDir);
+
+    // First run only (no llm.json yet): size the local AI to this machine —
+    // detect RAM, pick a model tier, pull from Ollama. Interactive on a TTY;
+    // silent defaults otherwise. Fail-soft: no Ollama → hint + keep booting.
+    if (!opts.skipSetup) {
+      await runFirstRunSetup({ dataDir: cfg.dataDir, interactive: Boolean(process.stdin.isTTY) });
+    }
 
     // Auto-build on first run (or after a clean) so the user never has to run
     // `next build` by hand — and never has to remember DATAMODO_LOCAL=1, which
@@ -234,6 +272,7 @@ program
       db = await startEmbeddedDb({ appRoot: APP_ROOT, dataDir: cfg.dataDir, port: pgPort });
       await db.ensureSchema(pkg.version || "0", { embeddingDim: embeddingColumnDim() });
       cfg.databaseUrl = db.url;
+      cfg.embeddedDb = true;
     }
 
     // Boot the built Next server if present, else `next start` (dev/repo). Run

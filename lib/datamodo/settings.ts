@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { AiProvider, ComputeMode, Plan } from "./plans";
 import { planLimits } from "./plans";
+import { isLocalMode } from "@/lib/local/config";
 
 // Per-user settings: plan + how their data is analysed. Client-safe shape never
 // includes the raw BYOK key — only whether one is set.
@@ -69,7 +70,9 @@ export async function updateComputeSettings(
 
   const update: Record<string, unknown> = {};
   if (patch.computeMode !== undefined) {
-    if (patch.computeMode === "cloud" && !limits.cloudCompute) {
+    // Local edition: "cloud" here means "local compute on this machine's
+    // Ollama" (the platform default) — free by definition, no plan gate.
+    if (patch.computeMode === "cloud" && !limits.cloudCompute && !isLocalMode()) {
       throw new Error("Datamodo cloud compute is a Pro feature. On Free, bring your own API key.");
     }
     update.compute_mode = patch.computeMode;
