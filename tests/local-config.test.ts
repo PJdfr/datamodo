@@ -12,6 +12,8 @@ import {
   joinPath,
   resolveLocalConfig,
   localServeEnv,
+  localEmbeddingDefaults,
+  localDataDir,
   LOCAL_USER,
 } from "../lib/local/config.ts";
 
@@ -62,6 +64,29 @@ test("localServeEnv: turns the app into its local skin", () => {
 
   // No DB set → DATABASE_URL absent (serve then guides the user).
   assert.equal(localServeEnv(resolveLocalConfig({ home: "/h" })).DATABASE_URL, undefined);
+});
+
+test("localEmbeddingDefaults: Ollama when no cloud key, respects explicit config", () => {
+  // No cloud embeddings provider → default to a local Ollama server (768-dim).
+  const d = localEmbeddingDefaults({});
+  assert.equal(d.EMBEDDINGS_BASE_URL, "http://localhost:11434/v1");
+  assert.equal(d.EMBEDDINGS_MODEL, "nomic-embed-text");
+  assert.equal(d.EMBEDDINGS_COLUMN_DIM, "768");
+
+  // A cloud key/URL is present → don't override it (keep their 1536 provider).
+  assert.deepEqual(localEmbeddingDefaults({ OPENAI_API_KEY: "sk-x" }), {});
+  assert.deepEqual(localEmbeddingDefaults({ EMBEDDINGS_BASE_URL: "https://api.openai.com/v1" }), {});
+
+  // Explicit model/dim are respected when defaulting to Ollama.
+  const d2 = localEmbeddingDefaults({ EMBEDDINGS_MODEL: "mxbai-embed-large", EMBEDDINGS_COLUMN_DIM: "1024" });
+  assert.equal(d2.EMBEDDINGS_MODEL, "mxbai-embed-large");
+  assert.equal(d2.EMBEDDINGS_COLUMN_DIM, "1024");
+});
+
+test("localDataDir: env → parent of BLOB_DIR → ~/.datamodo", () => {
+  assert.equal(localDataDir({ DATAMODO_DATA_DIR: "/data/dm" }), "/data/dm");
+  assert.equal(localDataDir({ BLOB_DIR: "/data/dm/blobs" }), "/data/dm");
+  assert.equal(localDataDir({ HOME: "/home/me" }), "/home/me/.datamodo");
 });
 
 test("LOCAL_USER: a stable single identity", () => {

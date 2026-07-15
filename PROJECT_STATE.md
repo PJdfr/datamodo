@@ -12,6 +12,33 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-15** — **Local edition: local embeddings that actually work**
+  (fulfils the 2026-07-14 "local = local embeddings" decision, which was
+  recorded but never wired — user asked point-blank "if I do npm install will
+  it use local embeddings?", and the honest answer was no). Two parts:
+  (1) **Configurable pgvector column dimension** — the embedded DB hardcoded
+  `vector(1536)`, so a local model like Ollama `nomic-embed-text` (768-dim) was
+  rejected at store time. `ensureSchema` now takes `{ embeddingDim }` and, on
+  the FRESH build (columns empty → safe), `ALTER`s `entities.embedding` +
+  `doc_chunks.embedding` to that dimension before creating the hnsw index; the
+  `.schema-version` marker is now `<version>:<dim>` so a dim change re-pushes.
+  (2) **Offline-first defaults** — `serve` (bin `embeddingDefaults` / app-side
+  `localEmbeddingDefaults`) points embeddings at a local Ollama server
+  (`http://localhost:11434/v1`, `nomic-embed-text`, `EMBEDDINGS_COLUMN_DIM=768`)
+  **only when no cloud embeddings key/URL is set** — an OpenAI-key user keeps
+  their 1536 provider untouched; `serve` also exports `DATAMODO_DATA_DIR`.
+  Everything stays fail-soft: no Ollama/model → `embedTexts` returns null →
+  keyword-search fallback (no regression), and the cloud path is byte-identical.
+  `lib/llm/embeddings.ts` is UNCHANGED (the OpenAI `dimensions` API param still
+  only fires on `EMBEDDINGS_DIMENSIONS`, which the local default doesn't set).
+  Verified: `tsc` clean, lint at baseline (7/16), 228 tests pass + BOTH guarded
+  DB integration tests green — the new one builds the schema at 768 dims against
+  real pglite and asserts `entities.embedding` is `vector(768)` and a 768-d
+  vector stores + ANN-round-trips (sim ~1). The live Ollama HTTP call isn't
+  exercised in CI (no Ollama) — flagged, and it's fail-soft. README gained a
+  "Run it locally" section (install → LLM options incl. the "your Claude
+  subscription isn't an API key, but MCP lets you use it" note → local
+  embeddings → mailboxes). Docs: MEMORY (decision → shipped), STATE env matrix.
 - **2026-07-15** — **Local edition, phase 3b: manage IMAP mailboxes from the
   dashboard + poller hot-reload** (follows 3a below; the CLI-only friction was
   the gap). Two parts, both gated on `isLocalMode()`:

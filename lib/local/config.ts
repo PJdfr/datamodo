@@ -95,6 +95,24 @@ export function resolveLocalConfig({ env = {}, flags = {}, home }: ResolveInput)
   };
 }
 
+/**
+ * Local embeddings default to a local Ollama server + model so semantic search
+ * works offline out of the box — but ONLY when no cloud embeddings provider is
+ * configured (an OpenAI/embeddings key or a custom base URL), so an OpenAI-key
+ * user keeps their own 1536-dim provider. `nomic-embed-text` is Ollama's
+ * standard embed model (768-dim); the embedded DB builds the vector column to
+ * match. Pure — reads env only. (Mirrors `embeddingDefaults` in bin/datamodo.mjs.)
+ */
+export function localEmbeddingDefaults(env: Record<string, string | undefined> = process.env): Record<string, string> {
+  const hasCloud = (env.EMBEDDINGS_API_KEY || env.OPENAI_API_KEY || env.EMBEDDINGS_BASE_URL || "").trim();
+  if (hasCloud) return {};
+  return {
+    EMBEDDINGS_BASE_URL: "http://localhost:11434/v1",
+    EMBEDDINGS_MODEL: env.EMBEDDINGS_MODEL?.trim() || "nomic-embed-text",
+    EMBEDDINGS_COLUMN_DIM: env.EMBEDDINGS_COLUMN_DIM?.trim() || "768",
+  };
+}
+
 /** The env a local `serve` exports before booting the app — turns the shared
  *  app into its local skin. Returned as a plain map so the CLI can merge it
  *  into the child process env (pure — no process mutation here). */
@@ -108,6 +126,8 @@ export function localServeEnv(cfg: LocalConfig): Record<string, string> {
     // throwing at import (its session/middleware path is bypassed in local mode).
     NEON_AUTH_COOKIE_SECRET: "local-single-user-no-remote-auth",
     NEON_AUTH_BASE_URL: "http://local.invalid",
+    // Offline-first semantic search (no-op when a cloud embeddings key is set).
+    ...localEmbeddingDefaults(),
   };
   if (cfg.databaseUrl) out.DATABASE_URL = cfg.databaseUrl;
   return out;

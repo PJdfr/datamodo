@@ -51,6 +51,32 @@ function resolveConfig(opts) {
   };
 }
 
+/**
+ * Local embeddings default to a local Ollama server + model so semantic search
+ * works fully offline out of the box — BUT only when the user hasn't already
+ * configured a cloud embeddings provider (an OpenAI/embeddings key or a custom
+ * base URL). Explicit config always wins, so an OpenAI-key user keeps their
+ * 1536-dim provider untouched. `nomic-embed-text` is Ollama's standard embed
+ * model (768-dim); the DB column is built to match (see EMBEDDINGS_COLUMN_DIM).
+ * Returns {} when a cloud provider is configured.
+ */
+function embeddingDefaults(env = process.env) {
+  const hasCloud = (env.EMBEDDINGS_API_KEY || env.OPENAI_API_KEY || env.EMBEDDINGS_BASE_URL || "").trim();
+  if (hasCloud) return {};
+  return {
+    EMBEDDINGS_BASE_URL: "http://localhost:11434/v1", // Ollama's OpenAI-compatible endpoint
+    EMBEDDINGS_MODEL: env.EMBEDDINGS_MODEL || "nomic-embed-text",
+    EMBEDDINGS_COLUMN_DIM: env.EMBEDDINGS_COLUMN_DIM || "768",
+  };
+}
+
+/** The pgvector column dimension the embedded DB should build, given the
+ *  resolved embeddings config (768 for the local Ollama default, else 1536). */
+function embeddingColumnDim(env = process.env) {
+  const d = Number(embeddingDefaults(env).EMBEDDINGS_COLUMN_DIM ?? env.EMBEDDINGS_COLUMN_DIM ?? 1536);
+  return Number.isInteger(d) && d > 0 ? d : 1536;
+}
+
 /** The env that turns the shared app into its local single-user skin. */
 function serveEnv(cfg) {
   const env = {
@@ -64,6 +90,8 @@ function serveEnv(cfg) {
     // Shared secret the in-process IMAP poller uses to POST captured mail to
     // the local /api/local/imap route (same trust boundary as the cloud webhook).
     INGEST_WEBHOOK_SECRET: cfg.ingestSecret,
+    // Offline-first semantic search (no-op when a cloud embeddings key is set).
+    ...embeddingDefaults(),
   };
   if (cfg.databaseUrl) env.DATABASE_URL = cfg.databaseUrl;
   return env;
@@ -147,7 +175,7 @@ program
     if (!cfg.databaseUrl) {
       const pgPort = await freePort();
       db = await startEmbeddedDb({ appRoot: APP_ROOT, dataDir: cfg.dataDir, port: pgPort });
-      await db.ensureSchema(pkg.version || "0");
+      await db.ensureSchema(pkg.version || "0", { embeddingDim: embeddingColumnDim() });
       cfg.databaseUrl = db.url;
     }
 
