@@ -24,6 +24,18 @@ export function isLocalMode(env: Record<string, string | undefined> = process.en
   return v === "1" || v === "true";
 }
 
+/** The local data dir the running app should read/write (connectors.json,
+ *  cursors, …). `serve` exports `DATAMODO_DATA_DIR`; fall back to the parent of
+ *  `BLOB_DIR` (which is `<dataDir>/blobs`), then to `~/.datamodo`. Pure-ish —
+ *  reads env + HOME only, no fs. */
+export function localDataDir(env: Record<string, string | undefined> = process.env): string {
+  if (env.DATAMODO_DATA_DIR?.trim()) return env.DATAMODO_DATA_DIR.trim();
+  const blob = env.BLOB_DIR?.trim();
+  if (blob) return blob.replace(/\/+$/, "").replace(/\/blobs$/, "") || blob;
+  const home = env.HOME || env.USERPROFILE || ".";
+  return joinPath(home, ".datamodo");
+}
+
 export interface LocalConfig {
   /** Root data dir — vault DB, blobs, config all live under here. */
   dataDir: string;

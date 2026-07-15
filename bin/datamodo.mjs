@@ -30,7 +30,7 @@ import net from "node:net";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { startEmbeddedDb } from "../lib/local/embedded-db.mjs";
-import { startConnectors, loadConnectors, parseConnectors } from "../lib/local/connectors/imap-poll.mjs";
+import { startConnectors, loadConnectors, addConnector, removeConnector } from "../lib/local/connectors/imap-poll.mjs";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
@@ -56,6 +56,7 @@ function serveEnv(cfg) {
   const env = {
     ...process.env,
     DATAMODO_LOCAL: "1",
+    DATAMODO_DATA_DIR: cfg.dataDir,
     BLOB_DIR: cfg.blobDir,
     PORT: String(cfg.port),
     HOSTNAME: cfg.host,
@@ -199,7 +200,6 @@ program
   .action(async (opts) => {
     const cfg = resolveConfig(opts);
     await fs.mkdir(cfg.dataDir, { recursive: true });
-    const file = path.join(cfg.dataDir, "connectors.json");
 
     if (opts.list) {
       const list = await loadConnectors(cfg.dataDir);
@@ -208,19 +208,15 @@ program
       return;
     }
 
-    const existing = await loadConnectors(cfg.dataDir);
-
     if (opts.remove) {
-      const next = existing.filter((c) => c.id !== opts.remove);
-      if (next.length === existing.length) return console.error(`No connector with id "${opts.remove}".`);
-      await writeConnectors(file, next);
-      return console.log(`✓ removed ${opts.remove}`);
+      const removed = await removeConnector(cfg.dataDir, opts.remove);
+      return console.log(removed ? `✓ removed ${opts.remove}` : `No connector with id "${opts.remove}".`);
     }
 
     if (!opts.host || !opts.user || !opts.pass) {
       return console.error("Need --host, --user and --pass (or use --list / --remove).");
     }
-    const entry = {
+    const added = await addConnector(cfg.dataDir, {
       kind: "imap",
       id: opts.id,
       host: opts.host,
@@ -229,20 +225,10 @@ program
       user: opts.user,
       password: opts.pass,
       mailbox: opts.mailbox || "INBOX",
-    };
-    // Validate the merged set (also assigns the derived id + rejects dupes).
-    const merged = parseConnectors([...existing, entry]);
-    await writeConnectors(file, merged);
-    const added = merged[merged.length - 1];
+    });
     console.log(`✓ connected ${added.id}  (${added.user}@${added.host})`);
     console.log("  New mail will be captured while `datamodo serve` is running.");
   });
-
-/** Write connectors.json with the credentials file locked down to the owner. */
-async function writeConnectors(file, connectors) {
-  await fs.writeFile(file, JSON.stringify({ connectors }, null, 2));
-  await fs.chmod(file, 0o600).catch(() => {});
-}
 
 program.parseAsync(process.argv).catch((e) => {
   console.error(e?.message ?? e);

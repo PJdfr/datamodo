@@ -12,6 +12,34 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-15** — **Local edition, phase 3b: manage IMAP mailboxes from the
+  dashboard + poller hot-reload** (follows 3a below; the CLI-only friction was
+  the gap). Two parts, both gated on `isLocalMode()`:
+  (1) **Hot-reload** — `startConnectors` now re-reads `connectors.json` at the
+  start of EVERY tick (was once at boot) and lazy-loads imapflow, so a mailbox
+  added/removed at runtime is picked up within one 60 s interval with no `serve`
+  restart; a corrupt file is logged, not fatal; the returned handle exposes
+  `tick()` (for a future "poll now" + tests). A newly-added mailbox still goes
+  through the first-run UID high-water mark (no backfill), then captures new
+  mail. (2) **Dashboard UI** — a new local-only route
+  `app/api/local/connectors` (GET list / POST add / DELETE remove) writes the
+  SAME `connectors.json` the CLI uses, via shared store helpers moved into
+  `imap-poll.mjs` (`writeConnectors`/`addConnector`/`removeConnector`/
+  `publicConnectors`, all re-validating through `parseConnectors`, chmod
+  `0600`); the CLI `connect` command was refactored onto those helpers (one
+  validated path). A `ConnectorsCard` in Settings (shown only when the
+  `ControlCenter local` prop is set) lists mailboxes and adds/removes them;
+  passwords are WRITE-ONLY (sent on add, `publicConnectors` strips them, never
+  echoed). `serve` now also exports `DATAMODO_DATA_DIR`; the app resolves the
+  data dir via a new pure `localDataDir()` (env → parent of `BLOB_DIR` →
+  `~/.datamodo`). Verified: `tsc` clean, lint at baseline (7/16) — matched the
+  codebase's `live`-guarded `.then()` effect pattern to avoid the
+  set-state-in-effect rule — 226 tests pass (3 new: store round-trip incl. the
+  no-password-leak check, duplicate-id rejection, and an end-to-end hot-reload
+  drive: add a mailbox after start → next tick records the high-water mark and
+  captures nothing → new mail arrives → following tick captures it), `next
+  build` green (both `/api/local/*` routes compile), CLI add/list/remove
+  smoke-tested through the shared helpers. Live IMAP still not in CI.
 - **2026-07-15** — **Local edition, phase 3a: IMAP BYOB connector** (roadmap
   "Phase 3 — BYOB connectors, IMAP first"). A self-hosted install has no public
   URL, so the cloud webhooks don't apply — instead it PULLS from the user's own

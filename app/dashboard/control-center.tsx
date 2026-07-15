@@ -572,6 +572,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
       {settingsOpen && (
         <SettingsModal
           settings={settings}
+          local={local}
           onClose={() => setSettingsOpen(false)}
           onSaved={() => { setSettingsOpen(false); router.refresh(); }}
         />
@@ -1961,7 +1962,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
 /* ================================================================== */
 /* SETTINGS: compute provider + plan                                  */
 /* ================================================================== */
-function SettingsModal({ settings, onClose, onSaved }: { settings: UserSettings; onClose: () => void; onSaved: () => void }) {
+function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSettings; local?: boolean; onClose: () => void; onSaved: () => void }) {
   const [mode, setMode] = useState<ComputeMode>(settings.computeMode);
   const [provider, setProvider] = useState(settings.aiProvider);
   const [key, setKey] = useState("");
@@ -2068,10 +2069,126 @@ function SettingsModal({ settings, onClose, onSaved }: { settings: UserSettings;
           plan). Only meaningful when you bring a key. */}
       {mode === "byok" && settings.aiProvider !== "ollama" && <UsageCard />}
 
+      {/* Local edition: mailboxes datamodo pulls from over IMAP (no public URL
+          for webhooks, so it pulls). CLI-managed too (`datamodo connect`). */}
+      {local && <ConnectorsCard />}
+
       {/* Connect Claude (MCP): the vault as tools on the user's own Claude
           subscription — Claude extracts, the server pipeline stays the vault. */}
       <McpConnectCard />
     </ModalShell>
+  );
+}
+
+/* Local edition — mailboxes datamodo pulls from over IMAP. A self-hosted
+ * install has no public URL for webhooks, so it PULLS; this manages the same
+ * connectors.json the `datamodo connect` CLI writes and the serve poller reads
+ * (re-read each tick, so a change here takes effect within a minute, no
+ * restart). Passwords are write-only: sent on add, never echoed back. */
+type PublicConnector = { id: string; host: string; port: number; secure: boolean; user: string; mailbox: string };
+
+function ConnectorsCard() {
+  const [list, setList] = useState<PublicConnector[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ host: "", user: "", password: "", mailbox: "INBOX", port: "993", secure: true });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    fetch("/api/local/connectors")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => { if (live && json) setList(json.connectors as PublicConnector[]); })
+      .catch(() => { /* leave null → hidden empty state */ });
+    return () => { live = false; };
+  }, []);
+
+  const add = async () => {
+    setErr(null);
+    setBusy(true);
+    try {
+      const res = await fetch("/api/local/connectors", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...form, port: Number(form.port) || 993 }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { setErr(body.error ?? "Couldn’t add that mailbox."); return; }
+      setList(body.connectors as PublicConnector[]);
+      setForm({ host: "", user: "", password: "", mailbox: "INBOX", port: "993", secure: true });
+      setOpen(false);
+    } catch {
+      setErr("Couldn’t reach the server.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (id: string) => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/local/connectors?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) setList(body.connectors as PublicConnector[]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const chip: React.CSSProperties = { fontSize: 11, color: "#3A352C", background: "#fff", border: "1px solid #ECE5D8", borderRadius: 8, padding: "7px 10px" };
+
+  return (
+    <div style={{ marginTop: 18, padding: "14px 16px", border: "1px solid #E7E0D2", borderRadius: 12, background: "#fff" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}><span style={{ color: C.accent }}>📥</span> Mailboxes</div>
+          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>datamodo pulls new mail from your own mailbox over IMAP and files it like anything else. Nothing leaves your machine but the IMAP connection you configure.</div>
+        </div>
+        {!open && (
+          <Hov onClick={() => setOpen(true)} base={{ ...ghostBtn, flexShrink: 0 }} hover={{ background: "#FBF8F1" }}>Add mailbox</Hov>
+        )}
+      </div>
+
+      {list && list.length > 0 && (
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          {list.map((c) => (
+            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
+              <div className="dm-mono" style={chip}>{c.user}@{c.host}:{c.port} · {c.mailbox}{c.secure ? "" : " · plaintext"}</div>
+              <Hov onClick={busy ? undefined : () => void remove(c.id)} base={{ ...ghostBtn, flexShrink: 0, color: C.accent }} hover={{ background: "#FBF3EF" }}>Remove</Hov>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {open && (
+        <div style={{ marginTop: 12, padding: 12, background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input type="text" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} placeholder="IMAP host — e.g. imap.gmail.com" style={{ ...fieldInput, flex: "1 1 200px" }} />
+            <input type="text" inputMode="numeric" value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} placeholder="993" style={{ ...fieldInput, flex: "0 0 84px", width: 84 }} />
+          </div>
+          <input type="text" value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} placeholder="mailbox login (usually your email)" autoComplete="off" style={fieldInput} />
+          <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="password or app-specific password" autoComplete="new-password" style={fieldInput} />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <input type="text" value={form.mailbox} onChange={(e) => setForm({ ...form, mailbox: e.target.value })} placeholder="INBOX" style={{ ...fieldInput, flex: "1 1 160px" }} />
+            <label className="dm-mono" style={{ fontSize: 11, color: "#8A8477", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={form.secure} onChange={(e) => setForm({ ...form, secure: e.target.checked })} /> implicit TLS (993)
+            </label>
+          </div>
+          <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", lineHeight: 1.5 }}>
+            Gmail/Outlook need an <b>app-specific password</b> (2FA), not your account password. The credential is stored only in <span style={{ userSelect: "all" }}>~/.datamodo/connectors.json</span> on this machine.
+          </div>
+          {err && <div className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{err}</div>}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <Hov onClick={busy ? undefined : () => { setOpen(false); setErr(null); }} base={ghostBtn} hover={{ background: "#fff" }}>Cancel</Hov>
+            <Hov onClick={busy ? undefined : () => void add()} base={primaryBtn(busy)} hover={{ background: C.accentPress }}>{busy ? "Connecting…" : "Connect"}</Hov>
+          </div>
+        </div>
+      )}
+
+      {list && list.length === 0 && !open && (
+        <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginTop: 10 }}>No mailboxes yet. New mail is captured while <span style={{ userSelect: "all" }}>datamodo serve</span> is running.</div>
+      )}
+    </div>
   );
 }
 

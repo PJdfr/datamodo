@@ -19,6 +19,9 @@ import {
   saveCursors,
   pollConnector,
   startConnectors,
+  addConnector,
+  removeConnector,
+  publicConnectors,
 } from "../lib/local/connectors/imap-poll.mjs";
 
 // ---- mapping core -----------------------------------------------------------
@@ -120,6 +123,32 @@ test("loadConnectors: absent file → []", async () => {
   assert.deepEqual(await loadConnectors(dir), []);
 });
 
+// ---- connectors store (shared by CLI + dashboard) ---------------------------
+
+test("addConnector/removeConnector/publicConnectors: round-trip, no password leak", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "dm-imap-"));
+  const added = await addConnector(dir, { host: "imap.ex.com", user: "me@ex.com", password: "secret" });
+  assert.equal(added.id, "imap:me@ex.com@imap.ex.com");
+
+  const pub = await publicConnectors(dir);
+  assert.equal(pub.length, 1);
+  assert.equal(pub[0].host, "imap.ex.com");
+  assert.equal("password" in pub[0], false); // secret never handed out
+
+  // The password IS persisted for the poller to use.
+  assert.equal((await loadConnectors(dir))[0].password, "secret");
+
+  assert.equal(await removeConnector(dir, added.id), true);
+  assert.equal(await removeConnector(dir, added.id), false); // already gone
+  assert.deepEqual(await publicConnectors(dir), []);
+});
+
+test("addConnector: rejects a duplicate id", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "dm-imap-"));
+  await addConnector(dir, { host: "h", user: "u", password: "p" });
+  await assert.rejects(() => addConnector(dir, { host: "h", user: "u", password: "p2" }), /duplicate connector id/);
+});
+
 // ---- poll loop (fake IMAP) --------------------------------------------------
 
 function fakeImapClass({ uidNext, messages }: { uidNext: number; messages: Array<{ uid: number; source: string }> }) {
@@ -219,4 +248,45 @@ test("startConnectors: polls configured connectors via injected client + fetch",
   assert.equal(bodies[0].uid, 10);
   assert.equal(bodies[0].connectorId, "imap:me@ex.com@h");
   assert.equal(Buffer.from(bodies[0].rawBase64 as string, "base64").toString(), "hi");
+});
+
+test("startConnectors: hot-reloads a connector added after start (no restart)", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "dm-imap-"));
+  const bodies: Array<Record<string, unknown>> = [];
+  // A mutable mailbox so we can make new mail "arrive" between ticks.
+  const state = { uidNext: 10, messages: [] as Array<{ uid: number; source: string }> };
+  class StatefulFake {
+    mailbox: { uidNext: number } | null = null;
+    async connect() {}
+    async getMailboxLock() { this.mailbox = { uidNext: state.uidNext }; return { release() {} }; }
+    async *fetch() { for (const m of state.messages) yield { uid: m.uid, source: Buffer.from(m.source) }; }
+    async logout() {}
+  }
+
+  // Start with NO connectors configured.
+  const handle = await startConnectors(
+    { dataDir: dir, endpoint: "http://x/", secret: "s", intervalMs: 1_000_000, log: () => {} },
+    {
+      ImapFlow: StatefulFake,
+      fetch: async (_url: string, init: { body: string }) => { bodies.push(JSON.parse(init.body)); return { ok: true } as Response; },
+    },
+  );
+  assert.deepEqual(handle.connectors, []);
+
+  // Add a mailbox from "the dashboard" — the next tick must pick it up, record
+  // the high-water mark, and capture NOTHING (no backfill of old mail).
+  const added = await addConnector(dir, { host: "h", user: "me@ex.com", password: "pw" });
+  await handle.tick();
+  assert.equal(bodies.length, 0);
+  assert.equal((await loadCursors(dir))[added.id], 9); // uidNext(10) - 1
+
+  // New mail arrives → the following tick captures it.
+  state.uidNext = 11;
+  state.messages = [{ uid: 10, source: "new" }];
+  await handle.tick();
+  handle.stop();
+
+  assert.equal(bodies.length, 1);
+  assert.equal(bodies[0].uid, 10);
+  assert.equal((await loadCursors(dir))[added.id], 10);
 });

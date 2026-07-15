@@ -388,8 +388,12 @@
     local-only route (`/api/local/imap`) which parses (mailparser) + maps
     (`lib/local/connectors/imap.ts`) + ingests through the SAME pipeline. Pure
     map + runtime cores unit-tested with a fake IMAP client; live IMAP not in
-    CI. STILL TODO: Telegram, Slack Socket Mode, dead-drop relay for
-    WhatsApp/Teams; a dashboard UI to add/list connectors (today CLI-only).
+    CI. ~~**Dashboard management** ✅ 2026-07-15~~ — Settings → Mailboxes
+    (add/list/remove) via a local-only `/api/local/connectors` route writing the
+    same `connectors.json`; the poller now **re-reads it every tick**, so a
+    dashboard change takes effect within a minute with no `serve` restart
+    (passwords write-only). STILL TODO: Telegram, Slack Socket Mode, dead-drop
+    relay for WhatsApp/Teams.
   Original design notes (PROJECT_STATE "-3"): fs blobs, `@prisma/adapter-pg`,
   `SINGLE_USER=1`, worker loop. ~1 week beyond phase 1; a strategic call on timing.
   **Licensing framing (user concern 2026-07-14: "if we release the code,
