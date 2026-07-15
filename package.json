@@ -21,6 +21,7 @@
     "@sigma/edge-curve": "^3.1.0",
     "@tanstack/react-table": "^8.21.3",
     "@types/pg": "^8.20.0",
+    "commander": "^8.3.0",
     "exceljs": "^4.4.0",
     "graphology": "^0.26.0",
     "graphology-layout": "^0.6.1",
@@ -47,5 +48,8 @@
     "playwright-core": "^1.61.1",
     "prisma": "^7.8.0",
     "typescript": "^5"
+  },
+  "bin": {
+    "datamodo": "bin/datamodo.mjs"
   }
 }

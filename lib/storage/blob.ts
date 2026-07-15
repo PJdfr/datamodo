@@ -38,11 +38,21 @@ function bucket(): string {
 
 /** Upload bytes at `key`. Content-addressed keys make this idempotent (an
  *  identical object simply overwrites itself). */
+/** Local edition: when BLOB_DIR is set we store blobs on the filesystem, not
+ *  S3 — the same content-addressed keys become file paths. This is the ONE
+ *  chokepoint every blob read/write funnels through, so nothing else changes. */
+const localBlobs = () => Boolean(process.env.BLOB_DIR?.trim());
+
 export async function putBlob(
   key: string,
   body: Buffer,
   contentType?: string,
 ): Promise<void> {
+  if (localBlobs()) {
+    const { putBlobFs } = await import("./blob-fs");
+    await putBlobFs(key, body);
+    return;
+  }
   await client().send(
     new PutObjectCommand({
       Bucket: bucket(),
@@ -55,6 +65,10 @@ export async function putBlob(
 
 /** Download the object at `key` as a Buffer. */
 export async function getBlob(key: string): Promise<Buffer> {
+  if (localBlobs()) {
+    const { getBlobFs } = await import("./blob-fs");
+    return getBlobFs(key);
+  }
   const res = await client().send(
     new GetObjectCommand({ Bucket: bucket(), Key: key }),
   );

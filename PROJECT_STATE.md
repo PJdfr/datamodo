@@ -12,6 +12,30 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Local edition, phase 1: the `datamodo` CLI + single-user
+  mode + fs blobs** (user ask: npm-installable self-hosted — `npm install
+  datamodo` → `datamodo serve` → dashboard on localhost, pick your LLM). Also
+  amended MEMORY: cloud product embeds cloud-side, LOCAL edition embeds LOCAL
+  (privacy/no-key/offline; the one-space rule is auto-satisfied when the whole
+  deployment is one user). Shipped: `bin/datamodo.mjs` (commander CLI — `init`
+  scaffolds `~/.datamodo/blobs` + prints next steps, `serve` resolves config /
+  ensures dirs / boots the built Next standalone or `next start` with the
+  local env / guides the user when no DATABASE_URL, `--version`/`--help`); pure
+  `lib/local/config.ts` (`resolveLocalConfig` flags>env>default,
+  `localServeEnv`, `LOCAL_USER`, `isLocalMode`); `DATAMODO_LOCAL=1` →
+  `getSessionUser` returns the one fixed local identity (no Neon Auth;
+  provisioning runs like any first sign-in); `BLOB_DIR` → `lib/storage/blob-fs.ts`
+  behind the same `putBlob`/`getBlob` chokepoint (traversal-proof); `bin` +
+  `commander` in package.json. The cloud path is untouched — every local
+  behavior is gated on `DATAMODO_LOCAL`/`BLOB_DIR`. Verified: CLI run
+  end-to-end (init creates dirs, serve guides without a DB, version/help),
+  7 new unit tests incl. an fs-blob round-trip + traversal-proof (210 pass),
+  tsc, lint == baseline, `next build` green. NOT done (honest): the embedded
+  zero-setup DB (phase 2 — pglite + pglite-socket + `@prisma/adapter-pg`, both
+  pglite deps already present), shipping the built app in the npm package, and
+  the BUILD-LEVEL code-split (the roadmap's HARD REQUIREMENT — phase 1 is a
+  flag-gated single binary, so the cloud code is present-but-dormant, which
+  does NOT yet satisfy "cloud code physically absent from the OSS artifact").
 - **2026-07-14** — **BYOK provider cost tracking** (user ask): track what the
   user's OWN LLM key cost while datamodo used it — NOT the datamodo
   subscription. Both providers now report per-call token usage via a new
