@@ -340,10 +340,33 @@
   before. Live-verified: the helper rasterizes a real PDF to a valid PNG and
   returns null (never throws) on garbage. Follow-up: multi-page scans (v1 is
   page 1 — most receipts/invoices are one page).
-- **Local / open-source single-user edition** — fully designed (see
-  PROJECT_STATE "-3"): fs blobs, `@prisma/adapter-pg`, `SINGLE_USER=1`, worker
-  loop, BYOB connectors (IMAP first, Telegram, Slack Socket Mode, dead-drop
-  relay for WhatsApp/Teams). ~1 week; a strategic call on timing.
+- **Local / open-source single-user edition** — npm-installable, self-hosted.
+  Target UX (user, 2026-07-14): `npm install -g datamodo` → `datamodo serve`
+  → the dashboard on localhost, where you pick your LLM (API key / Ollama /
+  any OpenAI-compatible server) and embeddings run LOCAL (MEMORY: local
+  edition = local embeddings).
+  - ~~**Phase 1 — CLI + single-user mode + fs blobs**~~ ✅ 2026-07-14:
+    `bin/datamodo.mjs` (commander: `init` scaffolds `~/.datamodo`, `serve`
+    resolves config + boots the app, `--version`/`--help`); pure config core
+    `lib/local/config.ts` (`resolveLocalConfig`, `localServeEnv`, `LOCAL_USER`,
+    `isLocalMode`); `DATAMODO_LOCAL=1` → single-user auth (`getSessionUser`
+    returns the one fixed local identity, no Neon Auth — provisioning runs
+    like any first sign-in); `BLOB_DIR` → fs blob adapter behind the SAME
+    `putBlob`/`getBlob` chokepoint (`lib/storage/blob-fs.ts`, traversal-proof);
+    `package.json` `bin`. CLI verified (init/serve/version); config + fs blobs
+    unit-tested. Cloud path untouched (all gated on `DATAMODO_LOCAL`/`BLOB_DIR`).
+  - **Phase 2 — zero-setup embedded DB + the build**: `serve` still needs a
+    local Postgres (`DATABASE_URL`) and the built app. Make it truly
+    `install-and-go`: embed **pglite** (already a dep; WASM Postgres with
+    pgvector) fronted by **pglite-socket** (also present) so `@prisma/adapter-pg`
+    (to add) talks to it over a local socket — the CLI starts it, runs
+    `neon/schema.sql` migrations, then boots. Ship the built Next standalone in
+    the npm package (or a `postinstall`/first-run build). Local embeddings need
+    the `vector(1536)` column widened for a 768-dim model at install.
+  - **Phase 3 — BYOB connectors**: IMAP first, Telegram, Slack Socket Mode,
+    dead-drop relay for WhatsApp/Teams (the cloud webhooks don't apply locally).
+  Original design notes (PROJECT_STATE "-3"): fs blobs, `@prisma/adapter-pg`,
+  `SINGLE_USER=1`, worker loop. ~1 week beyond phase 1; a strategic call on timing.
   **Licensing framing (user concern 2026-07-14: "if we release the code,
   technical users + AI agents replicate the product fast")**: precision
   matters — agents can replicate from the LANDING PAGE already (this repo
@@ -361,6 +384,11 @@
   channel/ops layer stays closed in every scenario.
   **Code-separation — HARD REQUIREMENT (user call 2026-07-14): the local build
   ships ONLY the local surface; the cloud backend is never in the artifact.**
+  ⚠ NOTE: phase 1 above is a FLAG-GATED single binary (`DATAMODO_LOCAL`) — it
+  proves the local runtime seams (auth/blob/config) but does NOT yet satisfy
+  this requirement (the cloud code is still present, just dormant). The
+  build-level split below is still required before an OSS artifact ships; it
+  is a SEPARATE step, not superseded by phase 1.
   A local/OSS user gets the **dashboard app + 100%-local storage and NOTHING
   else** — no landing/marketing page, no Neon Auth, no Neon/serverless storage,
   no cloud channel adapters, no billing/Stripe, no cron/ops. A runtime flag

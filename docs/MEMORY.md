@@ -183,6 +183,15 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
   choice. Every stored vector carries an `embedding_model` stamp; ANN recall
   filters to the current space (stale rows degrade to trigram, never poison
   matching); changing `EMBEDDINGS_MODEL` means running
-  `POST /api/jobs/embed-requeue` until `remaining` hits 0. The local edition
-  picks its space once at install (any OpenAI-compatible server) under the
-  same rule.
+  `POST /api/jobs/embed-requeue` until `remaining` hits 0.
+  - **Cloud (hosted) product → embeddings run cloud-side** (our configured
+    model/API), NEVER on the user's machine — the one-space rule makes them
+    non-BYOK, background extraction can't depend on a user's PC being awake,
+    and quality matters for GraphRAG recall. This is the default.
+  - **Local (self-hosted) edition → embeddings run LOCAL** (decided
+    2026-07-14): the whole deployment IS one user, so the one-space rule is
+    satisfied automatically, and privacy/no-key/offline are the point. It
+    still picks its space ONCE at install (local Ollama `nomic-embed-text`,
+    or the user's own key) under the same stamp+requeue rule. Dimension note:
+    the columns are `vector(1536)`; a 768-dim local model needs the column
+    widened at install (local-edition setup step).
