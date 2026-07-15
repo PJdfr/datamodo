@@ -1,4 +1,4 @@
-import type { ChatJsonRequest, LlmModels, LlmProvider, ProviderName } from "./types";
+import type { ChatJsonRequest, LlmModels, LlmProvider, ProviderHooks, ProviderName } from "./types";
 import { parseLoose, sleep } from "./util.ts";
 
 export interface OpenAICompatibleConfig {
@@ -10,6 +10,7 @@ export interface OpenAICompatibleConfig {
   /** Keyless servers (Ollama, LocalAI): no key is fine — the auth header is
    *  simply omitted. A key, when given anyway, still rides along (proxies). */
   keyless?: boolean;
+  hooks?: ProviderHooks;
 }
 
 /**
@@ -50,6 +51,9 @@ export class OpenAICompatibleProvider implements LlmProvider {
         temperature: req.temperature ?? 0,
         max_tokens: req.maxTokens ?? 2048,
       };
+      // OpenRouter returns the EXACT dollar cost of the call when asked — so
+      // BYOK spend is recorded precisely, never estimated, for that provider.
+      if (this.name === "openrouter") body.usage = { include: true };
       if (withSchema && req.schema) {
         body.response_format = {
           type: "json_schema",
@@ -88,8 +92,28 @@ export class OpenAICompatibleProvider implements LlmProvider {
         if (withSchema) { withSchema = false; lastErr = "empty w/ schema"; continue; }
         throw new Error(`${this.name}: empty response (model reasoning-only or truncated)`);
       }
+      this.reportUsage(req.model, data?.usage);
       return parseLoose<T>(content);
     }
     throw new Error(`${this.name}: exhausted retries (${lastErr})`);
+  }
+
+  /** Fire the usage hook from a chat/completions `usage` block. Best-effort:
+   *  a hook that throws must never fail the LLM call. */
+  private reportUsage(model: string, usage: unknown): void {
+    const hook = this.cfg.hooks?.onUsage;
+    if (!hook || !usage || typeof usage !== "object") return;
+    const u = usage as { prompt_tokens?: number; completion_tokens?: number; cost?: number };
+    try {
+      hook({
+        provider: this.name,
+        model,
+        inputTokens: Math.max(0, Math.round(u.prompt_tokens ?? 0)),
+        outputTokens: Math.max(0, Math.round(u.completion_tokens ?? 0)),
+        costUsd: typeof u.cost === "number" && Number.isFinite(u.cost) ? u.cost : null,
+      });
+    } catch {
+      /* usage recording is best-effort — never break extraction */
+    }
   }
 }

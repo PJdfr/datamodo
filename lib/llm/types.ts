@@ -42,6 +42,24 @@ export interface LlmModels {
   vision: string;
 }
 
+/** Token usage + cost of ONE completed call — surfaced via `onUsage` so BYOK
+ *  spend can be recorded. `costUsd` is the provider's EXACT number when it
+ *  returns one (OpenRouter), else null (the recorder prices it from the token
+ *  counts). Fail-soft: a call with no usage block simply doesn't fire. */
+export interface LlmUsage {
+  provider: ProviderName;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  /** Provider-reported cost in USD, when available (OpenRouter). */
+  costUsd: number | null;
+}
+
+/** Optional wiring passed to a provider so each call reports its usage. */
+export interface ProviderHooks {
+  onUsage?: (u: LlmUsage) => void;
+}
+
 export interface LlmProvider {
   readonly name: ProviderName;
   readonly models: LlmModels;

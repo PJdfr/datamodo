@@ -12,6 +12,31 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **BYOK provider cost tracking** (user ask): track what the
+  user's OWN LLM key cost while datamodo used it — NOT the datamodo
+  subscription. Both providers now report per-call token usage via a new
+  `onUsage` hook (`ProviderHooks`/`LlmUsage` in `lib/llm/*`); OpenAI-compatible
+  reads `usage.prompt_tokens/completion_tokens` (and, for OpenRouter, requests
+  `usage:{include:true}` to get the EXACT `usage.cost`), Anthropic reads
+  `usage.input_tokens/output_tokens`. `llmForUser` wires `usageHooks(org,user)`
+  ONLY on BYOK (cloud-mode runs on our platform key = our cost, not theirs).
+  Pure cost core `lib/datamodo/llm-cost.ts` (prefix-matched list-price table,
+  `estimateCostUsd` → null for unknown/local models — never a guessed number;
+  OpenRouter's exact cost is preferred and marked `estimated:false`). Shell
+  `usage.ts`: `recordUsage` (fail-soft insert — a lost row is an imperfect
+  estimate, never a billing error; survives an unmigrated table) +
+  `usageSummary` (groupBy per provider/model, total, hasUnpriced flag). New
+  `llm_usage` table (migration `20260714120000` + Prisma model + `generate`).
+  `GET /api/usage?days=` + a "Your provider spend" card in Settings (30-day
+  total + per-model breakdown; ~ = estimated, — = unpriced; only shown for
+  BYOK non-Ollama). Verified: 4 new unit tests on the cost core (203 pass),
+  tsc, lint == baseline, build green, AND live-fired the record→groupBy path
+  against a throwaway local Postgres (migration applied clean; totals exact:
+  Sonnet $0.075 + Haiku $0.045 + OpenRouter exact $0.0021 = $0.1221,
+  hasUnpriced true for Ollama). ⚠ **Migration must be applied on dev+prod
+  Neon branches** — the ledger is dormant (fail-soft) until then, and it never
+  live-fired against a real provider's usage block (no key here — the
+  Settings card fills in once the live-fire pass runs on BYOK).
 - **2026-07-14** — **Scanned-PDF OCR** (roadmap; the vision tier's v1 cut,
   now closed). A PDF whose text layer comes back empty/near-empty is a SCAN
   (pixels, not text) — `isLikelyScannedPdf` (pure, < ~24 non-space chars ×
