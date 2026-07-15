@@ -12,6 +12,427 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-15** — **Cloud/local split, step A: clean local build, no cloud
+  eval** (user call "go for A" — the cheap one-repo half of the code-separation
+  requirement). Investigation first: cloud deps are remarkably well-contained —
+  `@neondatabase/auth` only in `lib/auth/{server,client}.ts`, the neon Prisma
+  adapter only in `lib/prisma.ts`, `stripe` constructed lazily INSIDE the 2
+  billing route handlers (settings.ts does NOT import the SDK — earlier grep was
+  a false positive on the `setPlanFromStripe` name), and the whole better-auth
+  engine reached by only 4 files. The one thing that broke the local build /
+  forced a placeholder secret was **Neon Auth built at module load**
+  (`createNeonAuth` reads `NEON_AUTH_*` and throws without it; the `/api/auth`
+  route evaluated it during page-data collection). Fix: `lib/auth/server.ts` now
+  exports **`getAuth()`** — a lazy singleton that dynamic-imports better-auth on
+  first real call — and its 4 importers (`session.ts`, `app/auth/actions.ts`,
+  `proxy.ts` now async, `/api/auth/[...path]` now per-request + `isLocalMode()`
+  404) were updated. Result, VERIFIED: **`DATAMODO_LOCAL=1 npm run build`
+  succeeds with ZERO env vars** (previously required a placeholder
+  `NEON_AUTH_COOKIE_SECRET`) and the `[neon-auth]` cookie warnings are gone; the
+  local runtime never constructs better-auth. Cloud build WITH its secret still
+  passes (no CI regression); cloud build without it fails at `/dashboard`
+  prerender as expected (cloud legitimately needs cloud config). Also guarded
+  the pure-cloud routes with `isLocalMode()` → 404: `/api/billing/{checkout,
+  webhook}`, `/api/webhooks/{whatsapp,slack,teams}`. HONEST SCOPE: this is
+  bundle/eval-level dormancy + a clean secret-free local build — it does NOT
+  make cloud code physically absent from the source (the neon Prisma adapter is
+  still statically imported by the sync `prisma` singleton; cloud route files
+  still exist, compiled but inert). Physical severance is steps B/C (workspace
+  split / build-time prune) and remains required before OSS. Verified: `tsc`
+  clean, lint at baseline (7/16), 228 tests pass, local build zero-secret green,
+  cloud build with secret green. Docs: ROADMAP (step A done + B/C framed),
+  README (build step drops the placeholder).
+- **2026-07-15** — **Local edition: local embeddings that actually work**
+  (fulfils the 2026-07-14 "local = local embeddings" decision, which was
+  recorded but never wired — user asked point-blank "if I do npm install will
+  it use local embeddings?", and the honest answer was no). Two parts:
+  (1) **Configurable pgvector column dimension** — the embedded DB hardcoded
+  `vector(1536)`, so a local model like Ollama `nomic-embed-text` (768-dim) was
+  rejected at store time. `ensureSchema` now takes `{ embeddingDim }` and, on
+  the FRESH build (columns empty → safe), `ALTER`s `entities.embedding` +
+  `doc_chunks.embedding` to that dimension before creating the hnsw index; the
+  `.schema-version` marker is now `<version>:<dim>` so a dim change re-pushes.
+  (2) **Offline-first defaults** — `serve` (bin `embeddingDefaults` / app-side
+  `localEmbeddingDefaults`) points embeddings at a local Ollama server
+  (`http://localhost:11434/v1`, `nomic-embed-text`, `EMBEDDINGS_COLUMN_DIM=768`)
+  **only when no cloud embeddings key/URL is set** — an OpenAI-key user keeps
+  their 1536 provider untouched; `serve` also exports `DATAMODO_DATA_DIR`.
+  Everything stays fail-soft: no Ollama/model → `embedTexts` returns null →
+  keyword-search fallback (no regression), and the cloud path is byte-identical.
+  `lib/llm/embeddings.ts` is UNCHANGED (the OpenAI `dimensions` API param still
+  only fires on `EMBEDDINGS_DIMENSIONS`, which the local default doesn't set).
+  Verified: `tsc` clean, lint at baseline (7/16), 228 tests pass + BOTH guarded
+  DB integration tests green — the new one builds the schema at 768 dims against
+  real pglite and asserts `entities.embedding` is `vector(768)` and a 768-d
+  vector stores + ANN-round-trips (sim ~1). The live Ollama HTTP call isn't
+  exercised in CI (no Ollama) — flagged, and it's fail-soft. README gained a
+  "Run it locally" section (install → LLM options incl. the "your Claude
+  subscription isn't an API key, but MCP lets you use it" note → local
+  embeddings → mailboxes). Docs: MEMORY (decision → shipped), STATE env matrix.
+- **2026-07-15** — **Local edition, phase 3b: manage IMAP mailboxes from the
+  dashboard + poller hot-reload** (follows 3a below; the CLI-only friction was
+  the gap). Two parts, both gated on `isLocalMode()`:
+  (1) **Hot-reload** — `startConnectors` now re-reads `connectors.json` at the
+  start of EVERY tick (was once at boot) and lazy-loads imapflow, so a mailbox
+  added/removed at runtime is picked up within one 60 s interval with no `serve`
+  restart; a corrupt file is logged, not fatal; the returned handle exposes
+  `tick()` (for a future "poll now" + tests). A newly-added mailbox still goes
+  through the first-run UID high-water mark (no backfill), then captures new
+  mail. (2) **Dashboard UI** — a new local-only route
+  `app/api/local/connectors` (GET list / POST add / DELETE remove) writes the
+  SAME `connectors.json` the CLI uses, via shared store helpers moved into
+  `imap-poll.mjs` (`writeConnectors`/`addConnector`/`removeConnector`/
+  `publicConnectors`, all re-validating through `parseConnectors`, chmod
+  `0600`); the CLI `connect` command was refactored onto those helpers (one
+  validated path). A `ConnectorsCard` in Settings (shown only when the
+  `ControlCenter local` prop is set) lists mailboxes and adds/removes them;
+  passwords are WRITE-ONLY (sent on add, `publicConnectors` strips them, never
+  echoed). `serve` now also exports `DATAMODO_DATA_DIR`; the app resolves the
+  data dir via a new pure `localDataDir()` (env → parent of `BLOB_DIR` →
+  `~/.datamodo`). Verified: `tsc` clean, lint at baseline (7/16) — matched the
+  codebase's `live`-guarded `.then()` effect pattern to avoid the
+  set-state-in-effect rule — 226 tests pass (3 new: store round-trip incl. the
+  no-password-leak check, duplicate-id rejection, and an end-to-end hot-reload
+  drive: add a mailbox after start → next tick records the high-water mark and
+  captures nothing → new mail arrives → following tick captures it), `next
+  build` green (both `/api/local/*` routes compile), CLI add/list/remove
+  smoke-tested through the shared helpers. Live IMAP still not in CI.
+- **2026-07-15** — **Local edition, phase 3a: IMAP BYOB connector** (roadmap
+  "Phase 3 — BYOB connectors, IMAP first"). A self-hosted install has no public
+  URL, so the cloud webhooks don't apply — instead it PULLS from the user's own
+  mailbox. `datamodo connect --host imap.gmail.com --user you@… --pass <app-pw>
+  [--mailbox INBOX] [--insecure]` writes a `0600` `connectors.json` (with
+  `--list` / `--remove <id>`); `datamodo serve` then, once the dashboard is up,
+  runs an in-process poller (imapflow) that watches each mailbox on a 60 s tick.
+  First sight of a connector records the UID high-water mark and captures
+  nothing (so connecting an old mailbox doesn't backfill years of mail); from
+  then on each NEW message's raw RFC822 is downloaded and POSTed to a new
+  local-only route `POST /api/local/imap` (gated on `isLocalMode()` + a
+  per-install `INGEST_WEBHOOK_SECRET` persisted at `~/.datamodo/.ingest-secret`),
+  which parses it (mailparser), maps it to an `IngestEnvelope`, resolves the
+  single local org, and feeds it through the SAME `ingest()` + extraction-kick
+  path as every other channel. Per-connector UID cursor lives in
+  `connectors-state.json`; the message-id (namespaced by connector) is the
+  idempotency key; a rejected ingest doesn't advance the cursor (retried next
+  tick). Split by runtime: the mapping (`lib/local/connectors/imap.ts`, TS) is
+  used by the route; config-parse + cursor + poll (`imap-poll.mjs`, plain JS)
+  are used by the CLI, which can't import TS. The `after()` extraction kick was
+  extracted into a shared `lib/ingest/kick.ts` used by both `/api/ingest` and
+  the new route. New deps: `imapflow`, `mailparser` (+ `@types/mailparser`);
+  `mailparser` added to `serverExternalPackages`. Verified: `tsc` clean, lint
+  at baseline (7/16), 224 tests pass (13 new, incl. the poll loop against a
+  FAKE IMAP client + fetch — no network), `next build` green (the
+  `/api/local/imap` route compiles), and the `connect` add/list/remove CLI
+  path smoke-tested (derived id, `0600` perms). NOT verified: a live IMAP
+  session (no server in CI) — flagged, consistent with prior local phases.
+  Still TODO in phase 3: Telegram, Slack Socket Mode, WhatsApp/Teams dead-drop,
+  and a dashboard UI to manage connectors (today CLI-only).
+- **2026-07-15** — **Local edition: no login** (user ask: "also for the local,
+  remove the auth, the user do not even need a login"). In local mode the app
+  no longer has any auth surface — you open localhost and land directly in the
+  dashboard as the single `LOCAL_USER`. Implementation, all gated on
+  `isLocalMode()`/`DATAMODO_LOCAL=1` so the cloud path is byte-identical:
+  `proxy.ts` short-circuits the Neon Auth middleware (it used to redirect
+  `/dashboard`→`/login` before the single-user session bypass could apply — the
+  real blocker); the login/register pages, the marketing landing, and `/` all
+  `redirect("/dashboard")`; the `login`/`signup`/`signout` server actions no-op
+  straight into `/dashboard` (nothing to sign into/out of); and the dashboard
+  header hides the sign-out control via a new `ControlCenter local` prop
+  (`app/dashboard/page.tsx` passes `local={isLocalMode()}`). `localServeEnv`
+  exports placeholder `NEON_AUTH_COOKIE_SECRET`/`NEON_AUTH_BASE_URL` so the auth
+  lib doesn't throw at import even though its session/middleware path is never
+  reached locally. Verified: `tsc` clean, lint at baseline (7/16), 210 tests
+  pass, `next build` succeeds (the auth route needs a cookie secret at
+  page-data collection — pre-existing, unrelated to this change). Cloud login
+  is untouched.
+- **2026-07-14** — **Local edition, phase 2: zero-setup embedded database**
+  (user ask: "cant you create the databases for the user local directly?").
+  `datamodo serve` now runs its OWN Postgres — no Docker, no install, no
+  `DATABASE_URL`. `lib/local/embedded-db.mjs` opens **pglite** (Postgres in
+  WASM, with the `vector`/`pg_trgm`/`pgcrypto`/`btree_gin`/`btree_gist`/
+  `uuid-ossp` extensions) at `~/.datamodo/pgdata`, fronts it with
+  **pglite-socket** on a free localhost port, and on first run builds the
+  schema via `prisma db push` over the socket (`db push` — NOT `neon/schema.sql`,
+  which is a hand-edited dump with inline-FK-before-PK ordering that won't load
+  into an empty DB; Prisma emits correct dependency order) then swaps the two
+  embedding indexes from btree (can't index a 1536-d vector — 6160 B > btree's
+  2704 B max) to hnsw/`vector_cosine_ops`, matching cloud. `lib/prisma.ts` uses
+  `@prisma/adapter-pg` (node-postgres) → the socket when `DATAMODO_LOCAL`,
+  else the Neon WS adapter. CLI `serve` picks a free port, boots the DB,
+  `ensureSchema` (idempotent via a `.schema-version` marker), then spawns Next
+  with the local env; SIGINT/exit close pglite. New deps `@electric-sql/pglite`
+  + `-socket`, `@prisma/adapter-pg`. Verified: a guarded integration test
+  (`DATAMODO_TEST_DB=1`, `tests/embedded-db.test.ts`) boots the real stack —
+  schema builds (>15 tables), `entities.embedding` is `vector`, and an
+  org→entity→**ANN (sim=1) + trigram** round-trip works on the actual tables;
+  CLI runs (init shows the embedded-db path, serve boots it); tsc, lint ==
+  baseline, `next build` green with the pg adapter imported. NOT verified: the
+  full Next dashboard booting against the socket (sandbox OOMs on `next start`)
+  — every component below it is proven, and it's the same app that builds
+  green. Still open: ship the built Next standalone IN the npm package
+  (today `serve` falls back to `next start`), and the build-level code-split.
+- **2026-07-14** — **Local edition, phase 1: the `datamodo` CLI + single-user
+  mode + fs blobs** (user ask: npm-installable self-hosted — `npm install
+  datamodo` → `datamodo serve` → dashboard on localhost, pick your LLM). Also
+  amended MEMORY: cloud product embeds cloud-side, LOCAL edition embeds LOCAL
+  (privacy/no-key/offline; the one-space rule is auto-satisfied when the whole
+  deployment is one user). Shipped: `bin/datamodo.mjs` (commander CLI — `init`
+  scaffolds `~/.datamodo/blobs` + prints next steps, `serve` resolves config /
+  ensures dirs / boots the built Next standalone or `next start` with the
+  local env / guides the user when no DATABASE_URL, `--version`/`--help`); pure
+  `lib/local/config.ts` (`resolveLocalConfig` flags>env>default,
+  `localServeEnv`, `LOCAL_USER`, `isLocalMode`); `DATAMODO_LOCAL=1` →
+  `getSessionUser` returns the one fixed local identity (no Neon Auth;
+  provisioning runs like any first sign-in); `BLOB_DIR` → `lib/storage/blob-fs.ts`
+  behind the same `putBlob`/`getBlob` chokepoint (traversal-proof); `bin` +
+  `commander` in package.json. The cloud path is untouched — every local
+  behavior is gated on `DATAMODO_LOCAL`/`BLOB_DIR`. Verified: CLI run
+  end-to-end (init creates dirs, serve guides without a DB, version/help),
+  7 new unit tests incl. an fs-blob round-trip + traversal-proof (210 pass),
+  tsc, lint == baseline, `next build` green. NOT done (honest): the embedded
+  zero-setup DB (phase 2 — pglite + pglite-socket + `@prisma/adapter-pg`, both
+  pglite deps already present), shipping the built app in the npm package, and
+  the BUILD-LEVEL code-split (the roadmap's HARD REQUIREMENT — phase 1 is a
+  flag-gated single binary, so the cloud code is present-but-dormant, which
+  does NOT yet satisfy "cloud code physically absent from the OSS artifact").
+- **2026-07-14** — **BYOK provider cost tracking** (user ask): track what the
+  user's OWN LLM key cost while datamodo used it — NOT the datamodo
+  subscription. Both providers now report per-call token usage via a new
+  `onUsage` hook (`ProviderHooks`/`LlmUsage` in `lib/llm/*`); OpenAI-compatible
+  reads `usage.prompt_tokens/completion_tokens` (and, for OpenRouter, requests
+  `usage:{include:true}` to get the EXACT `usage.cost`), Anthropic reads
+  `usage.input_tokens/output_tokens`. `llmForUser` wires `usageHooks(org,user)`
+  ONLY on BYOK (cloud-mode runs on our platform key = our cost, not theirs).
+  Pure cost core `lib/datamodo/llm-cost.ts` (prefix-matched list-price table,
+  `estimateCostUsd` → null for unknown/local models — never a guessed number;
+  OpenRouter's exact cost is preferred and marked `estimated:false`). Shell
+  `usage.ts`: `recordUsage` (fail-soft insert — a lost row is an imperfect
+  estimate, never a billing error; survives an unmigrated table) +
+  `usageSummary` (groupBy per provider/model, total, hasUnpriced flag). New
+  `llm_usage` table (migration `20260714120000` + Prisma model + `generate`).
+  `GET /api/usage?days=` + a "Your provider spend" card in Settings (30-day
+  total + per-model breakdown; ~ = estimated, — = unpriced; only shown for
+  BYOK non-Ollama). Verified: 4 new unit tests on the cost core (203 pass),
+  tsc, lint == baseline, build green, AND live-fired the record→groupBy path
+  against a throwaway local Postgres (migration applied clean; totals exact:
+  Sonnet $0.075 + Haiku $0.045 + OpenRouter exact $0.0021 = $0.1221,
+  hasUnpriced true for Ollama). ⚠ **Migration must be applied on dev+prod
+  Neon branches** — the ledger is dormant (fail-soft) until then, and it never
+  live-fired against a real provider's usage block (no key here — the
+  Settings card fills in once the live-fire pass runs on BYOK).
+- **2026-07-14** — **Scanned-PDF OCR** (roadmap; the vision tier's v1 cut,
+  now closed). A PDF whose text layer comes back empty/near-empty is a SCAN
+  (pixels, not text) — `isLikelyScannedPdf` (pure, < ~24 non-space chars ×
+  page count) detects it; `rasterizePdfFirstPage` renders page 1 to a PNG via
+  `unpdf`'s `renderPageAsImage` + native `@napi-rs/canvas` (new dep;
+  `serverExternalPackages` in `next.config.ts` keeps the `.node` binary out of
+  the bundler), and `documents.ts` feeds it to the SAME `extractFromImage`
+  vision tier a photo uses. Fail-soft end to end: no text AND not scanned → as
+  before; scanned but no canvas / no vision key / bad bytes → `metadata_only`
+  (the rasterizer returns null, never throws). `indexing` = full for a 1-page
+  scan, partial when the PDF has more pages (v1 reads page 1 — most
+  receipts/invoices are one page; multi-page is the follow-up). Verified:
+  3 new unit tests on the detector (199 pass), tsc, lint == baseline, build
+  green, AND live-fired the rasterizer — a real PDF → a 9004-char base64 PNG
+  with a valid PNG header, garbage input → null. Not run against the LLM
+  vision model (no key) — the wiring past the raster is the proven photo path.
+- **2026-07-14** — **Per-entity blame** (Review-track follow-up): the entity
+  page's "◷ History" disclosure (`EntityHistory`) gained a **story ⇄ blame**
+  toggle. Blame is the git-style commit log filtered to that entity
+  (`GET …/timeline?view=commits&entity=<id>` — `buildCommitLog`'s `entityId`
+  seam, already there, narrows each commit's diff lines to facts touching the
+  entity), rendered with the Commits view's `CommitCard` — so an entity page
+  now shows exactly which extraction run added or changed each of its facts,
+  supersessions as `~ was → now`. Fetches lazily per tab; story fetches the
+  timeline events as before. Verified: tsc, lint == baseline, 196 tests, build
+  green, new `entity-blame` shoot ✓ (INV-4417's correction + original commits,
+  amount strikethrough diff). Still open from the track: a richer standalone
+  supersession-diff view.
+- **2026-07-14** — **Outbound sync, phase 1: push a table to the user's own
+  Postgres** (roadmap). Philosophy fit — every view is a projection, so an
+  external DB is just another target. One-way, idempotent: upsert keyed on the
+  datamodo row id (a `dm_id text PRIMARY KEY` + `dm_synced_at`), so re-syncing
+  converges the user's table to datamodo instead of duplicating. Pure SQL core
+  `lib/datamodo/sync-postgres.ts` (`buildSyncPlan` — quoted `CREATE TABLE IF
+  NOT EXISTS` + `ADD COLUMN IF NOT EXISTS` (additive, never drops) + a fully
+  parameterized `ON CONFLICT DO UPDATE`; `safeTableName` sanitizes to a legal
+  identifier; `rowParams` coerces by column type, all-junk numbers → NULL not
+  0). Shell `sync-outbound.ts` defines `OutboundWriter` (the ONE-interface seam
+  future Sheets/Drive/fs writers implement) + `postgresWriter` (uses `pg`, new
+  dep; SSL opportunistic, statement timeout, friendly error mapping).
+  `POST /api/sync/postgres` (org-scoped; conn string per-request, never
+  stored). UI: a "↑ Sync out" panel in the table editor (`SyncOutPanel`).
+  Verified: 6 new unit tests (196 pass), tsc, lint == baseline, build green,
+  AND **live-fired against a throwaway local Postgres**: two pushes of
+  overlapping rows → the table holds 3 rows not 5 (upsert proven), amounts
+  updated, name sanitized "Unpaid Invoices!" → unpaid_invoices, blank/"n/a"
+  cells → NULL. (First outbound feature actually run end-to-end this session.)
+- **2026-07-14** — **MCP server, phase 2 (pull model + reads)**: three
+  additions to the endpoint. `process_inbox` — raw `stored`/`failed` items
+  with their loaded text (`loadItemText` now exported), read-only so cron and
+  the client never double-process; the sub-powered client extracts and files
+  with the item's id. `get_entity` — one entity's full record (facts +
+  confidence + source counts + `body_md`). `submit_extraction` gained an
+  optional `itemId`: when present it's validated against the org and the
+  extraction attaches to that queued item (the push-path new-item capture is
+  the `else`); EITHER path marks the item `analyzed` + stamps
+  `EXTRACTION_VERSION` AFTER `ingestExtraction`, so the cron tick never
+  re-extracts. Verified: tsc, lint == baseline, 190 tests, build green (the
+  live `next start` tools/list probe kept OOM-ing the sandbox — transport
+  already proven identically in phase 1; the 8 tools register through the
+  same `server.tool` mechanism the green build compiles). OAuth = phase 3.
+- **2026-07-14** — **MCP server, phase 1** (roadmap's biggest track; the
+  strategic "run datamodo on a Claude subscription" play): streamable-HTTP
+  MCP endpoint at `app/api/mcp/[transport]` (`mcp-handler` 1.1 +
+  `@modelcontextprotocol/sdk` 1.29 + `zod` 4; stateless — no Redis, SSE off).
+  Six tools closing the extract-loop the architecture was built for: READ
+  `list_kinds` (the registry steers the client extractor), `search_entities`
+  (resolution candidates — GraphRAG text-linking seeds ranked first),
+  `get_context` (graph-first evidence as text), `pending_reviews`; WRITE
+  `submit_extraction` — strict zod contract (`mcp-extraction.ts`; dangling
+  localIds / bad dates bounce back as fixable messages), source captured via
+  the normal `ingest()` as an `upload` item (`meta.via="mcp"`) then marked
+  `analyzed` + stamped `EXTRACTION_VERSION` so the cron tick never re-extracts
+  it, then the SAME deterministic `ingestExtraction` (adjudication fail-soft
+  without a server LLM key — ambiguity becomes review proposals, never
+  auto-merges) — and `resolve_review` (same accept/reject side-effects core).
+  AUTH: per-user HMAC-derived bearer tokens (`mcp-token.ts`,
+  `dmk_<user>.<mac>` — zero schema change, stateless, constant-time verify;
+  documented trade-off: per-user revocation waits for OAuth phase 2, rotate
+  `MCP_TOKEN_SECRET` to revoke all); `GET /api/mcp-token` + Settings
+  "✦ Connect Claude" card reveal URL/token/`claude mcp add` one-liner.
+  Verified: 4 new unit tests (190 pass — token roundtrip/tamper/forge,
+  extraction contract), tsc, lint == baseline, build green, AND a live
+  protocol probe against `next start`: initialize → serverInfo "datamodo",
+  tools/list → all six, no/tampered token → 401. NOT verified: a real Claude
+  client end-to-end (needs a deployed URL) and tool calls against a live DB
+  (sandbox has none) — first MCP checks after the dev deploy.
+- **2026-07-14** — **Review = ALL change: Timeline moved under Review + a
+  git-style Commit log** (roadmap, user call same day — revises the
+  2026-07-11 "Review owns pending / Timeline owns learned" split). The Review
+  tab gained its own flat toggle (✓ Pending · ⎇ Commits · ◷ Timeline — the
+  Data toggle lost its Timeline pill; per-entity "◷ History" on entity pages
+  unchanged). NEW: `buildCommitLog` in the pure timeline core — one commit
+  per extraction run (source item), its facts as the diff: a fact that
+  superseded an older one renders `~ was → now` (via the `supersededBy` back
+  reference), the rest `+ added`; changes sort before adds; runs that wrote
+  nothing aren't commits; `entityId` filter is the seam for per-entity blame
+  later. Served by `GET /api/knowledge/timeline?view=commits` (route
+  refactored to fetch inputs once, project twice); rendered by
+  `CommitLogView` (short-id chip, channel dot, `+N ~M` counts, expandable
+  diff lines, "show N more"). Verified: 2 new unit tests (186 pass), tsc,
+  lint == baseline, build green, new `commits` shoot ✓ (headers, strikethrough
+  was→now, relationship values coral). Remaining from the track: per-entity
+  blame view + richer supersession diff.
+- **2026-07-14** — **Ollama as a first-class keyless provider** (roadmap):
+  `ProviderName`/`AiProvider` gained `"ollama"` — `getLlmProvider("ollama")`
+  reuses the OpenAI-compatible provider with a new `keyless` flag (no
+  authorization header when keyless AND no key; an `OLLAMA_API_KEY`/BYOK key
+  still rides along for authenticated proxies). Bare pasted URLs normalize to
+  `/v1` (`normalizeOllamaUrl` — custom proxy paths survive). BYOK: the Ollama
+  preset in Settings turns the key field into a SERVER URL (same
+  `byok_key` column, no migration — `ai_provider` is a plain text column);
+  `llmForUser` routes it as `baseUrl`. Embeddings + transcription now count a
+  custom `*_BASE_URL` as configured without a key, and embeddings pass an
+  optional `EMBEDDINGS_DIMENSIONS` through as the OpenAI `dimensions` param.
+  Documented dimension contract: columns are `vector(1536)`; a 768-dim model
+  fails soft at store time (column widening = local-edition follow-up, needs
+  DDL). Also gave `lib/llm/*` internal imports explicit `.ts` extensions so
+  the layer is unit-testable under node strip-types. Verified: 5 new
+  stubbed-fetch tests (184 pass — keyless header behavior, URL routing,
+  key-required still enforced), tsc, lint == baseline, build green. NOT
+  live-fired against a real Ollama daemon (none in the sandbox).
+- **2026-07-14** — **Review cards: one core, two skins — chat bubbles get full
+  PR fidelity** (roadmap "Chat review bubbles", user call same day): new
+  `app/dashboard/review-card.tsx` renders every review kind's EVIDENCE body
+  once (`ReviewCardBody`: merge side-by-side + match% + reason · conflict
+  was→now diff · extraction snippet+facts · off-template facts · category
+  proposal samples+drafted template) with a `ReviewSkin` parameter —
+  `PAPER_SKIN` for Review Studio, `INK_SKIN` for the chat's datamodo bubble
+  (warm ink, ONE coral accent, status tones lifted for dark contrast).
+  Review Studio's five kind cards refactored to `CardShell` (kind header +
+  shared body + kind footer/actions) — net ~100 lines deleted; the chat's
+  "✦ needs your OK" bubble now shows the full evidence under each numbered
+  question (GET /api/chat returns the typed `ReviewItem`s from
+  `listPendingReviews`, filtered to the ping questions; ✓ yes/✗ no and the
+  side-effects core unchanged). Verified: tsc, lint == baseline, 179 tests,
+  build green, `chat` + `review` shoots ✓, scripted expand-a-row checks on
+  Studio (merge body + conflict diff render from the shared core, no page
+  errors). Channel pings (WhatsApp text) unchanged — text-only by nature.
+- **2026-07-14** — **GraphRAG: grounded answers start from `facts`** (roadmap
+  "Graph-first retrieval", all four steps): `/api/search?answer=1` now (1)
+  links the query to seed entities — new pure `lib/datamodo/graphrag.ts`
+  `linkQueryEntities` (label/natural-key coverage ≥ half the label, stricter
+  than keyword search by design) + `annLinkEntities` in knowledge.ts (ANN over
+  `entities.embedding`, current-space gate, sim ≥ 0.35) — then (2) traverses
+  the fact graph via `expandFromSeeds` (the ONE `buildAdjacency` rule;
+  neighbors ranked by seed-tie weight; seed-touching facts lead, then
+  confidence; hop-2 named by label), (3) SCOPES semantic chunk retrieval to
+  the linked neighborhood (`searchChunks` gained `vector` — one query
+  embedding shared across both legs — and `entityIds`; keyword recall stays
+  global), and (4) cites through the existing entity machinery unchanged
+  (evidence rides KnowledgeHit via `mergeKnowledgeHits`; MAX_ENTITY_SOURCES
+  6→8; UI result lists keep plain keyword hits — only the answer runs on
+  graph evidence). Fail-soft leg by leg. Verified: 4 new unit tests (179
+  pass), tsc, lint == baseline, `next build` green. NOT live-verified (no DB
+  or keys in the sandbox — `DATABASE_URL` is empty here; WS + HTTP smoke
+  attempts both dead-ended): the two raw-SQL legs (`annLinkEntities`, the
+  `= ANY(::uuid[])` chunk scope) follow knowledge.ts's proven ANN pattern and
+  degrade to keyword evidence on any error — first thing to eyeball in the
+  live-key pass.
+- **2026-07-14** — **Chat: address a specific agent** (roadmap track, parts 1+2
+  — part 3 "suggested reroute" deferred until a live LLM key): the composer
+  gained a "to" chip row (dropdown: ✦ datamodo general + each ACTIVE agent
+  with its purpose one-liner, ✓ on the current pick, × to clear) and inline
+  `@agent` autocomplete (new pure core `lib/datamodo/chat-address.ts`:
+  `activeMention` caret-aware span — never matches emails, never spans lines;
+  `matchAgents` prefix > word-prefix > substring; `stripMention`; ↑↓/Enter/
+  Tab/Esc keyboard, popover owns Enter while open). Recipient is sticky; sent
+  bubbles carry a "→ agent" chip. POST /api/chat accepts `agentId` (validated
+  against the org), stores `meta.agent_id`/`agent_name`; GET returns active
+  agents + each message's addressee. `runExtractionForItem` now resolves
+  `meta.agent_id` → the agent's `purpose_text` and finally FEEDS the dormant
+  `agentPurpose` prompt plumbing — addressing changes what extraction looks
+  for. No addressee = general agent, deterministic (roadmap's "no silent
+  guessing" rule). Also swapped the optimistic-bubble id from `Date.now()` to
+  a ref counter (react-hooks/purity). Verified: 4 new unit tests (175 pass),
+  tsc, lint == baseline, `chat` shoot ✓ + scripted headless checks (dropdown
+  pick, @mention popover, Enter-pick strips the token and sets the sticky
+  recipient). NOT live-fired: the purpose→extraction steer needs the real key.
+- **2026-07-14** — **Semantic (ANN) passage search** (roadmap small follow-up;
+  prep for the live-key pass): `searchChunks` now runs TWO recall legs in
+  parallel — the existing keyword scan plus, when `opts.query` is set and an
+  embeddings key exists, one `embedTexts([query])` call + pgvector ANN over
+  `doc_chunks.embedding` (current-`embedding_model` space only, sim floor
+  0.2). New pure core `lib/datamodo/passage-rank.ts` (`mergePassages`): dedupe
+  by (entity, seq); both-paths passages add scores (similarity boosts the
+  keyword rank); semantic-only hits score < 1 so they NEVER outrank an exact
+  match — semantic extends recall, keyword keeps precision. `ChunkHit` moved
+  to the pure module (chunks.ts re-exports). `/api/search` passes the raw
+  query. Fail-soft end to end: no key / no vectors / API error → keyword-only.
+  Verified: 4 new unit tests (171 pass), tsc, lint == baseline. NOT live-fired
+  (no embeddings key in sandbox — it activates with the real key).
+- **2026-07-14** — **⊛ Graph custom-rendering pass** (user ask: "you can
+  customize fully"): nodes are now CARDS, not discs — a custom WebGL node
+  program (`graph-card-program.ts`, subclasses sigma's `NodeCircleProgram`,
+  swaps the circle SDF for a rounded-rect: paper fill + kind-colored frame,
+  with PICKING_MODE kept flat so clicks hit the card shape) plus matching
+  canvas-2D label/hover drawers (label seats against the card edge; hover is
+  a paper rounded-rect halo with a warm ink shadow). Edges CURVE
+  (`@sigma/edge-curve`, new dep). Clicking a card opens the Explorer's
+  natural-shape SIDE PANEL on the right (same grammar: kind kicker, "◍ Walk"
+  hand-off, "Full page ›", `EntityPageBody` flat variant — record table,
+  relationships, full markdown body; wikilinks/relationship chips recenter
+  the graph and glide the camera via `fly` on the selection). The link
+  inspector became a proper `LinkInspector` component with clickable
+  endpoints. **Bug found + fixed while verifying: sigma 3.0.3's
+  `stagePadding` setting misaligns the picking framebuffer — EVERY click
+  reads as stage (repro'd in an isolated bisect: base✓ / +stagePadding✗) —
+  so the override is gone (default 30).** Also reshaped `select`/`goTo` so
+  render-created handlers never read refs (react-hooks/refs). Verified:
+  tests 167 pass, tsc clean, lint == baseline, build green, `graph` shoot ✓,
+  scripted headless checks: card+curve rendering, node click → markdown
+  panel, wikilink → panel nav + camera glide, curved-edge click → inspector.
 - **2026-07-14** — **⊛ Graph: the whole-vault sigma.js surface shipped as a new
   Data sub-tab next to ◍ Explore** (user ask; the roadmap's "Explorer v2
   experiment" spike). graphology holds the graph, sigma.js draws it (WebGL);

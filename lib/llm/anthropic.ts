@@ -1,10 +1,11 @@
-import type { ChatJsonRequest, LlmModels, LlmProvider } from "./types";
-import { parseLoose, sleep } from "./util";
+import type { ChatJsonRequest, LlmModels, LlmProvider, ProviderHooks } from "./types";
+import { parseLoose, sleep } from "./util.ts";
 
 export interface AnthropicConfig {
   apiKey: string | undefined;
   models: LlmModels;
   baseUrl?: string;
+  hooks?: ProviderHooks;
 }
 
 /**
@@ -18,11 +19,13 @@ export class AnthropicProvider implements LlmProvider {
   readonly models: LlmModels;
   private apiKey: string | undefined;
   private baseUrl: string;
+  private hooks?: ProviderHooks;
 
   constructor(cfg: AnthropicConfig) {
     this.models = cfg.models;
     this.apiKey = cfg.apiKey;
     this.baseUrl = cfg.baseUrl ?? "https://api.anthropic.com";
+    this.hooks = cfg.hooks;
   }
 
   async chatJSON<T>(req: ChatJsonRequest): Promise<T> {
@@ -68,6 +71,20 @@ export class AnthropicProvider implements LlmProvider {
       const data = await res.json();
       const content: string | undefined = data?.content?.[0]?.text;
       if (!content) throw new Error("anthropic: empty response");
+      // Usage: Anthropic returns input_tokens/output_tokens (no cost) — the
+      // recorder prices them. Best-effort; a throwing hook never fails the call.
+      const usage = data?.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+      if (this.hooks?.onUsage && usage) {
+        try {
+          this.hooks.onUsage({
+            provider: "anthropic",
+            model: req.model,
+            inputTokens: Math.max(0, Math.round(usage.input_tokens ?? 0)),
+            outputTokens: Math.max(0, Math.round(usage.output_tokens ?? 0)),
+            costUsd: null,
+          });
+        } catch { /* best-effort */ }
+      }
       return parseLoose<T>(content);
     }
     throw new Error(`anthropic: exhausted retries (${lastErr})`);

@@ -57,6 +57,7 @@ import type { UserSettings, OnboardingContext } from "@/lib/datamodo/settings";
 import type { SearchResult, SearchHit, KnowledgeHit } from "@/lib/datamodo/search";
 import type { GroundedAnswer } from "@/lib/datamodo/answer";
 import type { ChunkHit } from "@/lib/datamodo/chunks";
+import { safeTableName } from "@/lib/datamodo/sync-postgres";
 import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
 import {
   Hov, C, LOGO, CH_NAMES, navStyle, modeCard, radioDot, bar, toggleTrack, toggleKnob,
@@ -70,7 +71,7 @@ import { OnboardingModal } from "./onboarding-modal";
 import { ImportGraphModal } from "./import-graph-modal";
 import { KnowledgeView } from "./knowledge-view";
 import { InsightsView } from "./insights-view";
-import { TimelineView } from "./timeline-view";
+import { CommitLogView, TimelineView } from "./timeline-view";
 import { FilesView } from "./files-view";
 import { AnswerCard } from "./answer-card";
 import { AnswerGraphModal } from "./answer-graph-modal";
@@ -86,7 +87,10 @@ type Tab = "agents" | "data" | "review" | "search" | "chat";
 // The Data tab is ONE FLAT toggle (IA rule 2026-07-11: no toggles inside
 // toggles). Tables/Cards/Concepts unified into the Tables surface (schema
 // diagram + cards drill-down); the Map was removed outright — walk only.
-type DataView = "tables" | "explore" | "graph" | "timeline" | "files" | "insights";
+type DataView = "tables" | "explore" | "graph" | "files" | "insights";
+/** Review = ALL change (user call 2026-07-14): pending decisions + the past —
+ *  a git-style commit log and the story timeline (moved here from Data). */
+type ReviewView = "pending" | "commits" | "timeline";
 export type ControlCenterProps = {
   fullName: string;
   initial: string;
@@ -100,9 +104,11 @@ export type ControlCenterProps = {
   settings: UserSettings;
   onboarding: OnboardingContext;
   notice?: string | null;
+  /** Local edition: no auth — hide sign-out (there's nothing to sign out of). */
+  local?: boolean;
 };
 
-export default function ControlCenter({ fullName, initial, inbox, agents, datasets, relations, pendingChanges, pendingReviewCount, agentActivity, settings, onboarding, notice }: ControlCenterProps) {
+export default function ControlCenter({ fullName, initial, inbox, agents, datasets, relations, pendingChanges, pendingReviewCount, agentActivity, settings, onboarding, notice, local }: ControlCenterProps) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("agents");
   const [noticeOpen, setNoticeOpen] = useState(true);
@@ -193,6 +199,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const [buildOpen, setBuildOpen] = useState(false);
   const [deriveOpen, setDeriveOpen] = useState(false);
   const [dataView, setDataView] = useState<DataView>("tables");
+  const [reviewView, setReviewView] = useState<ReviewView>("pending");
   const [dataActionsOpen, setDataActionsOpen] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
   const manageAgent = agents.find((a) => a.id === manageAgentId) ?? null;
@@ -259,19 +266,27 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
     data: { t: "Data", sub: {
       explore: "Everything we know, walkable — stand on a node and look around; scroll out for the big picture",
       graph: "Your whole vault as one map — every entity and link at once; pick the layout that reads best",
-      timeline: "What datamodo learned, in order — your data's story, not table edits",
       files: "Documents that arrived as attachments — filed by what they mention, originals kept",
       insights: "The numbers behind your knowledge — totals & breakdowns, computed live",
       tables: "Your data as a database — every category is a table, connected like a schema; click one to browse its records",
     }[dataView] },
-    review: { t: "Review", sub: reviewTotal ? `${reviewTotal} pending changes to confirm — merges, conflicts & new facts` : "Pending changes to confirm — merges, conflicts & new facts (your data's story lives in Data → Timeline)" },
+    review: { t: "Review", sub: {
+      pending: reviewTotal ? `${reviewTotal} pending changes to confirm — merges, conflicts & new facts` : "Pending changes to confirm — merges, conflicts & new facts",
+      commits: "Every extraction run as a commit — what each message added or changed, newest first",
+      timeline: "What datamodo learned, in order — your data's story, not table edits",
+    }[reviewView] },
     search: { t: "Search", sub: "Ask anything across everything your agents have captured" },
     chat: { t: "Chat", sub: "The app is a channel too — text, photos, PDFs and voice notes, straight into the pipeline" },
   };
 
-  const providerLabel = settings.aiProvider === "openai" ? "OpenAI" : settings.aiProvider === "openrouter" ? "OpenRouter" : "Claude";
-  const runtimeLabel = cloud ? "Datamodo cloud" : `Your ${providerLabel} key`;
-  const runtimeSub = cloud ? "We run every agent for you." : (settings.byokKeySet ? `Runs on your ${providerLabel} API key.` : "Add your API key to start.");
+  const providerLabel = settings.aiProvider === "openai" ? "OpenAI" : settings.aiProvider === "openrouter" ? "OpenRouter" : settings.aiProvider === "ollama" ? "Ollama" : "Claude";
+  const ollama = settings.aiProvider === "ollama";
+  const runtimeLabel = cloud ? "Datamodo cloud" : ollama ? "Your Ollama server" : `Your ${providerLabel} key`;
+  const runtimeSub = cloud
+    ? "We run every agent for you."
+    : settings.byokKeySet
+    ? (ollama ? "Runs on your own Ollama server — keyless." : `Runs on your ${providerLabel} API key.`)
+    : (ollama ? "Add your server URL to start." : "Add your API key to start.");
   const runtimeDot = cloud ? C.green : (settings.byokKeySet ? C.gold : C.accent);
   const plan = planLimits(settings.plan);
 
@@ -372,7 +387,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
             <div style={{ fontSize: 13, color: "#F1ECE1", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</div>
             <button type="button" onClick={() => setSettingsOpen(true)} className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B", background: "none", border: "none", padding: 0, cursor: "pointer" }}>{plan.label} plan · manage</button>
           </div>
-          <form action={signout} style={{ marginLeft: "auto" }}>
+          <form action={signout} style={{ marginLeft: "auto", display: local ? "none" : undefined }}>
             <Hov tag="button" type="submit" title="Sign out" base={{ background: "none", border: "none", color: "#7C766B", fontSize: 11, cursor: "pointer" }} hover={{ color: "#F1ECE1" }}>
               <span className="dm-mono">Sign out</span>
             </Hov>
@@ -420,7 +435,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           {tab === "data" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "▦ Tables" }, { v: "explore", label: "◍ Explore" }, { v: "graph", label: "⊛ Graph" }, { v: "timeline", label: "Timeline" }, { v: "files", label: "Files" }, { v: "insights", label: "Insights" }]} />
+                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "▦ Tables" }, { v: "explore", label: "◍ Explore" }, { v: "graph", label: "⊛ Graph" }, { v: "files", label: "Files" }, { v: "insights", label: "Insights" }]} />
                 {/* Rare actions live behind ONE menu, not three peers (simplicity rule). */}
                 <div style={{ position: "relative" }}>
                   <Hov onClick={() => setDataActionsOpen((o) => !o)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
@@ -459,7 +474,6 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                   onTablesChanged={() => router.refresh()}
                 />
               )}
-              {dataView === "timeline" && <TimelineView />}
               {dataView === "files" && <FilesView />}
               {dataView === "insights" && <InsightsView />}
               {dataView === "tables" && (uiTables.length || createTableOpen ? (
@@ -469,7 +483,23 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
               ) : <DataEmpty openModal={() => setCreateTableOpen(true)} />)}
             </>
           )}
-          {tab === "review" && <ReviewStudio />}
+          {tab === "review" && (
+            <>
+              {/* Review owns ALL change: what needs a decision AND what already
+                  happened — one flat toggle (commit log + the story timeline,
+                  moved here from Data per the 2026-07-14 call). */}
+              <div style={{ marginBottom: 14 }}>
+                <Segmented value={reviewView} onChange={setReviewView} options={[
+                  { v: "pending", label: `✓ Pending${reviewTotal ? ` · ${reviewTotal}` : ""}` },
+                  { v: "commits", label: "⎇ Commits" },
+                  { v: "timeline", label: "◷ Timeline" },
+                ]} />
+              </div>
+              {reviewView === "pending" && <ReviewStudio />}
+              {reviewView === "commits" && <CommitLogView />}
+              {reviewView === "timeline" && <TimelineView />}
+            </>
+          )}
           {tab === "search" && <SearchTab onOpenTable={setOpenTableId} />}
           {tab === "chat" && <ChatView />}
         </div>
@@ -542,6 +572,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
       {settingsOpen && (
         <SettingsModal
           settings={settings}
+          local={local}
           onClose={() => setSettingsOpen(false)}
           onSaved={() => { setSettingsOpen(false); router.refresh(); }}
         />
@@ -1443,6 +1474,59 @@ function diffSnapshots(
 
 /** Rich version-history panel: a timeline with per-version change counts, an
  *  inline preview of what the table looked like, and one-click restore. */
+/* Outbound sync (phase 1): push this table's rows into the user's OWN
+ * Postgres — idempotent upsert by the datamodo row id. Every view is a
+ * projection; an external DB is just another projection target. The
+ * connection string is used for the request only, never stored. */
+function SyncOutPanel({ datasetId, tableName }: { datasetId: string; tableName: string }) {
+  const [conn, setConn] = useState("");
+  const [target, setTarget] = useState(() => safeTableName(tableName));
+  const [state, setState] = useState<"idle" | "syncing">("idle");
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const sync = async () => {
+    setState("syncing"); setResult(null);
+    try {
+      const res = await fetch("/api/sync/postgres", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ datasetId, connectionString: conn.trim(), table: target.trim() || undefined }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) setResult({ ok: true, msg: `Synced ${json.synced} row${json.synced === 1 ? "" : "s"} into "${json.table}".` });
+      else setResult({ ok: false, msg: json.error ?? "Sync failed." });
+    } catch {
+      setResult({ ok: false, msg: "Couldn't reach the sync endpoint." });
+    } finally {
+      setState("idle");
+    }
+  };
+
+  return (
+    <div style={{ marginBottom: 14, padding: "14px 16px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Push to your own Postgres</div>
+      <div style={{ fontSize: 12, color: "#8A8477", marginTop: 2, marginBottom: 12, lineHeight: 1.5 }}>
+        One-way, idempotent — re-syncing upserts by each row&apos;s datamodo id, never duplicates. The connection string is used once and never stored.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div>
+          <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 6 }}>Connection string</div>
+          <input type="password" value={conn} onChange={(e) => setConn(e.target.value)} placeholder="postgres://user:pass@host:5432/dbname" style={fieldInput} />
+        </div>
+        <div>
+          <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 6 }}>Target table</div>
+          <input type="text" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="datamodo_table" style={fieldInput} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 2 }}>
+          <Hov onClick={state === "syncing" || !conn.trim() ? undefined : () => void sync()} base={{ ...primaryBtn(state === "syncing" || !conn.trim()), padding: "9px 16px", fontSize: 13 }} hover={{ background: C.accentPress }}>
+            {state === "syncing" ? "Syncing…" : "↑ Sync now"}
+          </Hov>
+          {result && <span className="dm-mono" style={{ fontSize: 11.5, color: result.ok ? C.green : C.accent }}>{result.msg}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HistoryPanel({ datasetId, onRestore, pending }: { datasetId: string; onRestore: (id: string) => void; pending: boolean }) {
   const [snaps, setSnaps] = useState<SnapshotFull[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -1655,7 +1739,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
   const [colType, setColType] = useState("text");
   const [colDefault, setColDefault] = useState("");
   // Tables are edited + synced here; review happens at the FACT level (Review tab).
-  const [panel, setPanel] = useState<"none" | "history">("none");
+  const [panel, setPanel] = useState<"none" | "history" | "syncout">("none");
   const cols = table.columns;
 
   // Version selector: "latest" (live, editable) or a past snapshot (read-only).
@@ -1784,15 +1868,20 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
         </>}
         <Hov onClick={() => setPanel((p) => p === "history" ? "none" : "history")} base={panel === "history" ? { ...ghostBtn, background: "#EFE9DC" } : ghostBtn} hover={{ background: "#FBF8F1" }}>History ({table.history.length})</Hov>
         {!viewingPast && (
-          <ImportSheetButton
-            datasetId={table.id}
-            label="⇅ Sync a sheet"
-            style={{ ...ghostBtn, marginLeft: "auto" }}
-            hoverStyle={{ background: "#FBF8F1" }}
-            onDone={() => { setPanel("none"); onChanged(); }}
-          />
+          <>
+            <Hov onClick={() => setPanel((p) => p === "syncout" ? "none" : "syncout")} base={panel === "syncout" ? { ...ghostBtn, background: "#EFE9DC", marginLeft: "auto" } : { ...ghostBtn, marginLeft: "auto" }} hover={{ background: "#FBF8F1" }}>↑ Sync out</Hov>
+            <ImportSheetButton
+              datasetId={table.id}
+              label="⇅ Sync a sheet"
+              style={ghostBtn}
+              hoverStyle={{ background: "#FBF8F1" }}
+              onDone={() => { setPanel("none"); onChanged(); }}
+            />
+          </>
         )}
       </div>
+
+      {!viewingPast && panel === "syncout" && <SyncOutPanel datasetId={table.id} tableName={table.name} />}
 
       {!viewingPast && panel === "history" && <HistoryPanel datasetId={table.id} onRestore={(id) => run(() => restoreSnapshotAction(id), () => { setPanel("none"); refresh(); })} pending={pending} />}
 
@@ -1873,7 +1962,7 @@ function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; o
 /* ================================================================== */
 /* SETTINGS: compute provider + plan                                  */
 /* ================================================================== */
-function SettingsModal({ settings, onClose, onSaved }: { settings: UserSettings; onClose: () => void; onSaved: () => void }) {
+function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSettings; local?: boolean; onClose: () => void; onSaved: () => void }) {
   const [mode, setMode] = useState<ComputeMode>(settings.computeMode);
   const [provider, setProvider] = useState(settings.aiProvider);
   const [key, setKey] = useState("");
@@ -1952,7 +2041,7 @@ function SettingsModal({ settings, onClose, onSaved }: { settings: UserSettings;
         <button type="button" onClick={() => setMode("byok")} style={modeCard(mode === "byok")}>
           <div style={{ textAlign: "left" }}>
             <div style={{ fontWeight: 600, fontSize: 14.5 }}>Bring your own key</div>
-            <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Analyse with your own Claude or OpenAI API key — you pay the provider directly.</div>
+            <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Analyse with your own Claude/OpenAI/OpenRouter key — or your own Ollama server, no key at all.</div>
           </div>
           <span style={radioDot(mode === "byok")} />
         </button>
@@ -1961,15 +2050,266 @@ function SettingsModal({ settings, onClose, onSaved }: { settings: UserSettings;
       {mode === "byok" && (
         <div style={{ marginTop: 14, padding: "14px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
           <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 8 }}>Provider</div>
-          <Segmented value={provider} onChange={setProvider} options={[{ v: "anthropic", label: "Claude" }, { v: "openai", label: "OpenAI" }, { v: "openrouter", label: "OpenRouter" }]} />
-          <div className="dm-mono" style={{ ...fieldLabel, margin: "14px 0 8px" }}>API key</div>
-          <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={settings.byokKeySet ? "•••••••• (saved — paste to replace)" : provider === "openai" ? "sk-…" : provider === "openrouter" ? "sk-or-…" : "sk-ant-…"} style={fieldInput} />
+          <Segmented value={provider} onChange={setProvider} options={[{ v: "anthropic", label: "Claude" }, { v: "openai", label: "OpenAI" }, { v: "openrouter", label: "OpenRouter" }, { v: "ollama", label: "Ollama" }]} />
+          <div className="dm-mono" style={{ ...fieldLabel, margin: "14px 0 8px" }}>{provider === "ollama" ? "Server URL" : "API key"}</div>
+          {provider === "ollama" ? (
+            <input type="text" value={key} onChange={(e) => setKey(e.target.value)} placeholder={settings.byokKeySet ? "saved — paste to replace" : "http://localhost:11434 — or your tunnel URL"} style={fieldInput} />
+          ) : (
+            <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={settings.byokKeySet ? "•••••••• (saved — paste to replace)" : provider === "openai" ? "sk-…" : provider === "openrouter" ? "sk-or-…" : "sk-ant-…"} style={fieldInput} />
+          )}
           <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 8, lineHeight: 1.5 }}>
-            This is an <b>API key</b> (billed per use), not your ChatGPT Plus / Claude Pro subscription — those don’t grant API access. Get one from {provider === "openai" ? "platform.openai.com" : provider === "openrouter" ? "openrouter.ai/keys" : "console.anthropic.com"}. OpenRouter gives you one key across many models. Signing in to authorise your account is on the roadmap.
+            {provider === "ollama"
+              ? <>No API key needed — models run on <b>your own machine</b>. The URL must be reachable from datamodo&apos;s servers: on the same box use localhost; otherwise expose it via a tunnel (Tailscale funnel, ngrok, cloudflared). Pull a JSON-capable model first (ollama pull llama3.1).</>
+              : <>This is an <b>API key</b> (billed per use), not your ChatGPT Plus / Claude Pro subscription — those don&apos;t grant API access. Get one from {provider === "openai" ? "platform.openai.com" : provider === "openrouter" ? "openrouter.ai/keys" : "console.anthropic.com"}. OpenRouter gives you one key across many models. Signing in to authorise your account is on the roadmap.</>}
           </div>
         </div>
       )}
+
+      {/* Your provider spend — what BYOK cost on YOUR key (not datamodo's
+          plan). Only meaningful when you bring a key. */}
+      {mode === "byok" && settings.aiProvider !== "ollama" && <UsageCard />}
+
+      {/* Local edition: mailboxes datamodo pulls from over IMAP (no public URL
+          for webhooks, so it pulls). CLI-managed too (`datamodo connect`). */}
+      {local && <ConnectorsCard />}
+
+      {/* Connect Claude (MCP): the vault as tools on the user's own Claude
+          subscription — Claude extracts, the server pipeline stays the vault. */}
+      <McpConnectCard />
     </ModalShell>
+  );
+}
+
+/* Local edition — mailboxes datamodo pulls from over IMAP. A self-hosted
+ * install has no public URL for webhooks, so it PULLS; this manages the same
+ * connectors.json the `datamodo connect` CLI writes and the serve poller reads
+ * (re-read each tick, so a change here takes effect within a minute, no
+ * restart). Passwords are write-only: sent on add, never echoed back. */
+type PublicConnector = { id: string; host: string; port: number; secure: boolean; user: string; mailbox: string };
+
+function ConnectorsCard() {
+  const [list, setList] = useState<PublicConnector[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ host: "", user: "", password: "", mailbox: "INBOX", port: "993", secure: true });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    fetch("/api/local/connectors")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => { if (live && json) setList(json.connectors as PublicConnector[]); })
+      .catch(() => { /* leave null → hidden empty state */ });
+    return () => { live = false; };
+  }, []);
+
+  const add = async () => {
+    setErr(null);
+    setBusy(true);
+    try {
+      const res = await fetch("/api/local/connectors", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...form, port: Number(form.port) || 993 }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { setErr(body.error ?? "Couldn’t add that mailbox."); return; }
+      setList(body.connectors as PublicConnector[]);
+      setForm({ host: "", user: "", password: "", mailbox: "INBOX", port: "993", secure: true });
+      setOpen(false);
+    } catch {
+      setErr("Couldn’t reach the server.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (id: string) => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/local/connectors?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) setList(body.connectors as PublicConnector[]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const chip: React.CSSProperties = { fontSize: 11, color: "#3A352C", background: "#fff", border: "1px solid #ECE5D8", borderRadius: 8, padding: "7px 10px" };
+
+  return (
+    <div style={{ marginTop: 18, padding: "14px 16px", border: "1px solid #E7E0D2", borderRadius: 12, background: "#fff" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}><span style={{ color: C.accent }}>📥</span> Mailboxes</div>
+          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>datamodo pulls new mail from your own mailbox over IMAP and files it like anything else. Nothing leaves your machine but the IMAP connection you configure.</div>
+        </div>
+        {!open && (
+          <Hov onClick={() => setOpen(true)} base={{ ...ghostBtn, flexShrink: 0 }} hover={{ background: "#FBF8F1" }}>Add mailbox</Hov>
+        )}
+      </div>
+
+      {list && list.length > 0 && (
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          {list.map((c) => (
+            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
+              <div className="dm-mono" style={chip}>{c.user}@{c.host}:{c.port} · {c.mailbox}{c.secure ? "" : " · plaintext"}</div>
+              <Hov onClick={busy ? undefined : () => void remove(c.id)} base={{ ...ghostBtn, flexShrink: 0, color: C.accent }} hover={{ background: "#FBF3EF" }}>Remove</Hov>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {open && (
+        <div style={{ marginTop: 12, padding: 12, background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input type="text" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} placeholder="IMAP host — e.g. imap.gmail.com" style={{ ...fieldInput, flex: "1 1 200px" }} />
+            <input type="text" inputMode="numeric" value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} placeholder="993" style={{ ...fieldInput, flex: "0 0 84px", width: 84 }} />
+          </div>
+          <input type="text" value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} placeholder="mailbox login (usually your email)" autoComplete="off" style={fieldInput} />
+          <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="password or app-specific password" autoComplete="new-password" style={fieldInput} />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <input type="text" value={form.mailbox} onChange={(e) => setForm({ ...form, mailbox: e.target.value })} placeholder="INBOX" style={{ ...fieldInput, flex: "1 1 160px" }} />
+            <label className="dm-mono" style={{ fontSize: 11, color: "#8A8477", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={form.secure} onChange={(e) => setForm({ ...form, secure: e.target.checked })} /> implicit TLS (993)
+            </label>
+          </div>
+          <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", lineHeight: 1.5 }}>
+            Gmail/Outlook need an <b>app-specific password</b> (2FA), not your account password. The credential is stored only in <span style={{ userSelect: "all" }}>~/.datamodo/connectors.json</span> on this machine.
+          </div>
+          {err && <div className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{err}</div>}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <Hov onClick={busy ? undefined : () => { setOpen(false); setErr(null); }} base={ghostBtn} hover={{ background: "#fff" }}>Cancel</Hov>
+            <Hov onClick={busy ? undefined : () => void add()} base={primaryBtn(busy)} hover={{ background: C.accentPress }}>{busy ? "Connecting…" : "Connect"}</Hov>
+          </div>
+        </div>
+      )}
+
+      {list && list.length === 0 && !open && (
+        <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginTop: 10 }}>No mailboxes yet. New mail is captured while <span style={{ userSelect: "all" }}>datamodo serve</span> is running.</div>
+      )}
+    </div>
+  );
+}
+
+/* Your provider spend (BYOK) — what the user's OWN Anthropic/OpenAI/OpenRouter
+ * key cost while datamodo used it. Lazy fetch; empty until calls land. */
+function UsageCard() {
+  const [sum, setSum] = useState<null | {
+    totalCostUsd: number; hasUnpriced: boolean; calls: number; inputTokens: number; outputTokens: number;
+    byModel: { provider: string; model: string; calls: number; inputTokens: number; outputTokens: number; costUsd: number | null; estimated: boolean }[];
+  }>(null);
+  const [priceDate, setPriceDate] = useState("");
+  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+
+  const load = async () => {
+    setState("loading");
+    try {
+      const res = await fetch("/api/usage?days=30");
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      setSum(json.summary ?? null);
+      setPriceDate(json.priceDate ?? "");
+      setState("idle");
+    } catch {
+      setState("error");
+    }
+  };
+
+  const usd = (n: number) => n >= 1 ? `$${n.toFixed(2)}` : n > 0 ? `$${n.toFixed(4)}` : "$0";
+  const tok = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+
+  return (
+    <div style={{ marginTop: 18, padding: "14px 16px", border: "1px solid #E7E0D2", borderRadius: 12, background: "#fff" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Your provider spend</div>
+          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>What your own API key cost while datamodo ran your data — last 30 days. Separate from your datamodo plan.</div>
+        </div>
+        {!sum && (
+          <Hov onClick={state === "loading" ? undefined : () => void load()} base={{ ...ghostBtn, flexShrink: 0 }} hover={{ background: "#FBF8F1" }}>
+            {state === "loading" ? "…" : "Show spend"}
+          </Hov>
+        )}
+      </div>
+      {state === "error" && <div className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginTop: 10 }}>Couldn&apos;t load usage.</div>}
+      {sum && (
+        <div style={{ marginTop: 12 }}>
+          {sum.calls === 0 ? (
+            <div className="dm-mono" style={{ fontSize: 11.5, color: "#A39B8B" }}>No calls tracked yet — spend appears here after your agents read something on your key.</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                <span className="dm-mono" style={{ fontSize: 22, fontWeight: 700, color: C.ink }}>{usd(sum.totalCostUsd)}{sum.hasUnpriced ? "+" : ""}</span>
+                <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477" }}>{sum.calls} call{sum.calls === 1 ? "" : "s"} · {tok(sum.inputTokens)} in / {tok(sum.outputTokens)} out</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {sum.byModel.slice(0, 8).map((m) => (
+                  <div key={`${m.provider}:${m.model}`} style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 12 }}>
+                    <span className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F", textTransform: "uppercase", flexShrink: 0, width: 66, overflow: "hidden", textOverflow: "ellipsis" }}>{m.provider}</span>
+                    <span style={{ color: "#3A352C", minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.model}</span>
+                    <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", flexShrink: 0 }}>{tok(m.inputTokens + m.outputTokens)} tok</span>
+                    <span className="dm-mono" style={{ fontSize: 12, fontWeight: 600, color: m.costUsd === null ? "#B7AF9F" : C.ink, flexShrink: 0, width: 62, textAlign: "right" }}>
+                      {m.costUsd === null ? "—" : `${m.estimated ? "~" : ""}${usd(m.costUsd)}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F", marginTop: 10, lineHeight: 1.5 }}>
+                {sum.byModel.some((m) => m.estimated) && <>~ = estimated from token counts (list prices{priceDate ? `, ${priceDate}` : ""}); </>}OpenRouter figures are exact. &quot;—&quot; = model we don&apos;t price. Ollama is free and not shown.
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Connect Claude (MCP) — lazy: details fetch only when asked for (the token
+ * is derived server-side; showing it writes nothing). */
+function McpConnectCard() {
+  const [conn, setConn] = useState<{ url: string; token: string } | null>(null);
+  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  const reveal = async () => {
+    setState("loading");
+    try {
+      const res = await fetch("/api/mcp-token");
+      if (!res.ok) throw new Error();
+      setConn(await res.json());
+      setState("idle");
+    } catch {
+      setState("error");
+    }
+  };
+  const mono: React.CSSProperties = { fontSize: 11, color: "#3A352C", background: "#fff", border: "1px solid #ECE5D8", borderRadius: 8, padding: "7px 10px", overflowWrap: "anywhere", userSelect: "all" };
+  return (
+    <div style={{ marginTop: 18, padding: "14px 16px", border: "1px solid #E7E0D2", borderRadius: 12, background: "#fff" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}><span style={{ color: C.accent }}>✦</span> Connect Claude</div>
+          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Use your vault from Claude — it reads your graph, files extractions, and resolves reviews over MCP. Runs on your Claude subscription, no API key.</div>
+        </div>
+        {!conn && (
+          <Hov onClick={state === "loading" ? undefined : () => void reveal()} base={{ ...ghostBtn, flexShrink: 0 }} hover={{ background: "#FBF8F1" }}>
+            {state === "loading" ? "…" : "Show connection"}
+          </Hov>
+        )}
+      </div>
+      {state === "error" && <div className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginTop: 10 }}>MCP isn&apos;t configured on this deployment yet.</div>}
+      {conn && (
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>Server URL</div>
+          <div className="dm-mono" style={mono}>{conn.url}</div>
+          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>Bearer token — treat it like a password</div>
+          <div className="dm-mono" style={mono}>{conn.token}</div>
+          <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", lineHeight: 1.6 }}>
+            Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url} --header &quot;Authorization: Bearer {conn.token}&quot;</span>
+            <br />Sign-in-with-datamodo (OAuth, for claude.ai connectors) is on the roadmap.
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

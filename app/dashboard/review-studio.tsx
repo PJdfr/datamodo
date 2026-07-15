@@ -16,9 +16,10 @@
  * labelled preview so the design is visible.
  */
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { C, Hov, ghostBtn, relTime } from "./ui";
-import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, OffTemplateReview, CategoryProposalReview, ReviewEntitySide } from "@/lib/datamodo/review-types";
+import { ReviewCardBody, PAPER_SKIN } from "./review-card";
+import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, OffTemplateReview, CategoryProposalReview } from "@/lib/datamodo/review-types";
 
 /* --------------------------- simulated fallback --------------------------- */
 
@@ -113,28 +114,6 @@ function TypeChip({ label, tone }: { label: string; tone: string }) {
   return <span className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em", color: tone, background: "#fff", border: `1px solid ${tone}33`, borderRadius: 6, padding: "2px 7px" }}>{label}</span>;
 }
 
-function EntityCard({ side, tone, tag }: { side: ReviewEntitySide; tone: string; tag: string }) {
-  return (
-    <div style={{ flex: 1, minWidth: 0, background: "#fff", border: "1px solid #ECE5D8", borderRadius: 13, padding: "13px 15px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 10 }}>
-        <span style={{ width: 30, height: 30, borderRadius: 9, background: tone, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>{side.label.charAt(0)}</span>
-        <div style={{ minWidth: 0 }}>
-          <div className="dm-display" style={{ fontWeight: 700, fontSize: 15.5, letterSpacing: "-0.01em", color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{side.label}</div>
-          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "#A39B8B" }}>{tag} · {side.type}</div>
-        </div>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "5px 12px", fontSize: 12.5 }}>
-        {side.attrs.map((a) => (
-          <Fragment key={a.k}>
-            <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", whiteSpace: "nowrap" }}>{a.k}</span>
-            <span style={{ color: "#3A352C", overflow: "hidden", textOverflow: "ellipsis" }}>{a.v}</span>
-          </Fragment>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 type Resolve = (id: string, action: "accept" | "reject") => void;
 
 function Actions({ id, onResolve, acceptLabel, rejectLabel }: { id: string; onResolve: Resolve; acceptLabel: string; rejectLabel: string }) {
@@ -148,38 +127,42 @@ function Actions({ id, onResolve, acceptLabel, rejectLabel }: { id: string; onRe
 
 /* --------------------------- kind-specific cards -------------------------- */
 
-function MergeCard({ m, onResolve }: { m: MergeReview; onResolve: Resolve }) {
-  const tone = confColor(m.confidence ?? 0);
+/* Every card = kind-specific HEADER (what kind of decision) + the SHARED
+ * evidence body (review-card.tsx — the same rendering the chat bubble uses,
+ * paper skin) + kind-specific FOOTER (hint + action labels). */
+
+function CardShell({ header, footer, children }: { header: React.ReactNode; footer: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div style={{ border: "1px solid #E7E0D2", borderRadius: 16, background: "#fff", overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", background: "#FBF8F1", borderBottom: "1px solid #EFE9DC", flexWrap: "wrap" }}>
+    <div style={{ border: "1px solid #E7E0D2", borderRadius: 15, background: "#fff", overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 15px", background: "#FBF8F1", borderBottom: "1px solid #EFE9DC", flexWrap: "wrap" }}>{header}</div>
+      <div style={{ padding: "14px 16px" }}>{children}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderTop: "1px solid #F1EDE4", background: "#FCFAF4", flexWrap: "wrap" }}>{footer}</div>
+    </div>
+  );
+}
+
+function MergeCard({ m, onResolve }: { m: MergeReview; onResolve: Resolve }) {
+  return (
+    <CardShell
+      header={<>
         <TypeChip label="Possible duplicate" tone={C.accent} />
         <span style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>Same {m.parsed.type}?</span>
         <div style={{ marginLeft: "auto" }}><ImpactMeter n={m.impact} /></div>
-      </div>
-      <div style={{ padding: 16, display: "flex", alignItems: "stretch", gap: 12, flexWrap: "wrap" }}>
-        <EntityCard side={m.parsed} tone={C.blue} tag="just parsed" />
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, minWidth: 64 }}>
-          <ConfidenceRing value={m.confidence ?? 0} />
-          <span className="dm-mono" style={{ fontSize: 9.5, color: "#A39B8B" }}>match</span>
-          <span style={{ color: tone, fontSize: 18, lineHeight: 1 }}>⇄</span>
-        </div>
-        <EntityCard side={m.canonical} tone={C.ink} tag="in your data" />
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 16px 16px", flexWrap: "wrap" }}>
-        <div style={{ flex: 1, minWidth: 220, fontSize: 12.5, color: "#6B665B", lineHeight: 1.5, display: "flex", gap: 8 }}>
-          <span style={{ color: tone, flexShrink: 0 }}>❝</span><span>{m.reason}</span>
-        </div>
-        <Actions id={m.id} onResolve={onResolve} acceptLabel={`Merge into ${m.canonical.label}`} rejectLabel="Keep separate" />
-      </div>
-    </div>
+      </>}
+      footer={<>
+        <span style={{ fontSize: 12, color: "#8A8477" }}>Merging repoints every fact — a wrong merge is why we ask.</span>
+        <div style={{ marginLeft: "auto" }}><Actions id={m.id} onResolve={onResolve} acceptLabel={`Merge into ${m.canonical.label}`} rejectLabel="Keep separate" /></div>
+      </>}
+    >
+      <ReviewCardBody item={m} skin={PAPER_SKIN} />
+    </CardShell>
   );
 }
 
 function ConflictCard({ c, onResolve }: { c: ConflictReview; onResolve: Resolve }) {
   return (
-    <div style={{ border: "1px solid #F0DFd6", borderRadius: 13, background: "#fff", overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 15px", background: "#FDF6F2", borderBottom: "1px solid #F3E7DF", flexWrap: "wrap" }}>
+    <CardShell
+      header={<>
         <TypeChip label="Value changed" tone={C.gold} />
         <span style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{c.subject}</span>
         <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477" }}>· {c.field}</span>
@@ -187,25 +170,14 @@ function ConflictCard({ c, onResolve }: { c: ConflictReview; onResolve: Resolve 
           {c.confidence != null && <span className="dm-mono" style={{ fontSize: 10.5, color: confColor(c.confidence) }}>{Math.round(c.confidence * 100)}% sure</span>}
           <ImpactMeter n={c.impact} />
         </div>
-      </div>
-      <div style={{ padding: "13px 15px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 240 }}>
-            <div style={{ flex: 1 }}>
-              <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "#A39B8B", marginBottom: 3 }}>Current · {c.wasSource}</div>
-              <div style={{ fontSize: 14, color: "#B44536", textDecoration: "line-through" }}>{c.was}</div>
-            </div>
-            <span style={{ color: "#C9BCA6", fontSize: 16 }}>→</span>
-            <div style={{ flex: 1 }}>
-              <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.05em", color: C.green, marginBottom: 3 }}>New · {c.nowSource}</div>
-              <div style={{ fontSize: 14, color: C.ink, fontWeight: 700 }}>{c.now}</div>
-            </div>
-          </div>
-          <Actions id={c.id} onResolve={onResolve} acceptLabel="Use new" rejectLabel="Keep current" />
-        </div>
-        <div style={{ fontSize: 12, color: "#8A8477", marginTop: 10, fontStyle: "italic", borderTop: "1px dashed #EFE9DC", paddingTop: 9 }}>{c.note}</div>
-      </div>
-    </div>
+      </>}
+      footer={<>
+        <span style={{ fontSize: 12, color: "#8A8477" }}>The old value stays in history either way — bitemporal, nothing is erased.</span>
+        <div style={{ marginLeft: "auto" }}><Actions id={c.id} onResolve={onResolve} acceptLabel="Use new" rejectLabel="Keep current" /></div>
+      </>}
+    >
+      <ReviewCardBody item={c} skin={PAPER_SKIN} />
+    </CardShell>
   );
 }
 
@@ -213,122 +185,55 @@ function ExtractionCard({ e, onResolve }: { e: ExtractionReview; onResolve: Reso
   const ch = channelOf(e.channel);
   const low = (e.confidence ?? 1) < 0.65;
   return (
-    <div style={{ border: "1px solid #E7E0D2", borderRadius: 15, background: "#fff", overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 15px", background: "#FBF8F1", borderBottom: "1px solid #EFE9DC", flexWrap: "wrap" }}>
+    <CardShell
+      header={<>
         <TypeChip label="New from a message" tone={C.blue} />
         {low && <TypeChip label="low confidence" tone={C.gold} />}
         <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginLeft: "auto" }}>{ch.emoji} {ch.label} · {relTime(e.createdAt)}</span>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(240px, 1.1fr)" }}>
-        <div style={{ padding: "15px 16px", borderRight: "1px solid #F1EDE4", background: "#FCFAF4" }}>
-          <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginBottom: 8 }}>from {e.from}</div>
-          <div style={{ fontSize: 13, color: "#3A352C", lineHeight: 1.6, background: "#fff", border: "1px solid #EDE7DA", borderRadius: "4px 14px 14px 14px", padding: "11px 13px" }}>{e.snippet}</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 11 }}>
-            {e.entities.map((en) => (
-              <span key={en.label} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "#57534A", background: "#fff", border: "1px solid #E7E0D2", borderRadius: 999, padding: "3px 9px" }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: en.type === "person" ? C.blue : en.type === "invoice" ? C.gold : C.accent }} />{en.label}
-              </span>
-            ))}
-          </div>
-        </div>
-        <div style={{ padding: "15px 16px" }}>
-          <div className="dm-mono" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "#A39B8B", marginBottom: 9 }}>Understood {e.facts.length} fact{e.facts.length === 1 ? "" : "s"}</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            {e.facts.map((f, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: confColor(f.c), flexShrink: 0 }} />
-                <span style={{ color: "#8A8477" }}>{f.s}</span>
-                <span className="dm-mono" style={{ fontSize: 10.5, color: "#B7AF9F" }}>{f.p}</span>
-                <span style={{ color: f.ref ? C.accent : C.ink, fontWeight: 600 }}>{f.ref ? `→ ${f.v}` : f.v}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderTop: "1px solid #F1EDE4", background: "#FCFAF4" }}>
+      </>}
+      footer={<>
         <ConfidenceRing value={e.confidence ?? 1} size={34} />
         <span style={{ fontSize: 12, color: "#8A8477" }}>{low ? "Worth a glance — some of this is a guess." : "Looks clean — accept to file it into your data."}</span>
         <div style={{ marginLeft: "auto" }}><Actions id={e.id} onResolve={onResolve} acceptLabel="Accept all" rejectLabel="Discard" /></div>
-      </div>
-    </div>
+      </>}
+    >
+      <ReviewCardBody item={e} skin={PAPER_SKIN} />
+    </CardShell>
   );
 }
 
 function OffTemplateCard({ o, onResolve }: { o: OffTemplateReview; onResolve: Resolve }) {
   return (
-    <div style={{ border: "1px solid #E7E0D2", borderRadius: 15, background: "#fff", overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 15px", background: "#FBF8F1", borderBottom: "1px solid #EFE9DC", flexWrap: "wrap" }}>
+    <CardShell
+      header={<>
         <TypeChip label="Off the template" tone={C.blue} />
         <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginLeft: "auto" }}>▤ {o.docLabel} · {relTime(o.createdAt)}</span>
-      </div>
-      <div style={{ padding: "15px 16px" }}>
-        <div style={{ fontSize: 12.5, color: "#57534A", lineHeight: 1.5, marginBottom: 11 }}>
-          This document said things {o.docKind ? <>the <b style={{ fontWeight: 600 }}>{o.docKind}</b> template</> : "its category template"} doesn&apos;t cover. We kept them out of your graph — your call whether they belong.
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-          {o.facts.map((f, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.blue, flexShrink: 0 }} />
-              <span style={{ color: "#8A8477" }}>{f.s}</span>
-              <span className="dm-mono" style={{ fontSize: 10.5, color: "#B7AF9F" }}>{f.p}</span>
-              <span style={{ color: f.ref ? C.accent : C.ink, fontWeight: 600 }}>{f.ref ? `→ ${f.v}` : f.v}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderTop: "1px solid #F1EDE4", background: "#FCFAF4" }}>
+      </>}
+      footer={<>
         <span style={{ fontSize: 12, color: "#8A8477" }}>Accept to file them into your graph anyway — or add the field to the category so next time it just fits.</span>
         <div style={{ marginLeft: "auto" }}><Actions id={o.id} onResolve={onResolve} acceptLabel="Add anyway" rejectLabel="Leave out" /></div>
-      </div>
-    </div>
+      </>}
+    >
+      <ReviewCardBody item={o} skin={PAPER_SKIN} />
+    </CardShell>
   );
 }
 
 function CategoryProposalCard({ p, onResolve }: { p: CategoryProposalReview; onResolve: Resolve }) {
   return (
-    <div style={{ border: "1px solid #E7E0D2", borderRadius: 15, background: "#fff", overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 15px", background: "#FBF8F1", borderBottom: "1px solid #EFE9DC", flexWrap: "wrap" }}>
+    <CardShell
+      header={<>
         <TypeChip label="New category?" tone={C.accent} />
         <span style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{p.icon ? `${p.icon} ` : ""}{p.label}</span>
         <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginLeft: "auto" }}>{p.count} captured · {relTime(p.createdAt)}</span>
-      </div>
-      <div style={{ padding: "15px 16px" }}>
-        <div style={{ fontSize: 12.5, color: "#57534A", lineHeight: 1.5, marginBottom: 11 }}>
-          Your messages keep mentioning <b style={{ fontWeight: 600 }}>{p.label.toLowerCase()}s</b> and no category covers them{p.description ? <> — {p.description.replace(/\.$/, "").toLowerCase()}</> : ""}. Accept to add the category (it becomes a table shape too); the {p.count} already captured snap into it.
-        </div>
-        {p.sampleLabels.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: p.fields.length + p.relations.length > 0 ? 12 : 0 }}>
-            {p.sampleLabels.map((l) => (
-              <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "#57534A", background: "#FBF8F1", border: "1px solid #E7E0D2", borderRadius: 999, padding: "3px 9px" }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.accent }} />{l}
-              </span>
-            ))}
-          </div>
-        )}
-        {(p.fields.length > 0 || p.relations.length > 0) && (
-          <div style={{ background: "#FCFAF4", border: "1px solid #EFE9DC", borderRadius: 10, overflow: "hidden" }}>
-            <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", padding: "7px 11px 3px" }}>Drafted template — edit anytime in Categories</div>
-            {p.fields.map((f) => (
-              <div key={f.key} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "3px 11px" }}>
-                <span className="dm-mono" style={{ fontSize: 11, color: "#514C43" }}>{f.key}</span>
-                <span className="dm-mono" style={{ marginLeft: "auto", fontSize: 9.5, color: "#B7AF9F" }}>{f.type}</span>
-              </div>
-            ))}
-            {p.relations.map((r) => (
-              <div key={r.predicate} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "3px 11px", background: "#FBF6EE" }}>
-                <span className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{r.predicate}</span>
-                <span className="dm-mono" style={{ marginLeft: "auto", fontSize: 9.5, color: "#8A8477" }}>→ {r.targetKind ?? "any"}</span>
-              </div>
-            ))}
-            <div style={{ height: 6 }} />
-          </div>
-        )}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderTop: "1px solid #F1EDE4", background: "#FCFAF4" }}>
-        <span style={{ fontSize: 12, color: "#8A8477" }}>Declining never asks again for this one — those entities stay free-form.</span>
+      </>}
+      footer={<>
+        <span style={{ fontSize: 12, color: "#8A8477" }}>Accepting creates the category (a table shape too); declining never asks again.</span>
         <div style={{ marginLeft: "auto" }}><Actions id={p.id} onResolve={onResolve} acceptLabel="Create category" rejectLabel="No thanks" /></div>
-      </div>
-    </div>
+      </>}
+    >
+      <ReviewCardBody item={p} skin={PAPER_SKIN} />
+    </CardShell>
   );
 }
 

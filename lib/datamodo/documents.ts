@@ -14,6 +14,8 @@ import {
   buildDocumentExtraction,
   buildTranscriptBody,
   chunkDocText,
+  isLikelyScannedPdf,
+  rasterizePdfFirstPage,
   MAX_AUDIO_BYTES,
   MAX_DOC_CHARS,
   MAX_IMAGE_BYTES,
@@ -107,6 +109,32 @@ export async function processItemAttachments(
             docKind = res.docKind;
             offTemplate = res.offTemplateReview;
             indexing = doc.truncated ? "partial" : "full";
+          } else if (kind === "pdf" && isLikelyScannedPdf(doc) && meta.bytes <= MAX_IMAGE_BYTES) {
+            // SCANNED PDF: no text layer — the content is pixels. Rasterize the
+            // first page and run it through the SAME vision tier as a photo.
+            // Fail-soft: no canvas / no vision key → stays metadata_only.
+            const raster = await rasterizePdfFirstPage(bytes);
+            if (raster) {
+              const res = await extractFromImage(
+                {
+                  imageBase64: raster.imageBase64,
+                  mediaType: raster.mediaType,
+                  filename: att.filename,
+                  channel: item.channel,
+                  businessContext,
+                  kinds,
+                  concepts,
+                },
+                llm,
+              );
+              inner = res.extraction;
+              summary = res.summary;
+              docKind = res.docKind;
+              offTemplate = res.offTemplateReview;
+              // A scan we could read is "full" for page 1; more pages = partial.
+              indexing = (doc.pages ?? 1) > 1 ? "partial" : "full";
+              if (summary) doc = { text: summary, truncated: (doc.pages ?? 1) > 1, pages: doc.pages };
+            }
           }
         } catch (e) {
           console.error(`[documents] attachment ${att.id} text extraction failed`, e);

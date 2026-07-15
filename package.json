@@ -13,24 +13,37 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1084.0",
+    "@electric-sql/pglite": "^0.4.1",
+    "@electric-sql/pglite-socket": "^0.1.1",
+    "@napi-rs/canvas": "^0.1.100",
     "@neondatabase/auth": "^0.4.2-beta",
     "@neondatabase/serverless": "^1.1.0",
     "@prisma/adapter-neon": "^7.8.0",
+    "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
+    "@sigma/edge-curve": "^3.1.0",
     "@tanstack/react-table": "^8.21.3",
+    "@types/pg": "^8.20.0",
+    "commander": "^8.3.0",
     "exceljs": "^4.4.0",
     "graphology": "^0.26.0",
     "graphology-layout": "^0.6.1",
     "graphology-layout-forceatlas2": "^0.10.1",
+    "imapflow": "^1.4.7",
     "katex": "^0.17.0",
+    "mailparser": "^3.9.14",
+    "mcp-handler": "^1.1.0",
     "next": "16.2.10",
+    "pg": "^8.22.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "sigma": "^3.0.3",
     "stripe": "^22.3.0",
-    "unpdf": "^1.6.2"
+    "unpdf": "^1.6.2",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/mailparser": "^3.4.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -41,5 +54,8 @@
     "playwright-core": "^1.61.1",
     "prisma": "^7.8.0",
     "typescript": "^5"
+  },
+  "bin": {
+    "datamodo": "bin/datamodo.mjs"
   }
 }

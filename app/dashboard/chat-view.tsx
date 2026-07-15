@@ -20,6 +20,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { C } from "./ui";
+import { ReviewCardBody, INK_SKIN } from "./review-card";
+import { activeMention, matchAgents, stripMention, type ChatAgentRef, type MentionSpan } from "@/lib/datamodo/chat-address";
+import type { ReviewItem } from "@/lib/datamodo/review-types";
 
 interface ChatAttachment { filename: string | null; contentType: string | null; bytes: number }
 interface ChatMessage {
@@ -29,6 +32,8 @@ interface ChatMessage {
   error: string | null;
   at: string;
   attachments: ChatAttachment[];
+  /** The addressed agent's name (null/absent = the general datamodo agent). */
+  agent?: string | null;
   /** Optimistic bubble, not yet confirmed by the server. */
   local?: boolean;
   /** Local-only image previews for the optimistic bubble. */
@@ -145,6 +150,9 @@ function Bubble({ m }: { m: ChatMessage }) {
         )}
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", paddingRight: 2 }}>
+        {m.agent && (
+          <span className="dm-mono" title={`Addressed to your "${m.agent}" agent`} style={{ fontSize: 9.5, color: "#8A8477" }}>→ {m.agent}</span>
+        )}
         <span className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F" }}>{fmtTime(m.at)}</span>
         <StatusLine m={m} />
       </div>
@@ -152,14 +160,20 @@ function Bubble({ m }: { m: ChatMessage }) {
   );
 }
 
-/* ---- datamodo's bubble: the pull request, tap-to-approve ---------------- */
+/* ---- datamodo's bubble: the pull request, tap-to-approve ----------------
+ * Full PR fidelity (2026-07-14): each numbered question carries the SAME
+ * evidence body Review Studio renders (review-card.tsx), in the ink skin —
+ * the diff, the sides, the facts — so a decision here is as informed as one
+ * made in the Review tab. Same accept/decline side-effects core. */
 interface PingQuestion { id: string; question: string }
 
-function ReviewBubble({ questions, onDecide, resolved }: {
+function ReviewBubble({ questions, reviews, onDecide, resolved }: {
   questions: PingQuestion[];
+  reviews: ReviewItem[];
   onDecide: (id: string, accept: boolean) => void;
   resolved: { id: string; line: string }[];
 }) {
+  const itemById = new Map(reviews.map((r) => [r.id, r]));
   return (
     <div style={{ alignSelf: "flex-start", maxWidth: "min(84%, 700px)", display: "flex", flexDirection: "column", gap: 4, animation: "dm-drop-in .34s cubic-bezier(0.16,1,0.3,1)" }}>
       <div style={{
@@ -173,23 +187,33 @@ function ReviewBubble({ questions, onDecide, resolved }: {
             datamodo · {questions.length === 1 ? "one thing needs" : `${questions.length} things need`} your ok
           </span>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {questions.map((q, i) => (
-            <div key={q.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <span className="dm-mono" style={{ fontSize: 10.5, color: "#9C958A", flexShrink: 0 }}>{i + 1}.</span>
-              <span style={{ fontSize: 13.5, lineHeight: 1.45, flex: 1, minWidth: 180 }}>{q.question}</span>
-              <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
-                <button type="button" onClick={() => onDecide(q.id, true)}
-                  style={{ fontSize: 12, fontWeight: 600, color: "#FFF8F4", background: C.accent, border: "none", borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontFamily: "inherit" }}>
-                  ✓ yes
-                </button>
-                <button type="button" onClick={() => onDecide(q.id, false)}
-                  style={{ fontSize: 12, fontWeight: 500, color: "#F1ECE1", background: "transparent", border: "1px solid #3A352C", borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontFamily: "inherit" }}>
-                  ✗ no
-                </button>
-              </span>
-            </div>
-          ))}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {questions.map((q, i) => {
+            const item = itemById.get(q.id);
+            return (
+              <div key={q.id}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span className="dm-mono" style={{ fontSize: 10.5, color: "#9C958A", flexShrink: 0 }}>{i + 1}.</span>
+                  <span style={{ fontSize: 13.5, lineHeight: 1.45, flex: 1, minWidth: 180 }}>{q.question}</span>
+                  <span style={{ display: "inline-flex", gap: 6, flexShrink: 0 }}>
+                    <button type="button" onClick={() => onDecide(q.id, true)}
+                      style={{ fontSize: 12, fontWeight: 600, color: "#FFF8F4", background: C.accent, border: "none", borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontFamily: "inherit" }}>
+                      ✓ yes
+                    </button>
+                    <button type="button" onClick={() => onDecide(q.id, false)}
+                      style={{ fontSize: 12, fontWeight: 500, color: "#F1ECE1", background: "transparent", border: "1px solid #3A352C", borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontFamily: "inherit" }}>
+                      ✗ no
+                    </button>
+                  </span>
+                </div>
+                {item && (
+                  <div style={{ margin: "8px 0 0 20px" }}>
+                    <ReviewCardBody item={item} skin={INK_SKIN} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
         {resolved.length > 0 && (
           <div style={{ marginTop: questions.length ? 10 : 0, paddingTop: questions.length ? 9 : 0, borderTop: questions.length ? "1px solid #3A352C" : "none", display: "flex", flexDirection: "column", gap: 4 }}>
@@ -210,6 +234,7 @@ function ReviewBubble({ questions, onDecide, resolved }: {
 export function ChatView() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [questions, setQuestions] = useState<PingQuestion[]>([]);
+  const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [resolved, setResolved] = useState<{ id: string; line: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
@@ -220,6 +245,15 @@ export function ChatView() {
   const [recSeconds, setRecSeconds] = useState(0);
   const [dictating, setDictating] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  // Addressing: the user's agents (recipients), the sticky chosen recipient
+  // (null = the general datamodo agent — the deterministic default), the
+  // "to" dropdown, and the live @mention under the caret.
+  const [agents, setAgents] = useState<ChatAgentRef[]>([]);
+  const [recipient, setRecipient] = useState<ChatAgentRef | null>(null);
+  const [toOpen, setToOpen] = useState(false);
+  const [mention, setMention] = useState<MentionSpan | null>(null);
+  const [mentionIdx, setMentionIdx] = useState(0);
+  const dismissedMention = useRef<string | null>(null);
 
   const fileInput = useRef<HTMLInputElement | null>(null);
   const textArea = useRef<HTMLTextAreaElement | null>(null);
@@ -244,6 +278,8 @@ export function ChatView() {
       // Server truth replaces everything except still-unconfirmed optimistic bubbles.
       setMessages((prev) => [...(json.messages ?? []), ...prev.filter((m) => m.local)]);
       setQuestions(json.questions ?? []);
+      setReviews(json.reviews ?? []);
+      setAgents(json.agents ?? []);
     } catch { /* keep the current thread */ }
   }, []);
 
@@ -275,6 +311,23 @@ export function ChatView() {
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 168)}px`;
+  };
+
+  /* ---- addressing: the @mention under the caret + the recipient slot ---- */
+  const mentionMatches = useMemo(() => (mention ? matchAgents(agents, mention.query) : []), [mention, agents]);
+  const trackMention = (el: HTMLTextAreaElement) => {
+    const span = agents.length ? activeMention(el.value, el.selectionStart ?? el.value.length) : null;
+    if (span && dismissedMention.current === span.query) return; // Esc'd — stay closed until the query changes
+    if (!span) dismissedMention.current = null;
+    setMention(span);
+    setMentionIdx(0);
+  };
+  const pickAgent = (a: ChatAgentRef | null, span: MentionSpan | null = null) => {
+    setRecipient(a);
+    if (span) { setText((t) => stripMention(t, span)); requestAnimationFrame(grow); }
+    setMention(null);
+    setToOpen(false);
+    textArea.current?.focus();
   };
 
   const addFiles = useCallback((list: FileList | File[] | null, kind: "file" | "voice" = "file") => {
@@ -352,7 +405,7 @@ export function ChatView() {
     const sentText = text.trim();
     const sentFiles = pending;
     // Optimistic bubble — the thread answers immediately.
-    const tempId = `local-${Date.now()}`;
+    const tempId = `local-${keySeq.current++}`;
     setMessages((prev) => [...prev, {
       id: tempId,
       text: sentText || null,
@@ -361,6 +414,7 @@ export function ChatView() {
       at: new Date().toISOString(),
       attachments: sentFiles.map((p) => ({ filename: p.file.name, contentType: p.file.type || null, bytes: p.file.size })),
       previews: sentFiles.filter((p) => p.url && p.file.type.startsWith("image/")).map((p) => p.url!),
+      agent: recipient?.name ?? null,
       local: true,
     }]);
     setText("");
@@ -376,7 +430,7 @@ export function ChatView() {
       );
       const res = await fetch("/api/chat", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: sentText || undefined, attachments: attachments.length ? attachments : undefined }),
+        body: JSON.stringify({ text: sentText || undefined, attachments: attachments.length ? attachments : undefined, agentId: recipient?.id }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -495,7 +549,7 @@ export function ChatView() {
             </div>
           ))}
           {(questions.length > 0 || resolved.length > 0) && (
-            <ReviewBubble questions={questions} onDecide={(id, accept) => void decide(id, accept)} resolved={resolved} />
+            <ReviewBubble questions={questions} reviews={reviews} onDecide={(id, accept) => void decide(id, accept)} resolved={resolved} />
           )}
           <div ref={bottom} />
         </div>
@@ -557,12 +611,73 @@ export function ChatView() {
 
       {/* ---- composer ---- */}
       <div style={{
-        display: "flex", alignItems: "flex-end", gap: 8, marginTop: 10,
+        position: "relative",
+        display: "flex", flexDirection: "column", gap: 7, marginTop: 10,
         background: "#FFFDF8", border: `1px solid ${recording ? C.accent : "#E1D9C8"}`,
         borderRadius: 16, padding: 9,
         boxShadow: recording ? "0 0 0 3px rgba(228,89,59,.12), 0 18px 44px -34px rgba(33,30,24,.35)" : "0 18px 44px -34px rgba(33,30,24,.35)",
         transition: "border-color .2s, box-shadow .2s",
       }}>
+        {/* @mention popover — pick a recipient without leaving the keyboard */}
+        {mention && mentionMatches.length > 0 && (
+          <div style={{ position: "absolute", bottom: "calc(100% + 8px)", left: 8, zIndex: 60, minWidth: 280, maxWidth: 360, background: "#fff", border: "1px solid #E7E0D2", borderRadius: 12, boxShadow: "0 14px 34px rgba(33,30,24,.16)", overflow: "hidden" }}>
+            <div className="dm-mono" style={{ fontSize: 9.5, letterSpacing: "0.09em", textTransform: "uppercase", color: "#B7AF9F", padding: "8px 12px 5px" }}>send to an agent</div>
+            {mentionMatches.map((a, i) => (
+              <button key={a.id} type="button"
+                onMouseEnter={() => setMentionIdx(i)}
+                onMouseDown={(e) => { e.preventDefault(); pickAgent(a, mention); }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 12px", background: i === mentionIdx ? "#FBF8F1" : "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                <span style={{ display: "block", fontSize: 13, color: C.ink, fontWeight: 500 }}>{a.name}</span>
+                {a.purposeText && <span style={{ display: "block", fontSize: 11, color: "#8A8477", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.purposeText}</span>}
+              </button>
+            ))}
+            <div className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F", padding: "5px 12px 8px" }}>↑↓ choose · Enter picks · Esc keeps typing</div>
+          </div>
+        )}
+
+        {/* "to" row — the recipient slot; only when there are agents to pick */}
+        {agents.length > 0 && !recording && (
+          <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "1px 3px 0", position: "relative" }}>
+            <span className="dm-mono" style={{ fontSize: 9.5, letterSpacing: "0.09em", textTransform: "uppercase", color: "#B7AF9F" }}>to</span>
+            <button type="button" onClick={() => setToOpen((o) => !o)} title="Choose which agent reads this"
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 500, color: recipient ? C.ink : "#57534A", background: recipient ? "#FBF8F1" : "transparent", border: `1px solid ${recipient ? "#E1D9C8" : "transparent"}`, borderRadius: 999, padding: "2px 9px", cursor: "pointer", fontFamily: "inherit" }}>
+              {recipient ? recipient.name : <><span style={{ color: C.accent }}>✦</span> datamodo</>}
+              <span style={{ fontSize: 9, color: "#A39B8B" }}>▾</span>
+            </button>
+            {recipient && (
+              <button type="button" onClick={() => pickAgent(null)} title="Back to the general agent" aria-label="Clear recipient"
+                style={{ background: "none", border: "none", color: "#A39B8B", cursor: "pointer", fontSize: 12, padding: 0, fontFamily: "inherit" }}>×</button>
+            )}
+            <span className="dm-mono" style={{ fontSize: 9.5, color: "#C9C2B4", marginLeft: "auto" }}>@ in the box works too</span>
+
+            {toOpen && (
+              <div style={{ position: "absolute", bottom: "calc(100% + 10px)", left: 0, zIndex: 60, minWidth: 280, maxWidth: 360, background: "#fff", border: "1px solid #E7E0D2", borderRadius: 12, boxShadow: "0 14px 34px rgba(33,30,24,.16)", overflow: "hidden" }}>
+                <button type="button" onClick={() => pickAgent(null)}
+                  style={{ display: "flex", alignItems: "baseline", gap: 8, width: "100%", textAlign: "left", padding: "8px 12px", background: recipient ? "transparent" : "#FBF8F1", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                  <span style={{ color: C.accent, fontSize: 12 }}>✦</span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 13, color: C.ink, fontWeight: 500 }}>datamodo</span>
+                    <span style={{ display: "block", fontSize: 11, color: "#8A8477", marginTop: 1 }}>the general agent — files anything</span>
+                  </span>
+                  {!recipient && <span style={{ marginLeft: "auto", color: C.green, fontSize: 12 }}>✓</span>}
+                </button>
+                {agents.map((a) => (
+                  <button key={a.id} type="button" onClick={() => pickAgent(a)}
+                    style={{ display: "flex", alignItems: "baseline", gap: 8, width: "100%", textAlign: "left", padding: "8px 12px", background: recipient?.id === a.id ? "#FBF8F1" : "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                    <span style={{ color: "#B7AF9F", fontSize: 12 }}>◦</span>
+                    <span style={{ minWidth: 0, flex: 1 }}>
+                      <span style={{ display: "block", fontSize: 13, color: C.ink, fontWeight: 500 }}>{a.name}</span>
+                      {a.purposeText && <span style={{ display: "block", fontSize: 11, color: "#8A8477", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.purposeText}</span>}
+                    </span>
+                    {recipient?.id === a.id && <span style={{ color: C.green, fontSize: 12, flexShrink: 0 }}>✓</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
         <button type="button" title="Attach photos, PDFs, documents… (or drag & drop, or paste)" aria-label="Attach files" onClick={() => fileInput.current?.click()} style={toolBtn(false)}>⊕</button>
         <button type="button" title={recording ? "Stop — the voice note lands in the tray" : "Record a voice note (transcribed automatically)"} aria-label={recording ? "Stop recording" : "Record a voice note"} onClick={() => void toggleRecord()} style={toolBtn(recording)}>
@@ -584,11 +699,21 @@ export function ChatView() {
           <textarea
             ref={textArea}
             value={text}
-            onChange={(e) => { setText(e.target.value); grow(); }}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
+            onChange={(e) => { setText(e.target.value); grow(); trackMention(e.target); }}
+            onSelect={(e) => trackMention(e.currentTarget)}
+            onKeyDown={(e) => {
+              // The mention popover owns the keyboard while it's open.
+              if (mention && mentionMatches.length > 0) {
+                if (e.key === "ArrowDown") { e.preventDefault(); setMentionIdx((i) => (i + 1) % mentionMatches.length); return; }
+                if (e.key === "ArrowUp") { e.preventDefault(); setMentionIdx((i) => (i - 1 + mentionMatches.length) % mentionMatches.length); return; }
+                if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickAgent(mentionMatches[mentionIdx], mention); return; }
+                if (e.key === "Escape") { e.preventDefault(); dismissedMention.current = mention.query; setMention(null); return; }
+              }
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); }
+            }}
             onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }}
             rows={1}
-            placeholder={dictating ? "listening…" : "Type, dictate, or drop any doc here — Enter sends"}
+            placeholder={dictating ? "listening…" : agents.length ? "Type, dictate, or drop any doc — @ addresses an agent · Enter sends" : "Type, dictate, or drop any doc here — Enter sends"}
             style={{ flex: 1, border: "none", outline: "none", resize: "none", fontFamily: "inherit", fontSize: 14, color: C.ink, background: "transparent", lineHeight: 1.5, padding: "7px 4px", maxHeight: 168 }}
           />
         )}
@@ -609,6 +734,7 @@ export function ChatView() {
             transition: "background .2s, box-shadow .2s, color .2s",
           }}
         >↑</button>
+        </div>
       </div>
       <div className="dm-mono" style={{ fontSize: 9.5, letterSpacing: "0.04em", color: "#B7AF9F", margin: "8px 4px 0" }}>
         same pipeline as every channel — photos understood · pdfs read page by page · voice notes transcribed · unsure reads come back as questions in review

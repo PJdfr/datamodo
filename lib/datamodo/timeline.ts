@@ -233,3 +233,106 @@ export function buildTimeline(
   });
   return events.slice(0, limit);
 }
+
+// --- Commit log (Review → History, the git-style view) ------------------------
+// The bitemporal vault makes history a QUERY, not new storage: each extraction
+// run (source item) is a "commit", the facts it wrote are the diff — a fact
+// that superseded an older one renders `~ was → now`, the rest `+ added`.
+// Same pure inputs as the timeline; the Review tab's Commits view renders it.
+
+export interface CommitDiffLine {
+  op: "add" | "change";
+  subject: TimelineEntityRef | null;
+  predicate: string;
+  value: string;
+  /** `change` only: the value this fact replaced. */
+  was?: string;
+  /** The value names another entity (relationship, not attribute). */
+  ref: boolean;
+}
+
+export interface TimelineCommit {
+  /** The source item — the commit's identity (short-id it in the UI). */
+  itemId: string;
+  ts: string; // when it arrived (ISO)
+  channel: string;
+  sender: string | null;
+  /** The commit message: the item's subject or preview. */
+  title: string;
+  added: number;
+  changed: number;
+  lines: CommitDiffLine[];
+}
+
+/**
+ * Group extraction runs into commits, newest first. A message that wrote no
+ * facts isn't a commit (nothing changed). `entityId` narrows to commits
+ * touching one entity — per-entity blame grows from here.
+ */
+export function buildCommitLog(
+  entities: TimelineEntityInput[],
+  facts: TimelineFactInput[],
+  items: TimelineItemInput[],
+  opts: { limit?: number; entityId?: string | null } = {},
+): TimelineCommit[] {
+  const limit = opts.limit ?? 100;
+  const entityId = opts.entityId ?? null;
+  const byId = new Map(entities.map((e) => [e.id, e]));
+  const labelOf = (id: string) => byId.get(id)?.label ?? "?";
+  const refOf = (id: string): TimelineEntityRef | null => {
+    const e = byId.get(id);
+    return e ? { id: e.id, kind: e.kind, label: e.label } : null;
+  };
+
+  // A new fact "changes" when some older fact points at it via supersededBy.
+  const wasByNewFact = new Map<string, string>();
+  for (const f of facts) {
+    if (f.supersededBy) wasByNewFact.set(f.supersededBy, formatFactValue(f, labelOf));
+  }
+
+  const factsByItem = new Map<string, TimelineFactInput[]>();
+  for (const f of facts) {
+    if (!f.sourceItemId) continue;
+    if (!factsByItem.has(f.sourceItemId)) factsByItem.set(f.sourceItemId, []);
+    factsByItem.get(f.sourceItemId)!.push(f);
+  }
+
+  const commits: TimelineCommit[] = [];
+  for (const it of items) {
+    let itemFacts = factsByItem.get(it.id) ?? [];
+    if (entityId) itemFacts = itemFacts.filter((f) => touches(f, entityId));
+    if (itemFacts.length === 0) continue;
+    const lines: CommitDiffLine[] = itemFacts
+      .map((f) => {
+        const was = wasByNewFact.get(f.id);
+        return {
+          op: (was !== undefined ? "change" : "add") as CommitDiffLine["op"],
+          subject: refOf(f.subjectEntityId),
+          predicate: f.predicate,
+          value: formatFactValue(f, labelOf),
+          ...(was !== undefined ? { was } : {}),
+          ref: f.objectEntityId != null,
+        };
+      })
+      // Changes first (the interesting part of a diff), then adds; stable
+      // within each group by subject then predicate — deterministic.
+      .sort((a, b) =>
+        (a.op === b.op ? 0 : a.op === "change" ? -1 : 1) ||
+        (a.subject?.label ?? "").localeCompare(b.subject?.label ?? "") ||
+        a.predicate.localeCompare(b.predicate),
+      );
+    commits.push({
+      itemId: it.id,
+      ts: it.receivedAt,
+      channel: it.channel,
+      sender: it.sender,
+      title: it.subject || it.preview || "Message",
+      added: lines.filter((l) => l.op === "add").length,
+      changed: lines.filter((l) => l.op === "change").length,
+      lines,
+    });
+  }
+
+  commits.sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts) || a.itemId.localeCompare(b.itemId));
+  return commits.slice(0, limit);
+}

@@ -1,14 +1,19 @@
-import { auth } from "./server";
+import { getAuth } from "./server";
 import { prisma } from "@/lib/prisma";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { provisionInbox } from "@/lib/datamodo/inbox";
+import { isLocalMode, LOCAL_USER } from "@/lib/local/config";
 import type { ActiveOrg } from "@/lib/datamodo/types";
 
 export type SessionUser = { id: string; email: string; name: string | null };
 
-/** The signed-in user, or null. Replaces `supabase.auth.getUser()`. */
+/** The signed-in user, or null. Replaces `supabase.auth.getUser()`.
+ *  Local edition: there is exactly one user (the person at the keyboard), so
+ *  auth is a constant — no Neon Auth, no login — and provisioning runs the
+ *  same as any first sign-in. */
 export async function getSessionUser(): Promise<SessionUser | null> {
-  const { data: session } = await auth.getSession();
+  if (isLocalMode()) return { ...LOCAL_USER };
+  const { data: session } = await (await getAuth()).getSession();
   const u = session?.user;
   if (!u) return null;
   return { id: u.id, email: u.email ?? "", name: u.name ?? null };

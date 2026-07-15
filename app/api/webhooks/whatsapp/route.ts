@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { ingest } from "@/lib/ingest/store";
 import { getBoundSource, redeemChannelLinkCode } from "@/lib/datamodo/channels";
 import { applyReviewReply } from "@/lib/datamodo/review-inbox";
+import { isLocalMode } from "@/lib/local/config";
 import type { IngestAttachment, IngestEnvelope } from "@/lib/ingest/types";
 
 // WhatsApp inbound adapter (Twilio BSP). Twilio delivers each inbound message
@@ -64,6 +65,8 @@ async function fetchMedia(url: string, contentType: string | null): Promise<Inge
 }
 
 export async function POST(req: Request) {
+  // Cloud-only: local capture is IMAP-pull (see /api/local/imap), no webhook.
+  if (isLocalMode()) return new NextResponse("Not found", { status: 404 });
   const token = process.env.TWILIO_AUTH_TOKEN;
   if (!token) {
     console.error("[whatsapp] TWILIO_AUTH_TOKEN not set");

@@ -497,10 +497,13 @@ interface ItemRow {
   channel: string | null;
   body_hash: string | null;
   body_preview: string | null;
+  /** Channel envelope (jsonb) — chat addressing stores `agent_id` here. */
+  meta?: unknown;
 }
 
-/** Load an item's best-available text (full body blob, else the preview). */
-async function loadItemText(item: ItemRow): Promise<string> {
+/** Load an item's best-available text (full body blob, else the preview).
+ *  Exported for the MCP pull model (process_inbox hands Claude the text). */
+export async function loadItemText(item: Pick<ItemRow, "org_id" | "body_hash" | "body_preview">): Promise<string> {
   if (item.body_hash) {
     try {
       const buf = await readBlob(item.org_id, item.body_hash);
@@ -583,6 +586,7 @@ export async function runExtractionForItem(
       channel: true,
       body_hash: true,
       body_preview: true,
+      meta: true,
     },
   });
   const row = item as unknown as ItemRow;
@@ -590,6 +594,16 @@ export async function runExtractionForItem(
   await prisma.items.update({ where: { id: row.id }, data: { status: "analyzing" } });
   try {
     const text = await loadItemText(row);
+    // Addressed items (chat "@agent" / picker) carry their agent in meta —
+    // that agent's purpose steers extraction. An explicit param still wins;
+    // no addressee = no steering (the general datamodo agent). Best-effort.
+    const addressedAgentId = (row.meta as { agent_id?: string } | null)?.agent_id;
+    if (agentPurpose == null && addressedAgentId) {
+      agentPurpose = await prisma.agents
+        .findFirst({ where: { id: addressedAgentId, org_id: row.org_id }, select: { purpose_text: true } })
+        .then((a) => a?.purpose_text ?? null)
+        .catch(() => null);
+    }
     const businessContext = row.owner_user_id
       ? (await getOnboardingContext(row.owner_user_id)).businessContext
       : null;

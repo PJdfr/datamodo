@@ -1,9 +1,10 @@
-// Provider-agnostic LLM interface. Datamodo always talks to SOME hosted model
-// via an API key — OpenRouter, OpenAI, or Anthropic — so all call sites depend
-// on this interface, never a concrete provider. Pick one with getLlmProvider()
-// (see ./index.ts); the `provider` arg / LLM_PROVIDER env routes to the impl.
+// Provider-agnostic LLM interface. Datamodo talks to SOME OpenAI-shaped model
+// server — OpenRouter, OpenAI, Anthropic, or a keyless Ollama — so all call
+// sites depend on this interface, never a concrete provider. Pick one with
+// getLlmProvider() (see ./index.ts); the `provider` arg / LLM_PROVIDER env
+// routes to the impl.
 
-export type ProviderName = "openrouter" | "openai" | "anthropic";
+export type ProviderName = "openrouter" | "openai" | "anthropic" | "ollama";
 
 /** One image attached to a chat request (the vision tier). */
 export interface ChatImage {
@@ -39,6 +40,24 @@ export interface LlmModels {
    *  override via env when the workhorse can't see (a blind model just errors
    *  and the caller degrades to metadata_only). */
   vision: string;
+}
+
+/** Token usage + cost of ONE completed call — surfaced via `onUsage` so BYOK
+ *  spend can be recorded. `costUsd` is the provider's EXACT number when it
+ *  returns one (OpenRouter), else null (the recorder prices it from the token
+ *  counts). Fail-soft: a call with no usage block simply doesn't fire. */
+export interface LlmUsage {
+  provider: ProviderName;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  /** Provider-reported cost in USD, when available (OpenRouter). */
+  costUsd: number | null;
+}
+
+/** Optional wiring passed to a provider so each call reports its usage. */
+export interface ProviderHooks {
+  onUsage?: (u: LlmUsage) => void;
 }
 
 export interface LlmProvider {

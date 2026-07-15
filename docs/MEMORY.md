@@ -5,7 +5,7 @@
 > how we work, what we decided and why. Siblings: [STATE.md](STATE.md) ·
 > [FLOW.md](FLOW.md) · [ROADMAP.md](ROADMAP.md).
 >
-> Last updated: 2026-07-14
+> Last updated: 2026-07-15
 
 ## What datamodo is (the aim)
 Turn unstructured personal communications into **structured, reviewable,
@@ -103,12 +103,14 @@ progressive disclosure over adding parallel options: before adding a toggle,
 button, or view, ask what it replaces or where it nests. Views multiply only
 when each answers a genuinely different question; controls the user rarely
 needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
-- **Applied 2026-07-11, final same-day revision (IA shape — keep it this
-  way):** the Data tab is **ONE FLAT toggle** — ▦ Tables · ◍ Explore ·
-  ⊛ Graph · Timeline · Files · Insights. NO toggles inside toggles.
+- **Applied 2026-07-11, revised 2026-07-14 (IA shape — keep it this way):**
+  the Data tab is **ONE FLAT toggle** — ▦ Tables · ◍ Explore · ⊛ Graph ·
+  Files · Insights. NO toggles inside toggles.
   (⊛ Graph added 2026-07-14: the sigma.js whole-vault experiment runs as a
   PEER of Explore — one is "stand on a node", the other "see everything" —
-  pending the roadmap's keep/kill call.)
+  pending the roadmap's keep/kill call. Timeline MOVED under Review the same
+  day — user call: **Review owns ALL change, pending and past** — where it
+  sits in Review's own flat toggle: ✓ Pending · ⎇ Commits · ◷ Timeline.)
   - **Tables, Cards and Concepts are ONE feature and ONE object** (user
     decision): a category IS a table IS a concept-form. The Tables surface is
     a Supabase-style schema diagram (kind cards = columns + FK relation rows,
@@ -181,6 +183,20 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
   choice. Every stored vector carries an `embedding_model` stamp; ANN recall
   filters to the current space (stale rows degrade to trigram, never poison
   matching); changing `EMBEDDINGS_MODEL` means running
-  `POST /api/jobs/embed-requeue` until `remaining` hits 0. The local edition
-  picks its space once at install (any OpenAI-compatible server) under the
-  same rule.
+  `POST /api/jobs/embed-requeue` until `remaining` hits 0.
+  - **Cloud (hosted) product → embeddings run cloud-side** (our configured
+    model/API), NEVER on the user's machine — the one-space rule makes them
+    non-BYOK, background extraction can't depend on a user's PC being awake,
+    and quality matters for GraphRAG recall. This is the default.
+  - **Local (self-hosted) edition → embeddings run LOCAL** (decided
+    2026-07-14, **shipped 2026-07-15**): the whole deployment IS one user, so
+    the one-space rule is satisfied automatically, and privacy/no-key/offline
+    are the point. `serve` defaults embeddings to a local Ollama server
+    (`http://localhost:11434/v1`, `nomic-embed-text`, 768-dim) **only when no
+    cloud embeddings key/URL is set** — an OpenAI-key user keeps their 1536
+    provider untouched. The dimension is no longer hardcoded: `serve` passes
+    `embeddingDim` to the embedded DB's `ensureSchema`, which resizes the
+    `entities`/`doc_chunks` vector columns to match on the fresh build (default
+    1536; 768 for the Ollama default) — so a 768-dim model is no longer
+    rejected at store time. Space is still stamped once + requeue-on-change.
+    All fail-soft: no Ollama/model → embeddings return null → keyword fallback.

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { ingest } from "@/lib/ingest/store";
 import { isHandleBound, redeemChannelLinkCode } from "@/lib/datamodo/channels";
+import { isLocalMode } from "@/lib/local/config";
 import type { IngestEnvelope } from "@/lib/ingest/types";
 
 // Microsoft Teams inbound adapter (Azure Bot Service / Bot Framework). One
@@ -45,6 +46,8 @@ interface TeamsActivity {
 }
 
 export async function POST(req: Request) {
+  // Cloud-only: local capture is IMAP-pull (see /api/local/imap), no webhook.
+  if (isLocalMode()) return new NextResponse("Not found", { status: 404 });
   if (!(await verifyBotToken(req.headers.get("authorization")))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }

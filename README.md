@@ -112,6 +112,60 @@ front-end ↔ backend map and the risks/decisions behind each item.
 > This repo runs a modified Next.js — read the guides in
 > `node_modules/next/dist/docs/` before writing app code (see `AGENTS.md`).
 
+## Run it locally (self-hosted, single-user)
+
+The **local edition** runs the whole app on your own machine: one user, no login,
+its own embedded database, your files on your disk. A published
+`npm install -g datamodo` is the goal but **not live yet** — today you run it
+from a clone.
+
+```bash
+git clone <this-repo> datamodo && cd datamodo
+npm install
+
+# Build once — no env vars needed (cloud auth/billing/webhook code is lazy and
+# never evaluated in local mode).
+DATAMODO_LOCAL=1 npm run build
+
+# Run it. Boots an embedded Postgres (pglite — no Docker, no DB install) and the
+# dashboard. First run builds the schema automatically.
+node bin/datamodo.mjs serve         # → http://localhost:4321  (no login)
+```
+
+Open **http://localhost:4321** and you land straight in the dashboard. Prereqs:
+**Node ≥ 20** — nothing else (no Docker, no Postgres).
+
+**Choosing your LLM** (Settings → *Bring your own key*):
+
+- **Ollama** — no key, models run on your machine (`ollama pull llama3.1`). Fully offline.
+- **Anthropic / OpenAI / OpenRouter** — an **API key** (billed per use).
+
+> **Your Claude Pro / Claude Code (or ChatGPT Plus) subscription is _not_ an API
+> key** and can't be used as the pipeline's provider. You *can* use it a different
+> way: **Settings → Connect Claude (MCP)** exposes your vault as tools to Claude,
+> and Claude — on your subscription — reads your inbox, extracts, and writes back.
+> (MCP locally needs `MCP_TOKEN_SECRET` set in the environment.)
+
+**Semantic search / embeddings** run **locally via Ollama** out of the box: when
+no cloud embeddings key is set, `serve` points embeddings at
+`http://localhost:11434/v1` with `nomic-embed-text` (768-dim), and the embedded
+DB builds its vector columns to match. Just `ollama pull nomic-embed-text`. To use
+a different model/server or OpenAI instead, set `EMBEDDINGS_BASE_URL` /
+`EMBEDDINGS_MODEL` / `EMBEDDINGS_COLUMN_DIM` (or an `OPENAI_API_KEY`) before
+`serve`. Without any of that, capture/extraction/tables/graph still work — only
+*semantic* recall falls back to keyword search.
+
+**Capture mail** (a local install has no public URL for webhooks, so it *pulls*):
+add a mailbox in **Settings → Mailboxes**, or:
+
+```bash
+node bin/datamodo.mjs connect --host imap.gmail.com --user you@gmail.com --pass <app-password>
+node bin/datamodo.mjs connect --list        # or --remove <id>
+```
+
+New mail is captured while `datamodo serve` is running. (Gmail/Outlook need an
+**app-specific password**, not your account password.)
+
 ## Local development
 
 ```bash

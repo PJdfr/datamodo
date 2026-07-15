@@ -3,7 +3,9 @@ import { getSessionUser } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { searchDatasets, searchKnowledge } from "@/lib/datamodo/search";
 import { searchChunks } from "@/lib/datamodo/chunks";
-import { listKnowledge } from "@/lib/datamodo/knowledge";
+import { annLinkEntities, listKnowledge } from "@/lib/datamodo/knowledge";
+import { linkQueryEntities, expandFromSeeds, mergeKnowledgeHits } from "@/lib/datamodo/graphrag";
+import { embedTexts } from "@/lib/llm/embeddings";
 import { answerQuestion } from "@/lib/datamodo/answer";
 
 // Keyword search over the caller's own tables AND knowledge layer (entities +
@@ -32,7 +34,30 @@ export async function GET(req: Request) {
     listKnowledge(org.id).catch(() => []),
   ]);
   const entities = searchKnowledge(kviews, result.terms);
-  const passages = await searchChunks(org.id, result.terms).catch(() => []);
-  const answer = wantAnswer ? await answerQuestion(user.id, q, result.hits, entities, passages) : null;
+
+  if (!wantAnswer) {
+    // Plain search: passages recall two ways — exact terms + semantic ANN
+    // over the raw query (fail-soft: keyword-only without an embeddings key).
+    const passages = await searchChunks(org.id, result.terms, { query: q }).catch(() => []);
+    return NextResponse.json({ ...result, entities, passages, answer: null });
+  }
+
+  // Answer mode is GRAPH-FIRST (GraphRAG): link the query to entities (text
+  // coverage + one query embedding shared with the chunk leg), traverse the
+  // fact graph around those seeds, and SCOPE chunk retrieval to that
+  // neighborhood. Every step fails soft back to the plain keyword evidence.
+  const vector = (await embedTexts([q]).catch(() => null))?.[0] ?? null;
+  const textSeeds = linkQueryEntities(kviews, result.terms);
+  const annSeeds = vector ? await annLinkEntities(org.id, vector) : [];
+  const graph = expandFromSeeds(kviews, [...new Set([...textSeeds, ...annSeeds])]);
+  const evidence = mergeKnowledgeHits(entities, graph.hits);
+  const passages = await searchChunks(org.id, result.terms, {
+    query: q,
+    vector,
+    entityIds: graph.scopeIds.length ? graph.scopeIds : undefined,
+  }).catch(() => []);
+  const answer = await answerQuestion(user.id, q, result.hits, evidence, passages);
+  // The UI's result lists keep the plain keyword hits; only the grounded
+  // answer runs on the graph evidence.
   return NextResponse.json({ ...result, entities, passages, answer });
 }
