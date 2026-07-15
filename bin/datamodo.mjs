@@ -195,8 +195,11 @@ function runNextBuild() {
 
 program
   .command("build")
-  .description("Build the app for local use (sets DATAMODO_LOCAL for you)")
+  .description("Rebuild the app for local use, cleanly (sets DATAMODO_LOCAL for you)")
   .action(async () => {
+    // Always a CLEAN rebuild: clear .next so a code change (e.g. after `git
+    // pull`) can't be masked by a stale build that `serve` would happily reuse.
+    await fs.rm(path.join(APP_ROOT, ".next"), { recursive: true, force: true });
     await runNextBuild();
     console.log("✓ built — now run: datamodo serve");
   });
