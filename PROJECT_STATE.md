@@ -12,6 +12,121 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-15** — **Cloud/local split, step A: clean local build, no cloud
+  eval** (user call "go for A" — the cheap one-repo half of the code-separation
+  requirement). Investigation first: cloud deps are remarkably well-contained —
+  `@neondatabase/auth` only in `lib/auth/{server,client}.ts`, the neon Prisma
+  adapter only in `lib/prisma.ts`, `stripe` constructed lazily INSIDE the 2
+  billing route handlers (settings.ts does NOT import the SDK — earlier grep was
+  a false positive on the `setPlanFromStripe` name), and the whole better-auth
+  engine reached by only 4 files. The one thing that broke the local build /
+  forced a placeholder secret was **Neon Auth built at module load**
+  (`createNeonAuth` reads `NEON_AUTH_*` and throws without it; the `/api/auth`
+  route evaluated it during page-data collection). Fix: `lib/auth/server.ts` now
+  exports **`getAuth()`** — a lazy singleton that dynamic-imports better-auth on
+  first real call — and its 4 importers (`session.ts`, `app/auth/actions.ts`,
+  `proxy.ts` now async, `/api/auth/[...path]` now per-request + `isLocalMode()`
+  404) were updated. Result, VERIFIED: **`DATAMODO_LOCAL=1 npm run build`
+  succeeds with ZERO env vars** (previously required a placeholder
+  `NEON_AUTH_COOKIE_SECRET`) and the `[neon-auth]` cookie warnings are gone; the
+  local runtime never constructs better-auth. Cloud build WITH its secret still
+  passes (no CI regression); cloud build without it fails at `/dashboard`
+  prerender as expected (cloud legitimately needs cloud config). Also guarded
+  the pure-cloud routes with `isLocalMode()` → 404: `/api/billing/{checkout,
+  webhook}`, `/api/webhooks/{whatsapp,slack,teams}`. HONEST SCOPE: this is
+  bundle/eval-level dormancy + a clean secret-free local build — it does NOT
+  make cloud code physically absent from the source (the neon Prisma adapter is
+  still statically imported by the sync `prisma` singleton; cloud route files
+  still exist, compiled but inert). Physical severance is steps B/C (workspace
+  split / build-time prune) and remains required before OSS. Verified: `tsc`
+  clean, lint at baseline (7/16), 228 tests pass, local build zero-secret green,
+  cloud build with secret green. Docs: ROADMAP (step A done + B/C framed),
+  README (build step drops the placeholder).
+- **2026-07-15** — **Local edition: local embeddings that actually work**
+  (fulfils the 2026-07-14 "local = local embeddings" decision, which was
+  recorded but never wired — user asked point-blank "if I do npm install will
+  it use local embeddings?", and the honest answer was no). Two parts:
+  (1) **Configurable pgvector column dimension** — the embedded DB hardcoded
+  `vector(1536)`, so a local model like Ollama `nomic-embed-text` (768-dim) was
+  rejected at store time. `ensureSchema` now takes `{ embeddingDim }` and, on
+  the FRESH build (columns empty → safe), `ALTER`s `entities.embedding` +
+  `doc_chunks.embedding` to that dimension before creating the hnsw index; the
+  `.schema-version` marker is now `<version>:<dim>` so a dim change re-pushes.
+  (2) **Offline-first defaults** — `serve` (bin `embeddingDefaults` / app-side
+  `localEmbeddingDefaults`) points embeddings at a local Ollama server
+  (`http://localhost:11434/v1`, `nomic-embed-text`, `EMBEDDINGS_COLUMN_DIM=768`)
+  **only when no cloud embeddings key/URL is set** — an OpenAI-key user keeps
+  their 1536 provider untouched; `serve` also exports `DATAMODO_DATA_DIR`.
+  Everything stays fail-soft: no Ollama/model → `embedTexts` returns null →
+  keyword-search fallback (no regression), and the cloud path is byte-identical.
+  `lib/llm/embeddings.ts` is UNCHANGED (the OpenAI `dimensions` API param still
+  only fires on `EMBEDDINGS_DIMENSIONS`, which the local default doesn't set).
+  Verified: `tsc` clean, lint at baseline (7/16), 228 tests pass + BOTH guarded
+  DB integration tests green — the new one builds the schema at 768 dims against
+  real pglite and asserts `entities.embedding` is `vector(768)` and a 768-d
+  vector stores + ANN-round-trips (sim ~1). The live Ollama HTTP call isn't
+  exercised in CI (no Ollama) — flagged, and it's fail-soft. README gained a
+  "Run it locally" section (install → LLM options incl. the "your Claude
+  subscription isn't an API key, but MCP lets you use it" note → local
+  embeddings → mailboxes). Docs: MEMORY (decision → shipped), STATE env matrix.
+- **2026-07-15** — **Local edition, phase 3b: manage IMAP mailboxes from the
+  dashboard + poller hot-reload** (follows 3a below; the CLI-only friction was
+  the gap). Two parts, both gated on `isLocalMode()`:
+  (1) **Hot-reload** — `startConnectors` now re-reads `connectors.json` at the
+  start of EVERY tick (was once at boot) and lazy-loads imapflow, so a mailbox
+  added/removed at runtime is picked up within one 60 s interval with no `serve`
+  restart; a corrupt file is logged, not fatal; the returned handle exposes
+  `tick()` (for a future "poll now" + tests). A newly-added mailbox still goes
+  through the first-run UID high-water mark (no backfill), then captures new
+  mail. (2) **Dashboard UI** — a new local-only route
+  `app/api/local/connectors` (GET list / POST add / DELETE remove) writes the
+  SAME `connectors.json` the CLI uses, via shared store helpers moved into
+  `imap-poll.mjs` (`writeConnectors`/`addConnector`/`removeConnector`/
+  `publicConnectors`, all re-validating through `parseConnectors`, chmod
+  `0600`); the CLI `connect` command was refactored onto those helpers (one
+  validated path). A `ConnectorsCard` in Settings (shown only when the
+  `ControlCenter local` prop is set) lists mailboxes and adds/removes them;
+  passwords are WRITE-ONLY (sent on add, `publicConnectors` strips them, never
+  echoed). `serve` now also exports `DATAMODO_DATA_DIR`; the app resolves the
+  data dir via a new pure `localDataDir()` (env → parent of `BLOB_DIR` →
+  `~/.datamodo`). Verified: `tsc` clean, lint at baseline (7/16) — matched the
+  codebase's `live`-guarded `.then()` effect pattern to avoid the
+  set-state-in-effect rule — 226 tests pass (3 new: store round-trip incl. the
+  no-password-leak check, duplicate-id rejection, and an end-to-end hot-reload
+  drive: add a mailbox after start → next tick records the high-water mark and
+  captures nothing → new mail arrives → following tick captures it), `next
+  build` green (both `/api/local/*` routes compile), CLI add/list/remove
+  smoke-tested through the shared helpers. Live IMAP still not in CI.
+- **2026-07-15** — **Local edition, phase 3a: IMAP BYOB connector** (roadmap
+  "Phase 3 — BYOB connectors, IMAP first"). A self-hosted install has no public
+  URL, so the cloud webhooks don't apply — instead it PULLS from the user's own
+  mailbox. `datamodo connect --host imap.gmail.com --user you@… --pass <app-pw>
+  [--mailbox INBOX] [--insecure]` writes a `0600` `connectors.json` (with
+  `--list` / `--remove <id>`); `datamodo serve` then, once the dashboard is up,
+  runs an in-process poller (imapflow) that watches each mailbox on a 60 s tick.
+  First sight of a connector records the UID high-water mark and captures
+  nothing (so connecting an old mailbox doesn't backfill years of mail); from
+  then on each NEW message's raw RFC822 is downloaded and POSTed to a new
+  local-only route `POST /api/local/imap` (gated on `isLocalMode()` + a
+  per-install `INGEST_WEBHOOK_SECRET` persisted at `~/.datamodo/.ingest-secret`),
+  which parses it (mailparser), maps it to an `IngestEnvelope`, resolves the
+  single local org, and feeds it through the SAME `ingest()` + extraction-kick
+  path as every other channel. Per-connector UID cursor lives in
+  `connectors-state.json`; the message-id (namespaced by connector) is the
+  idempotency key; a rejected ingest doesn't advance the cursor (retried next
+  tick). Split by runtime: the mapping (`lib/local/connectors/imap.ts`, TS) is
+  used by the route; config-parse + cursor + poll (`imap-poll.mjs`, plain JS)
+  are used by the CLI, which can't import TS. The `after()` extraction kick was
+  extracted into a shared `lib/ingest/kick.ts` used by both `/api/ingest` and
+  the new route. New deps: `imapflow`, `mailparser` (+ `@types/mailparser`);
+  `mailparser` added to `serverExternalPackages`. Verified: `tsc` clean, lint
+  at baseline (7/16), 224 tests pass (13 new, incl. the poll loop against a
+  FAKE IMAP client + fetch — no network), `next build` green (the
+  `/api/local/imap` route compiles), and the `connect` add/list/remove CLI
+  path smoke-tested (derived id, `0600` perms). NOT verified: a live IMAP
+  session (no server in CI) — flagged, consistent with prior local phases.
+  Still TODO in phase 3: Telegram, Slack Socket Mode, WhatsApp/Teams dead-drop,
+  and a dashboard UI to manage connectors (today CLI-only).
 - **2026-07-15** — **Local edition: no login** (user ask: "also for the local,
   remove the auth, the user do not even need a login"). In local mode the app
   no longer has any auth surface — you open localhost and land directly in the

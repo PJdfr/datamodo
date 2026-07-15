@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import { getSessionUser } from "@/lib/auth/session";
+import { isLocalMode } from "@/lib/local/config";
 
 // Starts a Stripe Checkout for a plan upgrade. Inert (503) until the Stripe
 // env vars are set, so the app builds and runs without billing configured.
@@ -11,6 +12,8 @@ const PRICE_ENV: Record<string, string | undefined> = {
 };
 
 export async function POST(req: Request) {
+  // Cloud-only: the local edition is single-user and unbilled.
+  if (isLocalMode()) return new Response("Not found", { status: 404 });
   const secret = process.env.STRIPE_SECRET_KEY;
   if (!secret) {
     return Response.json({ error: "Billing isn’t configured yet." }, { status: 503 });

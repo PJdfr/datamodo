@@ -5,7 +5,7 @@
 > how we work, what we decided and why. Siblings: [STATE.md](STATE.md) ·
 > [FLOW.md](FLOW.md) · [ROADMAP.md](ROADMAP.md).
 >
-> Last updated: 2026-07-14
+> Last updated: 2026-07-15
 
 ## What datamodo is (the aim)
 Turn unstructured personal communications into **structured, reviewable,
@@ -189,9 +189,14 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
     non-BYOK, background extraction can't depend on a user's PC being awake,
     and quality matters for GraphRAG recall. This is the default.
   - **Local (self-hosted) edition → embeddings run LOCAL** (decided
-    2026-07-14): the whole deployment IS one user, so the one-space rule is
-    satisfied automatically, and privacy/no-key/offline are the point. It
-    still picks its space ONCE at install (local Ollama `nomic-embed-text`,
-    or the user's own key) under the same stamp+requeue rule. Dimension note:
-    the columns are `vector(1536)`; a 768-dim local model needs the column
-    widened at install (local-edition setup step).
+    2026-07-14, **shipped 2026-07-15**): the whole deployment IS one user, so
+    the one-space rule is satisfied automatically, and privacy/no-key/offline
+    are the point. `serve` defaults embeddings to a local Ollama server
+    (`http://localhost:11434/v1`, `nomic-embed-text`, 768-dim) **only when no
+    cloud embeddings key/URL is set** — an OpenAI-key user keeps their 1536
+    provider untouched. The dimension is no longer hardcoded: `serve` passes
+    `embeddingDim` to the embedded DB's `ensureSchema`, which resizes the
+    `entities`/`doc_chunks` vector columns to match on the fresh build (default
+    1536; 768 for the Ollama default) — so a 768-dim model is no longer
+    rejected at store time. Space is still stamped once + requeue-on-change.
+    All fail-soft: no Ollama/model → embeddings return null → keyword fallback.

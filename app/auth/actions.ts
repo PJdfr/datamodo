@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth/server";
+import { getAuth } from "@/lib/auth/server";
 import { isLocalMode } from "@/lib/local/config";
 
 function safeNext(value: FormDataEntryValue | null): string {
@@ -18,7 +18,7 @@ export async function login(formData: FormData) {
   const password = String(formData.get("password") ?? "");
   const next = safeNext(formData.get("redirectTo"));
 
-  const { error } = await auth.signIn.email({ email, password });
+  const { error } = await (await getAuth()).signIn.email({ email, password });
   if (error) {
     redirect(`/login?error=${encodeURIComponent(error.message ?? "Sign in failed")}`);
   }
@@ -33,7 +33,7 @@ export async function signup(formData: FormData) {
   const password = String(formData.get("password") ?? "");
   const fullName = String(formData.get("fullName") ?? "").trim();
 
-  const { error } = await auth.signUp.email({
+  const { error } = await (await getAuth()).signUp.email({
     email,
     password,
     name: fullName || email.split("@")[0] || "New user",
@@ -52,7 +52,7 @@ export async function signup(formData: FormData) {
 export async function signout() {
   // Local edition: nothing to sign out of — stay in the app.
   if (isLocalMode()) redirect("/dashboard");
-  await auth.signOut();
+  await (await getAuth()).signOut();
   revalidatePath("/", "layout");
   redirect("/login");
 }

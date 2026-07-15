@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { setPlanFromStripe } from "@/lib/datamodo/settings";
+import { isLocalMode } from "@/lib/local/config";
 import type { Plan } from "@/lib/datamodo/plans";
 
 // Stripe webhook → keeps user_settings.plan in sync with the subscription.
@@ -9,6 +10,7 @@ import type { Plan } from "@/lib/datamodo/plans";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  if (isLocalMode()) return new Response("Not found", { status: 404 });
   const secret = process.env.STRIPE_SECRET_KEY;
   const whSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret || !whSecret) return new Response("Billing not configured", { status: 503 });
