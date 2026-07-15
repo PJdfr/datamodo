@@ -167,9 +167,13 @@ function cliEntry(pkgName) {
   return path.join(path.dirname(require.resolve(`${pkgName}/package.json`)), bin);
 }
 
-/** True once a production build exists (BUILD_ID is written at the end). */
+/** True once a COMPLETE production build exists. We check prerender-manifest.json
+ *  — written at the very END of a successful build and required by `next start`
+ *  — rather than BUILD_ID (written early during compile). A build that failed or
+ *  was interrupted leaves BUILD_ID but not this, so it's correctly seen as
+ *  "needs (re)build" instead of crashing `next start` on a missing manifest. */
 function hasBuild() {
-  return fs.access(path.join(APP_ROOT, ".next", "BUILD_ID")).then(() => true, () => false);
+  return fs.access(path.join(APP_ROOT, ".next", "prerender-manifest.json")).then(() => true, () => false);
 }
 
 /** Run `next build` in LOCAL mode. Setting DATAMODO_LOCAL=1 here is what keeps
@@ -213,6 +217,9 @@ program
     // is the difference between a working local build and a /dashboard prerender
     // crash asking for cloud auth secrets. A prebuilt package skips this.
     if (!(await hasBuild())) {
+      // Clear any partial `.next` from a failed/interrupted build first — a
+      // half-written build makes `next start` crash on a missing manifest.
+      await fs.rm(path.join(APP_ROOT, ".next"), { recursive: true, force: true });
       await runNextBuild();
     }
 
