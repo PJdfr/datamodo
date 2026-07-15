@@ -120,6 +120,18 @@ export interface ExtractedDocText {
   pageTexts?: { page: number; text: string }[];
 }
 
+/** A PDF whose text layer is empty/near-empty is a SCAN — the content is
+ *  pixels, not text. Below this many extracted chars per page we treat it as
+ *  scanned and route it to the vision tier (rasterize → extractFromImage)
+ *  instead of leaving it metadata_only. Deterministic, unit-tested. */
+export const SCANNED_PDF_CHARS_PER_PAGE = 24;
+
+export function isLikelyScannedPdf(doc: Pick<ExtractedDocText, "text" | "pages">): boolean {
+  if (!doc.pages || doc.pages < 1) return false; // not a PDF (no page count)
+  const chars = doc.text.replace(/\s/g, "").length;
+  return chars < SCANNED_PDF_CHARS_PER_PAGE * doc.pages;
+}
+
 /** Pull the text layer out of an attachment's bytes, capped. Throws on
  *  unparseable input — the caller degrades to metadata-only indexing. */
 export async function extractAttachmentText(
@@ -142,6 +154,26 @@ export async function extractAttachmentText(
   }
   const s = Buffer.from(bytes).toString("utf8").trim();
   return { text: s.slice(0, MAX_DOC_CHARS), truncated: s.length > MAX_DOC_CHARS, pages: null };
+}
+
+/** Rasterize a scanned PDF's first page to a PNG for the vision tier. Returns
+ *  base64 PNG + media type, or null (never throws) when rendering isn't
+ *  possible here (no canvas backend, corrupt PDF) — the caller then stays
+ *  metadata_only exactly as before. `scale: 2` keeps text legible to the
+ *  vision model without ballooning the payload. Page 1 only in v1 — most
+ *  scanned receipts/invoices are one page; multi-page OCR is a follow-up. */
+export async function rasterizePdfFirstPage(bytes: Uint8Array): Promise<{ imageBase64: string; mediaType: string } | null> {
+  try {
+    const { renderPageAsImage } = await import("unpdf");
+    const buf = await renderPageAsImage(new Uint8Array(bytes), 1, {
+      scale: 2,
+      canvasImport: () => import("@napi-rs/canvas") as unknown as Promise<typeof import("@napi-rs/canvas")>,
+    });
+    return { imageBase64: Buffer.from(buf).toString("base64"), mediaType: "image/png" };
+  } catch (e) {
+    console.error("[documents] scanned-PDF rasterization failed", e);
+    return null;
+  }
 }
 
 // --- Chunks: the evidence layer -------------------------------------------------

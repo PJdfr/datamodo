@@ -331,8 +331,15 @@
   column-mapping overrides (kind, identity column, per-column link/fact/skip,
   link target), and cross-row reference dedupe before ingest
   (`combineExtractions` — "Acme" on 200 rows resolves once).
-- **Scanned-PDF OCR** — the vision tier's deliberate v1 cut: rasterize pages
-  (canvas) → same `extractFromImage` call → thick nodes for scans.
+- ~~**Scanned-PDF OCR**~~ ✅ 2026-07-14 — a PDF whose text layer is empty/
+  near-empty (`isLikelyScannedPdf`: < ~24 chars/page) is a SCAN: rasterize
+  page 1 (`rasterizePdfFirstPage` — `unpdf` `renderPageAsImage` + native
+  `@napi-rs/canvas`, externalized in `next.config.ts`) → the SAME
+  `extractFromImage` vision tier as a photo → thick node. Fail-soft: no
+  canvas / no vision key / bad bytes → stays `metadata_only` exactly as
+  before. Live-verified: the helper rasterizes a real PDF to a valid PNG and
+  returns null (never throws) on garbage. Follow-up: multi-page scans (v1 is
+  page 1 — most receipts/invoices are one page).
 - **Local / open-source single-user edition** — fully designed (see
   PROJECT_STATE "-3"): fs blobs, `@prisma/adapter-pg`, `SINGLE_USER=1`, worker
   loop, BYOB connectors (IMAP first, Telegram, Slack Socket Mode, dead-drop
