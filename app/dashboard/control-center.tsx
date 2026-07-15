@@ -2062,6 +2062,8 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
               ? <>No API key needed — models run on <b>your own machine</b>. The URL must be reachable from datamodo&apos;s servers: on the same box use localhost; otherwise expose it via a tunnel (Tailscale funnel, ngrok, cloudflared). Pull a JSON-capable model first (ollama pull llama3.1).</>
               : <>This is an <b>API key</b> (billed per use), not your ChatGPT Plus / Claude Pro subscription — those don&apos;t grant API access. Get one from {provider === "openai" ? "platform.openai.com" : provider === "openrouter" ? "openrouter.ai/keys" : "console.anthropic.com"}. OpenRouter gives you one key across many models. Signing in to authorise your account is on the roadmap.</>}
           </div>
+          {/* Local edition: pick the exact model names here instead of env vars. */}
+          {local && <LocalModelsFields />}
         </div>
       )}
 
@@ -2188,6 +2190,52 @@ function ConnectorsCard() {
       {list && list.length === 0 && !open && (
         <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginTop: 10 }}>No mailboxes yet. New mail is captured while <span style={{ userSelect: "all" }}>datamodo serve</span> is running.</div>
       )}
+    </div>
+  );
+}
+
+/* Local edition — pick the model NAMES here instead of env vars. The URL/key
+ * above says WHERE; this says WHICH model handles text vs. images/scanned PDFs.
+ * Saved to ~/.datamodo/llm.json; blank falls back to the env var, then default. */
+function LocalModelsFields() {
+  const [extract, setExtract] = useState("");
+  const [vision, setVision] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    fetch("/api/local/llm-models")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (live && j?.models) { setExtract(j.models.extract ?? ""); setVision(j.models.vision ?? ""); } })
+      .catch(() => { /* leave blank → defaults */ });
+    return () => { live = false; };
+  }, []);
+
+  const save = async () => {
+    try {
+      const res = await fetch("/api/local/llm-models", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ models: { extract, vision } }),
+      });
+      if (res.ok) { setSaved(true); window.setTimeout(() => setSaved(false), 1600); }
+    } catch { /* best-effort */ }
+  };
+
+  return (
+    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #ECE5D8" }}>
+      <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 8 }}>
+        Models {saved && <span style={{ color: C.green, marginLeft: 6 }}>✓ saved</span>}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <input type="text" value={extract} onChange={(e) => setExtract(e.target.value)} onBlur={() => void save()}
+          placeholder="Text model — e.g. llama3.1  (blank = default)" autoComplete="off" style={fieldInput} />
+        <input type="text" value={vision} onChange={(e) => setVision(e.target.value)} onBlur={() => void save()}
+          placeholder="Vision / scanned-PDF model — e.g. llama3.2-vision  (blank = llava)" autoComplete="off" style={fieldInput} />
+      </div>
+      <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 8, lineHeight: 1.5 }}>
+        Which model reads text vs. images & scanned PDFs. Pull them first (e.g. <span style={{ userSelect: "all" }}>ollama pull llama3.2-vision</span>). Blank uses the built-in default (or an env var if you set one).
+      </div>
     </div>
   );
 }

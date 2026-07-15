@@ -2,6 +2,8 @@ import { getLlmProvider, type LlmProvider } from "@/lib/llm";
 import { getByokKey, getSettings } from "./settings";
 import { getActiveOrg } from "./orgs";
 import { usageHooks } from "./usage";
+import { isLocalMode } from "@/lib/local/config";
+import { readLocalLlmModels } from "@/lib/local/llm-config";
 
 /**
  * Resolve the LLM provider to use for work done on behalf of one user.
@@ -14,6 +16,9 @@ import { usageHooks } from "./usage";
  * yet) we fall back to the platform provider from env.
  */
 export async function llmForUser(userId: string | null): Promise<LlmProvider> {
+  // Local edition: per-user model overrides set from the dashboard (llm.json).
+  // Precedence inside getLlmProvider is: these → env → default.
+  const models = isLocalMode() ? await readLocalLlmModels().catch(() => undefined) : undefined;
   if (userId) {
     try {
       const [settings, key, org] = await Promise.all([getSettings(userId), getByokKey(userId), getActiveOrg(userId)]);
@@ -21,12 +26,12 @@ export async function llmForUser(userId: string | null): Promise<LlmProvider> {
         // Track spend on the user's OWN key (never on our platform key in
         // cloud mode — that's on us, not them). Recording is fail-soft.
         const hooks = org ? usageHooks(org.id, userId) : undefined;
-        if (settings.aiProvider === "ollama") return getLlmProvider("ollama", undefined, { baseUrl: key, hooks });
-        return getLlmProvider(settings.aiProvider, key, { hooks });
+        if (settings.aiProvider === "ollama") return getLlmProvider("ollama", undefined, { baseUrl: key, hooks, models });
+        return getLlmProvider(settings.aiProvider, key, { hooks, models });
       }
     } catch {
       // settings lookup must never take extraction down — fall through
     }
   }
-  return getLlmProvider();
+  return getLlmProvider(undefined, undefined, { models });
 }

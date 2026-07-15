@@ -117,6 +117,36 @@ export function localEmbeddingDefaults(env: Record<string, string | undefined> =
   };
 }
 
+/** Per-user LLM model overrides (local edition) — the model NAMES to request
+ *  from the chosen provider, settable from the dashboard so it's not env-only.
+ *  Empty fields fall through to the env override, then the built-in default. */
+export interface LocalLlmModels {
+  /** The text-extraction model (the workhorse). */
+  extract?: string;
+  /** The "try harder" model for low-confidence escalation. */
+  escalate?: string;
+  /** The vision model — images and scanned-PDF OCR. */
+  vision?: string;
+}
+
+/** Where the model overrides live inside the data dir. */
+export const LOCAL_LLM_FILE = "llm.json";
+
+/** Validate/normalize raw model config into typed overrides (trim, drop blanks).
+ *  Pure — the route + runtime reader share it. */
+export function sanitizeLlmModels(raw: unknown): LocalLlmModels {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+  const out: LocalLlmModels = {};
+  const extract = str(o.extract);
+  const escalate = str(o.escalate);
+  const vision = str(o.vision);
+  if (extract) out.extract = extract;
+  if (escalate) out.escalate = escalate;
+  if (vision) out.vision = vision;
+  return out;
+}
+
 /** The env a local `serve` exports before booting the app — turns the shared
  *  app into its local skin. Returned as a plain map so the CLI can merge it
  *  into the child process env (pure — no process mutation here). */
