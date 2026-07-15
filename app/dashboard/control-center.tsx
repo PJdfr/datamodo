@@ -2062,10 +2062,88 @@ function SettingsModal({ settings, onClose, onSaved }: { settings: UserSettings;
         </div>
       )}
 
+      {/* Your provider spend — what BYOK cost on YOUR key (not datamodo's
+          plan). Only meaningful when you bring a key. */}
+      {mode === "byok" && settings.aiProvider !== "ollama" && <UsageCard />}
+
       {/* Connect Claude (MCP): the vault as tools on the user's own Claude
           subscription — Claude extracts, the server pipeline stays the vault. */}
       <McpConnectCard />
     </ModalShell>
+  );
+}
+
+/* Your provider spend (BYOK) — what the user's OWN Anthropic/OpenAI/OpenRouter
+ * key cost while datamodo used it. Lazy fetch; empty until calls land. */
+function UsageCard() {
+  const [sum, setSum] = useState<null | {
+    totalCostUsd: number; hasUnpriced: boolean; calls: number; inputTokens: number; outputTokens: number;
+    byModel: { provider: string; model: string; calls: number; inputTokens: number; outputTokens: number; costUsd: number | null; estimated: boolean }[];
+  }>(null);
+  const [priceDate, setPriceDate] = useState("");
+  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+
+  const load = async () => {
+    setState("loading");
+    try {
+      const res = await fetch("/api/usage?days=30");
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      setSum(json.summary ?? null);
+      setPriceDate(json.priceDate ?? "");
+      setState("idle");
+    } catch {
+      setState("error");
+    }
+  };
+
+  const usd = (n: number) => n >= 1 ? `$${n.toFixed(2)}` : n > 0 ? `$${n.toFixed(4)}` : "$0";
+  const tok = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+
+  return (
+    <div style={{ marginTop: 18, padding: "14px 16px", border: "1px solid #E7E0D2", borderRadius: 12, background: "#fff" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Your provider spend</div>
+          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>What your own API key cost while datamodo ran your data — last 30 days. Separate from your datamodo plan.</div>
+        </div>
+        {!sum && (
+          <Hov onClick={state === "loading" ? undefined : () => void load()} base={{ ...ghostBtn, flexShrink: 0 }} hover={{ background: "#FBF8F1" }}>
+            {state === "loading" ? "…" : "Show spend"}
+          </Hov>
+        )}
+      </div>
+      {state === "error" && <div className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginTop: 10 }}>Couldn&apos;t load usage.</div>}
+      {sum && (
+        <div style={{ marginTop: 12 }}>
+          {sum.calls === 0 ? (
+            <div className="dm-mono" style={{ fontSize: 11.5, color: "#A39B8B" }}>No calls tracked yet — spend appears here after your agents read something on your key.</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                <span className="dm-mono" style={{ fontSize: 22, fontWeight: 700, color: C.ink }}>{usd(sum.totalCostUsd)}{sum.hasUnpriced ? "+" : ""}</span>
+                <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477" }}>{sum.calls} call{sum.calls === 1 ? "" : "s"} · {tok(sum.inputTokens)} in / {tok(sum.outputTokens)} out</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {sum.byModel.slice(0, 8).map((m) => (
+                  <div key={`${m.provider}:${m.model}`} style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 12 }}>
+                    <span className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F", textTransform: "uppercase", flexShrink: 0, width: 66, overflow: "hidden", textOverflow: "ellipsis" }}>{m.provider}</span>
+                    <span style={{ color: "#3A352C", minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.model}</span>
+                    <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", flexShrink: 0 }}>{tok(m.inputTokens + m.outputTokens)} tok</span>
+                    <span className="dm-mono" style={{ fontSize: 12, fontWeight: 600, color: m.costUsd === null ? "#B7AF9F" : C.ink, flexShrink: 0, width: 62, textAlign: "right" }}>
+                      {m.costUsd === null ? "—" : `${m.estimated ? "~" : ""}${usd(m.costUsd)}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F", marginTop: 10, lineHeight: 1.5 }}>
+                {sum.byModel.some((m) => m.estimated) && <>~ = estimated from token counts (list prices{priceDate ? `, ${priceDate}` : ""}); </>}OpenRouter figures are exact. &quot;—&quot; = model we don&apos;t price. Ollama is free and not shown.
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

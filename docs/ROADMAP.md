@@ -393,6 +393,17 @@
   severable from the closed cloud layer.
 
 ## Smaller follow-ups (grab when nearby)
+- ~~**BYOK provider cost tracking**~~ ✅ 2026-07-14 (user ask) — track what the
+  user's OWN LLM key (Anthropic/OpenAI/OpenRouter) cost while datamodo ran it,
+  separate from the datamodo subscription. Providers report token usage via an
+  `onUsage` hook → a fail-soft `llm_usage` ledger; OpenRouter cost is EXACT
+  (requested), others priced from a list-price table (`llm-cost.ts`, marked
+  estimated), unknown models tokens-only, Ollama free. Settings "Your provider
+  spend" card (30-day total + per-model). Only BYOK (cloud = our cost).
+  Follow-ups: per-KIND breakdown (extract/vision/answer — needs a purpose tag
+  through `chatJSON`), a spend cap/alert, longer windows/CSV. **Migration
+  `20260714120000_llm_usage.sql` MUST be applied on dev+prod Neon branches**
+  (the ledger is dormant until then — recording + summary fail soft).
 - ~~Model unification, phase 2~~ ✅ 2026-07-11 — `datasets.kind_id` binds a
   dataset to the kind it materializes (structural; plural-name match remains
   only as a fallback for pre-migration rows).
@@ -417,6 +428,9 @@
   seam in `analytics.ts`).
 
 ## Owed by a human (ops, not code)
+- **Apply pending Neon migrations on dev + prod**: `20260714120000_llm_usage.sql`
+  (BYOK cost ledger — dormant/fail-soft until applied). Optional env
+  `MCP_TOKEN_SECRET` (else falls back to `NEON_AUTH_COOKIE_SECRET`).
 - Vercel env: `OPENROUTER_VISION_MODEL`, embeddings key, transcription key
   (`TRANSCRIPTION_API_KEY` or reuse `OPENAI_API_KEY`), `NEXT_PUBLIC_SITE_URL`
   (Preview + Production).

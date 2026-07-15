@@ -389,8 +389,25 @@ model organizations {
   items                items[]
   kinds                kinds[]
   knowledge_reviews    knowledge_reviews[]
+  llm_usage            llm_usage[]
   organization_members organization_members[]
   sheet_links          sheet_links[]
+}
+
+model llm_usage {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  org_id        String        @db.Uuid
+  user_id       String        @db.Uuid
+  provider      String
+  model         String
+  input_tokens  Int           @default(0)
+  output_tokens Int           @default(0)
+  cost_usd      Float?
+  estimated     Boolean       @default(true)
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  organizations organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([org_id, created_at(sort: Desc)], map: "llm_usage_org_created_idx")
 }
 
 model doc_chunks {

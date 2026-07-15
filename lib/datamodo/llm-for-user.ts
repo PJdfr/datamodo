@@ -1,5 +1,7 @@
 import { getLlmProvider, type LlmProvider } from "@/lib/llm";
 import { getByokKey, getSettings } from "./settings";
+import { getActiveOrg } from "./orgs";
+import { usageHooks } from "./usage";
 
 /**
  * Resolve the LLM provider to use for work done on behalf of one user.
@@ -14,10 +16,13 @@ import { getByokKey, getSettings } from "./settings";
 export async function llmForUser(userId: string | null): Promise<LlmProvider> {
   if (userId) {
     try {
-      const [settings, key] = await Promise.all([getSettings(userId), getByokKey(userId)]);
+      const [settings, key, org] = await Promise.all([getSettings(userId), getByokKey(userId), getActiveOrg(userId)]);
       if (settings.computeMode === "byok" && key) {
-        if (settings.aiProvider === "ollama") return getLlmProvider("ollama", undefined, { baseUrl: key });
-        return getLlmProvider(settings.aiProvider, key);
+        // Track spend on the user's OWN key (never on our platform key in
+        // cloud mode — that's on us, not them). Recording is fail-soft.
+        const hooks = org ? usageHooks(org.id, userId) : undefined;
+        if (settings.aiProvider === "ollama") return getLlmProvider("ollama", undefined, { baseUrl: key, hooks });
+        return getLlmProvider(settings.aiProvider, key, { hooks });
       }
     } catch {
       // settings lookup must never take extraction down — fall through
