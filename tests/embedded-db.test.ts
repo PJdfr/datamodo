@@ -47,7 +47,16 @@ test("embedded db: pglite + prisma db push + vector/trigram", { skip: !RUN }, as
       const trg = await c.query("select canonical_label from entities where canonical_label % 'acme grp'");
       assert.deepEqual(trg.rows.map((r) => r.canonical_label), ["Acme Group"], "trigram fuzzy match works");
 
-      // ensureSchema is idempotent — a second call is a no-op (marker matches).
+      // Stored functions + triggers (prisma db push does NOT create these — they
+      // live in neon/schema.sql and are installed separately). The app calls
+      // these via raw SQL; a missing one throws "function … does not exist".
+      const match = await c.query("select id, canonical_label, sim from public.knowledge_match_entities($1,'company','acme grp',5)", [oid]);
+      assert.equal(match.rows[0]?.canonical_label, "Acme Group", "knowledge_match_entities resolves via trigram");
+      await c.query("select public.dataset_accepted_counts($1)", [oid]); // must not throw ("function does not exist")
+      const trgCount = await c.query("select count(*)::int n from pg_trigger where tgname like '%refcount%' or tgname like '%touch_updated_at%'");
+      assert.ok(trgCount.rows[0].n >= 6, `expected the refcount/updated_at triggers, got ${trgCount.rows[0].n}`);
+
+      // ensureSchema is idempotent — a second call re-applies functions cleanly.
       await db.ensureSchema("test-1");
     } finally {
       await c.end();
