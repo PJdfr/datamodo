@@ -12,6 +12,23 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-15** — **Local edition: install the stored SQL functions + triggers
+  (`prisma db push` skips them).** After the UUID/dashboard/concurrency fixes,
+  search/knowledge hit `function knowledge_match_entities(uuid, …) does not
+  exist` (P2010 / 42883). Root cause: `prisma db push` builds only the
+  declarative schema (tables/columns/indexes) — the `private` schema, the stored
+  FUNCTIONS (`knowledge_match_entities`, `add_dataset_column`,
+  `remove_dataset_column`, `dataset_accepted_counts`, plus the private
+  refcount/`touch_updated_at` trigger fns) and their 6 TRIGGERS live only in
+  `neon/schema.sql` and were never created locally. Fix: `ensureSchema` now
+  parses those `CREATE FUNCTION … $$…$$;` blocks + `CREATE TRIGGER` statements
+  (and `create schema private`) out of `neon/schema.sql` and applies them —
+  functions as `CREATE OR REPLACE`, triggers ignoring "already exists" — and
+  runs this on EVERY boot (idempotent), so it also repairs installs built before
+  this landed (it's no longer gated behind the schema-version marker). Verified:
+  guarded DB integration test now asserts `knowledge_match_entities` resolves,
+  `dataset_accepted_counts` is callable, and the 6 refcount/updated_at triggers
+  exist; `tsc` clean, lint at baseline, 228 unit tests + both DB tests pass.
 - **2026-07-15** — **Local edition was fundamentally broken — three real bugs
   fixed** (user hit: dashboard "couldn't load / missing a migration" banner,
   "invalid input syntax for type uuid" creating an agent, "could not send" a
