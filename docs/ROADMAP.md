@@ -144,10 +144,15 @@
   HMAC-DERIVED bearer tokens (`mcp-token.ts` — zero schema change, stateless;
   trade-off: revocation = rotate `MCP_TOKEN_SECRET`); Settings → "✦ Connect
   Claude" reveals URL + token + the `claude mcp add` one-liner. Verified
-  against a running server: initialize/tools-list/401s. PHASE 2, still open:
-  OAuth (claude.ai connectors' dynamic client registration + per-user
-  revocation), `query_graph`, the pull-model `process_inbox` (cron-less
-  extraction), MCP `sampling` for the escalation policy. Honest caveats, revised after discussion: the two-model
+  against a running server: initialize/tools-list/401s. PHASE 2 — pull model + reads ✅
+  SHIPPED 2026-07-14: `process_inbox` (raw `stored`/`failed` items with their
+  text — the client extracts on the sub and files with the item's id;
+  read-only until `submit_extraction` lands, so cron and MCP never double-
+  process), `get_entity` (one entity's full record — facts + confidence +
+  body_md), and `submit_extraction` gained an optional `itemId` to attach to
+  a queued item (org-validated) and mark it `analyzed`. STILL open: OAuth
+  (claude.ai connectors' dynamic client registration + per-user revocation),
+  `query_graph`, MCP `sampling` for the escalation policy. Honest caveats, revised after discussion: the two-model
   confidence escalation is NOT really lost — (a) it existed for OUR API
   cost, and sub inference runs permanently on a frontier model anyway;
   (b) MCP `sampling/createMessage` lets the SERVER request client

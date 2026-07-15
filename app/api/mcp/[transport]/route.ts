@@ -99,6 +99,53 @@ const handler = createMcpHandler(
     );
 
     server.tool(
+      "get_entity",
+      "One entity in full: every current fact (with confidence and source counts) plus its markdown body when it has one (documents, notes, syntheses). Use after search_entities when you need the whole record.",
+      { entityId: z.string().min(1) },
+      async ({ entityId }, extra) => {
+        const { orgId } = await caller(extra);
+        const kviews = await listKnowledge(orgId);
+        const e = kviews.find((x) => x.id === entityId);
+        if (!e) return text("No entity with that id.");
+        const facts = e.facts.map((f) => `- ${f.predicate.replace(/_/g, " ")}: ${f.ref ? "→ " : ""}${f.value} (${Math.round(f.confidence * 100)}%, ${f.sources} source${f.sources === 1 ? "" : "s"})`).join("\n");
+        const keys = Object.entries(e.naturalKeys ?? {}).map(([k, v]) => `${k}=${v}`).join(", ");
+        return text(
+          `${e.label} (${e.kind})${keys ? ` [${keys}]` : ""}\n${facts || "(no facts yet)"}` +
+          (e.bodyMd ? `\n\n--- body ---\n${e.bodyMd.slice(0, 8000)}` : ""),
+        );
+      },
+    );
+
+    server.tool(
+      "process_inbox",
+      "The pull model: raw captured items still waiting for extraction (a keyless deployment queues everything here). YOU are the extractor — read each item's text, extract entities+facts, and file them with submit_extraction using the item's id so provenance attaches. Consult list_kinds and search_entities first.",
+      { limit: z.number().int().min(1).max(10).optional() },
+      async ({ limit }, extra) => {
+        const { orgId } = await caller(extra);
+        // stored = never extracted; failed = the server-side extractor gave
+        // up (e.g. no key) — both are exactly what the sub-powered client is
+        // for. Read-only: nothing is claimed until submit_extraction lands.
+        const items = await prisma.items.findMany({
+          where: { org_id: orgId, status: { in: ["stored", "failed"] } },
+          orderBy: { received_at: "asc" },
+          take: limit ?? 5,
+          select: { id: true, org_id: true, channel: true, sender: true, subject: true, body_hash: true, body_preview: true, received_at: true },
+        });
+        if (items.length === 0) return text("Inbox is clear — nothing waiting for extraction.");
+        const { loadItemText } = await import("@/lib/datamodo/extract");
+        const out = await Promise.all(items.map(async (it) => ({
+          itemId: it.id,
+          channel: String(it.channel),
+          sender: it.sender,
+          subject: it.subject,
+          receivedAt: it.received_at.toISOString(),
+          text: (await loadItemText(it).catch(() => it.body_preview ?? "")).slice(0, 12000),
+        })));
+        return json(out);
+      },
+    );
+
+    server.tool(
       "pending_reviews",
       "Decisions waiting on the user (merges, conflicts, proposals), newest first. Surface them when relevant; resolve one ONLY when the user explicitly decides.",
       {},
@@ -130,7 +177,8 @@ const handler = createMcpHandler(
       "submit_extraction",
       "File what YOU extracted from a message/document into the vault. You are the extractor; the server stays deterministic (canonicalization, entity resolution, dedup, supersession, review routing). Reuse kinds from list_kinds and labels from search_entities. Include sourceText so provenance and the commit log work.",
       {
-        sourceText: z.string().max(20000).optional().describe("The raw message/document text this was extracted from"),
+        itemId: z.string().optional().describe("A queued item's id from process_inbox — attaches this extraction to it (provenance, commit log) and marks it processed"),
+        sourceText: z.string().max(20000).optional().describe("The raw message/document text this was extracted from (ignored when itemId is given)"),
         subject: z.string().max(300).optional().describe("A short title for the source (email subject etc.)"),
         extraction: z
           .object({
@@ -156,17 +204,26 @@ const handler = createMcpHandler(
           })
           .describe("Entities + facts in the server's Extraction contract"),
       },
-      async ({ sourceText, subject, extraction }, extra) => {
+      async ({ itemId: givenItemId, sourceText, subject, extraction }, extra) => {
         const { userId, orgId } = await caller(extra);
         // Strict validation beyond the transport schema (dangling localIds,
         // caps, date format) — bounce fixable errors back to the model.
         const parsed = parseExtraction(extraction);
         if (!parsed.ok) return text(parsed.error);
 
-        // Capture the source as an item (provenance, the commit log, files) —
-        // best-effort: a blob-storage hiccup must not drop the extraction.
+        // Pull model: the extraction attaches to an EXISTING queued item
+        // (process_inbox) — validated against the org, then marked processed.
         let itemId: string | null = null;
-        if (sourceText?.trim()) {
+        if (givenItemId) {
+          const item = await prisma.items.findFirst({ where: { id: givenItemId, org_id: orgId }, select: { id: true } });
+          if (!item) return text(`No item "${givenItemId}" in this workspace — call process_inbox for current ids.`);
+          itemId = item.id;
+        }
+
+        // Push model: capture the source as a new item (provenance, the
+        // commit log, files) — best-effort: a blob-storage hiccup must not
+        // drop the extraction.
+        if (!itemId && sourceText?.trim()) {
           try {
             const { ingest } = await import("@/lib/ingest/store");
             const r = await ingest({
@@ -180,13 +237,6 @@ const handler = createMcpHandler(
               meta: { via: "mcp" },
             });
             itemId = r.itemId;
-            // The CLIENT already extracted — mark the item done so the cron
-            // tick never runs the server-side extractor over it again.
-            const { EXTRACTION_VERSION } = await import("@/lib/datamodo/extract");
-            await prisma.items.update({
-              where: { id: itemId },
-              data: { status: "analyzed", extraction_version: EXTRACTION_VERSION },
-            });
           } catch (e) {
             console.error("[mcp] source capture failed (extraction continues)", e);
           }
@@ -199,6 +249,15 @@ const handler = createMcpHandler(
         const { llmForUser } = await import("@/lib/datamodo/llm-for-user");
         const llm = await llmForUser(userId);
         const result = await ingestExtraction(orgId, userId, itemId, parsed.extraction, llm);
+
+        // The CLIENT extracted — mark the item done (either path) so the cron
+        // tick never runs the server-side extractor over it again.
+        if (itemId) {
+          const { EXTRACTION_VERSION } = await import("@/lib/datamodo/extract");
+          await prisma.items
+            .update({ where: { id: itemId }, data: { status: "analyzed", error: null, extraction_version: EXTRACTION_VERSION } })
+            .catch((e) => console.error("[mcp] item status update failed", e));
+        }
         return json({ filed: true, sourceItemId: itemId, ...result });
       },
     );

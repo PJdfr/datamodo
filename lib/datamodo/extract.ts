@@ -501,8 +501,9 @@ interface ItemRow {
   meta?: unknown;
 }
 
-/** Load an item's best-available text (full body blob, else the preview). */
-async function loadItemText(item: ItemRow): Promise<string> {
+/** Load an item's best-available text (full body blob, else the preview).
+ *  Exported for the MCP pull model (process_inbox hands Claude the text). */
+export async function loadItemText(item: Pick<ItemRow, "org_id" | "body_hash" | "body_preview">): Promise<string> {
   if (item.body_hash) {
     try {
       const buf = await readBlob(item.org_id, item.body_hash);

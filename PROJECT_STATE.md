@@ -12,6 +12,20 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **MCP server, phase 2 (pull model + reads)**: three
+  additions to the endpoint. `process_inbox` — raw `stored`/`failed` items
+  with their loaded text (`loadItemText` now exported), read-only so cron and
+  the client never double-process; the sub-powered client extracts and files
+  with the item's id. `get_entity` — one entity's full record (facts +
+  confidence + source counts + `body_md`). `submit_extraction` gained an
+  optional `itemId`: when present it's validated against the org and the
+  extraction attaches to that queued item (the push-path new-item capture is
+  the `else`); EITHER path marks the item `analyzed` + stamps
+  `EXTRACTION_VERSION` AFTER `ingestExtraction`, so the cron tick never
+  re-extracts. Verified: tsc, lint == baseline, 190 tests, build green (the
+  live `next start` tools/list probe kept OOM-ing the sandbox — transport
+  already proven identically in phase 1; the 8 tools register through the
+  same `server.tool` mechanism the green build compiles). OAuth = phase 3.
 - **2026-07-14** — **MCP server, phase 1** (roadmap's biggest track; the
   strategic "run datamodo on a Claude subscription" play): streamable-HTTP
   MCP endpoint at `app/api/mcp/[transport]` (`mcp-handler` 1.1 +
