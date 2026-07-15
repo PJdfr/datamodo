@@ -12,15 +12,24 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
-- **2026-07-15** — **Windows fix: `datamodo serve` "prisma db push failed"**
-  (user report on PowerShell). Node's `spawn("npx", …)` with no shell can't
-  resolve the npm shim on Windows (it's `npx.cmd`) → ENOENT, and the error was
-  swallowed (`p.on("error", () => res(1))`), leaving only the opaque "could not
-  build the local database schema." Fixed BOTH `npx` spawns — the `prisma db
-  push` in `lib/local/embedded-db.mjs` and the `next start` in `bin/datamodo.mjs`
-  — to use `process.platform === "win32" ? "npx.cmd" : "npx"`, and the embedded
-  DB now logs the actual spawn error instead of hiding it. Verified: both
-  guarded DB integration tests still pass on Linux (path unchanged there).
+- **2026-07-15** — **Windows fix (round 2): `spawn EINVAL` → run CLIs via
+  `node`, not `npx`.** Round 1 (below) switched the spawns to `npx.cmd` on
+  Windows, but modern Node then throws `EINVAL` — it refuses to spawn a `.cmd`
+  without `shell: true` (CVE-2024-27980). The robust cross-platform fix is to
+  drop `npx` entirely: resolve the CLI's JS entry (`prisma/build/index.js`,
+  `next/dist/bin/next`) via `require.resolve` and run it with `process.execPath`
+  (the current node binary) — no shim, no shell, no `.cmd`. Applied to the
+  `prisma db push` (`lib/local/embedded-db.mjs`, with a clear "run npm install"
+  error if the CLI can't be resolved) and the `next start` fallback
+  (`bin/datamodo.mjs`). VERIFIED end-to-end on Linux: a fresh-data-dir
+  `datamodo serve` ran prisma db push + next start and the dashboard returned
+  HTTP 200; both guarded DB integration tests pass. This supersedes round 1.
+- **2026-07-15** — **Windows fix (round 1, superseded): `datamodo serve`
+  "prisma db push failed"** (user report on PowerShell). Node's `spawn("npx", …)`
+  with no shell can't resolve the npm shim on Windows (it's `npx.cmd`) → ENOENT,
+  and the error was swallowed, leaving only the opaque "could not build the
+  local database schema." Switched to `npx.cmd` on win32 + surfaced the spawn
+  error — but `.cmd` then hits EINVAL on modern Node, so see round 2 above.
 - **2026-07-15** — **Cloud/local split, step A: clean local build, no cloud
   eval** (user call "go for A" — the cheap one-repo half of the code-separation
   requirement). Investigation first: cloud deps are remarkably well-contained —
