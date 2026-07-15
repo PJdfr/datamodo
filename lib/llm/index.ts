@@ -1,6 +1,6 @@
 import { OpenAICompatibleProvider } from "./openai-compatible.ts";
 import { AnthropicProvider } from "./anthropic.ts";
-import type { LlmProvider, ProviderHooks, ProviderName } from "./types";
+import type { LlmModels, LlmProvider, ProviderHooks, ProviderName } from "./types";
 
 export type { LlmProvider, ProviderName, ChatJsonRequest, LlmModels, LlmUsage, ProviderHooks } from "./types";
 
@@ -23,11 +23,17 @@ export function normalizeOllamaUrl(url: string): string {
  * Resolve an LLM provider. Routing precedence: explicit `name` arg → LLM_PROVIDER
  * env → "openrouter". Pass `apiKey` to use a user's BYOK key instead of the env
  * key; `opts.baseUrl` points a KEYLESS provider (ollama) at the user's own
- * server. Model ids are env-overridable per provider.
+ * server. Model ids resolve by precedence: `opts.models` (per-user, e.g. set
+ * from the dashboard) → env override → built-in default.
  */
-export function getLlmProvider(name?: ProviderName, apiKey?: string, opts: { baseUrl?: string; hooks?: ProviderHooks } = {}): LlmProvider {
+export function getLlmProvider(
+  name?: ProviderName,
+  apiKey?: string,
+  opts: { baseUrl?: string; hooks?: ProviderHooks; models?: Partial<LlmModels> } = {},
+): LlmProvider {
   const provider = name ?? (env("LLM_PROVIDER") as ProviderName | undefined) ?? "openrouter";
   const hooks = opts.hooks;
+  const m = opts.models ?? {};
   switch (provider) {
     case "ollama":
       // Keyless by design (local server / user's own box). A key still rides
@@ -39,9 +45,9 @@ export function getLlmProvider(name?: ProviderName, apiKey?: string, opts: { bas
         keyless: true,
         hooks,
         models: {
-          extract: env("OLLAMA_EXTRACT_MODEL") ?? "llama3.1",
-          escalate: env("OLLAMA_ESCALATE_MODEL") ?? env("OLLAMA_EXTRACT_MODEL") ?? "llama3.1",
-          vision: env("OLLAMA_VISION_MODEL") ?? "llava",
+          extract: m.extract ?? env("OLLAMA_EXTRACT_MODEL") ?? "llama3.1",
+          escalate: m.escalate ?? env("OLLAMA_ESCALATE_MODEL") ?? m.extract ?? env("OLLAMA_EXTRACT_MODEL") ?? "llama3.1",
+          vision: m.vision ?? env("OLLAMA_VISION_MODEL") ?? "llava",
         },
       });
     case "openai":
@@ -51,9 +57,9 @@ export function getLlmProvider(name?: ProviderName, apiKey?: string, opts: { bas
         apiKey: apiKey ?? env("OPENAI_API_KEY"),
         hooks,
         models: {
-          extract: env("OPENAI_EXTRACT_MODEL") ?? "gpt-4o-mini",
-          escalate: env("OPENAI_ESCALATE_MODEL") ?? "gpt-4.1",
-          vision: env("OPENAI_VISION_MODEL") ?? env("OPENAI_EXTRACT_MODEL") ?? "gpt-4o-mini",
+          extract: m.extract ?? env("OPENAI_EXTRACT_MODEL") ?? "gpt-4o-mini",
+          escalate: m.escalate ?? env("OPENAI_ESCALATE_MODEL") ?? "gpt-4.1",
+          vision: m.vision ?? env("OPENAI_VISION_MODEL") ?? env("OPENAI_EXTRACT_MODEL") ?? "gpt-4o-mini",
         },
       });
     case "anthropic":
@@ -61,9 +67,9 @@ export function getLlmProvider(name?: ProviderName, apiKey?: string, opts: { bas
         apiKey: apiKey ?? env("ANTHROPIC_API_KEY"),
         hooks,
         models: {
-          extract: env("ANTHROPIC_EXTRACT_MODEL") ?? "claude-haiku-4-5",
-          escalate: env("ANTHROPIC_ESCALATE_MODEL") ?? "claude-sonnet-5",
-          vision: env("ANTHROPIC_VISION_MODEL") ?? env("ANTHROPIC_EXTRACT_MODEL") ?? "claude-haiku-4-5",
+          extract: m.extract ?? env("ANTHROPIC_EXTRACT_MODEL") ?? "claude-haiku-4-5",
+          escalate: m.escalate ?? env("ANTHROPIC_ESCALATE_MODEL") ?? "claude-sonnet-5",
+          vision: m.vision ?? env("ANTHROPIC_VISION_MODEL") ?? env("ANTHROPIC_EXTRACT_MODEL") ?? "claude-haiku-4-5",
         },
       });
     case "openrouter":
@@ -75,11 +81,11 @@ export function getLlmProvider(name?: ProviderName, apiKey?: string, opts: { bas
         hooks,
         models: {
           // Free defaults for dev; set env to a paid model for reliability.
-          extract: env("OPENROUTER_EXTRACT_MODEL") ?? "cohere/north-mini-code:free",
-          escalate: env("OPENROUTER_ESCALATE_MODEL") ?? "cohere/north-mini-code:free",
+          extract: m.extract ?? env("OPENROUTER_EXTRACT_MODEL") ?? "cohere/north-mini-code:free",
+          escalate: m.escalate ?? env("OPENROUTER_ESCALATE_MODEL") ?? "cohere/north-mini-code:free",
           // The free default can't see — set OPENROUTER_VISION_MODEL to a
           // vision-capable model or image attachments stay metadata_only.
-          vision: env("OPENROUTER_VISION_MODEL") ?? env("OPENROUTER_EXTRACT_MODEL") ?? "cohere/north-mini-code:free",
+          vision: m.vision ?? env("OPENROUTER_VISION_MODEL") ?? env("OPENROUTER_EXTRACT_MODEL") ?? "cohere/north-mini-code:free",
         },
         extraHeaders: {
           "HTTP-Referer": env("OPENROUTER_APP_URL") ?? "https://datamodo.dev",

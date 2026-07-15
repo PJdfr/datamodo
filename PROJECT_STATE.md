@@ -12,6 +12,41 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-15** — **Local edition: pick LLM model names from the dashboard**
+  (user: "why can't we set these from the dashboard, not the terminal? we can
+  do both"). Previously the Ollama model ids were ENV-ONLY
+  (`OLLAMA_EXTRACT_MODEL` / `OLLAMA_VISION_MODEL` / `OLLAMA_ESCALATE_MODEL`) —
+  the dashboard only took the server URL, so "where does the vision/OCR model
+  go?" had no answer in the UI. Now: **Settings → BYOK (local) shows Text model
+  + Vision/scanned-PDF model inputs** that save to `~/.datamodo/llm.json` via a
+  new local-only route `POST/GET /api/local/llm-models`. `getLlmProvider` gained
+  an `opts.models` override applied across ALL providers with precedence
+  **dashboard override → env var → built-in default** (so BOTH work, as asked);
+  `llmForUser` reads `llm.json` in local mode and threads it in. No DB migration
+  (avoids cloud schema drift) — it's a local file like `connectors.json`. Pure
+  `sanitizeLlmModels` (trims/drops blanks) in `lib/local/config.ts` (unit-tested);
+  fs read/write in `lib/local/llm-config.ts`; `LocalModelsFields` UI in
+  `control-center.tsx` (saves on blur, shown only in local mode). VERIFIED:
+  precedence (dashboard `dash-extract` wins over env, env wins over default),
+  `next build` compiles the route, tsc clean, lint at baseline, 237 unit tests +
+  both DB tests pass. Vision model = the one used for images + scanned-PDF OCR.
+- **2026-07-15** — **Robust LLM JSON parsing + Ollama JSON mode** (extraction
+  failed with `LLM: response was not valid JSON` on a local model). Two fixes:
+  (1) `parseLoose` (`lib/llm/util.ts`) was rewritten — it now unwraps ```` ```json ````
+  fences, tolerates leading/trailing PROSE around the JSON, handles ARRAYS (not
+  just objects), strips TRAILING COMMAS, and extracts the first BALANCED value
+  (respecting strings/escapes) instead of a greedy `/\{[\s\S]*\}/` that
+  over-spans when the model appends text; it throws with a content snippet so
+  failures are diagnosable. (2) The OpenAI-compatible provider
+  (`openai-compatible.ts`) now nudges KEYLESS servers (Ollama/LocalAI) with a
+  JSON-mode ladder — `json_schema` (if the caller wants structured) → `json_object`
+  (local models honor this and it markedly improves validity) → none — degrading
+  on rejection; cloud providers (with a key) never get `json_object`, so their
+  path is unchanged. New `tests/llm-parse.test.ts` (8 cases: fences, prose,
+  arrays, trailing commas, greedy-overmatch, braces-in-strings). Note: a tiny
+  local model can still emit unsalvageable JSON for complex extraction — a more
+  capable model (or a cloud key) helps; this makes the common wrapping/laxity
+  cases work. tsc clean, lint at baseline, 236 unit tests + both DB tests pass.
 - **2026-07-15** — **Local edition: install the stored SQL functions + triggers
   (`prisma db push` skips them).** After the UUID/dashboard/concurrency fixes,
   search/knowledge hit `function knowledge_match_entities(uuid, …) does not
