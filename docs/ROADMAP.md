@@ -355,14 +355,22 @@
     `putBlob`/`getBlob` chokepoint (`lib/storage/blob-fs.ts`, traversal-proof);
     `package.json` `bin`. CLI verified (init/serve/version); config + fs blobs
     unit-tested. Cloud path untouched (all gated on `DATAMODO_LOCAL`/`BLOB_DIR`).
-  - **Phase 2 — zero-setup embedded DB + the build**: `serve` still needs a
-    local Postgres (`DATABASE_URL`) and the built app. Make it truly
-    `install-and-go`: embed **pglite** (already a dep; WASM Postgres with
-    pgvector) fronted by **pglite-socket** (also present) so `@prisma/adapter-pg`
-    (to add) talks to it over a local socket — the CLI starts it, runs
-    `neon/schema.sql` migrations, then boots. Ship the built Next standalone in
-    the npm package (or a `postinstall`/first-run build). Local embeddings need
-    the `vector(1536)` column widened for a 768-dim model at install.
+  - ~~**Phase 2 — zero-setup embedded DB**~~ ✅ 2026-07-14: `serve` now boots
+    an embedded Postgres — **pglite** (WASM PG with pgvector + pg_trgm) fronted
+    by **pglite-socket**, so `@prisma/adapter-pg` (`lib/prisma.ts` uses it when
+    `DATAMODO_LOCAL`) talks to it over a local socket. No Docker, no install,
+    no `DATABASE_URL`. `lib/local/embedded-db.mjs` opens pglite at
+    `~/.datamodo/pgdata`, starts the socket on a free port, and on first run
+    builds the schema via `prisma db push` (correct dependency order — the
+    hand-edited `neon/schema.sql` has inline-FK-before-PK ordering that won't
+    load into an empty DB) + swaps the two embedding indexes from btree (can't
+    hold a 1536-d vector) to hnsw/cosine (matching cloud). VERIFIED end-to-end
+    (guarded integration test): schema builds, `entities.embedding` is `vector`,
+    ANN sim=1 + trigram match on the real tables. Set `DATABASE_URL` to use
+    your own PG instead. Still open: ship the built Next standalone IN the npm
+    package (today `serve` runs `next start` in the repo / expects a prebuilt
+    `.next/standalone` in the package); local embeddings still want the
+    `vector(1536)` column re-declared for a 768-d model at install.
   - **Phase 3 — BYOB connectors**: IMAP first, Telegram, Slack Socket Mode,
     dead-drop relay for WhatsApp/Teams (the cloud webhooks don't apply locally).
   Original design notes (PROJECT_STATE "-3"): fs blobs, `@prisma/adapter-pg`,

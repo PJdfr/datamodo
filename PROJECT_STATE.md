@@ -12,6 +12,32 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Local edition, phase 2: zero-setup embedded database**
+  (user ask: "cant you create the databases for the user local directly?").
+  `datamodo serve` now runs its OWN Postgres — no Docker, no install, no
+  `DATABASE_URL`. `lib/local/embedded-db.mjs` opens **pglite** (Postgres in
+  WASM, with the `vector`/`pg_trgm`/`pgcrypto`/`btree_gin`/`btree_gist`/
+  `uuid-ossp` extensions) at `~/.datamodo/pgdata`, fronts it with
+  **pglite-socket** on a free localhost port, and on first run builds the
+  schema via `prisma db push` over the socket (`db push` — NOT `neon/schema.sql`,
+  which is a hand-edited dump with inline-FK-before-PK ordering that won't load
+  into an empty DB; Prisma emits correct dependency order) then swaps the two
+  embedding indexes from btree (can't index a 1536-d vector — 6160 B > btree's
+  2704 B max) to hnsw/`vector_cosine_ops`, matching cloud. `lib/prisma.ts` uses
+  `@prisma/adapter-pg` (node-postgres) → the socket when `DATAMODO_LOCAL`,
+  else the Neon WS adapter. CLI `serve` picks a free port, boots the DB,
+  `ensureSchema` (idempotent via a `.schema-version` marker), then spawns Next
+  with the local env; SIGINT/exit close pglite. New deps `@electric-sql/pglite`
+  + `-socket`, `@prisma/adapter-pg`. Verified: a guarded integration test
+  (`DATAMODO_TEST_DB=1`, `tests/embedded-db.test.ts`) boots the real stack —
+  schema builds (>15 tables), `entities.embedding` is `vector`, and an
+  org→entity→**ANN (sim=1) + trigram** round-trip works on the actual tables;
+  CLI runs (init shows the embedded-db path, serve boots it); tsc, lint ==
+  baseline, `next build` green with the pg adapter imported. NOT verified: the
+  full Next dashboard booting against the socket (sandbox OOMs on `next start`)
+  — every component below it is proven, and it's the same app that builds
+  green. Still open: ship the built Next standalone IN the npm package
+  (today `serve` falls back to `next start`), and the build-level code-split.
 - **2026-07-14** — **Local edition, phase 1: the `datamodo` CLI + single-user
   mode + fs blobs** (user ask: npm-installable self-hosted — `npm install
   datamodo` → `datamodo serve` → dashboard on localhost, pick your LLM). Also
