@@ -179,14 +179,19 @@ program
       cfg.databaseUrl = db.url;
     }
 
-    // Boot the built Next server if present, else `next start` (dev/repo).
-    // On Windows the npm shim is `npx.cmd`; Node's spawn can't resolve bare "npx".
-    const npx = process.platform === "win32" ? "npx.cmd" : "npx";
+    // Boot the built Next server if present, else `next start` (dev/repo). Run
+    // the Next CLI's JS entry with the current node binary — going through `npx`
+    // breaks on Windows (bare "npx" → ENOENT; npx.cmd → EINVAL without a shell).
     const standalone = path.join(APP_ROOT, ".next", "standalone", "server.js");
     const hasStandalone = await fs.access(standalone).then(() => true, () => false);
+    const nextBin = () => {
+      const pkg = require("next/package.json");
+      const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin.next;
+      return path.join(path.dirname(require.resolve("next/package.json")), bin);
+    };
     const [cmd, args] = hasStandalone
       ? [process.execPath, [standalone]]
-      : [npx, ["next", "start", "-p", String(cfg.port), "-H", cfg.host]];
+      : [process.execPath, [nextBin(), "start", "-p", String(cfg.port), "-H", cfg.host]];
 
     console.log(`datamodo → http://${cfg.host}:${cfg.port}  (single-user · ${db ? "embedded db" : "your database"} · local files)`);
     const child = spawn(cmd, args, { cwd: APP_ROOT, env: serveEnv(cfg), stdio: "inherit" });
