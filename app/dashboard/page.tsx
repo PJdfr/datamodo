@@ -8,6 +8,7 @@ import { listAgentActivity } from "@/lib/datamodo/activity";
 import { getSettings, getOnboardingContext, type UserSettings, type OnboardingContext } from "@/lib/datamodo/settings";
 import { inboundEmailDomain, provisionInbox } from "@/lib/datamodo/inbox";
 import type { AgentActivityEntry, AgentRecord, DatasetRelation, DatasetView, ReviewItem } from "@/lib/datamodo/types";
+import { isLocalMode } from "@/lib/local/config";
 import ControlCenter from "./control-center";
 
 export default async function DashboardPage() {
@@ -97,6 +98,7 @@ export default async function DashboardPage() {
       settings={settings}
       onboarding={onboarding}
       notice={notice}
+      local={isLocalMode()}
     />
   );
 }

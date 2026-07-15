@@ -1,15 +1,19 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { login } from "@/app/auth/actions";
 import { Logo } from "@/components/logo";
 import { GoogleButton } from "@/components/google-button";
 import { BrandAside } from "@/components/brand-aside";
 import { MailIcon, LockIcon } from "@/components/field-icons";
+import { isLocalMode } from "@/lib/local/config";
 
 export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string; redirectTo?: string }>;
 }) {
+  // Local edition: no login — go straight to the app.
+  if (isLocalMode()) redirect("/dashboard");
   const { error, redirectTo } = await searchParams;
   const next = redirectTo ?? "/dashboard";
 

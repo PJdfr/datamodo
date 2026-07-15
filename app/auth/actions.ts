@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/server";
+import { isLocalMode } from "@/lib/local/config";
 
 function safeNext(value: FormDataEntryValue | null): string {
   const next = typeof value === "string" ? value : "";
@@ -11,6 +12,8 @@ function safeNext(value: FormDataEntryValue | null): string {
 }
 
 export async function login(formData: FormData) {
+  // Local edition has no auth — any attempt just enters the app.
+  if (isLocalMode()) redirect("/dashboard");
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
   const next = safeNext(formData.get("redirectTo"));
@@ -25,6 +28,7 @@ export async function login(formData: FormData) {
 }
 
 export async function signup(formData: FormData) {
+  if (isLocalMode()) redirect("/dashboard");
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
   const fullName = String(formData.get("fullName") ?? "").trim();
@@ -46,6 +50,8 @@ export async function signup(formData: FormData) {
 }
 
 export async function signout() {
+  // Local edition: nothing to sign out of — stay in the app.
+  if (isLocalMode()) redirect("/dashboard");
   await auth.signOut();
   revalidatePath("/", "layout");
   redirect("/login");

@@ -12,6 +12,24 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-15** — **Local edition: no login** (user ask: "also for the local,
+  remove the auth, the user do not even need a login"). In local mode the app
+  no longer has any auth surface — you open localhost and land directly in the
+  dashboard as the single `LOCAL_USER`. Implementation, all gated on
+  `isLocalMode()`/`DATAMODO_LOCAL=1` so the cloud path is byte-identical:
+  `proxy.ts` short-circuits the Neon Auth middleware (it used to redirect
+  `/dashboard`→`/login` before the single-user session bypass could apply — the
+  real blocker); the login/register pages, the marketing landing, and `/` all
+  `redirect("/dashboard")`; the `login`/`signup`/`signout` server actions no-op
+  straight into `/dashboard` (nothing to sign into/out of); and the dashboard
+  header hides the sign-out control via a new `ControlCenter local` prop
+  (`app/dashboard/page.tsx` passes `local={isLocalMode()}`). `localServeEnv`
+  exports placeholder `NEON_AUTH_COOKIE_SECRET`/`NEON_AUTH_BASE_URL` so the auth
+  lib doesn't throw at import even though its session/middleware path is never
+  reached locally. Verified: `tsc` clean, lint at baseline (7/16), 210 tests
+  pass, `next build` succeeds (the auth route needs a cookie secret at
+  page-data collection — pre-existing, unrelated to this change). Cloud login
+  is untouched.
 - **2026-07-14** — **Local edition, phase 2: zero-setup embedded database**
   (user ask: "cant you create the databases for the user local directly?").
   `datamodo serve` now runs its OWN Postgres — no Docker, no install, no
