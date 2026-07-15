@@ -20,6 +20,9 @@ const neonAuthMiddleware = auth.middleware({
 // the middleware's redirect is redundant for them. Skip it for those requests
 // (and any non-GET) and let them reach the already-protected action.
 export default function proxy(request: NextRequest) {
+  // Local edition: there is no login — one user, on their own machine — so the
+  // auth middleware (which would redirect to /login) is skipped entirely.
+  if (process.env.DATAMODO_LOCAL === "1") return NextResponse.next();
   if (request.method !== "GET" || request.headers.has("next-action")) {
     return NextResponse.next();
   }

@@ -104,9 +104,11 @@ export type ControlCenterProps = {
   settings: UserSettings;
   onboarding: OnboardingContext;
   notice?: string | null;
+  /** Local edition: no auth — hide sign-out (there's nothing to sign out of). */
+  local?: boolean;
 };
 
-export default function ControlCenter({ fullName, initial, inbox, agents, datasets, relations, pendingChanges, pendingReviewCount, agentActivity, settings, onboarding, notice }: ControlCenterProps) {
+export default function ControlCenter({ fullName, initial, inbox, agents, datasets, relations, pendingChanges, pendingReviewCount, agentActivity, settings, onboarding, notice, local }: ControlCenterProps) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("agents");
   const [noticeOpen, setNoticeOpen] = useState(true);
@@ -385,7 +387,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
             <div style={{ fontSize: 13, color: "#F1ECE1", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</div>
             <button type="button" onClick={() => setSettingsOpen(true)} className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B", background: "none", border: "none", padding: 0, cursor: "pointer" }}>{plan.label} plan · manage</button>
           </div>
-          <form action={signout} style={{ marginLeft: "auto" }}>
+          <form action={signout} style={{ marginLeft: "auto", display: local ? "none" : undefined }}>
             <Hov tag="button" type="submit" title="Sign out" base={{ background: "none", border: "none", color: "#7C766B", fontSize: 11, cursor: "pointer" }} hover={{ color: "#F1ECE1" }}>
               <span className="dm-mono">Sign out</span>
             </Hov>

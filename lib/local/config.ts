@@ -92,9 +92,10 @@ export function localServeEnv(cfg: LocalConfig): Record<string, string> {
     BLOB_DIR: cfg.blobDir,
     PORT: String(cfg.port),
     HOSTNAME: cfg.host,
-    // Single-user mode needs no Neon Auth; a placeholder cookie secret keeps
-    // the auth lib from throwing at import (its session path is bypassed).
+    // Single-user mode needs no Neon Auth; placeholders keep the auth lib from
+    // throwing at import (its session/middleware path is bypassed in local mode).
     NEON_AUTH_COOKIE_SECRET: "local-single-user-no-remote-auth",
+    NEON_AUTH_BASE_URL: "http://local.invalid",
   };
   if (cfg.databaseUrl) out.DATABASE_URL = cfg.databaseUrl;
   return out;

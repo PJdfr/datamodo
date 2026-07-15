@@ -355,6 +355,15 @@
     `putBlob`/`getBlob` chokepoint (`lib/storage/blob-fs.ts`, traversal-proof);
     `package.json` `bin`. CLI verified (init/serve/version); config + fs blobs
     unit-tested. Cloud path untouched (all gated on `DATAMODO_LOCAL`/`BLOB_DIR`).
+    - ~~**No login (user call 2026-07-15: "remove the auth, the user do not
+      even need a login")**~~ ✅: local mode now has NO auth UI at all — the
+      `proxy.ts` middleware short-circuits (never redirects to `/login`), the
+      login/register pages + marketing landing + `/` redirect straight to
+      `/dashboard`, the `login`/`signup`/`signout` server actions no-op into
+      `/dashboard`, and the dashboard header hides the sign-out control
+      (`ControlCenter local` prop). Open localhost → land in the app as the one
+      `LOCAL_USER`. Auth env is placeholder-only so the auth lib doesn't throw
+      at import; its session/middleware path is never reached.
   - ~~**Phase 2 — zero-setup embedded DB**~~ ✅ 2026-07-14: `serve` now boots
     an embedded Postgres — **pglite** (WASM PG with pgvector + pg_trgm) fronted
     by **pglite-socket**, so `@prisma/adapter-pg` (`lib/prisma.ts` uses it when

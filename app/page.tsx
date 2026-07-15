@@ -1,4 +1,6 @@
 import "./landing.css";
+import { redirect } from "next/navigation";
+import { isLocalMode } from "@/lib/local/config";
 import { AskAnything, FinalCTA, Footer, Hero, Nav, Trust, UseCases } from "@/components/landing/sections";
 import { ThreeSteps } from "@/components/landing/steps";
 import { SourceGraph } from "@/components/landing/sources";
@@ -27,6 +29,9 @@ export const metadata = {
 };
 
 export default function LandingPage() {
+  // Local edition: there is no marketing site — the app IS the product. Open
+  // localhost and land straight in the dashboard.
+  if (isLocalMode()) redirect("/dashboard");
   return (
     <div className="lp-landing">
       <Nav />

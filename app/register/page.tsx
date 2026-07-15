@@ -1,15 +1,18 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { signup } from "@/app/auth/actions";
 import { Logo } from "@/components/logo";
 import { GoogleButton } from "@/components/google-button";
 import { BrandAside } from "@/components/brand-aside";
 import { MailIcon, LockIcon, UserIcon } from "@/components/field-icons";
+import { isLocalMode } from "@/lib/local/config";
 
 export default async function RegisterPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string; message?: string }>;
 }) {
+  if (isLocalMode()) redirect("/dashboard");
   const { error, message } = await searchParams;
 
   return (
