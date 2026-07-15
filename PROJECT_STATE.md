@@ -12,6 +12,15 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-15** — **Windows fix: `datamodo serve` "prisma db push failed"**
+  (user report on PowerShell). Node's `spawn("npx", …)` with no shell can't
+  resolve the npm shim on Windows (it's `npx.cmd`) → ENOENT, and the error was
+  swallowed (`p.on("error", () => res(1))`), leaving only the opaque "could not
+  build the local database schema." Fixed BOTH `npx` spawns — the `prisma db
+  push` in `lib/local/embedded-db.mjs` and the `next start` in `bin/datamodo.mjs`
+  — to use `process.platform === "win32" ? "npx.cmd" : "npx"`, and the embedded
+  DB now logs the actual spawn error instead of hiding it. Verified: both
+  guarded DB integration tests still pass on Linux (path unchanged there).
 - **2026-07-15** — **Cloud/local split, step A: clean local build, no cloud
   eval** (user call "go for A" — the cheap one-repo half of the code-separation
   requirement). Investigation first: cloud deps are remarkably well-contained —
