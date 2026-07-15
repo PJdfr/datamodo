@@ -14,7 +14,11 @@
  *  (the person at the keyboard), so auth is a constant, not a login. The UUID
  *  is stable so a re-serve reuses the same org/vault. */
 export const LOCAL_USER = {
-  id: "00000000-0000-0000-0000-0000000d0m0d", // "d0m0d" ≈ "domod" — stable, valid v4-shaped
+  // A fixed, valid v4-shaped UUID (hex only — an earlier value used "d0m0d",
+  // whose `m` is NOT a hex digit, so Postgres rejected every query keyed on it:
+  // the org wouldn't resolve, agents/chats couldn't be created). Stable so a
+  // re-serve reuses the same org/vault. "d0d" ≈ a nod to datamodo, all hex.
+  id: "00000000-0000-4000-8000-000000000d0d",
   email: "you@localhost",
   name: "You",
 } as const;

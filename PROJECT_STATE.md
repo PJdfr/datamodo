@@ -12,6 +12,40 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-15** — **Local edition was fundamentally broken — three real bugs
+  fixed** (user hit: dashboard "couldn't load / missing a migration" banner,
+  "invalid input syntax for type uuid" creating an agent, "could not send" a
+  chat). All three shared root causes in the LOCAL runtime, none caught earlier
+  because verification only checked `/dashboard` returned HTTP 200 (the notice
+  renders at 200) and the DB integration test used a random UUID.
+  **(1) `LOCAL_USER.id` was not a valid UUID** — `00000000-…-0000000d0m0d`; the
+  `m` isn't a hex digit, so Postgres rejected EVERY query keyed on the local
+  user (org resolution → dashboard notice; agent create; chat). Fixed to
+  `00000000-0000-4000-8000-000000000d0d` (hex only) + a test asserting the UUID
+  regex (the old test only checked length ≥ 32, which the bad id passed). No
+  data migration needed — every write with the bad id had failed, so nothing
+  existed.
+  **(2) `/dashboard` was statically prerendered at BUILD time** — the local-mode
+  change made `getSessionUser` not read cookies, so Next no longer saw the page
+  as dynamic and prerendered it during `next build` (no DB running → "Can't
+  reach database server at 127.0.0.1:5432"), baking the failure banner into a
+  static page served on every request. Fixed with
+  `export const dynamic = "force-dynamic"` on the dashboard (cloud was already
+  dynamic via the cookie read).
+  **(3) pglite-socket concurrency** — pglite is a single WASM instance behind
+  the socket; a normal connection pool opens several connections and the socket
+  drops them ("Connection terminated unexpectedly"), so the dashboard's ~5
+  parallel reads (`Promise.allSettled`) failed intermittently (measured 0/12
+  clean rounds). `lib/prisma.ts` now, in local mode, caps the pool at `max: 1`
+  (queries serialize) AND retries the rare remaining transient drop on
+  idempotent READs only (never writes/transactions) — measured 15/15 clean.
+  (Tried upgrading pglite 0.4→0.5 to get its query queue; 0.5 REMOVED the
+  bundled `vector` extension → reverted, stayed on 0.4.6 / socket 0.1.6.)
+  Also: the dashboard's silent `catch {}` blocks now `console.error` the reason
+  (these hid all of the above — a real diagnosability fix). VERIFIED end-to-end
+  on the embedded DB (`.env.local` moved aside): fresh `serve` → dashboard loads
+  clean, notice ABSENT across 8 repeated loads, 0 errors logged; `tsc` clean,
+  lint at baseline, 228 unit tests + both guarded DB tests pass.
 - **2026-07-15** — **`datamodo serve` auto-builds — kills the `DATAMODO_LOCAL=1`
   footgun.** The manual `DATAMODO_LOCAL=1 npm run build` step bit users three
   times (PowerShell `$env:` syntax, forgetting it, and — on Mac — running a

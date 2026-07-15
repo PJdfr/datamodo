@@ -11,6 +11,14 @@ import type { AgentActivityEntry, AgentRecord, DatasetRelation, DatasetView, Rev
 import { isLocalMode } from "@/lib/local/config";
 import ControlCenter from "./control-center";
 
+// The dashboard is always per-user and reads live data — it must render at
+// REQUEST time, never be statically prerendered. In cloud mode reading the
+// session cookie already forces this; in the local edition the session is a
+// constant (no cookie), so without this Next would prerender /dashboard at BUILD
+// time — when the embedded DB isn't running — and bake the "couldn't load /
+// missing a migration" fallback into a static page served on every request.
+export const dynamic = "force-dynamic";
+
 export default async function DashboardPage() {
   const user = await getSessionUser();
 
@@ -43,7 +51,8 @@ export default async function DashboardPage() {
       const org = await getOrCreateOrg(user);
       try {
         settings = await getSettings(user.id);
-      } catch {
+      } catch (e) {
+        console.error("[dashboard] getSettings failed:", e);
         notice = SCHEMA_NOTICE;
       }
       try {
@@ -65,6 +74,9 @@ export default async function DashboardPage() {
           listPendingChanges(org.id),
           listAgentActivity(org.id),
         ]);
+        for (const [label, r] of [["agents", ag], ["datasets", ds], ["relations", rel], ["pendingChanges", pend], ["agentActivity", act]] as const) {
+          if (r.status === "rejected") console.error(`[dashboard] ${label} failed:`, r.reason);
+        }
         if (ag.status === "fulfilled") agents = ag.value; else notice = SCHEMA_NOTICE;
         if (ds.status === "fulfilled") datasets = ds.value; else notice = SCHEMA_NOTICE;
         if (rel.status === "fulfilled") relations = rel.value; else notice = SCHEMA_NOTICE;
@@ -79,7 +91,8 @@ export default async function DashboardPage() {
           /* table may be behind on migrations — leave 0 */
         }
       }
-    } catch {
+    } catch (e) {
+      console.error("[dashboard] getOrCreateOrg / load failed:", e);
       notice = SCHEMA_NOTICE;
     }
   }
