@@ -122,18 +122,18 @@ from a clone.
 ```bash
 git clone <this-repo> datamodo && cd datamodo
 npm install
-
-# Build once — no env vars needed (cloud auth/billing/webhook code is lazy and
-# never evaluated in local mode).
-DATAMODO_LOCAL=1 npm run build
-
-# Run it. Boots an embedded Postgres (pglite — no Docker, no DB install) and the
-# dashboard. First run builds the schema automatically.
 node bin/datamodo.mjs serve         # → http://localhost:4321  (no login)
 ```
 
+That's it. On first run `serve` builds the app for you (no `DATAMODO_LOCAL`
+flag to set — it's handled internally) and boots an embedded Postgres (pglite —
+no Docker, no DB install). Subsequent runs skip the build and start instantly.
 Open **http://localhost:4321** and you land straight in the dashboard. Prereqs:
-**Node ≥ 20** — nothing else (no Docker, no Postgres).
+**Node ≥ 20** — nothing else.
+
+> Rebuild by hand any time with `node bin/datamodo.mjs build` (e.g. after
+> pulling code changes). Point `DATABASE_URL` at your own Postgres to skip the
+> embedded one.
 
 **Choosing your LLM** (Settings → *Bring your own key*):
 
