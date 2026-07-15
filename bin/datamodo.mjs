@@ -14,19 +14,21 @@
 // Env/serve contract (keep in sync with lib/local/config.ts — the app side):
 //   DATAMODO_LOCAL=1 · BLOB_DIR=<dataDir>/blobs · PORT · HOSTNAME · DATABASE_URL
 //
-// NOTE (phase 1): booting requires the built Next app + a local Postgres
-// (DATABASE_URL). The embedded database (pglite) that makes `serve` truly
-// zero-dependency is phase 2 — until then `serve` guides the user to set
-// DATABASE_URL. Everything else (single-user auth, fs blobs, dashboard LLM
-// config) is wired.
+// The database is ZERO-SETUP: `serve` boots an embedded Postgres (pglite, with
+// pgvector) behind a local socket and builds the schema on first run — no
+// Docker, no install, no DATABASE_URL. Set DATABASE_URL yourself to point at
+// your own Postgres instead. Booting the dashboard needs the built Next app
+// (shipped in the published package; `next start` in the repo).
 
 import { Command } from "commander";
 import { promises as fs } from "node:fs";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
+import net from "node:net";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { startEmbeddedDb } from "../lib/local/embedded-db.mjs";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
@@ -76,18 +78,27 @@ program
     await fs.mkdir(cfg.blobDir, { recursive: true });
     console.log(`✓ data dir ready:  ${cfg.dataDir}`);
     console.log(`  blobs:           ${cfg.blobDir}`);
+    console.log(`  database:        ${path.join(cfg.dataDir, "pgdata")} (embedded — built on first serve)`);
     console.log("");
     console.log("Next:");
-    console.log("  1. Point datamodo at a local Postgres (with pgvector):");
-    console.log("     export DATABASE_URL=postgres://localhost:5432/datamodo");
-    console.log("     (embedded zero-setup database is coming — see the docs)");
-    console.log("  2. datamodo serve");
-    console.log("  3. Open the dashboard and set your LLM (API key or Ollama).");
+    console.log("  1. datamodo serve");
+    console.log("  2. Open http://localhost:4321 and set your LLM (API key, Ollama, …).");
+    console.log("  (No database to install — datamodo runs its own. Point DATABASE_URL");
+    console.log("   at your own Postgres to use that instead.)");
   });
+
+/** Find a free localhost TCP port for the embedded DB socket. */
+function freePort() {
+  return new Promise((res, rej) => {
+    const s = net.createServer();
+    s.on("error", rej);
+    s.listen(0, "127.0.0.1", () => { const { port } = s.address(); s.close(() => res(port)); });
+  });
+}
 
 program
   .command("serve")
-  .description("Run the dashboard on localhost (single-user, local storage)")
+  .description("Run the dashboard on localhost (single-user, embedded database)")
   .option("-d, --data-dir <path>", "where datamodo keeps your vault + files")
   .option("-p, --port <port>", "port to serve on", String(DEFAULT_PORT))
   .option("-H, --host <host>", "host to bind", "127.0.0.1")
@@ -95,14 +106,14 @@ program
     const cfg = resolveConfig(opts);
     await fs.mkdir(cfg.blobDir, { recursive: true });
 
+    // Zero-setup database: boot the embedded Postgres unless the user pointed
+    // DATABASE_URL at their own server.
+    let db = null;
     if (!cfg.databaseUrl) {
-      console.error("✗ No database configured.");
-      console.error("  datamodo needs a Postgres with pgvector. Set DATABASE_URL, e.g.:");
-      console.error("    export DATABASE_URL=postgres://localhost:5432/datamodo");
-      console.error("  Then apply the schema (neon/schema.sql) and re-run `datamodo serve`.");
-      console.error("  (The embedded zero-setup database is on the roadmap — phase 2.)");
-      process.exitCode = 1;
-      return;
+      const pgPort = await freePort();
+      db = await startEmbeddedDb({ appRoot: APP_ROOT, dataDir: cfg.dataDir, port: pgPort });
+      await db.ensureSchema(pkg.version || "0");
+      cfg.databaseUrl = db.url;
     }
 
     // Boot the built Next server if present, else `next start` (dev/repo).
@@ -112,9 +123,11 @@ program
       ? [process.execPath, [standalone]]
       : ["npx", ["next", "start", "-p", String(cfg.port), "-H", cfg.host]];
 
-    console.log(`datamodo → http://${cfg.host}:${cfg.port}  (single-user · local storage)`);
+    console.log(`datamodo → http://${cfg.host}:${cfg.port}  (single-user · ${db ? "embedded db" : "your database"} · local files)`);
     const child = spawn(cmd, args, { cwd: APP_ROOT, env: serveEnv(cfg), stdio: "inherit" });
-    child.on("exit", (code) => process.exit(code ?? 0));
+    const shutdown = async () => { await db?.stop(); };
+    child.on("exit", async (code) => { await shutdown(); process.exit(code ?? 0); });
+    process.on("SIGINT", async () => { child.kill("SIGINT"); await shutdown(); process.exit(0); });
   });
 
 program.parseAsync(process.argv).catch((e) => {
