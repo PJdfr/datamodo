@@ -31,7 +31,19 @@ export class OpenAICompatibleProvider implements LlmProvider {
   async chatJSON<T>(req: ChatJsonRequest): Promise<T> {
     if (!this.cfg.apiKey && !this.cfg.keyless) throw new Error(`${this.name}: API key not set`);
 
-    const call = (withSchema: boolean): Promise<Response> => {
+    // JSON-mode ladder, degraded on rejection:
+    //  • "schema"      — json_schema, when the caller asked for structured output;
+    //  • "json_object" — keyless local servers (Ollama) honor this and it MARKEDLY
+    //                    improves JSON validity from small models; json_schema is
+    //                    spottier there, so we prefer json_object for them;
+    //  • "none"        — no response_format (parseLoose salvages the text).
+    // Cloud providers (with a key) are unaffected: they never get "json_object".
+    const modes: Array<"schema" | "json_object" | "none"> = [];
+    if ((req.structured ?? false) && req.schema) modes.push("schema");
+    if (this.cfg.keyless) modes.push("json_object");
+    modes.push("none");
+
+    const call = (mode: "schema" | "json_object" | "none"): Promise<Response> => {
       // Vision: images ride along as data-URI parts of the user message.
       const userContent = req.images?.length
         ? [
@@ -54,11 +66,13 @@ export class OpenAICompatibleProvider implements LlmProvider {
       // OpenRouter returns the EXACT dollar cost of the call when asked — so
       // BYOK spend is recorded precisely, never estimated, for that provider.
       if (this.name === "openrouter") body.usage = { include: true };
-      if (withSchema && req.schema) {
+      if (mode === "schema" && req.schema) {
         body.response_format = {
           type: "json_schema",
           json_schema: { name: req.schemaName ?? "result", strict: false, schema: req.schema },
         };
+      } else if (mode === "json_object") {
+        body.response_format = { type: "json_object" };
       }
       return fetch(`${this.cfg.baseUrl}/chat/completions`, {
         method: "POST",
@@ -71,13 +85,14 @@ export class OpenAICompatibleProvider implements LlmProvider {
       });
     };
 
-    let withSchema = req.structured ?? false;
+    let modeIdx = 0;
     let lastErr = "";
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const res = await call(withSchema);
-      if ((res.status === 400 || res.status === 404 || res.status === 422) && withSchema) {
-        withSchema = false;
-        continue; // model rejects response_format — drop it
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const mode = modes[Math.min(modeIdx, modes.length - 1)];
+      const res = await call(mode);
+      if ((res.status === 400 || res.status === 404 || res.status === 422) && mode !== "none") {
+        modeIdx++; // model rejects this response_format — drop down the ladder
+        continue;
       }
       if (res.status === 429 || res.status === 502 || res.status === 503) {
         const retryAfter = Number(res.headers.get("retry-after")) || 3;
@@ -89,7 +104,7 @@ export class OpenAICompatibleProvider implements LlmProvider {
       const data = await res.json();
       const content: string | undefined = data?.choices?.[0]?.message?.content;
       if (!content) {
-        if (withSchema) { withSchema = false; lastErr = "empty w/ schema"; continue; }
+        if (mode !== "none") { modeIdx++; lastErr = "empty w/ response_format"; continue; }
         throw new Error(`${this.name}: empty response (model reasoning-only or truncated)`);
       }
       this.reportUsage(req.model, data?.usage);

@@ -14,6 +14,7 @@ import {
   localServeEnv,
   localEmbeddingDefaults,
   localDataDir,
+  sanitizeLlmModels,
   LOCAL_USER,
 } from "../lib/local/config.ts";
 
@@ -87,6 +88,16 @@ test("localDataDir: env → parent of BLOB_DIR → ~/.datamodo", () => {
   assert.equal(localDataDir({ DATAMODO_DATA_DIR: "/data/dm" }), "/data/dm");
   assert.equal(localDataDir({ BLOB_DIR: "/data/dm/blobs" }), "/data/dm");
   assert.equal(localDataDir({ HOME: "/home/me" }), "/home/me/.datamodo");
+});
+
+test("sanitizeLlmModels: trims, drops blanks, ignores junk", () => {
+  assert.deepEqual(
+    sanitizeLlmModels({ extract: "  llama3.1 ", vision: "llava", escalate: "", junk: 5 }),
+    { extract: "llama3.1", vision: "llava" },
+  );
+  assert.deepEqual(sanitizeLlmModels({}), {});
+  assert.deepEqual(sanitizeLlmModels(null), {});
+  assert.deepEqual(sanitizeLlmModels({ extract: "   " }), {}); // whitespace-only → dropped
 });
 
 test("LOCAL_USER: a stable, VALID uuid identity", () => {
