@@ -12,6 +12,18 @@
 > Last updated: 2026-07-14
 
 ## Recent changes
+- **2026-07-14** — **Per-entity blame** (Review-track follow-up): the entity
+  page's "◷ History" disclosure (`EntityHistory`) gained a **story ⇄ blame**
+  toggle. Blame is the git-style commit log filtered to that entity
+  (`GET …/timeline?view=commits&entity=<id>` — `buildCommitLog`'s `entityId`
+  seam, already there, narrows each commit's diff lines to facts touching the
+  entity), rendered with the Commits view's `CommitCard` — so an entity page
+  now shows exactly which extraction run added or changed each of its facts,
+  supersessions as `~ was → now`. Fetches lazily per tab; story fetches the
+  timeline events as before. Verified: tsc, lint == baseline, 196 tests, build
+  green, new `entity-blame` shoot ✓ (INV-4417's correction + original commits,
+  amount strikethrough diff). Still open from the track: a richer standalone
+  supersession-diff view.
 - **2026-07-14** — **Outbound sync, phase 1: push a table to the user's own
   Postgres** (roadmap). Philosophy fit — every view is a projection, so an
   external DB is just another target. One-way, idempotent: upsert keyed on the
