@@ -12,6 +12,22 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Fix: Anthropic `temperature` 400 on newest Claude models**
+  (user bug report: "temperature is deprecated for this model" when using a
+  Claude API key). Anthropic removed sampling params (`temperature`/`top_p`/
+  `top_k`) on Sonnet 5, Opus 4.7/4.8 and later — sending one returns HTTP 400.
+  Our Anthropic escalate default is `claude-sonnet-5`, so every escalation on
+  a Claude key failed. `lib/llm/anthropic.ts` now builds the request via
+  `buildAnthropicBody()` which includes `temperature` only when
+  `anthropicAcceptsSampling(model)` says the family still takes it (allowlist:
+  claude-2.x/3.x, haiku-*, opus/sonnet 4.0–4.6 incl. dated snapshots; wrongly
+  omitting is harmless, wrongly sending breaks the call). Both functions are
+  exported and unit-tested in `tests/llm-provider.test.ts` — the tests caught
+  a first-draft regex hole where `claude-opus-4-7` slipped through the
+  optional group. Defaults unchanged: extract/vision `claude-haiku-4-5`
+  (still accepts temperature), escalate `claude-sonnet-5` (now sent without).
+  Verified: tsc, 275/277 tests (2 pre-existing skips), lint (7 pre-existing
+  errors), boundary clean.
 - **2026-07-16** — **BYOK monthly spend cap** (ROADMAP cost-tracking
   follow-up) + **version 0.2.0**. Settings → BYOK gains "Monthly spend cap
   (USD)" (`user_settings.byok_monthly_cap_usd`, migration

@@ -14,6 +14,50 @@ export interface AnthropicConfig {
  * requested via the prompt (Anthropic also supports tool-use for hard structure,
  * which we can add later); parseLoose handles the reply.
  */
+
+/** Whether a Claude model still ACCEPTS sampling params (`temperature`).
+ *  Anthropic REMOVED temperature/top_p/top_k on the newest generations —
+ *  Sonnet 5, Opus 4.7/4.8, Fable/Mythos 5 — where sending one returns a 400
+ *  ("temperature is not supported/deprecated for this model"). This is an
+ *  ALLOWLIST of families known to accept it: wrongly omitting is harmless
+ *  (the model just uses its default), wrongly sending breaks the call.
+ *  Pure — unit-tested. */
+export function anthropicAcceptsSampling(model: string): boolean {
+  const m = model.trim().toLowerCase();
+  if (/^claude-(2|3)([.-]|$)/.test(m)) return true;           // claude-2.x, claude-3[-5]-…
+  if (/^claude-haiku-/.test(m)) return true;                  // haiku 4.5 keeps sampling
+  // opus/sonnet 4.0 – 4.6 (incl. dated ids like claude-sonnet-4-5-20250929);
+  // 4.7+ and 5+ reject.
+  if (/^claude-(opus|sonnet)-4(-[0-6](-|$)|$)/.test(m)) return true;
+  return false;
+}
+
+/** The request body for one chatJSON call — split out so the sampling-param
+ *  rule above is testable without a network. */
+export function buildAnthropicBody(req: ChatJsonRequest): Record<string, unknown> {
+  return {
+    model: req.model,
+    system: req.system,
+    max_tokens: req.maxTokens ?? 2048,
+    // Newest models (Sonnet 5 / Opus 4.7+ / Fable 5) reject temperature — omit it there.
+    ...(anthropicAcceptsSampling(req.model) ? { temperature: req.temperature ?? 0 } : {}),
+    // Vision: image blocks precede the text (Anthropic's recommended order).
+    messages: [
+      {
+        role: "user",
+        content: req.images?.length
+          ? [
+              ...req.images.map((im) => ({
+                type: "image",
+                source: { type: "base64", media_type: im.mediaType, data: im.dataBase64 },
+              })),
+              { type: "text", text: req.user },
+            ]
+          : req.user,
+      },
+    ],
+  };
+}
 export class AnthropicProvider implements LlmProvider {
   readonly name = "anthropic" as const;
   readonly models: LlmModels;
@@ -39,27 +83,7 @@ export class AnthropicProvider implements LlmProvider {
           "anthropic-version": "2023-06-01",
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          model: req.model,
-          system: req.system,
-          max_tokens: req.maxTokens ?? 2048,
-          temperature: req.temperature ?? 0,
-          // Vision: image blocks precede the text (Anthropic's recommended order).
-          messages: [
-            {
-              role: "user",
-              content: req.images?.length
-                ? [
-                    ...req.images.map((im) => ({
-                      type: "image",
-                      source: { type: "base64", media_type: im.mediaType, data: im.dataBase64 },
-                    })),
-                    { type: "text", text: req.user },
-                  ]
-                : req.user,
-            },
-          ],
-        }),
+        body: JSON.stringify(buildAnthropicBody(req)),
       });
       if (res.status === 429 || res.status === 500 || res.status === 529) {
         const retryAfter = Number(res.headers.get("retry-after")) || 3;
