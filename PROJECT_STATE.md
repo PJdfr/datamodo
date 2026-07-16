@@ -12,6 +12,23 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Anthropic path is now E2E-verifiable (mock /v1/messages
+  + `ANTHROPIC_BASE_URL`)**. The two Claude-key bugs (temperature 400, empty
+  response) reached the user because mock-ollama only spoke the
+  OpenAI-compatible surface — the Anthropic provider (`/v1/messages`,
+  `x-api-key`) had no mock and a hardcoded base URL, so it could never be
+  driven end-to-end. Now: `getLlmProvider` honors `ANTHROPIC_BASE_URL` (same
+  pattern as the other `*_BASE_URL`s); mock-ollama serves an Anthropic-shaped
+  `/v1/messages` that ENFORCES the current API rules (temperature on
+  Sonnet 5/Opus 4.7+/Fable → 400; thinking-block-first replies unless
+  `{type:"disabled"}`; Fable/Mythos reject a thinking config) and `/v1/models`
+  answers the `x-api-key` dialect with claude ids (Settings dropdown). E2E
+  6/6 on the packed 0.2.0 artifact: BYOK Claude key via Settings UI + text
+  model claude-sonnet-5 → graph-worthy message ANALYZED, trivial message
+  completes, wire shows no 400s and `(no-thinking)`; negative control
+  confirmed the mock 400s on temperature and leads with thinking blocks (old
+  code fails both ways). Unit: `ANTHROPIC_BASE_URL` rerouting + thinking-first
+  reply parsing through full `chatJSON`.
 - **2026-07-16** — **Hardening: OpenAI reasoning models (o-series, gpt-5\*)**
   — same failure class as the Anthropic fixes below, caught preemptively
   (user asked "does this affect OpenAI/OpenRouter too?"). The real OpenAI API

@@ -159,6 +159,31 @@ test("anthropic body: thinking disabled on adaptive-default models, absent elsew
   assert.equal("thinking" in fable, false);
 });
 
+test("anthropic: ANTHROPIC_BASE_URL reroutes the provider; thinking-first reply parses", async () => {
+  const stash = process.env.ANTHROPIC_BASE_URL;
+  process.env.ANTHROPIC_BASE_URL = "http://127.0.0.1:9999";
+  const cap: { url?: string; body?: Record<string, unknown> } = {};
+  globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    cap.url = String(url);
+    cap.body = JSON.parse(String(init?.body ?? "{}"));
+    return new Response(
+      JSON.stringify({ content: [{ type: "thinking", thinking: "" }, { type: "text", text: '{"ok":true}' }], stop_reason: "end_turn" }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+  try {
+    const llm = getLlmProvider("anthropic", "sk-ant-test");
+    const out = await llm.chatJSON<{ ok: boolean }>({ system: "s", user: "u", model: "claude-sonnet-5" });
+    assert.deepEqual(out, { ok: true }, "thinking-first reply must still parse");
+    assert.equal(cap.url, "http://127.0.0.1:9999/v1/messages");
+    assert.equal("temperature" in (cap.body ?? {}), false);
+    assert.deepEqual(cap.body?.thinking, { type: "disabled" });
+  } finally {
+    if (stash === undefined) delete process.env.ANTHROPIC_BASE_URL;
+    else process.env.ANTHROPIC_BASE_URL = stash;
+  }
+});
+
 test("anthropic reply: text found even when thinking blocks come first", () => {
   // Thinking-on responses lead with thinking blocks (empty text under the
   // default display) — content[0].text is NOT the reply.
