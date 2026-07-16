@@ -2561,7 +2561,8 @@ function McpConnectCard() {
           )}
           <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", lineHeight: 1.6 }}>
             {conn.token ? (
-              <>Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url} --header &quot;Authorization: Bearer {conn.token}&quot;</span></>
+              <>claude.ai: Settings → Connectors → Add custom connector → paste the server URL — you&apos;ll approve the connection in your browser (no token to copy).
+              <br />Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url} --header &quot;Authorization: Bearer {conn.token}&quot;</span></>
             ) : (
               <>No token needed — this vault lives on your machine, and only this machine can reach it.
               <br />Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url}</span></>
