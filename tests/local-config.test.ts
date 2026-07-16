@@ -15,6 +15,8 @@ import {
   localEmbeddingDefaults,
   localDataDir,
   sanitizeLlmModels,
+  sanitizeLlmFile,
+  sanitizeOllamaUrl,
   LOCAL_USER,
 } from "../lib/local/config.ts";
 
@@ -110,12 +112,39 @@ test("sanitizeLlmModels: trims, drops blanks, ignores junk", () => {
   assert.deepEqual(sanitizeLlmModels({ extract: "   " }), {}); // whitespace-only → dropped
 });
 
-test("sanitizeLlmModels: url must be http(s), trailing slash trimmed", () => {
-  assert.deepEqual(sanitizeLlmModels({ url: "http://localhost:11434/" }), { url: "http://localhost:11434" });
-  assert.deepEqual(sanitizeLlmModels({ url: "https://my.tunnel.dev" }), { url: "https://my.tunnel.dev" });
+test("sanitizeOllamaUrl: http(s) only, trailing slash trimmed", () => {
+  assert.equal(sanitizeOllamaUrl("http://localhost:11434/"), "http://localhost:11434");
+  assert.equal(sanitizeOllamaUrl("https://my.tunnel.dev"), "https://my.tunnel.dev");
   // Not a server address → dropped rather than breaking every LLM call.
-  assert.deepEqual(sanitizeLlmModels({ url: "localhost:11434" }), {});
-  assert.deepEqual(sanitizeLlmModels({ url: "file:///etc/passwd" }), {});
+  assert.equal(sanitizeOllamaUrl("localhost:11434"), undefined);
+  assert.equal(sanitizeOllamaUrl("file:///etc/passwd"), undefined);
+});
+
+test("sanitizeLlmFile: models are namespaced PER PROVIDER", () => {
+  const f = sanitizeLlmFile({
+    url: "http://localhost:11434/",
+    providers: {
+      ollama: { extract: "llama3.1:8b", vision: "llama3.2-vision" },
+      anthropic: { extract: " claude-haiku-4-5 " },
+      openai: { extract: "   " }, // blank-only → provider entry dropped
+      junk: { extract: "x" },     // unknown provider → ignored
+    },
+  });
+  assert.equal(f.url, "http://localhost:11434");
+  assert.deepEqual(f.providers.ollama, { extract: "llama3.1:8b", vision: "llama3.2-vision" });
+  assert.deepEqual(f.providers.anthropic, { extract: "claude-haiku-4-5" });
+  assert.equal(f.providers.openai, undefined);
+  assert.equal((f.providers as Record<string, unknown>).junk, undefined);
+});
+
+test("sanitizeLlmFile: LEGACY flat llm.json migrates to providers.ollama", () => {
+  // The pre-namespacing wizard wrote {extract, vision, url} — those were
+  // always OLLAMA names, and they must never leak into a BYOK provider.
+  const f = sanitizeLlmFile({ extract: "llama3.1:8b", vision: "llava", url: "http://localhost:11434" });
+  assert.deepEqual(f.providers.ollama, { extract: "llama3.1:8b", vision: "llava" });
+  assert.equal(f.providers.anthropic, undefined);
+  assert.equal(f.url, "http://localhost:11434");
+  assert.deepEqual(sanitizeLlmFile(null), { providers: {} });
 });
 
 test("LOCAL_USER: a stable, VALID uuid identity", () => {

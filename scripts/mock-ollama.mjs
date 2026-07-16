@@ -195,10 +195,15 @@ const server = http.createServer(async (req, res) => {
     const body = JSON.parse((await readBody(req)) || "{}");
     const model = String(body.model ?? "");
     const bare = model.replace(/:latest$/, "");
-    if (installed.size && ![...installed].some((m) => m === model || m.replace(/:latest$/, "") === bare)) {
+    const hasKey = Boolean(req.headers.authorization);
+    // Keyless = Ollama semantics (a model must be pulled first). A bearer key
+    // = a cloud API (OpenAI/OpenRouter-shaped) — any model id is accepted, so
+    // BYOK flows can be driven against this mock via *_BASE_URL.
+    if (!hasKey && installed.size && ![...installed].some((m) => m === model || m.replace(/:latest$/, "") === bare)) {
       log("chat", model, "→ 404 not installed");
       return json(res, 404, { error: { message: `model "${model}" not found, try pulling it first` } });
     }
+    if (hasKey) log("auth", `bearer ${String(req.headers.authorization).slice(7, 19)}…`);
     const system = typeof body.messages?.[0]?.content === "string" ? body.messages[0].content : "";
     const userMsg = body.messages?.find((m) => m.role === "user");
     const parts = Array.isArray(userMsg?.content) ? userMsg.content : null;
