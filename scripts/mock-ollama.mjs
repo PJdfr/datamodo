@@ -208,9 +208,10 @@ const server = http.createServer(async (req, res) => {
     const userMsg = body.messages?.find((m) => m.role === "user");
     const parts = Array.isArray(userMsg?.content) ? userMsg.content : null;
     const user = parts ? parts.filter((p) => p.type === "text").map((p) => p.text).join("\n") : String(userMsg?.content ?? "");
-    const hasImages = Boolean(parts?.some((p) => p.type === "image_url"));
+    const imageCount = parts?.filter((p) => p.type === "image_url").length ?? 0;
+    const hasImages = imageCount > 0;
     const out = answerChat(system, user, hasImages);
-    log("chat", model, hasImages ? "(vision)" : "", "→", Object.keys(out).join(","));
+    log("chat", model, hasImages ? `(vision x${imageCount})` : "", "→", Object.keys(out).join(","));
     return json(res, 200, {
       id: "mock",
       choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify(out) }, finish_reason: "stop" }],

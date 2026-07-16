@@ -350,8 +350,10 @@
   `extractFromImage` vision tier as a photo → thick node. Fail-soft: no
   canvas / no vision key / bad bytes → stays `metadata_only` exactly as
   before. Live-verified: the helper rasterizes a real PDF to a valid PNG and
-  returns null (never throws) on garbage. Follow-up: multi-page scans (v1 is
-  page 1 — most receipts/invoices are one page).
+  returns null (never throws) on garbage. ~~Multi-page scans~~ ✅ 2026-07-16 —
+  `rasterizePdfPages` reads up to 6 pages in ONE vision call (payload budget,
+  truncated flag → indexing "partial"); verified 7/7 on the packed artifact
+  (mock counts the image parts: "(vision x3)" / capped "(vision x6)").
 - **Local / open-source single-user edition** — npm-installable, self-hosted.
   Target UX (user, 2026-07-14): `npm install -g datamodo` → `datamodo serve`
   → the dashboard on localhost, where you pick your LLM (API key / Ollama /
