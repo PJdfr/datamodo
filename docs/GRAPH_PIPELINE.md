@@ -637,7 +637,7 @@ Replace the flat unpdf text layer with structure-preserving conversion.
 - Acceptance stands: the same employment mentioned twice → ONE node between
   person and company in the Explorer.
 
-### P5 — Agent lenses (the §9 decision, implemented)
+### P5 — Agent lenses (the §9 decision) — PHASE 1 ✅ 2026-07-16
 - Stamp `agent_id` on facts at ingest (from `meta.agent_id` /
   `meta.routed_agent_id`); backfill existing facts through `source_item_id`.
 - `agent` filter param on search/answer/Explorer/tables APIs; agent-addressed
@@ -646,6 +646,17 @@ Replace the flat unpdf text layer with structure-preserving conversion.
 - Acceptance: two agents with disjoint purposes produce disjoint lenses over
   a shared entity ("Acme" is one node; each lens shows only its own facts),
   and an unfiltered query still sees everything.
+- **Phase 1 shipped**: migration `20260716220000_fact_agent_lens.sql`
+  (`facts.agent_id` + partial index + one-time backfill from `items.meta`);
+  the extraction tick stamps body+attachment facts in one fail-soft
+  statement after ingest; `listKnowledge(orgId, {agentId})` is the lens
+  chokepoint (identity stays global — entities never split, they just show
+  fewer facts); `?agent=` on `/api/knowledge/entities` (Explorer/graph
+  feed) and `/api/search` (knowledge evidence + GraphRAG traversal +
+  grounded answers scope to the lens; table-row keyword hits stay global).
+  **Phase 2 (open)**: the UI — lens chips on Data/Explorer, agent-addressed
+  chat defaulting to its lens with the "search everything" widening, and
+  MCP tool params.
 
 ### P6 — Multimodal embedding space (optional, last)
 Today images are caption-then-embed (text space) — cheap and good enough.

@@ -873,15 +873,21 @@ interface KFact {
 
 /** All of the user's entities + what we currently know about each, with a
  *  provenance count per fact. This is the canonical knowledge view the UI shows;
- *  tables are derived from it. */
-export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[]> {
+ *  tables are derived from it.
+ *  AGENT LENS (P5): pass opts.agentId to see the vault as ONE agent sees it —
+ *  facts filter to that agent's writes (identity stays global: entities are
+ *  never split, they just show fewer facts under a lens). */
+export async function listKnowledge(
+  orgId: string,
+  opts: { agentId?: string | null } = {},
+): Promise<KnowledgeEntityView[]> {
   const [ents, facts] = await Promise.all([
     prisma.entities.findMany({
       where: { org_id: orgId, merged_into: null },
       select: { id: true, kind: true, canonical_label: true, natural_keys: true, body_md: true, graph_pin: true },
     }),
     prisma.facts.findMany({
-      where: { org_id: orgId, valid_to: null },
+      where: { org_id: orgId, valid_to: null, ...(opts.agentId ? { agent_id: opts.agentId } : {}) },
       select: {
         id: true,
         subject_entity_id: true,

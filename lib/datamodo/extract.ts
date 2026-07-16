@@ -761,6 +761,23 @@ export async function runExtractionForItem(
     } catch (e) {
       console.error(`[extract] attachment processing failed for item ${row.id}`, e);
     }
+    // AGENT LENS stamp (GRAPH_PIPELINE.md P5): facts remember which agent's
+    // pipeline wrote them. Attribution reads back off the item's meta (the
+    // addressed/routed stamps above), covering body AND attachment facts in
+    // one statement. Fail-soft: a pre-migration DB just skips it.
+    try {
+      await prisma.$executeRaw`
+        UPDATE facts f
+           SET agent_id = COALESCE(
+                 NULLIF(i.meta->>'agent_id', '')::uuid,
+                 NULLIF(i.meta->>'routed_agent_id', '')::uuid)
+          FROM items i
+         WHERE i.id = ${row.id}::uuid AND f.source_item_id = i.id
+           AND f.org_id = ${row.org_id}::uuid AND f.agent_id IS NULL
+           AND (i.meta ? 'agent_id' OR i.meta ? 'routed_agent_id')`;
+    } catch {
+      /* lens column not migrated yet — attribution still lives on the item */
+    }
     // Growth loop ⑤: entities of a kind the registry doesn't know, once seen
     // often enough, become a PROPOSED category (AI-drafted template) in the
     // Review queue. Best-effort — a proposal failure never fails the item.

@@ -12,6 +12,22 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Agent lenses, phase 1 (GRAPH_PIPELINE.md P5)** — the
+  last big graph-track phase: per-agent READ views over the ONE shared
+  graph. `facts.agent_id` lands via migration
+  `20260716220000_fact_agent_lens.sql` (FK SET NULL, partial index, one-time
+  backfill joining `items.meta` agent stamps through `source_item_id`);
+  `runExtractionForItem` stamps body+attachment facts in ONE fail-soft
+  UPDATE after ingest; `listKnowledge` gained `{agentId}` (the lens
+  chokepoint — identity never splits, a lens just filters facts) and
+  `?agent=` rides `/api/knowledge/entities` (Explorer feed) and
+  `/api/search` (entities/traversal/answers lens-scoped; table-row keyword
+  hits deliberately global). Also this commit: `npx prisma generate` now
+  runs against the hand-edited schema (typed `last_used_at`/`agent_id`;
+  incidentally cleared the stale-client `kind_id` tsc errors — 107→73
+  pre-existing). Suite 320 pass / 3 pre-existing canvas failures. Phase 2
+  open: lens chips in the UI, agent-addressed chat defaulting to its lens,
+  MCP tool params. **Migration owed on dev+prod** (fail-soft until then).
 - **2026-07-16** — **Template-slot backfill + reification pattern (P4)**.
   ① The consolidation tick gained pass ②b: existing nodes that predate their
   kind's template (ingest-time fill only touches entities an extraction

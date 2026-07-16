@@ -27,11 +27,16 @@ export async function GET(req: Request) {
   const org = await getActiveOrg(user.id);
   if (!org) return NextResponse.json({ query: q, terms: [], total: 0, hits: [], entities: [], passages: [], answer: null });
 
+  // AGENT LENS (P5): ?agent=<id> scopes the KNOWLEDGE evidence (facts that
+  // agent wrote — entities, traversal, grounded answers) to that agent's
+  // view. Table-row keyword hits stay global: rows are their own surface.
+  const agentId = url.searchParams.get("agent");
+
   // Table rows + knowledge in parallel; knowledge + passages are best-effort
   // so a failure there never drops the table results.
   const [result, kviews] = await Promise.all([
     searchDatasets(org.id, q),
-    listKnowledge(org.id).catch(() => []),
+    listKnowledge(org.id, { agentId }).catch(() => []),
   ]);
   const entities = searchKnowledge(kviews, result.terms);
 

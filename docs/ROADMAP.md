@@ -170,9 +170,14 @@ in value order — details, file seams, and acceptance criteria in that doc:
    observed edges, and the template block guarantees their slots. No
    `reify` flag, no schema change. `facts.attributes` jsonb deliberately
    not built.
-5. **P5 Agent lenses** — ONE graph per user, per-agent read-side filters
-   (stamp `agent_id` on facts at ingest; `agent` param on
-   search/answer/Explorer). Per-agent physical graphs explicitly rejected
+5. **P5 Agent lenses** — PHASE 1 ✅ 2026-07-16: `facts.agent_id` (migration
+   `20260716220000_fact_agent_lens.sql` **owed on dev+prod**, backfills from
+   items.meta), fail-soft stamp after every extraction,
+   `listKnowledge({agentId})` lens chokepoint, `?agent=` on
+   `/api/knowledge/entities` + `/api/search` (knowledge evidence + answers;
+   table rows stay global). PHASE 2 open: lens chips in the UI,
+   agent-addressed chat defaulting to its lens (+ "search everything"
+   widening), MCP params. Per-agent physical graphs stay rejected
    (identity would fragment — GRAPH_PIPELINE.md §9).
 6. **P6 Shared multimodal embedding space** — only if caption-then-embed
    demonstrably misses real queries.
