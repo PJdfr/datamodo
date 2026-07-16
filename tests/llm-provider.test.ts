@@ -7,6 +7,7 @@ import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { getLlmProvider, normalizeOllamaUrl } from "../lib/llm/index.ts";
 import { anthropicAcceptsSampling, buildAnthropicBody, extractAnthropicText } from "../lib/llm/anthropic.ts";
+import { isOpenAiReasoningModel } from "../lib/llm/openai-compatible.ts";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -66,6 +67,39 @@ test("a key, when given anyway, rides along (authenticated ollama proxies)", asy
   const llm = getLlmProvider("ollama", "proxy-token");
   await llm.chatJSON({ system: "s", user: "u", model: "llama3.1" });
   assert.equal(cap.headers?.authorization, "Bearer proxy-token");
+});
+
+// ---- OpenAI reasoning models: no temperature, max_completion_tokens ----
+
+test("openai: reasoning models get max_completion_tokens and NO temperature", async () => {
+  const cap: Parameters<typeof stubFetch>[0] = {};
+  stubFetch(cap);
+  const llm = getLlmProvider("openai", "sk-test");
+  await llm.chatJSON({ system: "s", user: "u", model: "gpt-5-mini", maxTokens: 4096 });
+  assert.equal("temperature" in (cap.body ?? {}), false, "reasoning model must not get temperature");
+  assert.equal(cap.body?.max_completion_tokens, 4096);
+  assert.equal("max_tokens" in (cap.body ?? {}), false);
+});
+
+test("openai: classic models keep temperature 0 + max_tokens", async () => {
+  const cap: Parameters<typeof stubFetch>[0] = {};
+  stubFetch(cap);
+  const llm = getLlmProvider("openai", "sk-test");
+  await llm.chatJSON({ system: "s", user: "u", model: "gpt-4o-mini" });
+  assert.equal(cap.body?.temperature, 0);
+  assert.equal(cap.body?.max_tokens, 2048);
+});
+
+test("isOpenAiReasoningModel: only the real OpenAI API, only reasoning families", () => {
+  assert.equal(isOpenAiReasoningModel("openai", "o3-mini"), true);
+  assert.equal(isOpenAiReasoningModel("openai", "o1"), true);
+  assert.equal(isOpenAiReasoningModel("openai", "gpt-5"), true);
+  assert.equal(isOpenAiReasoningModel("openai", "gpt-5.1-mini"), true);
+  assert.equal(isOpenAiReasoningModel("openai", "gpt-4o-mini"), false);
+  assert.equal(isOpenAiReasoningModel("openai", "gpt-4.1"), false);
+  // OpenRouter normalizes params itself; Ollama takes the classic shape.
+  assert.equal(isOpenAiReasoningModel("openrouter", "gpt-5"), false);
+  assert.equal(isOpenAiReasoningModel("ollama", "gpt-5"), false);
 });
 
 // ---- Anthropic sampling-param removal (temperature 400 on newest models) ----

@@ -12,6 +12,17 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Hardening: OpenAI reasoning models (o-series, gpt-5\*)**
+  — same failure class as the Anthropic fixes below, caught preemptively
+  (user asked "does this affect OpenAI/OpenRouter too?"). The real OpenAI API
+  rejects `temperature` on reasoning families and takes
+  `max_completion_tokens` instead of `max_tokens`. `openai-compatible.ts` now
+  gates via pure `isOpenAiReasoningModel(name, model)` — true only for
+  provider `openai` + `o\d`/`gpt-5*` ids (OpenRouter normalizes params per
+  model; Ollama takes the classic shape for everything, so both stay
+  untouched). Current defaults (`gpt-4o-mini`/`gpt-4.1`) unaffected; this
+  protects Settings model overrides. Unit-tested (wire-shape via stubbed
+  fetch + pure fn).
 - **2026-07-16** — **Fix: "anthropic: empty response" on Sonnet 5 (thinking
   blocks)** — follow-up to the temperature fix below; user hit it on the next
   real chat message. Two causes, both from the same model generation: (1) on

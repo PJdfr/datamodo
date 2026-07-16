@@ -13,6 +13,16 @@ export interface OpenAICompatibleConfig {
   hooks?: ProviderHooks;
 }
 
+/** OpenAI's reasoning families (o1/o3/o4…, gpt-5*) accept only default
+ *  sampling — `temperature: 0` is a 400 — and take `max_completion_tokens`
+ *  instead of `max_tokens`. Only the REAL OpenAI API enforces this: OpenRouter
+ *  normalizes params per model, and Ollama-style servers take the classic
+ *  shape for everything. Pure — unit-tested. */
+export function isOpenAiReasoningModel(name: ProviderName, model: string): boolean {
+  if (name !== "openai") return false;
+  return /^(o\d(-|$)|gpt-5)/.test(model.trim().toLowerCase());
+}
+
 /**
  * Provider for any OpenAI-compatible /chat/completions endpoint. Used for both
  * OpenRouter and OpenAI — they differ only in base URL, key, headers, models.
@@ -60,8 +70,11 @@ export class OpenAICompatibleProvider implements LlmProvider {
           { role: "system", content: req.system },
           { role: "user", content: userContent },
         ],
-        temperature: req.temperature ?? 0,
-        max_tokens: req.maxTokens ?? 2048,
+        // Reasoning models 400 on temperature and renamed the output cap —
+        // same failure class as Anthropic's newest gen, so gate it here too.
+        ...(isOpenAiReasoningModel(this.name, req.model)
+          ? { max_completion_tokens: req.maxTokens ?? 2048 }
+          : { temperature: req.temperature ?? 0, max_tokens: req.maxTokens ?? 2048 }),
       };
       // OpenRouter returns the EXACT dollar cost of the call when asked — so
       // BYOK spend is recorded precisely, never estimated, for that provider.
