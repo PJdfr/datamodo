@@ -12,6 +12,32 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Ontology-health telemetry + template growth gate
+  (GRAPH_PIPELINE.md P2)** + **prior-art research folded into the doc
+  (§10b)**. Research first (user ask): the degeneration problem maps to four
+  literatures — canonicalization/ER (Galárraga'14 canopy blocking, CESI
+  WWW'18 joint NP+relation canonicalization), ontology-constrained
+  extraction (RELATE predicate-embedding mapping, KGGen relation clustering,
+  AdaKGC schema-constrained decoding, + the Ontology-Conformance/
+  Faithfulness metrics), temporal KGs (Zep/Graphiti 2501.13956 — bitemporal
+  invalidation, converges with our claim_key design), and refinement/
+  forgetting (Paulheim'16, CleanGraph, 2026 sleep-time-consolidation wave;
+  transferable idea we lack: usage-weighted retention). Admitted gap: no
+  GraphRAG system measures graph-level fidelity — P2 had no design to copy.
+  Then P2 shipped: pure `ontology-health.ts` — per-kind **conformance**
+  (aliases + universal predicates conform; unregistered kinds null),
+  **new-predicate windows** (first-seen over ALL rows incl. superseded),
+  off-template top-list; `proposeFieldAdditions` growth gate (≥3 current
+  facts, majority value type, entity→relation, unit, ≤2/kind). Wired:
+  `loadHealthFacts` shell (analytics.ts), `op:"ontology_health"` on the
+  analytics route, "Ontology health" Insights card (worst-first conformance
+  bars, off-template chips, new-this-week), consolidation pass ③ filing
+  `field_proposal` reviews (any-status kind+predicate exclusion), new review
+  kind end-to-end (accept = `updateKind` appends field/relation, idempotent;
+  decline never re-asks; ping question + card + Studio chrome). 16 unit
+  tests green (8 new); suite 304 pass / 3 pre-existing sandbox canvas
+  failures; tsc + eslint add nothing new (insights-view's one lint error
+  pre-exists). Not live-fired (sandbox — no DB/LLM).
 - **2026-07-16** — **Background consolidation worker (GRAPH_PIPELINE.md P1)**
   — the graph's missing homeostasis, shipped as designed in the same-day
   doc: a DAILY cron (`consolidate-cron.yml` → `POST /api/jobs/consolidate`,

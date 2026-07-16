@@ -139,9 +139,13 @@ in value order — details, file seams, and acceptance criteria in that doc:
    `orphan_prune` reviews (accept re-verifies still-unlinked before delete),
    embedding backfill. Fail-soft without an LLM (propose-only). NOT
    live-fired yet — watch the first cloud tick.
-2. **P2 Vocabulary telemetry + predicate budget** — measure sprawl
-   (predicates/kind, template-conformity %) + an ontology-health card;
-   predicate growth gets the same review gate kinds already have.
+2. ~~**P2 Vocabulary telemetry + predicate budget**~~ ✅ SHIPPED 2026-07-16 —
+   Ontology Conformance % + new-predicate rate per kind (pure
+   `ontology-health.ts`), "Ontology health" Insights card, and the growth
+   gate: hot off-template predicates (≥3 facts) → `field_proposal` reviews
+   filed by the consolidation tick; accept adds the field/relation to the
+   template, decline never re-asks. Prior-art research folded into
+   GRAPH_PIPELINE.md §10b.
 3. **P3 PDF → markdown** — replace unpdf's flat text layer with a
    structure-preserving converter (Docling/marker/MinerU sidecar behind the
    `extractAttachmentText` seam; JS heuristics as fail-soft) → heading-aligned

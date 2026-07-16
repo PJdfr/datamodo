@@ -387,6 +387,60 @@ Relevance to datamodo, concretely:
   Faiss-style index service, and CwA(-HNSW) is the state of the art to reach
   for there. Not before.
 
+## 10b · Prior art: the degeneration literature (researched 2026-07-16)
+
+"Graph degeneration" is not one literature but four; datamodo's design matches
+the strongest published pattern in each. Kept here so future work steals
+deliberately, not accidentally.
+
+1. **Entity duplication → canonicalization / entity resolution.**
+   Galárraga et al. 2014 ("Canonicalizing Open Knowledge Bases") framed it:
+   open extraction yields synonymous noun phrases; fix = clustering with
+   *canopy blocking* (never compare everything to everything) — our tier-0/
+   trigram/ANN ladder is this lineage. **CESI** (WWW'18, arXiv 1902.00172)
+   canonicalizes noun phrases AND relation phrases *jointly* over embeddings
+   + "side information" (= our natural keys). Lesson: entities and predicates
+   degenerate together and should be repaired together.
+2. **Predicate sprawl → ontology-constrained extraction.**
+   **RELATE** (arXiv 2509.19057) maps free LLM relations onto a fixed
+   ontology via predicate embeddings → similarity retrieval → LLM rerank —
+   the upgrade path for `canonicalizeExtraction` beyond exact alias tables.
+   **KGGen** (via the LLM-KG-construction survey, arXiv 2510.20345) names our
+   exact failure mode ("schema-free extraction yields fragmented vocabularies
+   … similar relations under many surface predicates") and fixes it with
+   embedding-clustering + LLM-guided consolidation. **AdaKGC** handles schema
+   drift with schema-constrained decoding (= our JSON-schema + restraint, at
+   the decoding layer). The financial-extraction literature (arXiv
+   2602.11886) contributes the two P2 metrics verbatim: **Ontology
+   Conformance** (share of triples using registry vocabulary) and
+   **Faithfulness** (grounded in source text).
+3. **Staleness/contradiction → temporal KGs.**
+   **Zep/Graphiti** (arXiv 2501.13956) is the closest published system to
+   datamodo overall: bitemporal edges, supersession by invalidation (never
+   deletion), entity resolution at ingest against the live graph — our
+   `claim_key`/`valid_to`/`superseded_by` design independently converged.
+   Their extra tier (a community subgraph of clustered summaries) is only
+   worth it at retrieval scales we don't feel yet.
+4. **Noise accumulation → refinement / forgetting / "sleep".**
+   Paulheim & Cimiano's refinement survey (SWJ 2016): refinement =
+   completion + error detection, run *outside* the write path — the
+   consolidation worker (P1) is textbook. **CleanGraph** (arXiv 2405.03932)
+   validates human-in-the-loop repair over silent auto-repair (= the review
+   gate). The 2026 agent-memory wave (graph-based agent memory survey arXiv
+   2602.05665; "Memory in the Age of AI Agents" arXiv 2512.13564) converges
+   on *sleep-time consolidation*: idle-time merge + usage-frequency
+   reweighting + pruning. The transferable idea we lack: **usage-weighted
+   retention** — `support` counts writes, nothing counts *reads*; retrieval
+   touches should protect an entity from pruning and weigh merge-winner
+   selection.
+   ("Less is More: Denoising KGs for RAG", arXiv 2510.14271: noisy graphs
+   measurably hurt retrieval — degeneration is not cosmetic.)
+
+**The admitted gap**: per the incremental-RAG comparisons (LightRAG arXiv
+2410.05779, EraRAG arXiv 2506.20963), no major GraphRAG system measures
+graph-level fidelity — all evaluate end-to-end QA only. P2's ontology-health
+instrumentation has no off-the-shelf design to copy; it is the novel part.
+
 ## 11 · ROADMAP — from "80% there" to the optimal graph
 
 Ordered by degeneration-risk-per-effort. Each phase is independently
@@ -427,18 +481,35 @@ embeddings existed, zero-support orphans) accumulates unchecked.
   accrete the loser's missing ones before the merge. NOT live-fired against
   a real DB/LLM yet (sandbox) — first cloud tick should be watched.
 
-### P2 — Vocabulary telemetry + predicate budget (see degeneration before it hurts)
-You can't manage what you can't see: today nothing measures sprawl.
-- Nightly per-org stats: distinct predicates per kind, new-predicates-per-week,
-  % of facts using template predicates vs free ones, entity count per kind,
-  merge-review acceptance rate. Store in a small `graph_stats` table (or
-  compute-on-read first).
-- Surface: an "ontology health" card in Insights; a warning threshold that
-  files a review suggesting template additions (feeds the existing
-  `category_proposal` machinery — predicates get the same growth gate kinds
-  already have).
+### ~~P2 — Vocabulary telemetry + predicate budget~~ ✅ SHIPPED 2026-07-16
+You can't manage what you can't see: today nothing measures sprawl. Metrics
+fixed by the prior-art pass (§10b): **Ontology Conformance** (share of
+current facts whose predicate is template vocabulary for the subject's kind,
+aliases included) and **new-predicate rate** (predicates whose first-ever
+appearance is inside the trailing window), per kind and overall.
+- Compute-on-read first (facts are append-only, so first-seen dates derive
+  from `created_at` — no stats table, no migration); a `graph_stats` history
+  table only if trends need to outlive fact deletion.
+- Surface: an "ontology health" card in Insights (per-kind conformance bars,
+  distinct-predicate counts, new-this-week, top off-template predicates).
+- Growth gate: hot off-template predicates (≥3 current facts on one registry
+  kind) become a `field_proposal` review — accept adds the field/relation to
+  the kind's template (predicates get the same review-gated growth kinds
+  already have via `category_proposal`); decline never re-asks.
 - Acceptance: injecting 5 synonym predicates for one kind is visible in the
   card within a day and produces one actionable suggestion.
+- **As shipped**: pure core `ontology-health.ts` (`computeOntologyHealth` —
+  per-kind conformance with aliases + universal predicates conforming,
+  first-seen windows over ALL rows including superseded, worst-first sort;
+  `proposeFieldAdditions` — ≥3 current facts, majority value type, entity →
+  relation, majority unit, per-kind cap 2), DB shell `loadHealthFacts` in
+  analytics.ts, `op: "ontology_health"` on `/api/knowledge/analytics`, the
+  "Ontology health" Insights card (conformance bars + off-template chips +
+  new-this-week), and the growth gate as consolidation pass ③ filing
+  `field_proposal` reviews (any-status kind+predicate exclusion — never
+  re-asks). Accept appends the field/relation to the kind via `updateKind`
+  (idempotent if hand-added meanwhile); decline never re-asks. Not
+  live-fired (sandbox); unit-tested (8 tests).
 
 ### P3 — PDF → markdown upgrade (structure-preserving document reading)
 Replace the flat unpdf text layer with structure-preserving conversion.

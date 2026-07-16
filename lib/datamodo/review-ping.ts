@@ -34,6 +34,8 @@ export function reviewQuestion(
       return `"${(detail.docLabel as string) ?? "A document"}" had facts outside its template — add them anyway?`;
     case "category_proposal":
       return `Create the category "${(detail.label as string) ?? "?"}"${detail.count ? ` (${detail.count} things waiting)` : ""}?`;
+    case "field_proposal":
+      return `Add "${String(detail.predicate ?? "?").replace(/_/g, " ")}" to the ${(detail.kind as string) ?? "?"} template${detail.count ? ` (${detail.count} facts already use it)` : ""}?`;
     case "orphan_prune": {
       const n = Array.isArray(detail.entityIds) ? (detail.entityIds as string[]).length : 0;
       return `Prune ${n || "some"} stray entit${n === 1 ? "y" : "ies"} linked to nothing?`;

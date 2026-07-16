@@ -107,5 +107,5 @@ test("orphanEligible: concepts get the short grace period", () => {
 });
 
 test("emptyStats starts at zero everywhere", () => {
-  assert.deepEqual(Object.values(emptyStats()), [0, 0, 0, 0, 0, 0, 0]);
+  assert.ok(Object.values(emptyStats()).every((v) => v === 0));
 });

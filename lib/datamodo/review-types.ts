@@ -4,7 +4,7 @@
 // stays clean. Each kind carries exactly the structured fields its card needs;
 // the API returns this shape and the tab's simulated data conforms to it too.
 
-export type ReviewKind = "entity_merge" | "fact_conflict" | "extraction" | "off_template" | "category_proposal" | "orphan_prune";
+export type ReviewKind = "entity_merge" | "fact_conflict" | "extraction" | "off_template" | "category_proposal" | "orphan_prune" | "field_proposal";
 
 export interface EntityAttr {
   k: string;
@@ -97,4 +97,19 @@ export interface OrphanPruneReview extends ReviewBase {
   entities: { label: string; type: string }[];
 }
 
-export type ReviewItem = MergeReview | ConflictReview | ExtractionReview | OffTemplateReview | CategoryProposalReview | OrphanPruneReview;
+/** "Facts keep using a predicate the template doesn't have — add it?"
+ *  (ontology growth gate, GRAPH_PIPELINE.md P2). Accept ADDS the field (or
+ *  relation, for entity-valued predicates) to the kind's template; the facts
+ *  already exist and start conforming the moment it lands. Decline never
+ *  re-asks about the same kind+predicate. */
+export interface FieldProposalReview extends ReviewBase {
+  kind: "field_proposal";
+  targetKind: string; // registry slug ("invoice")
+  predicate: string; // the off-template predicate in use ("payment_terms")
+  count: number; // current facts already using it
+  valueType: "text" | "number" | "date" | "entity";
+  asRelation: boolean;
+  unit?: string;
+}
+
+export type ReviewItem = MergeReview | ConflictReview | ExtractionReview | OffTemplateReview | CategoryProposalReview | OrphanPruneReview | FieldProposalReview;

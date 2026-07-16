@@ -20,7 +20,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { C, Hov, ghostBtn, relTime } from "./ui";
 import { ReviewCardBody, PAPER_SKIN } from "./review-card";
-import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, OffTemplateReview, CategoryProposalReview, OrphanPruneReview } from "@/lib/datamodo/review-types";
+import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, OffTemplateReview, CategoryProposalReview, OrphanPruneReview, FieldProposalReview } from "@/lib/datamodo/review-types";
 
 /* --------------------------- simulated fallback --------------------------- */
 
@@ -255,12 +255,31 @@ function OrphanPruneCard({ o, onResolve }: { o: OrphanPruneReview; onResolve: Re
   );
 }
 
+function FieldProposalCard({ f, onResolve }: { f: FieldProposalReview; onResolve: Resolve }) {
+  return (
+    <CardShell
+      header={<>
+        <TypeChip label="Grow the template?" tone={C.green} />
+        <span style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{f.targetKind} · {f.predicate.replace(/_/g, " ")}</span>
+        <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginLeft: "auto" }}>{f.count} in use · {relTime(f.createdAt)}</span>
+      </>}
+      footer={<>
+        <span style={{ fontSize: 12, color: "#8A8477" }}>Accepting adds the {f.asRelation ? "relation" : "field"} to the category; declining never asks about this one again.</span>
+        <div style={{ marginLeft: "auto" }}><Actions id={f.id} onResolve={onResolve} acceptLabel={f.asRelation ? "Add relation" : "Add field"} rejectLabel="No thanks" /></div>
+      </>}
+    >
+      <ReviewCardBody item={f} skin={PAPER_SKIN} />
+    </CardShell>
+  );
+}
+
 function renderCard(it: ReviewItem, onResolve: Resolve) {
   if (it.kind === "entity_merge") return <MergeCard m={it} onResolve={onResolve} />;
   if (it.kind === "fact_conflict") return <ConflictCard c={it} onResolve={onResolve} />;
   if (it.kind === "off_template") return <OffTemplateCard o={it} onResolve={onResolve} />;
   if (it.kind === "category_proposal") return <CategoryProposalCard p={it} onResolve={onResolve} />;
   if (it.kind === "orphan_prune") return <OrphanPruneCard o={it} onResolve={onResolve} />;
+  if (it.kind === "field_proposal") return <FieldProposalCard f={it} onResolve={onResolve} />;
   return <ExtractionCard e={it} onResolve={onResolve} />;
 }
 
@@ -312,6 +331,7 @@ function rowMeta(it: ReviewItem): { glyph: string; color: string; text: string }
   if (it.kind === "off_template") return { glyph: "±", color: C.blue, text: `${it.facts.length} off-template fact${it.facts.length === 1 ? "" : "s"} from “${it.docLabel}”` };
   if (it.kind === "category_proposal") return { glyph: "▣", color: C.accent, text: `new category “${it.label}” — ${it.count} thing${it.count === 1 ? "" : "s"} already fit it` };
   if (it.kind === "orphan_prune") return { glyph: "−", color: C.gold, text: `prune ${it.count} unlinked stray${it.count === 1 ? "" : "s"} (${it.entities.slice(0, 3).map((e) => e.label).join(", ")}${it.count > 3 ? "…" : ""})` };
+  if (it.kind === "field_proposal") return { glyph: "▤", color: C.green, text: `add “${it.predicate.replace(/_/g, " ")}” to the ${it.targetKind} template — ${it.count} fact${it.count === 1 ? "" : "s"} already use it` };
   const who = it.entities.map((e) => e.label).join(", ") || channelOf(it.channel).label;
   return { glyph: "+", color: C.green, text: `${it.facts.length} fact${it.facts.length === 1 ? "" : "s"} about ${who}` };
 }
@@ -323,6 +343,7 @@ const GROUP_META: Record<ReviewItem["kind"], { title: string; hint: string }> = 
   off_template: { title: "Outside the template", hint: "a document said more than its category covers" },
   category_proposal: { title: "Proposed categories", hint: "things you keep capturing that no category covers" },
   orphan_prune: { title: "Unlinked strays", hint: "entities nothing references — prune or keep" },
+  field_proposal: { title: "Template growth", hint: "predicates your facts keep using that no template covers" },
 };
 
 function DiffRow({ it, expanded, onToggle, onResolve }: { it: ReviewItem; expanded: boolean; onToggle: () => void; onResolve: Resolve }) {
@@ -396,7 +417,7 @@ export function ReviewStudio() {
 
   const live = useMemo(() => [...items].sort((a, b) => b.impact - a.impact), [items]);
   const groups = useMemo(() => {
-    const order: ReviewItem["kind"][] = ["extraction", "fact_conflict", "entity_merge", "off_template", "category_proposal", "orphan_prune"];
+    const order: ReviewItem["kind"][] = ["extraction", "fact_conflict", "entity_merge", "off_template", "category_proposal", "field_proposal", "orphan_prune"];
     return order
       .map((kind) => ({ kind, items: live.filter((i) => i.kind === kind) }))
       .filter((g) => g.items.length > 0);

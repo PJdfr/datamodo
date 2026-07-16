@@ -16,7 +16,7 @@ export type { ReviewItem } from "./review-types";
 
 interface ReviewRow {
   id: string;
-  kind: "entity_merge" | "fact_conflict" | "extraction" | "off_template" | "category_proposal" | "orphan_prune";
+  kind: "entity_merge" | "fact_conflict" | "extraction" | "off_template" | "category_proposal" | "orphan_prune" | "field_proposal";
   status: string;
   confidence: number | null;
   impact: number;
@@ -243,6 +243,17 @@ export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
         icon: t.icon,
         description: t.description,
       });
+    } else if (r.kind === "field_proposal") {
+      out.push({
+        ...base,
+        kind: "field_proposal",
+        targetKind: (r.detail.kind as string) || "thing",
+        predicate: (r.detail.predicate as string) || "?",
+        count: Number(r.detail.count ?? 0),
+        valueType: (r.detail.valueType as "text" | "number" | "date" | "entity") || "text",
+        asRelation: Boolean(r.detail.asRelation),
+        unit: (r.detail.unit as string) || undefined,
+      });
     } else if (r.kind === "orphan_prune") {
       // Display list pre-rendered at filing time (consolidate.ts); ids stay
       // in detail.entityIds for the accept side-effect.
@@ -310,6 +321,38 @@ export async function acceptReview(orgId: string, id: string): Promise<void> {
       // Already created by hand since the proposal was filed → accept is a no-op.
       if ((e as { code?: string }).code !== "P2002") throw e;
     }
+  } else if (r.kind === "field_proposal") {
+    // Accepting GROWS the template: the off-template predicate becomes a real
+    // field (or relation, when entity-valued) on the kind — the facts already
+    // using it start conforming the moment it lands. Idempotent: if the user
+    // added it by hand since the proposal was filed, accept is a no-op.
+    const slug = (r.detail.kind as string) || "";
+    const predicate = (r.detail.predicate as string) || "";
+    if (slug && predicate) {
+      const { listKinds, updateKind } = await import("./kinds");
+      const { templateVocabulary } = await import("./ontology-health");
+      const def = (await listKinds(orgId, r.owner_user_id)).find((k) => k.kind === slug);
+      if (def?.id && !templateVocabulary(def).has(predicate)) {
+        const label = predicate.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+        const asRelation = Boolean(r.detail.asRelation);
+        await updateKind(orgId, def.id, {
+          ...def,
+          fields: asRelation
+            ? def.fields
+            : [...def.fields, {
+                key: predicate,
+                label,
+                type: ((r.detail.valueType as string) === "number" || (r.detail.valueType as string) === "date"
+                  ? (r.detail.valueType as "number" | "date")
+                  : "text"),
+                unit: (r.detail.unit as string) || undefined,
+              }],
+          relations: asRelation
+            ? [...def.relations, { predicate, label: label.toLowerCase() }]
+            : def.relations,
+        });
+      }
+    }
   } else if (r.kind === "orphan_prune") {
     // Prune ONLY entities still unlinked right now — anything that gained a
     // fact, a body, or a merge since the flag was filed survives. Deleting an
@@ -367,11 +410,13 @@ export async function rejectReview(orgId: string, id: string): Promise<void> {
       if (orphans.length) await prisma.facts.deleteMany({ where: { id: { in: orphans } } });
     }
   }
-  // entity_merge + off_template + category_proposal + orphan_prune: nothing
-  // was applied (only proposed) — just mark rejected. A rejected category
-  // proposal is never re-filed (the filing check matches any status), and a
-  // rejected orphan batch is never re-asked (consolidate.ts excludes ids
-  // listed in ANY orphan_prune review).
+  // entity_merge + off_template + category_proposal + orphan_prune +
+  // field_proposal: nothing was applied (only proposed) — just mark rejected.
+  // A rejected category proposal is never re-filed (the filing check matches
+  // any status); a rejected orphan batch is never re-asked (consolidate.ts
+  // excludes ids listed in ANY orphan_prune review); a rejected field
+  // proposal is never re-asked for the same kind+predicate (same any-status
+  // exclusion in consolidate.ts).
   await prisma.knowledge_reviews.update({
     where: { id },
     data: { status: "rejected", resolved_at: new Date() },

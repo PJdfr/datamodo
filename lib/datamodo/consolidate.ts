@@ -302,7 +302,58 @@ export async function consolidateOrg(orgId: string, llm?: LlmProvider | null): P
     }
   }
 
-  // ③ Orphan pass — flag, never delete. One batched review per tick.
+  // ③ (P2 growth gate) Hot off-template predicates → field proposals. Pure
+  // decision in ontology-health.ts; kind+predicate pairs any prior
+  // field_proposal ruled on (any status) are never re-asked. Best-effort.
+  try {
+    const [{ loadHealthFacts }, { listKinds }, { proposeFieldAdditions }] = await Promise.all([
+      import("./analytics"),
+      import("./kinds"),
+      import("./ontology-health"),
+    ]);
+    const [healthFacts, kinds, prior] = await Promise.all([
+      loadHealthFacts(orgId),
+      listKinds(orgId, ownerUserId),
+      prisma.knowledge_reviews.findMany({
+        where: { org_id: orgId, kind: "field_proposal" },
+        select: { detail: true },
+      }),
+    ]);
+    const askedFields = new Set(
+      prior.map((r) => {
+        const d = r.detail as { kind?: string; predicate?: string } | null;
+        return `${d?.kind ?? ""}::${d?.predicate ?? ""}`;
+      }),
+    );
+    const proposals = proposeFieldAdditions(healthFacts, kinds).filter(
+      (p) => !askedFields.has(`${p.kind}::${p.predicate}`),
+    );
+    for (const p of proposals) {
+      await prisma.knowledge_reviews.create({
+        data: {
+          org_id: orgId,
+          owner_user_id: ownerUserId,
+          kind: "field_proposal",
+          status: "pending",
+          confidence: null,
+          impact: p.count,
+          detail: {
+            kind: p.kind,
+            predicate: p.predicate,
+            count: p.count,
+            valueType: p.valueType,
+            asRelation: p.asRelation,
+            ...(p.unit ? { unit: p.unit } : {}),
+          },
+        },
+      });
+      stats.fieldsProposed++;
+    }
+  } catch (e) {
+    console.error("[consolidate] field-proposal pass failed", e);
+  }
+
+  // ④ Orphan pass — flag, never delete. One batched review per tick.
   const asked = await orphanAskedIds(orgId);
   const now = new Date();
   const orphans = entityList.filter((e) => !asked.has(e.id) && orphanEligible(e, now));

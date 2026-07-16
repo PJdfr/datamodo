@@ -15,6 +15,14 @@ import { C, CountUp } from "./ui";
 interface AggRow { group: string; value: number; count: number }
 interface AggResult { op: string; total: number; rows: AggRow[] }
 interface Metrics { entitiesByKind: { kind: string; count: number }[]; totalEntities: number; totalFacts: number }
+interface KindHealth {
+  kind: string; factCount: number; distinctPredicates: number; conformance: number | null;
+  newPredicates: string[]; offTemplate: { predicate: string; count: number }[];
+}
+interface OntologyHealth {
+  kinds: KindHealth[];
+  overall: { conformance: number | null; distinctPredicates: number; newPredicates: number; windowDays: number };
+}
 interface MeasureOption { predicate: string; label: string; count: number }
 interface FactSchema { numeric: MeasureOption[]; groupBy: MeasureOption[] }
 
@@ -96,8 +104,51 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 
 const selectStyle = { fontFamily: "inherit", fontSize: 13, color: C.ink, background: "#fff", border: "1px solid #DDD5C5", borderRadius: 9, padding: "6px 9px", cursor: "pointer", maxWidth: 200 };
 
+const pct = (v: number) => `${Math.round(v * 100)}%`;
+const confTone = (v: number) => (v >= 0.85 ? C.green : v >= 0.6 ? C.gold : C.accent);
+
+/** One kind's vocabulary-health row: conformance bar + sprawl signals. */
+function HealthRow({ k }: { k: KindHealth }) {
+  const conf = k.conformance;
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5, gap: 10 }}>
+        <span style={{ fontSize: 13, color: C.ink, fontWeight: 500 }}>
+          {titleCase(k.kind)}
+          <span className="dm-mono" style={{ fontSize: 10.5, color: "#B7AF9F", marginLeft: 8 }}>
+            {k.distinctPredicates} predicate{k.distinctPredicates === 1 ? "" : "s"} · {num(k.factCount)} facts
+          </span>
+        </span>
+        <span className="dm-mono" style={{ fontSize: 12.5, fontWeight: 600, flexShrink: 0, color: conf == null ? "#B7AF9F" : confTone(conf) }}>
+          {conf == null ? "no template" : pct(conf)}
+        </span>
+      </div>
+      {conf != null && (
+        <div style={{ height: 8, background: "#F1EDE4", borderRadius: 4, overflow: "hidden" }}>
+          <div className="dm-bar-fill" style={{ width: `${Math.max(conf * 100, 2)}%`, height: "100%", background: confTone(conf), borderRadius: 4 }} />
+        </div>
+      )}
+      {(k.newPredicates.length > 0 || k.offTemplate.length > 0) && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
+          {k.offTemplate.slice(0, 4).map((o) => (
+            <span key={o.predicate} className="dm-mono" style={{ fontSize: 10.5, color: "#8A8477", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 999, padding: "1px 8px" }}>
+              {o.predicate.replace(/_/g, " ")} ·{o.count}
+            </span>
+          ))}
+          {k.newPredicates.length > 0 && (
+            <span className="dm-mono" style={{ fontSize: 10.5, color: C.accent, alignSelf: "center" }}>
+              +{k.newPredicates.length} new this week
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function InsightsView() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [health, setHealth] = useState<OntologyHealth | null>(null);
   const [schema, setSchema] = useState<FactSchema | null>(null);
   const [agg, setAgg] = useState<Agg>("sum");
   const [measure, setMeasure] = useState("");
@@ -109,10 +160,15 @@ export function InsightsView() {
   useEffect(() => {
     let alive = true;
     (async () => {
-      const [m, sc] = await Promise.all([analytics<Metrics>({ op: "metrics" }), analytics<FactSchema>({ op: "measures" })]);
+      const [m, sc, h] = await Promise.all([
+        analytics<Metrics>({ op: "metrics" }),
+        analytics<FactSchema>({ op: "measures" }),
+        analytics<OntologyHealth>({ op: "ontology_health" }),
+      ]);
       if (!alive) return;
       setMetrics(m);
       setSchema(sc);
+      setHealth(h);
       const nums = sc?.numeric ?? [], groups = sc?.groupBy ?? [];
       setMeasure(nums.find((o) => o.predicate === "amount")?.predicate ?? nums[0]?.predicate ?? "");
       setGroupBy(groups.find((o) => o.predicate === "issued_by")?.predicate ?? groups[0]?.predicate ?? "");
@@ -192,6 +248,21 @@ export function InsightsView() {
         <div className="dm-mono" style={{ fontSize: 11.5, color: "#A39B8B", padding: "0 2px" }}>
           No numeric measures (like amounts) in your facts yet — once your agents extract some, breakdowns appear here.
         </div>
+      )}
+
+      {health && health.kinds.length > 0 && (
+        <Section
+          title="Ontology health"
+          hint={
+            health.overall.conformance == null
+              ? "how tidy the graph's vocabulary is"
+              : `${pct(health.overall.conformance)} of facts use template vocabulary · ${health.overall.newPredicates} new predicate${health.overall.newPredicates === 1 ? "" : "s"} this week`
+          }
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {health.kinds.filter((k) => k.factCount > 0).slice(0, 8).map((k) => <HealthRow key={k.kind} k={k} />)}
+          </div>
+        </Section>
       )}
 
       <Section title="What you know" hint={`${kinds.length} kind${kinds.length === 1 ? "" : "s"}`}>

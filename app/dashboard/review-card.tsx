@@ -159,6 +159,22 @@ export function ReviewCardBody({ item, skin }: { item: ReviewItem; skin: ReviewS
     );
   }
 
+  if (item.kind === "field_proposal") {
+    return (
+      <div>
+        <div style={{ fontSize: 12, color: skin.sub, lineHeight: 1.5, marginBottom: 8 }}>
+          {item.count} fact{item.count === 1 ? "" : "s"} on your <b style={{ fontWeight: 600, color: skin.text }}>{item.targetKind}</b> entities use a predicate the template doesn&apos;t cover — adding it makes future extractions land there consistently.
+        </div>
+        <div style={{ background: skin.surfaceAlt, border: `1px solid ${skin.border}`, borderRadius: 10, padding: "8px 11px", display: "flex", alignItems: "baseline", gap: 8 }}>
+          <span className="dm-mono" style={{ fontSize: 11.5, color: item.asRelation ? skin.accent : skin.sub, fontWeight: 600 }}>{item.predicate}</span>
+          <span className="dm-mono" style={{ marginLeft: "auto", fontSize: 9.5, color: skin.faint }}>
+            {item.asRelation ? "relation →" : item.valueType}{item.unit ? ` · ${item.unit}` : ""} · {item.count} in use
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   if (item.kind === "orphan_prune") {
     return (
       <div>

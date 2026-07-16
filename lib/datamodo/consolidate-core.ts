@@ -118,6 +118,8 @@ export interface ConsolidationStats {
   /** Adjudicated below the propose bar — recorded so the pair never re-asks. */
   dismissed: number;
   orphansFlagged: number;
+  /** Hot off-template predicates proposed as template fields (P2 gate). */
+  fieldsProposed: number;
 }
 
 export function emptyStats(): ConsolidationStats {
@@ -129,5 +131,6 @@ export function emptyStats(): ConsolidationStats {
     proposed: 0,
     dismissed: 0,
     orphansFlagged: 0,
+    fieldsProposed: 0,
   };
 }
