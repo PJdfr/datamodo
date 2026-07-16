@@ -12,6 +12,22 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Interpretable filenames** (user request): a document
+  arriving with a MACHINE name (scan0001.pdf, IMG_20260716_123456.jpg,
+  "document (3)", a UUID/hex/digit blob, WhatsApp/Screenshot exports) is
+  RENAMED once the pipeline has understood it — `<kind>-<primary subject>.<ext>`
+  (e.g. `invoice-initech-corp.txt`), applied before anything user-facing is
+  saved: the `attachments` row, the document entity's label + natural key,
+  off-template review labels, the parse reply. Conservative by design
+  (`isCrypticFilename` allowlist of machine patterns — anything possibly
+  human-authored is NEVER touched; no rename without a ≥3-char primary
+  label). Original kept as an `original_filename` fact on the document node.
+  Re-runs are stable: the renamed file is no longer cryptic so it keeps its
+  name/key on reprocessing. Pure + unit-tested (`isCrypticFilename`/
+  `interpretableFilename` in document-extraction.ts, 3 test blocks over ~22
+  names); rename hook in `processItemAttachments` (documents.ts). Verified
+  3/3 E2E on the packed artifact (scan0001.txt → invoice-initech-corp.txt;
+  reply uses the new name; brightwave-proposal.txt untouched).
 - **2026-07-16** — **Chat animations + parse-summary reply on direct pings**
   (user request). (1) The chat thread feels alive: a three-dot TYPING bubble
   (ink, `dm-typing` keyframes) while the pipeline reads a message, and the
