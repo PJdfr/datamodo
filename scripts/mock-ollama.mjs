@@ -219,12 +219,56 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
+  if (path === "/v1/messages" && req.method === "POST") {
+    // Anthropic Messages API — enforces the CURRENT API's rules so the real
+    // provider code can be E2E-verified (via ANTHROPIC_BASE_URL):
+    //   • newest gen (Sonnet 5, Opus 4.7+, Fable/Mythos): temperature → 400;
+    //   • those models THINK unless {type:"disabled"} → reply leads with a
+    //     thinking block (empty text, like display:"omitted");
+    //   • Fable/Mythos: thinking can't be disabled → 400.
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const model = String(body.model ?? "");
+    if (!req.headers["x-api-key"]) {
+      return json(res, 401, { type: "error", error: { type: "authentication_error", message: "x-api-key header is required" } });
+    }
+    const newest = /^claude-(sonnet-5|opus-4-[78]|fable-|mythos-)/.test(model);
+    const alwaysThinks = /^claude-(fable|mythos)-/.test(model);
+    if (newest && body.temperature !== undefined) {
+      log("anthropic", model, "→ 400 temperature deprecated");
+      return json(res, 400, { type: "error", error: { type: "invalid_request_error", message: `temperature is deprecated for this model: ${model}` } });
+    }
+    if (alwaysThinks && body.thinking && body.thinking.type !== "adaptive") {
+      log("anthropic", model, "→ 400 thinking config rejected");
+      return json(res, 400, { type: "error", error: { type: "invalid_request_error", message: `thinking cannot be configured for this model: ${model}` } });
+    }
+    const system = String(body.system ?? "");
+    const userMsg = body.messages?.find((m) => m.role === "user");
+    const parts = Array.isArray(userMsg?.content) ? userMsg.content : null;
+    const user = parts ? parts.filter((p) => p.type === "text").map((p) => p.text).join("\n") : String(userMsg?.content ?? "");
+    const imageCount = parts?.filter((p) => p.type === "image").length ?? 0;
+    const out = answerChat(system, user, imageCount > 0);
+    const thinks = alwaysThinks || (newest && body.thinking?.type !== "disabled");
+    const content = thinks
+      ? [{ type: "thinking", thinking: "" }, { type: "text", text: JSON.stringify(out) }]
+      : [{ type: "text", text: JSON.stringify(out) }];
+    log("anthropic", model, thinks ? "(thinking)" : "(no-thinking)", imageCount ? `(vision x${imageCount})` : "", "→", Object.keys(out).join(","));
+    return json(res, 200, {
+      id: "mock", type: "message", role: "assistant", model,
+      content, stop_reason: "end_turn",
+      usage: { input_tokens: Math.ceil(user.length / 4), output_tokens: 128 },
+    });
+  }
+
   if (path === "/v1/models" || path === "/api/v1/models") {
-    // OpenAI/OpenRouter-shaped model list — feeds the Settings dropdowns and
-    // validates keys (401 on a key that smells wrong, like the real thing).
+    // Model list — feeds the Settings dropdowns and validates keys (401 on a
+    // key that smells wrong, like the real thing). Speaks both dialects:
+    // bearer (OpenAI/OpenRouter) and x-api-key (Anthropic → claude ids).
     const auth = String(req.headers.authorization ?? "");
-    if (auth && /bad|invalid/.test(auth)) return json(res, 401, { error: { message: "Incorrect API key provided" } });
-    const ids = ["gpt-4o-mini", "gpt-4.1", "gpt-4o", "o4-mini", ...[...installed].map((m) => m.replace(/:latest$/, ""))];
+    const anthKey = String(req.headers["x-api-key"] ?? "");
+    if ((auth || anthKey) && /bad|invalid/.test(auth + anthKey)) return json(res, 401, { error: { message: "Incorrect API key provided" } });
+    const ids = anthKey
+      ? ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8", "claude-fable-5"]
+      : ["gpt-4o-mini", "gpt-4.1", "gpt-4o", "o4-mini", ...[...installed].map((m) => m.replace(/:latest$/, ""))];
     return json(res, 200, { data: [...new Set(ids)].map((id) => ({ id, object: "model" })) });
   }
   if (path === "/v1/key" || path === "/api/v1/key") {

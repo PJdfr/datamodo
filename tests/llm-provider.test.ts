@@ -6,7 +6,8 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { getLlmProvider, normalizeOllamaUrl } from "../lib/llm/index.ts";
-import { anthropicAcceptsSampling, buildAnthropicBody } from "../lib/llm/anthropic.ts";
+import { anthropicAcceptsSampling, buildAnthropicBody, extractAnthropicText } from "../lib/llm/anthropic.ts";
+import { isOpenAiReasoningModel } from "../lib/llm/openai-compatible.ts";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -68,6 +69,39 @@ test("a key, when given anyway, rides along (authenticated ollama proxies)", asy
   assert.equal(cap.headers?.authorization, "Bearer proxy-token");
 });
 
+// ---- OpenAI reasoning models: no temperature, max_completion_tokens ----
+
+test("openai: reasoning models get max_completion_tokens and NO temperature", async () => {
+  const cap: Parameters<typeof stubFetch>[0] = {};
+  stubFetch(cap);
+  const llm = getLlmProvider("openai", "sk-test");
+  await llm.chatJSON({ system: "s", user: "u", model: "gpt-5-mini", maxTokens: 4096 });
+  assert.equal("temperature" in (cap.body ?? {}), false, "reasoning model must not get temperature");
+  assert.equal(cap.body?.max_completion_tokens, 4096);
+  assert.equal("max_tokens" in (cap.body ?? {}), false);
+});
+
+test("openai: classic models keep temperature 0 + max_tokens", async () => {
+  const cap: Parameters<typeof stubFetch>[0] = {};
+  stubFetch(cap);
+  const llm = getLlmProvider("openai", "sk-test");
+  await llm.chatJSON({ system: "s", user: "u", model: "gpt-4o-mini" });
+  assert.equal(cap.body?.temperature, 0);
+  assert.equal(cap.body?.max_tokens, 2048);
+});
+
+test("isOpenAiReasoningModel: only the real OpenAI API, only reasoning families", () => {
+  assert.equal(isOpenAiReasoningModel("openai", "o3-mini"), true);
+  assert.equal(isOpenAiReasoningModel("openai", "o1"), true);
+  assert.equal(isOpenAiReasoningModel("openai", "gpt-5"), true);
+  assert.equal(isOpenAiReasoningModel("openai", "gpt-5.1-mini"), true);
+  assert.equal(isOpenAiReasoningModel("openai", "gpt-4o-mini"), false);
+  assert.equal(isOpenAiReasoningModel("openai", "gpt-4.1"), false);
+  // OpenRouter normalizes params itself; Ollama takes the classic shape.
+  assert.equal(isOpenAiReasoningModel("openrouter", "gpt-5"), false);
+  assert.equal(isOpenAiReasoningModel("ollama", "gpt-5"), false);
+});
+
 // ---- Anthropic sampling-param removal (temperature 400 on newest models) ----
 
 test("anthropic: newest models REJECT temperature — it must be omitted", () => {
@@ -108,6 +142,62 @@ test("anthropic body: temperature included only for models that accept it", () =
 
   const extract = buildAnthropicBody({ system: "s", user: "u", model: "claude-haiku-4-5" });
   assert.equal(extract.temperature, 0, "claude-haiku-4-5 keeps the deterministic default");
+});
+
+test("anthropic body: thinking disabled on adaptive-default models, absent elsewhere", () => {
+  // Sonnet 5 / Opus 4.7+ run ADAPTIVE thinking when `thinking` is omitted —
+  // for JSON extraction we turn it off explicitly.
+  const sonnet5 = buildAnthropicBody({ system: "s", user: "u", model: "claude-sonnet-5" });
+  assert.deepEqual(sonnet5.thinking, { type: "disabled" });
+  const opus48 = buildAnthropicBody({ system: "s", user: "u", model: "claude-opus-4-8" });
+  assert.deepEqual(opus48.thinking, { type: "disabled" });
+  // Older models: no thinking field at all (they never think by default).
+  const haiku = buildAnthropicBody({ system: "s", user: "u", model: "claude-haiku-4-5" });
+  assert.equal("thinking" in haiku, false);
+  // Always-thinking families reject {type:"disabled"} — must stay omitted.
+  const fable = buildAnthropicBody({ system: "s", user: "u", model: "claude-fable-5" });
+  assert.equal("thinking" in fable, false);
+});
+
+test("anthropic: ANTHROPIC_BASE_URL reroutes the provider; thinking-first reply parses", async () => {
+  const stash = process.env.ANTHROPIC_BASE_URL;
+  process.env.ANTHROPIC_BASE_URL = "http://127.0.0.1:9999";
+  const cap: { url?: string; body?: Record<string, unknown> } = {};
+  globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    cap.url = String(url);
+    cap.body = JSON.parse(String(init?.body ?? "{}"));
+    return new Response(
+      JSON.stringify({ content: [{ type: "thinking", thinking: "" }, { type: "text", text: '{"ok":true}' }], stop_reason: "end_turn" }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+  try {
+    const llm = getLlmProvider("anthropic", "sk-ant-test");
+    const out = await llm.chatJSON<{ ok: boolean }>({ system: "s", user: "u", model: "claude-sonnet-5" });
+    assert.deepEqual(out, { ok: true }, "thinking-first reply must still parse");
+    assert.equal(cap.url, "http://127.0.0.1:9999/v1/messages");
+    assert.equal("temperature" in (cap.body ?? {}), false);
+    assert.deepEqual(cap.body?.thinking, { type: "disabled" });
+  } finally {
+    if (stash === undefined) delete process.env.ANTHROPIC_BASE_URL;
+    else process.env.ANTHROPIC_BASE_URL = stash;
+  }
+});
+
+test("anthropic reply: text found even when thinking blocks come first", () => {
+  // Thinking-on responses lead with thinking blocks (empty text under the
+  // default display) — content[0].text is NOT the reply.
+  assert.equal(
+    extractAnthropicText({ content: [{ type: "thinking", thinking: "" }, { type: "text", text: '{"ok":1}' }] }),
+    '{"ok":1}',
+  );
+  assert.equal(
+    extractAnthropicText({ content: [{ type: "text", text: "a" }, { type: "text", text: "b" }] }),
+    "ab",
+  );
+  assert.equal(extractAnthropicText({ content: [{ type: "thinking", thinking: "x" }] }), "");
+  assert.equal(extractAnthropicText({}), "");
+  assert.equal(extractAnthropicText(null), "");
 });
 
 test("anthropic body: vision requests put image blocks before the text", () => {
