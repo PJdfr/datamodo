@@ -392,7 +392,7 @@ Relevance to datamodo, concretely:
 Ordered by degeneration-risk-per-effort. Each phase is independently
 shippable; none blocks the others except as noted.
 
-### P1 — Background consolidation worker (the missing homeostasis) — HIGHEST VALUE
+### ~~P1 — Background consolidation worker~~ ✅ SHIPPED 2026-07-16
 The write path dedups well, but nothing ever *re-examines* the graph; slow
 drift (near-duplicate entities that arrived under different labels before
 embeddings existed, zero-support orphans) accumulates unchecked.
@@ -415,6 +415,17 @@ embeddings existed, zero-support orphans) accumulates unchecked.
 - Acceptance: seeded near-duplicates ("Acme" / "Acme Inc.") converge to one
   node within a tick without user data loss; the tick is idempotent; every
   merge is visible in Review history.
+- **As shipped**: pure core `consolidate-core.ts` (pair filtering, winner
+  pick, natural-key conflict veto, orphan eligibility — unit-tested),
+  orchestrator `consolidate.ts`, `/api/jobs/consolidate` (CRON_SECRET),
+  daily `.github/workflows/consolidate-cron.yml`. Refinements over the
+  sketch: adjudicated-below-propose pairs are recorded as auto-REJECTED
+  reviews so no pair is ever reconsidered; no-LLM mode (missing key / BYOK
+  cap) degrades to propose-only — surface text alone never auto-merges;
+  orphans ship as ONE batched `orphan_prune` review whose accept re-verifies
+  each entity is STILL unlinked before deleting; winner's natural keys
+  accrete the loser's missing ones before the merge. NOT live-fired against
+  a real DB/LLM yet (sandbox) — first cloud tick should be watched.
 
 ### P2 — Vocabulary telemetry + predicate budget (see degeneration before it hurts)
 You can't manage what you can't see: today nothing measures sprawl.

@@ -66,8 +66,8 @@ const TRGM_HIGH = 0.92;
 //   ≥ PROPOSE    → keep as a new entity but PROPOSE a merge for the user to
 //                  validate (pending review, ranked by impact).
 //   below        → treat as a genuinely new entity.
-const AUTO_MERGE = 0.85;
-const PROPOSE = 0.55;
+export const AUTO_MERGE = 0.85;
+export const PROPOSE = 0.55;
 
 // --- Normalization -----------------------------------------------------------
 
@@ -285,12 +285,12 @@ interface MergeReviewArgs {
   sourceId: string | null; // the newly-parsed entity (null when auto-resolved)
   targetId: string; // the proposed canonical entity
   confidence: number;
-  status: "pending" | "accepted";
+  status: "pending" | "accepted" | "rejected";
   detail: Record<string, unknown>;
 }
 
 /** Log/propose an entity merge, ranked by how many edges the target already has. */
-async function createMergeReview(
+export async function createMergeReview(
   orgId: string,
   ownerUserId: string | null,
   args: MergeReviewArgs,

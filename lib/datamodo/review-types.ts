@@ -4,7 +4,7 @@
 // stays clean. Each kind carries exactly the structured fields its card needs;
 // the API returns this shape and the tab's simulated data conforms to it too.
 
-export type ReviewKind = "entity_merge" | "fact_conflict" | "extraction" | "off_template" | "category_proposal";
+export type ReviewKind = "entity_merge" | "fact_conflict" | "extraction" | "off_template" | "category_proposal" | "orphan_prune";
 
 export interface EntityAttr {
   k: string;
@@ -87,4 +87,14 @@ export interface CategoryProposalReview extends ReviewBase {
   description?: string;
 }
 
-export type ReviewItem = MergeReview | ConflictReview | ExtractionReview | OffTemplateReview | CategoryProposalReview;
+/** "These strays are linked to nothing — prune them?" (consolidation pass)
+ *  Nothing is applied until accepted; declining never re-asks about the same
+ *  entities. Accept deletes only entities STILL unlinked at accept time. */
+export interface OrphanPruneReview extends ReviewBase {
+  kind: "orphan_prune";
+  count: number;
+  /** Display sample (capped at filing time); ids live in the review detail. */
+  entities: { label: string; type: string }[];
+}
+
+export type ReviewItem = MergeReview | ConflictReview | ExtractionReview | OffTemplateReview | CategoryProposalReview | OrphanPruneReview;

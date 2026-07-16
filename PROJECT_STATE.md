@@ -12,6 +12,28 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Background consolidation worker (GRAPH_PIPELINE.md P1)**
+  — the graph's missing homeostasis, shipped as designed in the same-day
+  doc: a DAILY cron (`consolidate-cron.yml` → `POST /api/jobs/consolidate`,
+  CRON_SECRET) runs per-org ① embedding backfill (missing/stale-space
+  vectors), ② a merge sweep — same-kind candidate pairs from a trigram
+  self-join (sim ≥.55) UNION per-entity ANN twins (cos ≥.85, current space
+  only), minus pairs any entity_merge review already ruled on (either
+  direction, any status) and minus natural-key-conflicting pairs; survivors
+  LLM-adjudicated on the owner's provider (BYOK-aware; fail-soft → propose-
+  only, text similarity NEVER auto-merges): ≥.85 → `mergeEntities` with
+  winner = edges>support>age and natural-key accretion, logged as an
+  accepted review; ≥.55 → pending proposal; below → auto-rejected review so
+  the pair is settled forever — and ③ an orphan pass (support≤1, zero edges,
+  no body, >30d old, concepts >7d, document/note never) filing ONE batched
+  `orphan_prune` review; accept prunes only what is STILL unlinked at accept
+  time, decline never re-asks (ids excluded via all prior orphan reviews).
+  New review kind wired end-to-end (types, list, side-effects, ping
+  question, card body, Studio chrome). Pure core `consolidate-core.ts`
+  unit-tested (9 tests: pair dedup/veto, winner ordering, orphan windows);
+  suite 296 pass / 3 pre-existing sandbox canvas failures; tsc adds no new
+  errors (my files clean). NOT live-fired (no DB/LLM in sandbox) — watch the
+  first cloud tick; env knobs `CONSOLIDATE_{ADJUDICATIONS,EMBED_BATCH,ORGS}`.
 - **2026-07-16** — **New living doc: `docs/GRAPH_PIPELINE.md`** (user ask:
   "make ULTRA CLEAR the pipeline") — the end-to-end graph reference: schema
   (entities/facts/doc_chunks/reviews), the exact extraction prompts + the

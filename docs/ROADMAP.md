@@ -133,9 +133,12 @@ The end-to-end pipeline reference + ordered roadmap toward the "optimal
 graph" bar (cheap-LLM append · fast retrieval · no degeneration · multimodal)
 lives in [`docs/GRAPH_PIPELINE.md`](GRAPH_PIPELINE.md) (2026-07-16). Phases,
 in value order — details, file seams, and acceptance criteria in that doc:
-1. **P1 Background consolidation worker** — the missing homeostasis: cron
-   merge sweep (ANN+trigram candidates → adjudicate → auto-merge/propose),
-   orphan-prune reviews, embedding backfill. Highest degeneration risk today.
+1. ~~**P1 Background consolidation worker**~~ ✅ SHIPPED 2026-07-16 — daily
+   cron merge sweep (trigram+ANN candidates → adjudicate → auto-merge ≥.85 /
+   propose ≥.55 / auto-reject below so pairs never re-ask), batched
+   `orphan_prune` reviews (accept re-verifies still-unlinked before delete),
+   embedding backfill. Fail-soft without an LLM (propose-only). NOT
+   live-fired yet — watch the first cloud tick.
 2. **P2 Vocabulary telemetry + predicate budget** — measure sprawl
    (predicates/kind, template-conformity %) + an ontology-health card;
    predicate growth gets the same review gate kinds already have.

@@ -1,0 +1,39 @@
+name: Consolidation cron
+
+# The graph's homeostasis pass (GRAPH_PIPELINE.md P1): a DAILY tick that runs
+# the background consolidation worker — merge sweep over near-duplicate
+# entities, orphan flagging (review-gated, never deletes), and embedding
+# backfill. Budget-capped per org and idempotent, so a missed or doubled run
+# is harmless.
+on:
+  schedule:
+    - cron: "15 4 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: consolidate-cron
+  cancel-in-progress: false
+
+jobs:
+  consolidate:
+    runs-on: ubuntu-latest
+    # CRON_SECRET = repository secret, APP_URL = repository variable.
+    steps:
+      - name: Ping consolidation worker (all environments)
+        run: |
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "CRON_SECRET not set — skipping."; exit 0
+          fi
+          fail=0
+          for url in ${APP_URL} https://www.datamodo.dev; do
+            code=$(curl -sS -o /tmp/resp -w "%{http_code}" --max-time 90 -X POST \
+              "${url%/}/api/jobs/consolidate" -H "Authorization: Bearer ${CRON_SECRET}") || code=000
+            echo "consolidate ${url} → HTTP ${code}: $(cat /tmp/resp 2>/dev/null | head -c 300)"
+            if [ "${code}" = "401" ] || [ "${code}" = "403" ]; then
+              echo "::error::CRON_SECRET rejected by ${url}"; fail=1
+            fi
+          done
+          exit ${fail}
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

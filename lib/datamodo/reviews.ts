@@ -16,7 +16,7 @@ export type { ReviewItem } from "./review-types";
 
 interface ReviewRow {
   id: string;
-  kind: "entity_merge" | "fact_conflict" | "extraction" | "off_template" | "category_proposal";
+  kind: "entity_merge" | "fact_conflict" | "extraction" | "off_template" | "category_proposal" | "orphan_prune";
   status: string;
   confidence: number | null;
   impact: number;
@@ -243,6 +243,16 @@ export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
         icon: t.icon,
         description: t.description,
       });
+    } else if (r.kind === "orphan_prune") {
+      // Display list pre-rendered at filing time (consolidate.ts); ids stay
+      // in detail.entityIds for the accept side-effect.
+      const sample = (r.detail.entities as { label: string; kind: string }[]) ?? [];
+      out.push({
+        ...base,
+        kind: "orphan_prune",
+        count: Array.isArray(r.detail.entityIds) ? (r.detail.entityIds as string[]).length : sample.length,
+        entities: sample.map((e) => ({ label: e.label, type: e.kind })),
+      });
     }
   }
   return out;
@@ -300,6 +310,27 @@ export async function acceptReview(orgId: string, id: string): Promise<void> {
       // Already created by hand since the proposal was filed → accept is a no-op.
       if ((e as { code?: string }).code !== "P2002") throw e;
     }
+  } else if (r.kind === "orphan_prune") {
+    // Prune ONLY entities still unlinked right now — anything that gained a
+    // fact, a body, or a merge since the flag was filed survives. Deleting an
+    // entity with zero facts is safe: doc_chunks cascade, dataset_rows null
+    // their subject, and this review keeps only ids (no entity FK).
+    const ids = ((r.detail.entityIds as string[]) ?? []).filter(Boolean);
+    if (ids.length) {
+      const still = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT e.id FROM entities e
+         WHERE e.org_id = ${orgId}::uuid AND e.id = ANY(${ids}::uuid[])
+           AND e.merged_into IS NULL AND e.body_md IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM facts f
+              WHERE f.org_id = e.org_id
+                AND (f.subject_entity_id = e.id OR f.object_entity_id = e.id)
+           )`;
+      const prunable = still.map((s) => s.id);
+      if (prunable.length) {
+        await prisma.entities.deleteMany({ where: { org_id: orgId, id: { in: prunable } } });
+      }
+    }
   }
   // fact_conflict + extraction: already applied to the store — accept = confirm.
   await prisma.knowledge_reviews.update({
@@ -336,9 +367,11 @@ export async function rejectReview(orgId: string, id: string): Promise<void> {
       if (orphans.length) await prisma.facts.deleteMany({ where: { id: { in: orphans } } });
     }
   }
-  // entity_merge + off_template + category_proposal: nothing was applied
-  // (only proposed) — just mark rejected. A rejected category proposal is
-  // never re-filed (the filing check matches any status).
+  // entity_merge + off_template + category_proposal + orphan_prune: nothing
+  // was applied (only proposed) — just mark rejected. A rejected category
+  // proposal is never re-filed (the filing check matches any status), and a
+  // rejected orphan batch is never re-asked (consolidate.ts excludes ids
+  // listed in ANY orphan_prune review).
   await prisma.knowledge_reviews.update({
     where: { id },
     data: { status: "rejected", resolved_at: new Date() },
