@@ -9,10 +9,9 @@
  *        routes, lib/datamodo, lib/llm, lib/local, lib/ingest, blob-fs, bin.
  * CLOSED (never ships local): Neon Auth (lib/auth/server|client), Neon
  *        serverless / @prisma/adapter-neon, Stripe billing, hosted channel
- *        webhooks, landing/marketing, the email worker, and the MCP host
- *        (user call 2026-07-16: MCP is a CLOUD feature — the free-tier
- *        acquisition funnel through Claude subscribers — and does not ship
- *        in the local artifact).
+ *        webhooks, landing/marketing, the email worker. (The MCP host is CORE
+ *        — "your Claude subscription over your local vault" ships local; its
+ *        token secret derives from the per-install ingest secret there.)
  * SEAMS (interfaces the core imports; their cloud halves live behind runtime
  *        dispatch and are REPLACED in the pruned tree): lib/prisma.ts,
  *        lib/storage/blob.ts, lib/auth/session.ts, app/auth/actions.ts,
@@ -23,16 +22,13 @@ const CLOSED_TARGETS = [
   "^lib/auth/(server|client)",
   "^components/(landing|google-button)",
   "^app/(page\\.tsx|login|register)",
-  "^app/api/(auth|billing|webhooks|mcp)",
-  "^lib/datamodo/mcp-",
+  "^app/api/(auth|billing|webhooks)",
   "^workers",
   // cloud-only packages
   "@neondatabase",
   "@prisma/adapter-neon",
   "^stripe$",
   "@aws-sdk",
-  "^mcp-handler$",
-  "@modelcontextprotocol",
 ];
 
 const SEAM_FILES = "^(lib/prisma\\.ts|lib/storage/blob\\.ts|lib/auth/session\\.ts|app/auth/actions\\.ts|proxy\\.ts)$";
@@ -48,7 +44,7 @@ module.exports = {
         "(lib/prisma.ts, lib/storage/blob.ts, lib/auth/session.ts) instead.",
       severity: "error",
       from: {
-        path: "^(app/dashboard|app/api/(?!auth|billing|webhooks|mcp)|lib/datamodo/(?!mcp-)|lib/llm|lib/local|lib/ingest|lib/storage/blob-fs|bin|components/(?!landing|google-button))",
+        path: "^(app/dashboard|app/api/(?!auth|billing|webhooks)|lib/datamodo|lib/llm|lib/local|lib/ingest|lib/storage/blob-fs|bin|components/(?!landing|google-button))",
         pathNot: SEAM_FILES,
       },
       to: { path: CLOSED_TARGETS },

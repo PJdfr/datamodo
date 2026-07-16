@@ -12,7 +12,32 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
-- **2026-07-16** — **MCP is CLOUD-ONLY** (user call — reverses the same-day
+- **2026-07-16** — **MCP everywhere + the full tool surface (14 tools)** (user
+  call — reverses the hours-earlier "cloud-only" call; FINAL state: the MCP
+  server ships in BOTH editions, same code, each bound to its own vault —
+  cloud → the hosted Neon org, local → the machine's pglite/compose Postgres;
+  local reachable by Claude Desktop/Code on the same machine, claude.ai web
+  can't hit localhost). Restored the local packaging state (routes + contract
+  cores + `mcp-handler`/`zod`/sdk deps back in the prune, boundary treats MCP
+  as core, Connect-Claude card visible locally, `MCP_TOKEN_SECRET` from the
+  per-install ingest secret). **Six NEW tools** complete the surface, each a
+  thin wrapper over an existing tested core: `capture_message` (forward raw
+  content → SAME ingest + post-response extraction kick; the no-extraction
+  counterpart to submit_extraction), `walk_graph` (the Explorer as a tool —
+  `buildEgoGraph` hop-1/2 neighborhood with predicates+confidence),
+  `list_facts` (structured lookups by subject/predicate/kind with **as-of
+  date** over the bitemporal validity window), `search_documents` (passage
+  search via `searchChunks`, keyword+semantic), `list_tables` +
+  `get_table_rows` (datasets as read-only projections — deliberately NO
+  row-write tool; writes go through extraction). Deliberately absent: entity
+  deletion (append-only vault), review bypass. VERIFIED 19/19 on the packed
+  artifact with a raw streamable-HTTP JSON-RPC client: 401 without token,
+  token minted locally, initialize, all 14 tools advertised, capture →
+  pipeline extraction lands (Hooli), submit_extraction files (C-77 → facts
+  value/signed_on/party), get_entity/walk_graph/get_context read it back,
+  list_facts as-of 2020 correctly empty, org-scoped table-id validation,
+  inbox/reviews execute. `datamodo-*.tgz` rebuilt with MCP included.
+- **2026-07-16** — ~~**MCP is CLOUD-ONLY**~~ (superseded above) (user call — reverses the same-day
   "MCP ships local" decision from the packaging build; settles brief open
   question 1 the other way). The local artifact no longer contains the MCP
   host: `app/api/mcp` + `app/api/mcp-token` dropped from the prune INCLUDE,
