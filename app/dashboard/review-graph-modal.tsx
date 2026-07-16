@@ -172,7 +172,9 @@ function Scene({ scene }: { scene: PreviewScene }) {
   );
 }
 
-export function ReviewGraphModal({ item, onClose }: { item: ReviewItem; onClose: () => void }) {
+/** Inline per-row panel (user call 2026-07-16: the graph shows NEXT TO the
+ *  clicked row, not in a modal): the decision's two futures, toggled. */
+export function ReviewGraphPanel({ item }: { item: ReviewItem }) {
   const [views, setViews] = useState<KnowledgeEntityView[]>([]);
   const [future, setFuture] = useState<"accept" | "refuse">("accept");
 
@@ -207,27 +209,19 @@ export function ReviewGraphModal({ item, onClose }: { item: ReviewItem; onClose:
   );
 
   return (
-    <div
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(33,30,24,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-    >
-      <div onClick={(e) => e.stopPropagation()} style={{ width: "min(760px, 100%)", background: "#F6F2E9", border: "1px solid #E1D9C8", borderRadius: 18, boxShadow: "0 24px 60px rgba(33,30,24,0.25)", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 18px", borderBottom: "1px solid #ECE5D8" }}>
-          <span style={{ color: C.accent, fontSize: 14 }}>◍</span>
-          <span className="dm-display" style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em", color: C.ink }}>What this decision does to your graph</span>
-          <button onClick={onClose} aria-label="Close" style={{ marginLeft: "auto", fontFamily: "inherit", fontSize: 15, color: "#8A8477", background: "none", border: "none", cursor: "pointer", padding: 4 }}>✕</button>
-        </div>
-        <div style={{ background: "#FBF8F1", margin: "14px 18px 0", border: "1px solid #ECE5D8", borderRadius: 14 }}>
-          <Scene scene={scene} />
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 18px 16px" }}>
-          {seg("accept", "✓ if you accept", C.green)}
-          {seg("refuse", "✕ if you refuse", "#C7362C")}
-          <span style={{ fontSize: 12, color: "#57534A", lineHeight: 1.45, marginLeft: 6 }}>{scene.note}</span>
-        </div>
+    <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 12, overflow: "hidden", height: "100%", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 13px", borderBottom: "1px solid #F1EDE4" }}>
+        <span style={{ color: C.accent, fontSize: 12 }}>◍</span>
+        <span className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B" }}>what this does to your graph</span>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          {seg("accept", "✓ accept", C.green)}
+          {seg("refuse", "✕ refuse", "#C7362C")}
+        </span>
       </div>
+      <div style={{ background: "#FBF8F1", flex: 1 }}>
+        <Scene scene={scene} />
+      </div>
+      <div style={{ fontSize: 11.5, color: "#57534A", lineHeight: 1.45, padding: "8px 13px 10px", borderTop: "1px solid #F1EDE4" }}>{scene.note}</div>
     </div>
   );
 }
