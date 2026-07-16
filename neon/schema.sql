@@ -798,7 +798,8 @@ CREATE TABLE public.user_settings (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     business_context text,
-    onboarding jsonb DEFAULT '{}'::jsonb NOT NULL
+    onboarding jsonb DEFAULT '{}'::jsonb NOT NULL,
+    byok_monthly_cap_usd double precision
 );
 
 

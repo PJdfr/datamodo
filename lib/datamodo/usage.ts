@@ -119,3 +119,20 @@ export async function usageSummary(orgId: string, opts: { days?: number } = {}):
     return empty;
   }
 }
+
+/** BYOK spend so far THIS CALENDAR MONTH (UTC) — what the monthly cap is
+ *  measured against. Unpriced calls count as $0 (the cap is a safety rail on
+ *  what we can price, not an invoice). FAIL-SOFT to 0: a ledger error must
+ *  never stop extraction — the cap simply can't engage without data. */
+export async function monthToDateSpendUsd(orgId: string): Promise<number> {
+  try {
+    const rows = await prisma.$queryRaw<{ total: number | null }[]>`
+      select sum(cost_usd)::double precision as total
+        from public.llm_usage
+       where org_id = ${orgId}::uuid
+         and created_at >= date_trunc('month', now() at time zone 'utc')`;
+    return rows[0]?.total ?? 0;
+  } catch {
+    return 0;
+  }
+}

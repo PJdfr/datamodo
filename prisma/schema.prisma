@@ -520,6 +520,7 @@ model user_settings {
   updated_at             DateTime     @default(now()) @db.Timestamptz(6)
   business_context       String?
   onboarding             Json         @default("{}")
+  byok_monthly_cap_usd   Float?
 }
 
 enum agent_mode {

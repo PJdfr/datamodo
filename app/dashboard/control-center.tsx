@@ -1967,6 +1967,7 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
   const [mode, setMode] = useState<ComputeMode>(settings.computeMode);
   const [provider, setProvider] = useState(settings.aiProvider);
   const [key, setKey] = useState("");
+  const [cap, setCap] = useState(settings.byokMonthlyCapUsd != null ? String(settings.byokMonthlyCapUsd) : "");
   const { pending, error, run } = useAction();
   const [billing, startBilling] = useTransition();
   const [billingMsg, setBillingMsg] = useState<string | null>(null);
@@ -1976,7 +1977,12 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
   const cloudLocked = !limits.cloudCompute && !local;
 
   const save = () => run(
-    () => updateComputeSettingsAction({ computeMode: mode, aiProvider: provider, byokKey: key ? key : undefined }),
+    () => updateComputeSettingsAction({
+      computeMode: mode,
+      aiProvider: provider,
+      byokKey: key ? key : undefined,
+      byokMonthlyCapUsd: cap.trim() === "" ? null : Number(cap),
+    }),
     onSaved,
   );
 
@@ -2076,6 +2082,18 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
               ? <>No API key needed — models run on <b>your own machine</b>. The URL must be reachable from datamodo&apos;s servers: on the same box use localhost; otherwise expose it via a tunnel (Tailscale funnel, ngrok, cloudflared). Pull a JSON-capable model first (ollama pull llama3.1).</>
               : <>This is an <b>API key</b> (billed per use), not your ChatGPT Plus / Claude Pro subscription — those don&apos;t grant API access. Get one from {provider === "openai" ? "platform.openai.com" : provider === "openrouter" ? "openrouter.ai/keys" : "console.anthropic.com"}. OpenRouter gives you one key across many models.</>}
           </div>
+          {/* Spend cap: the safety rail on the user's own key. Empty = none.
+              Ollama is keyless/free — the cap only applies to key-billed
+              providers, so hide it there. */}
+          {provider !== "ollama" && (
+            <>
+              <div className="dm-mono" style={{ ...fieldLabel, margin: "14px 0 8px" }}>Monthly spend cap (USD)</div>
+              <input type="text" inputMode="decimal" value={cap} onChange={(e) => setCap(e.target.value)} placeholder="no cap — e.g. 10" style={fieldInput} />
+              <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 6, lineHeight: 1.5 }}>
+                When this month&apos;s tracked spend reaches the cap, datamodo stops using your key{local ? " and falls back to local Ollama" : " (items wait until you raise it or the month rolls over)"}. Estimates count — it&apos;s a safety rail, not an invoice.
+              </div>
+            </>
+          )}
           {/* Local edition: pick the exact model names here instead of env vars
               — saved PER PROVIDER, so your Ollama names never reach Anthropic
               and vice-versa. (URL/status hidden — in BYOK the server/key field
@@ -2452,6 +2470,7 @@ function UsageCard() {
     byModel: { provider: string; model: string; calls: number; inputTokens: number; outputTokens: number; costUsd: number | null; estimated: boolean }[];
   }>(null);
   const [priceDate, setPriceDate] = useState("");
+  const [capInfo, setCapInfo] = useState<{ monthToDateUsd: number; capUsd: number | null } | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
 
   const load = async () => {
@@ -2461,6 +2480,7 @@ function UsageCard() {
       if (!res.ok) throw new Error();
       const json = await res.json();
       setSum(json.summary ?? null);
+      setCapInfo({ monthToDateUsd: json.monthToDateUsd ?? 0, capUsd: json.capUsd ?? null });
       setPriceDate(json.priceDate ?? "");
       setState("idle");
     } catch {
@@ -2485,6 +2505,23 @@ function UsageCard() {
         )}
       </div>
       {state === "error" && <div className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginTop: 10 }}>Couldn&apos;t load usage.</div>}
+      {sum && capInfo?.capUsd != null && (() => {
+        const pct = Math.min(100, Math.round((capInfo.monthToDateUsd / capInfo.capUsd) * 100));
+        const reached = capInfo.monthToDateUsd >= capInfo.capUsd;
+        return (
+          <div style={{ marginTop: 12, padding: "10px 12px", background: reached ? "#FBF3EF" : "#FBF8F1", border: `1px solid ${reached ? "#F0D9CF" : "#ECE5D8"}`, borderRadius: 10 }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <span className="dm-mono" style={{ fontSize: 11, fontWeight: 600, color: reached ? C.accent : "#3A352C" }}>
+                {reached ? "Monthly cap reached — your key is paused" : "Monthly cap"}
+              </span>
+              <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477" }}>{usd(capInfo.monthToDateUsd)} of {usd(capInfo.capUsd)} this month</span>
+            </div>
+            <div style={{ height: 5, background: "#EFE9DC", borderRadius: 999, marginTop: 7, overflow: "hidden" }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: reached ? C.accent : "#B08A2E", borderRadius: 999 }} />
+            </div>
+          </div>
+        );
+      })()}
       {sum && (
         <div style={{ marginTop: 12 }}>
           {sum.calls === 0 ? (

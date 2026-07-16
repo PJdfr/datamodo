@@ -79,6 +79,7 @@ export async function updateComputeSettingsAction(patch: {
   computeMode?: ComputeMode;
   aiProvider?: AiProvider;
   byokKey?: string | null;
+  byokMonthlyCapUsd?: number | null;
 }): Promise<ActionResult> {
   try {
     const { user } = await ctx();

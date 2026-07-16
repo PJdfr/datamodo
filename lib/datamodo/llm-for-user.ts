@@ -32,6 +32,26 @@ export async function llmForUser(userId: string | null): Promise<LlmProvider> {
     try {
       const [settings, key, org] = await Promise.all([getSettings(userId), getByokKey(userId), getActiveOrg(userId)]);
       if (settings.computeMode === "byok" && key) {
+        // MONTHLY SPEND CAP: before burning the user's key, check the ledger.
+        // Ollama-as-BYOK is keyless/free — the cap only guards key-billed
+        // providers. Decision is pure (llm-cost.ts); the ledger read is
+        // fail-soft (errors → cap can't engage, extraction never stops here).
+        if (settings.aiProvider !== "ollama" && settings.byokMonthlyCapUsd != null && org) {
+          const { monthToDateSpendUsd } = await import("./usage");
+          const { byokCapDecision } = await import("./llm-cost");
+          const spent = await monthToDateSpendUsd(org.id);
+          const decision = byokCapDecision(spent, settings.byokMonthlyCapUsd, isLocalMode());
+          if (decision === "fallback") {
+            // Local edition: the machine's own Ollama is free — use it and say so.
+            console.log(`[llm] BYOK monthly cap reached ($${spent.toFixed(2)} of $${settings.byokMonthlyCapUsd}) — falling back to local compute`);
+            return getLlmProvider("ollama", undefined, { models: modelsFor("ollama"), baseUrl: file?.url });
+          }
+          if (decision === "block") {
+            // Cloud: every alternative bills someone. Fail the item with a
+            // clear, requeue-able reason instead of silently spending.
+            throw new Error(`BYOK monthly cap reached ($${spent.toFixed(2)} of $${settings.byokMonthlyCapUsd}) — raise the cap in Settings or wait for the new month, then requeue.`);
+          }
+        }
         // Track spend on the user's OWN key (never on our platform key in
         // cloud mode — that's on us, not them). Recording is fail-soft.
         const hooks = org ? usageHooks(org.id, userId) : undefined;
@@ -39,8 +59,10 @@ export async function llmForUser(userId: string | null): Promise<LlmProvider> {
         if (settings.aiProvider === "ollama") return getLlmProvider("ollama", undefined, { baseUrl: key, hooks, models });
         return getLlmProvider(settings.aiProvider, key, { hooks, models });
       }
-    } catch {
-      // settings lookup must never take extraction down — fall through
+    } catch (e) {
+      // Settings lookup must never take extraction down — fall through. The
+      // ONE exception is the cap block: that error is the feature, rethrow.
+      if (String((e as Error)?.message ?? "").includes("BYOK monthly cap reached")) throw e;
     }
   }
   // Platform default. Locally that's the machine's own Ollama (serve sets
