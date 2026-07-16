@@ -2093,10 +2093,8 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
       {local && <ConnectorsCard />}
 
       {/* Connect Claude (MCP): the vault as tools on the user's own Claude
-          subscription — Claude extracts, the server pipeline stays the vault.
-          CLOUD ONLY (user call 2026-07-16): the MCP host doesn't ship in the
-          local edition, so the card would point at a 404 there. */}
-      {!local && <McpConnectCard />}
+          subscription — Claude extracts, the server pipeline stays the vault. */}
+      <McpConnectCard />
     </ModalShell>
   );
 }

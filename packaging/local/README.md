@@ -38,6 +38,8 @@ metadata-only) — AI reading resumes the moment a model appears.
 - **Chat** — the dashboard's Chat tab: drop text, files, photos, voice notes.
 - **Your mailbox** — Settings → Mailboxes (or `datamodo connect`): datamodo
   pulls new mail over IMAP. Credentials stay in `~/.datamodo/connectors.json`.
+- **MCP** — Settings → “Connect Claude”: your vault as tools on your own
+  Claude subscription.
 
 ## Commands
 

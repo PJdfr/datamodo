@@ -150,9 +150,15 @@
   read-only until `submit_extraction` lands, so cron and MCP never double-
   process), `get_entity` (one entity's full record — facts + confidence +
   body_md), and `submit_extraction` gained an optional `itemId` to attach to
-  a queued item (org-validated) and mark it `analyzed`. STILL open: OAuth
-  (claude.ai connectors' dynamic client registration + per-user revocation),
-  `query_graph`, MCP `sampling` for the escalation policy.
+  a queued item (org-validated) and mark it `analyzed`. FULL TOOL SURFACE
+  ✅ 2026-07-16 (14 tools; user ask "lay out all the tools"): added
+  `capture_message` (raw forward → pipeline), `walk_graph` (Explorer
+  ego-graph as a tool), `list_facts` (filters + bitemporal as-of),
+  `search_documents` (passages), `list_tables`/`get_table_rows` (read-only
+  projections; row-writes deliberately excluded — writes go through
+  extraction). Verified 19/19 on the packed local artifact. STILL open:
+  OAuth (claude.ai connectors' dynamic client registration + per-user
+  revocation), MCP `sampling` for the escalation policy.
 - ~~**Per-entity blame** (Review track follow-up)~~ ✅ 2026-07-14 — the entity
   page's "◷ History" disclosure gained a **story ⇄ blame** toggle: blame is
   the commit log filtered to that entity (`?view=commits&entity=`;
@@ -454,10 +460,9 @@
     dependency-cruiser + optional in-tree `next build`) and packs the npm
     tarball — 181 files, zero closed-layer paths. Boundary enforced
     mechanically in the main repo too (`.dependency-cruiser.cjs`, CI).
-    ~~Decision: MCP ships in the local package~~ **REVERSED 2026-07-16 (user
-    call): MCP is CLOUD-ONLY** — the host, its contract cores
-    (`lib/datamodo/mcp-*`) and `mcp-handler`/`zod` are excluded from the
-    prune; local Settings hides "Connect Claude". Docker image builds FROM the pruned tree
+    Decision (FINAL after two same-day reversals, user call 2026-07-16):
+    **MCP ships in BOTH editions** — same host code, each instance bound to
+    its own vault; local token secret = per-install ingest secret. Docker image builds FROM the pruned tree
     (`packaging/local/docker/`); one-command installers in `packaging/`.
     STILL OPEN (needs a human/ops): publish channel (npm name availability,
     GHCR vs Docker Hub), get.datamodo.dev hosting for the installer + compose

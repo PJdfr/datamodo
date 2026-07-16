@@ -146,6 +146,165 @@ const handler = createMcpHandler(
     );
 
     server.tool(
+      "capture_message",
+      "Forward raw content INTO the vault — the 'send it to datamodo' gesture from a conversation. The server pipeline stores the original and extracts from it (you don't have to). Use submit_extraction instead when YOU already extracted the entities+facts.",
+      {
+        text: z.string().min(1).max(50_000).describe("The raw message/document text to capture"),
+        subject: z.string().max(300).optional().describe("A short title (email-subject style)"),
+      },
+      async ({ text: bodyText, subject }, extra) => {
+        const { userId, orgId } = await caller(extra);
+        const { ingest, IngestError } = await import("@/lib/ingest/store");
+        try {
+          const r = await ingest({
+            channel: "upload",
+            captureMode: "active",
+            orgId,
+            ownerUserId: userId,
+            sender: "claude (mcp)",
+            subject: subject?.trim() || undefined,
+            bodyText,
+            meta: { via: "mcp" },
+          });
+          if (!r.deduped) {
+            const { kickExtraction } = await import("@/lib/ingest/kick");
+            kickExtraction();
+          }
+          return json({ captured: true, itemId: r.itemId, deduped: r.deduped ?? false });
+        } catch (e) {
+          if (e instanceof IngestError) return text(`Could not capture: ${e.message}`);
+          throw e;
+        }
+      },
+    );
+
+    server.tool(
+      "walk_graph",
+      "The Explorer as a tool: the neighborhood around one entity — hop-1 and hop-2 neighbors with the predicates connecting them. Use it to wander the vault edge-to-edge (get the id from search_entities; walk again from any neighbor).",
+      {
+        entityId: z.string().min(1),
+        maxNeighbors: z.number().int().min(1).max(30).optional().describe("Ring cap per hop (default 14)"),
+      },
+      async ({ entityId, maxNeighbors }, extra) => {
+        const { orgId } = await caller(extra);
+        const kviews = await listKnowledge(orgId);
+        const { buildEgoGraph } = await import("@/lib/datamodo/explorer");
+        const g = buildEgoGraph(kviews, entityId, { maxHop1: maxNeighbors ?? 14, maxHop2: maxNeighbors ?? 14 });
+        if (!g) return text("No entity with that id — find one with search_entities first.");
+        return json({
+          center: { id: g.center.entity.id, kind: g.center.entity.kind, label: g.center.entity.label },
+          nodes: g.nodes
+            .filter((n) => n.entity.id !== g.center.entity.id)
+            .map((n) => ({ id: n.entity.id, kind: n.entity.kind, label: n.entity.label, hop: n.hop })),
+          edges: g.edges.map((e) => ({ from: e.fromLabel, predicate: e.fact.predicate, to: e.toLabel, confidence: e.fact.confidence })),
+          truncated: g.truncated,
+        });
+      },
+    );
+
+    server.tool(
+      "list_facts",
+      "Structured fact queries over the bitemporal vault: filter by subject entity, predicate, and/or kind — optionally AS OF a past date (what was believed true then). Every fact carries confidence and validity window. Prefer get_context for open questions; use this for precise 'what is/was X's Y' lookups.",
+      {
+        subjectEntityId: z.string().optional().describe("Only facts about this entity (from search_entities)"),
+        predicate: z.string().optional().describe("snake_case predicate, e.g. amount, due_date, works_at"),
+        kind: z.string().optional().describe("Only facts whose subject is this kind, e.g. invoice"),
+        asOf: z.string().optional().describe("YYYY-MM-DD — the vault as believed on that date (default: now)"),
+        limit: z.number().int().min(1).max(100).optional(),
+      },
+      async ({ subjectEntityId, predicate, kind, asOf, limit }, extra) => {
+        const { orgId } = await caller(extra);
+        if (!subjectEntityId && !predicate && !kind) return text("Give at least one filter (subjectEntityId, predicate, or kind).");
+        const at = asOf ? new Date(`${asOf}T23:59:59Z`) : new Date();
+        if (Number.isNaN(at.getTime())) return text("asOf must be YYYY-MM-DD.");
+        const rows = await prisma.facts.findMany({
+          where: {
+            org_id: orgId,
+            ...(subjectEntityId ? { subject_entity_id: subjectEntityId } : {}),
+            ...(predicate ? { predicate } : {}),
+            ...(kind ? { entities_facts_subject_entity_idToentities: { kind } } : {}),
+            valid_from: { lte: at },
+            OR: [{ valid_to: null }, { valid_to: { gt: at } }],
+          },
+          orderBy: [{ valid_from: "desc" }],
+          take: limit ?? 40,
+          select: {
+            predicate: true, value_text: true, value_num: true, value_date: true, unit: true,
+            confidence: true, valid_from: true, valid_to: true,
+            entities_facts_subject_entity_idToentities: { select: { id: true, kind: true, canonical_label: true } },
+            entities_facts_object_entity_idToentities: { select: { id: true, canonical_label: true } },
+          },
+        });
+        if (rows.length === 0) return text(`No facts match${asOf ? ` as of ${asOf}` : ""}.`);
+        return json(rows.map((f) => ({
+          subject: { id: f.entities_facts_subject_entity_idToentities.id, kind: f.entities_facts_subject_entity_idToentities.kind, label: f.entities_facts_subject_entity_idToentities.canonical_label },
+          predicate: f.predicate,
+          value: f.entities_facts_object_entity_idToentities
+            ? { entity: f.entities_facts_object_entity_idToentities.canonical_label, entityId: f.entities_facts_object_entity_idToentities.id }
+            : f.value_date ? f.value_date.toISOString().slice(0, 10)
+            : f.value_num !== null ? `${f.value_num}${f.unit ? ` ${f.unit}` : ""}`
+            : f.value_text,
+          confidence: f.confidence,
+          validFrom: f.valid_from.toISOString(),
+          validTo: f.valid_to?.toISOString() ?? null,
+        })));
+      },
+    );
+
+    server.tool(
+      "search_documents",
+      "Passage search over the user's captured documents (keyword + semantic when embeddings are configured). Returns the exact passages with their source document — quote them when answering from documents.",
+      { query: z.string().min(1).max(300), limit: z.number().int().min(1).max(12).optional() },
+      async ({ query, limit }, extra) => {
+        const { orgId } = await caller(extra);
+        const { searchChunks } = await import("@/lib/datamodo/chunks");
+        const hits = await searchChunks(orgId, tokenize(query), { query, limit: limit ?? 6 });
+        if (hits.length === 0) return text("No document passages match.");
+        return json(hits.map((h) => ({ document: h.docLabel, entityId: h.entityId, page: h.page, passage: h.text.slice(0, 1500) })));
+      },
+    );
+
+    server.tool(
+      "list_tables",
+      "The user's tables (datasets): columns, row counts, and which agent fills each. Tables are PROJECTIONS of the vault — rows materialize from facts; there is no direct row-write tool (file data via submit_extraction or capture_message instead).",
+      {},
+      async (_args, extra) => {
+        const { orgId } = await caller(extra);
+        const { listDatasets } = await import("@/lib/datamodo/datasets");
+        const ds = await listDatasets(orgId);
+        if (ds.length === 0) return text("No tables yet.");
+        return json(ds.map((d) => ({
+          id: d.id,
+          name: d.name,
+          description: d.description ?? null,
+          columns: (d.columns ?? []).map((c) => ({ key: c.key, label: c.label, type: c.type })),
+          rowCount: d.rowCount,
+          agent: d.agentName,
+          pendingProposals: d.proposals.length,
+        })));
+      },
+    );
+
+    server.tool(
+      "get_table_rows",
+      "Read one table's live rows, paged. Get the table id from list_tables.",
+      {
+        tableId: z.string().min(1),
+        limit: z.number().int().min(1).max(200).optional(),
+        offset: z.number().int().min(0).optional(),
+      },
+      async ({ tableId, limit, offset }, extra) => {
+        const { orgId } = await caller(extra);
+        // Org scoping: the table must belong to the caller's workspace.
+        const ds = await prisma.datasets.findFirst({ where: { id: tableId, org_id: orgId }, select: { id: true, name: true } });
+        if (!ds) return text("No table with that id — call list_tables for current ids.");
+        const { listDatasetRows } = await import("@/lib/datamodo/datasets");
+        const { rows, total } = await listDatasetRows(ds.id, { limit: limit ?? 50, offset: offset ?? 0 });
+        return json({ table: ds.name, total, offset: offset ?? 0, rows: rows.map((r) => r.data) });
+      },
+    );
+
+    server.tool(
       "pending_reviews",
       "Decisions waiting on the user (merges, conflicts, proposals), newest first. Surface them when relevant; resolve one ONLY when the user explicitly decides.",
       {},
