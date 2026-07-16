@@ -156,9 +156,15 @@
   ego-graph as a tool), `list_facts` (filters + bitemporal as-of),
   `search_documents` (passages), `list_tables`/`get_table_rows` (read-only
   projections; row-writes deliberately excluded — writes go through
-  extraction). Verified 19/19 on the packed local artifact. STILL open:
-  OAuth (claude.ai connectors' dynamic client registration + per-user
-  revocation), MCP `sampling` for the escalation policy.
+  extraction). Verified 19/19 on the packed local artifact. ~~OAuth (claude.ai
+  connectors)~~ ✅ 2026-07-16 — datamodo is its own OAuth 2.1 authorization
+  server: discovery metadata, RFC 7591 dynamic registration, branded consent
+  page, PKCE-S256 code flow, rotating refresh tokens, sha256-hashed storage
+  → per-user revocation; `dmk_` HMAC tokens unchanged for Claude Code.
+  Verified 19/19 OAuth E2E on the packed artifact (needs Neon migration
+  `20260716150000_oauth.sql` in cloud). STILL open: MCP `sampling` for the
+  escalation policy; a Settings "disconnect Claude" button over the
+  oauth_tokens rows.
 - ~~**Per-entity blame** (Review track follow-up)~~ ✅ 2026-07-14 — the entity
   page's "◷ History" disclosure gained a **story ⇄ blame** toggle: blame is
   the commit log filtered to that entity (`?view=commits&entity=`;
@@ -548,7 +554,10 @@
 
 ## Owed by a human (ops, not code)
 - **Apply pending Neon migrations on dev + prod**: `20260714120000_llm_usage.sql`
-  (BYOK cost ledger — dormant/fail-soft until applied). Optional env
+  (BYOK cost ledger — dormant/fail-soft until applied) and
+  `20260716150000_oauth.sql` (MCP OAuth for claude.ai connectors — the
+  register/token endpoints 500 and the consent page shows "unknown client"
+  until applied; HMAC tokens keep working regardless). Optional env
   `MCP_TOKEN_SECRET` (else falls back to `NEON_AUTH_COOKIE_SECRET`).
 - Vercel env: `OPENROUTER_VISION_MODEL`, embeddings key, transcription key
   (`TRANSCRIPTION_API_KEY` or reuse `OPENAI_API_KEY`), `NEXT_PUBLIC_SITE_URL`

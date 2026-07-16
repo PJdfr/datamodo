@@ -1858,3 +1858,44 @@ CREATE TABLE IF NOT EXISTS public.llm_usage (
 );
 
 CREATE INDEX IF NOT EXISTS llm_usage_org_created_idx ON public.llm_usage (org_id, created_at DESC);
+
+--
+-- Name: oauth_clients / oauth_codes / oauth_tokens; Type: TABLE; Schema: public; Owner: -
+--
+-- MCP OAuth (migration 20260716150000): datamodo as its own authorization
+-- server for the MCP endpoint (claude.ai connectors). Clients register
+-- dynamically (RFC 7591); codes are single-use + PKCE-bound; access/refresh
+-- tokens are stored HASHED (sha256) so the table never holds a usable
+-- credential. Per-user revocation = delete the user's oauth_tokens rows.
+
+CREATE TABLE IF NOT EXISTS public.oauth_clients (
+    id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_id     text        NOT NULL UNIQUE,
+    client_name   text        NOT NULL,
+    redirect_uris jsonb       NOT NULL,
+    created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.oauth_codes (
+    code_hash      text        PRIMARY KEY,
+    client_id      text        NOT NULL,
+    user_id        uuid        NOT NULL,
+    redirect_uri   text        NOT NULL,
+    code_challenge text        NOT NULL,
+    scope          text        NOT NULL DEFAULT 'vault',
+    expires_at     timestamptz NOT NULL,
+    created_at     timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.oauth_tokens (
+    token_hash         text        PRIMARY KEY,
+    refresh_hash       text        NOT NULL UNIQUE,
+    client_id          text        NOT NULL,
+    user_id            uuid        NOT NULL,
+    scope              text        NOT NULL DEFAULT 'vault',
+    access_expires_at  timestamptz NOT NULL,
+    refresh_expires_at timestamptz NOT NULL,
+    created_at         timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS oauth_tokens_user_idx ON public.oauth_tokens (user_id);

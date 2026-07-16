@@ -48,6 +48,9 @@ const INCLUDE = [
   "app/api/local",
   "app/api/mcp",       // the vault on the user's Claude subscription — ships local
   "app/api/mcp-token",
+  "app/api/oauth",     // MCP OAuth (identical both editions; local rarely needs it
+  "app/oauth",         //   — tokenless on 127.0.0.1 — but remote-vault setups do)
+  "app/.well-known",
   "app/api/onboarding",
   "app/api/relations",
   "app/api/search",

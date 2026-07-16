@@ -227,7 +227,14 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
   build-time PRUNE (`scripts/build-local-package.mjs`) that swaps those seams
   for local implementations and proves cloud absence before packing. Adding a
   cloud dependency to core code = CI failure by design; route it through a
-  seam. **The release tarball ships the PREBUILT `.next` (2026-07-16)** —
+  seam. **MCP auth is three credentials, one resolver (2026-07-16):**
+  `lib/datamodo/mcp-auth.ts` is the only place that answers "who is calling
+  MCP" — local tokenless (127.0.0.1 boundary) · `dmk_` HMAC (stateless,
+  Claude Code) · `dmo_` OAuth (DB-backed, claude.ai, per-user revocable).
+  Add credentials THERE, never in the route. OAuth tokens are stored
+  sha256-hashed; codes and refresh tokens are consumed DELETE-first so
+  replays fail closed. **The release tarball ships the PREBUILT `.next`
+  (2026-07-16)** —
   pack with `--build`; deps are pinned EXACT so the user's `next` matches the
   shipped build; `bin/link-externals.mjs` restores what npm can't pack
   (externalized-package symlinks, per-install `required-server-files`).

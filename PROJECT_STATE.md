@@ -12,6 +12,34 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **MCP OAuth (phase 3) — claude.ai connectors**. datamodo
+  is now its own OAuth 2.1 authorization server for the MCP endpoint, so
+  claude.ai's "Add custom connector" works with just the server URL — the
+  user approves in a branded consent page instead of copying a bearer token.
+  Discovery: `/.well-known/oauth-protected-resource` +
+  `/.well-known/oauth-authorization-server` (RFC 9728/8414, path-suffixed
+  forms, CORS) and the MCP 401 now carries `WWW-Authenticate:
+  resource_metadata=…`. Registration: RFC 7591 dynamic, public clients only
+  (PKCE binds the flow — no secrets). Consent (`/oauth/authorize`,
+  dm-auth-styled): client+redirect validated BEFORE render (bad pairs render
+  an error card, never redirect); signed-out users round-trip through
+  `/login?redirectTo=`; the Approve POST carries ONE HMAC-signed field
+  naming the exact grant shown (10-min expiry) so cross-site form posts
+  can't forge a grant. Tokens (`/api/oauth/token`): S256-only PKCE exchange,
+  single-use codes (DELETE-first — replays fail closed), rotating refresh,
+  opaque `dmo_`/`dmr_` values stored sha256-hashed → per-user revocation by
+  row delete. `resolveMcpBearer` (new `lib/datamodo/mcp-auth.ts`) accepts
+  local-tokenless / `dmk_` HMAC / `dmo_` OAuth; the OAuth lookup is
+  fail-soft so an unmigrated cloud keeps HMAC working. Tables in
+  `neon/schema.sql` + `prisma/schema.prisma` + migration
+  `20260716150000_oauth.sql` (⚠️ MUST be applied on dev+prod Neon branches —
+  in "Owed by a human"). VERIFIED: 9 unit tests (RFC 7636 vector, consent
+  signing, redirect rules) and 19/19 OAuth E2E on the packed artifact
+  (discovery → register → consent → approve → PKCE exchange → refresh
+  rotation → MCP tools/list under the OAuth bearer, + 8 negatives), MCP
+  suite re-run 19/19 (its two "401 + token" asserts were stale pre-tokenless
+  expectations, updated to the tokenless-local contract), pipeline 18/18;
+  tsc, 261 unit tests, lint at baseline, boundary clean.
 - **2026-07-16** — **The local tarball ships the prebuilt app** (roadmap gap;
   user: "go"). First `datamodo serve` on a fresh vault now answers in ~6 s
   (measured 5.8 s incl. wizard + embedded-DB schema build) instead of running
