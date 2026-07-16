@@ -6,7 +6,7 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { getLlmProvider, normalizeOllamaUrl } from "../lib/llm/index.ts";
-import { anthropicAcceptsSampling, buildAnthropicBody } from "../lib/llm/anthropic.ts";
+import { anthropicAcceptsSampling, buildAnthropicBody, extractAnthropicText } from "../lib/llm/anthropic.ts";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -108,6 +108,37 @@ test("anthropic body: temperature included only for models that accept it", () =
 
   const extract = buildAnthropicBody({ system: "s", user: "u", model: "claude-haiku-4-5" });
   assert.equal(extract.temperature, 0, "claude-haiku-4-5 keeps the deterministic default");
+});
+
+test("anthropic body: thinking disabled on adaptive-default models, absent elsewhere", () => {
+  // Sonnet 5 / Opus 4.7+ run ADAPTIVE thinking when `thinking` is omitted —
+  // for JSON extraction we turn it off explicitly.
+  const sonnet5 = buildAnthropicBody({ system: "s", user: "u", model: "claude-sonnet-5" });
+  assert.deepEqual(sonnet5.thinking, { type: "disabled" });
+  const opus48 = buildAnthropicBody({ system: "s", user: "u", model: "claude-opus-4-8" });
+  assert.deepEqual(opus48.thinking, { type: "disabled" });
+  // Older models: no thinking field at all (they never think by default).
+  const haiku = buildAnthropicBody({ system: "s", user: "u", model: "claude-haiku-4-5" });
+  assert.equal("thinking" in haiku, false);
+  // Always-thinking families reject {type:"disabled"} — must stay omitted.
+  const fable = buildAnthropicBody({ system: "s", user: "u", model: "claude-fable-5" });
+  assert.equal("thinking" in fable, false);
+});
+
+test("anthropic reply: text found even when thinking blocks come first", () => {
+  // Thinking-on responses lead with thinking blocks (empty text under the
+  // default display) — content[0].text is NOT the reply.
+  assert.equal(
+    extractAnthropicText({ content: [{ type: "thinking", thinking: "" }, { type: "text", text: '{"ok":1}' }] }),
+    '{"ok":1}',
+  );
+  assert.equal(
+    extractAnthropicText({ content: [{ type: "text", text: "a" }, { type: "text", text: "b" }] }),
+    "ab",
+  );
+  assert.equal(extractAnthropicText({ content: [{ type: "thinking", thinking: "x" }] }), "");
+  assert.equal(extractAnthropicText({}), "");
+  assert.equal(extractAnthropicText(null), "");
 });
 
 test("anthropic body: vision requests put image blocks before the text", () => {

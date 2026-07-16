@@ -32,15 +32,30 @@ export function anthropicAcceptsSampling(model: string): boolean {
   return false;
 }
 
+/** Models where thinking is ALWAYS ON and any `thinking` config other than
+ *  adaptive is rejected — never send `{type:"disabled"}` to these. */
+export function anthropicAlwaysThinks(model: string): boolean {
+  return /^claude-(fable|mythos)-/.test(model.trim().toLowerCase());
+}
+
 /** The request body for one chatJSON call — split out so the sampling-param
  *  rule above is testable without a network. */
 export function buildAnthropicBody(req: ChatJsonRequest): Record<string, unknown> {
+  const acceptsSampling = anthropicAcceptsSampling(req.model);
   return {
     model: req.model,
     system: req.system,
     max_tokens: req.maxTokens ?? 2048,
     // Newest models (Sonnet 5 / Opus 4.7+ / Fable 5) reject temperature — omit it there.
-    ...(anthropicAcceptsSampling(req.model) ? { temperature: req.temperature ?? 0 } : {}),
+    ...(acceptsSampling ? { temperature: req.temperature ?? 0 } : {}),
+    // Those same models run ADAPTIVE THINKING when `thinking` is omitted;
+    // thinking tokens count against max_tokens and prepend thinking blocks to
+    // the reply. Our chatJSON calls are structured JSON extraction (formerly
+    // temperature-0), so turn thinking off — except on families where thinking
+    // is always-on and a "disabled" config is itself a 400.
+    ...(!acceptsSampling && !anthropicAlwaysThinks(req.model)
+      ? { thinking: { type: "disabled" } }
+      : {}),
     // Vision: image blocks precede the text (Anthropic's recommended order).
     messages: [
       {
@@ -57,6 +72,19 @@ export function buildAnthropicBody(req: ChatJsonRequest): Record<string, unknown
       },
     ],
   };
+}
+
+/** Pull the reply text out of a Messages API response. The content array can
+ *  lead with `thinking` blocks (models with thinking on return them BEFORE the
+ *  text; with the default display they even have empty text) — so scan for
+ *  `text` blocks instead of trusting content[0]. Pure — unit-tested. */
+export function extractAnthropicText(data: unknown): string {
+  const blocks = (data as { content?: Array<{ type?: string; text?: string }> })?.content;
+  if (!Array.isArray(blocks)) return "";
+  return blocks
+    .filter((b) => b?.type === "text" && typeof b.text === "string")
+    .map((b) => b.text)
+    .join("");
 }
 export class AnthropicProvider implements LlmProvider {
   readonly name = "anthropic" as const;
@@ -93,8 +121,15 @@ export class AnthropicProvider implements LlmProvider {
       }
       if (!res.ok) throw new Error(`anthropic ${res.status}: ${(await res.text()).slice(0, 400)}`);
       const data = await res.json();
-      const content: string | undefined = data?.content?.[0]?.text;
-      if (!content) throw new Error("anthropic: empty response");
+      const content = extractAnthropicText(data);
+      if (!content) {
+        const stop = data?.stop_reason as string | undefined;
+        throw new Error(
+          stop === "max_tokens"
+            ? "anthropic: output budget spent before any text (raise maxTokens)"
+            : `anthropic: empty response${stop ? ` (stop_reason ${stop})` : ""}`,
+        );
+      }
       // Usage: Anthropic returns input_tokens/output_tokens (no cost) — the
       // recorder prices them. Best-effort; a throwing hook never fails the call.
       const usage = data?.usage as { input_tokens?: number; output_tokens?: number } | undefined;
