@@ -87,10 +87,59 @@ export async function POST(req: Request) {
     }
   }
 
+  // Folder shapes → category proposals (deterministic — no AI draft): a
+  // folder whose notes share frontmatter keys IS a template announcing
+  // itself. Fields typed from the notes' actual values (wikilink values
+  // become relations); the user accepts in Review like any proposal.
+  // Any-status dedupe: a folder's kind is only ever proposed once.
+  let proposals = 0;
+  for (const shape of plan.folderShapes) {
+    try {
+      const kind = shape.folder.split("/").pop()!.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/s$/, "");
+      if (!kind) continue;
+      const prior = await prisma.knowledge_reviews.findFirst({
+        where: { org_id: org.id, kind: "category_proposal", detail: { path: ["proposedKind"], equals: kind } },
+        select: { id: true },
+      });
+      if (prior) continue;
+      const group = plan.notes.filter((n) => n.path.startsWith(`${shape.folder}/`));
+      const fields: { key: string; label: string; type: string }[] = [];
+      const relations: { predicate: string; label: string; targetKind?: string }[] = [];
+      for (const key of shape.sharedKeys) {
+        const sample = group.map((n) => n.props[key]).find((v) => v != null && v !== "");
+        const k = key.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+        const label = key.replace(/[_-]/g, " ");
+        if (typeof sample === "string" && /^\[\[/.test(sample)) relations.push({ predicate: k, label });
+        else if (typeof sample === "number") fields.push({ key: k, label, type: "number" });
+        else if (typeof sample === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sample)) fields.push({ key: k, label, type: "date" });
+        else fields.push({ key: k, label, type: "text" });
+      }
+      await prisma.knowledge_reviews.create({
+        data: {
+          org_id: org.id,
+          owner_user_id: user.id,
+          kind: "category_proposal",
+          status: "pending",
+          impact: shape.notes,
+          detail: {
+            proposedKind: kind,
+            label: kind.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()),
+            count: shape.notes,
+            sampleLabels: group.slice(0, 5).map((n) => n.name),
+            template: { description: `Imported from your Obsidian "${shape.folder}" folder.`, aliases: [], fields, relations },
+          },
+        },
+      });
+      proposals++;
+    } catch (e) {
+      console.error(`[obsidian] category proposal failed for ${shape.folder}`, e);
+    }
+  }
+
   return NextResponse.json({
     dryRun: false,
     stats: plan.stats,
     folderShapes: plan.folderShapes,
-    result: { created, updated, unchanged, entitiesCreated, factsNew },
+    result: { created, updated, unchanged, entitiesCreated, factsNew, proposals },
   });
 }

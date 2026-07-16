@@ -69,6 +69,7 @@ import { ReviewStudio } from "./review-studio";
 import { ConnectionsModal } from "./connections";
 import { OnboardingModal } from "./onboarding-modal";
 import { ImportGraphModal } from "./import-graph-modal";
+import { ObsidianImportModal } from "./obsidian-import-modal";
 import { KnowledgeView } from "./knowledge-view";
 import { InsightsView } from "./insights-view";
 import { CommitLogView, TimelineView } from "./timeline-view";
@@ -192,6 +193,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [importGraphOpen, setImportGraphOpen] = useState(false);
+  const [obsidianOpen, setObsidianOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [contextDismissed, setContextDismissed] = useState(false);
   const onboardingTrack = Array.isArray(onboarding.answers?.track) ? (onboarding.answers.track as string[]) : [];
@@ -447,6 +449,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                       {([
                         ["▣", "Categories", "Edit what kinds of things exist", () => setCategoriesOpen(true)],
                         ["✦", "Spreadsheet → knowledge", "Import a sheet as entities & links", () => setImportGraphOpen(true)],
+                        ["⇪", "Obsidian vault → knowledge", "Notes become pages, links become edges", () => setObsidianOpen(true)],
                         ["✦", "Build from knowledge", "Turn a category into a table", () => setBuildOpen(true)],
                         ["▤", "Derive a table", "Describe a table; we build it from your graph", () => setDeriveOpen(true)],
                       ] as const).map(([glyph, label, hint, act]) => (
@@ -581,6 +584,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
       {connectionsOpen && <ConnectionsModal inbox={inbox} onClose={() => setConnectionsOpen(false)} />}
       {onboardingOpen && <OnboardingModal initialContext={onboarding.businessContext} initialTrack={onboardingTrack} onClose={() => setOnboardingOpen(false)} onSaved={() => { setOnboardingOpen(false); router.refresh(); }} onImportSpreadsheet={() => { setOnboardingOpen(false); setImportGraphOpen(true); }} />}
       {importGraphOpen && <ImportGraphModal onClose={() => setImportGraphOpen(false)} onDone={() => router.refresh()} />}
+      {obsidianOpen && <ObsidianImportModal onClose={() => setObsidianOpen(false)} onDone={() => router.refresh()} />}
       {categoriesOpen && <CategoriesModal onClose={() => setCategoriesOpen(false)} onChanged={() => router.refresh()} />}
       {buildOpen && (
         <BuildFromKnowledgeModal

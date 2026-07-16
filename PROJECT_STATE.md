@@ -12,6 +12,23 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Obsidian import phase 1b: the folder picker + folder
+  shapes become category proposals.** (1) New `ObsidianImportModal`
+  (Build menu: "⇪ Obsidian vault → knowledge"): `webkitdirectory` picker,
+  .md files read client-side (nothing unparsed uploads), dry-run preview
+  (counts + folder shapes), batched confirm (100/request) with progress
+  and done counts; re-running safe (hash idempotency). (2) The import's
+  confirm now files each detected folder shape as a `category_proposal`
+  review — DETERMINISTIC template (no AI draft, keeping the zero-LLM
+  promise): field types read from the notes' actual values (number /
+  ISO-date / text), wikilink-valued keys become RELATIONS, kind =
+  singularized folder slug, sample labels from the folder, any-status
+  dedupe (a folder's kind is proposed once, ever). Accepting snaps the
+  imported notes' facts onto a real template + table. Suite 340 pass / 3
+  pre-existing canvas failures; tsc clean; new files lint-clean
+  (control-center's 9 warnings pre-exist). NOT live-fired — the modal is
+  a prime candidate for the browser session. Still open: local CLI,
+  attachment import.
 - **2026-07-16** — **Obsidian vault import, phase 1 (user ask: "give access
   to the vault folder and we migrate it")** — the engine, zero-LLM by
   design: pure `obsidian-import.ts` maps notes → `note` entities
