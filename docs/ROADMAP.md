@@ -151,6 +151,11 @@ in value order — details, file seams, and acceptance criteria in that doc:
    (`entities.last_used_at` stamped by retrieval; orphan pass + accept both
    respect recent reads; **migration `20260716210000_entity_usage.sql` owed
    on dev+prod** — fail-soft via to_jsonb until applied).
+2b. ~~**P2.6 Relevance-based entity priming**~~ ✅ 2026-07-16 (user call) —
+   the extraction prompt carries graph entities chosen BY the input (lexical
+   names-in-text + ANN over one message embedding) with the never-force
+   rule; concepts primed-first with support fallback. EXTRACTION_VERSION 4.
+   Follow-up: prime documents on their own extracted text.
 3. **P3 PDF → markdown** — PHASE 1 ✅ 2026-07-16: the converter seam
    (`PDF_MARKDOWN_COMMAND` shells to any Docling/marker/MinerU-style CLI,
    fail-soft to unpdf; scanned-PDF vision path intact) + section-aligned

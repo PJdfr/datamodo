@@ -5,6 +5,7 @@ import { readBlob } from "@/lib/ingest/store";
 import { ingestExtraction, createExtractionReview, normalizeKey, type Extraction, type ExtractedFact } from "@/lib/datamodo/knowledge";
 import { buildNoteExtraction, NOTE_KIND, type GeneratedNote } from "@/lib/datamodo/document-extraction";
 import { getOnboardingContext } from "@/lib/datamodo/settings";
+import { renderKnownBlock } from "./priming-core";
 import {
   buildClassifyPrompt,
   buildDocumentPrompt,
@@ -147,6 +148,11 @@ export interface ExtractInput {
   /** The user's existing concept labels — the leash that keeps topics from
    *  multiplying: prefer these, at most a few per message, never noun-soup. */
   concepts?: string[];
+  /** Relevance-primed entities ALREADY IN the graph that look related to
+   *  this input (labels only, never ids — see priming-core.ts): the model
+   *  reuses their exact label/kind when the message refers to them, so the
+   *  same real-world thing lands on the same record at the source. */
+  known?: { kind: string; label: string; hint?: string }[];
 }
 
 export interface ExtractResult {
@@ -168,12 +174,18 @@ const ESCALATE_BELOW = 0.55;
  *  v2 (2026-07-10): vision tier — image attachments previously landed
  *  metadata_only; requeue lets them be understood.
  *  v3 (2026-07-11): audio tier — audio attachments previously landed
- *  metadata_only; requeue lets them be transcribed. */
-export const EXTRACTION_VERSION = 3;
+ *  metadata_only; requeue lets them be transcribed.
+ *  v4 (2026-07-16): relevance priming — the prompt now carries graph
+ *  entities related to the input, so labels resolve consistently at the
+ *  source. Requeue is OPTIONAL (older items are valid, just less
+ *  label-consistent). */
+export const EXTRACTION_VERSION = 4;
 
-function buildUserPrompt(input: ExtractInput): string {
+export function buildUserPrompt(input: ExtractInput): string {
   const parts: string[] = [];
   if (input.kinds?.length) parts.push(promptCategories(input.kinds));
+  const knownBlock = renderKnownBlock(input.known ?? []);
+  if (knownBlock) parts.push(knownBlock);
   if (input.concepts?.length) {
     parts.push(
       `The user's existing CONCEPTS (topics): ${input.concepts.join(", ")}.\n` +
@@ -669,7 +681,15 @@ export async function runExtractionForItem(
     // kinds/predicates. Best-effort: extraction works without it.
     const { listKinds } = await import("./kinds");
     const kinds = await listKinds(row.org_id, row.owner_user_id).catch(() => []);
-    // Existing concepts, most-corroborated first — the leash on topic sprawl.
+    // RELEVANCE PRIMING (user call 2026-07-16): candidates chosen BY the
+    // input — labels literally in the text + ANN over one message embedding —
+    // replace the old static top-30 concept list. Non-concepts feed the
+    // prompt's "already in your graph" block (labels only, never-force
+    // wording); concepts stay their own leash line, primed-first and topped
+    // up from the support ranking so it never goes empty without embeddings.
+    const { primeKnownEntities } = await import("./priming");
+    const { conceptsForPrompt } = await import("./priming-core");
+    const known = await primeKnownEntities(row.org_id, `${row.subject ?? ""}\n${text}`).catch(() => []);
     const conceptRows = await prisma.entities
       .findMany({
         where: { org_id: row.org_id, kind: "concept", merged_into: null },
@@ -678,7 +698,7 @@ export async function runExtractionForItem(
         take: 30,
       })
       .catch(() => []);
-    const concepts = conceptRows.map((c) => c.canonical_label);
+    const concepts = conceptsForPrompt(known, conceptRows.map((c) => c.canonical_label));
     // BYOK: analysis runs on the owner's own provider account when they've
     // brought a key; otherwise on the platform provider from env.
     const llm = await llmForUser(row.owner_user_id);
@@ -692,6 +712,7 @@ export async function runExtractionForItem(
         businessContext,
         kinds,
         concepts,
+        known,
       },
       llm,
     );

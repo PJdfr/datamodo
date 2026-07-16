@@ -91,8 +91,10 @@ native queue, no pgmq).
    "@agent") that agent's `purpose_text` steers extraction; unaddressed items
    run a **zero-cost lexical router** (`agent-router.ts`, no LLM) against
    active AUTO agents' purposes; ambiguity = generic agent.
-3. **Context assembly** — the user's kind registry (`listKinds`), their top-30
-   concepts by `support`, their onboarding `businessContext`.
+3. **Context assembly** — the user's kind registry (`listKinds`), the
+   **relevance-primed known entities** (labels literally in the text + ANN
+   over one message embedding — `priming.ts`), concepts (primed-first,
+   support-ranked fill), their onboarding `businessContext`.
 4. **LLM extraction** — `extractFromMessage`: small model first, JSON-schema-
    constrained; **escalate** to `models.escalate` only when self-reported
    `overallConfidence < 0.55`.
@@ -136,7 +138,8 @@ the exact JSON.
 | block | source | purpose |
 | --- | --- | --- |
 | **Categories** (`promptCategories`, [`ontology.ts`](../lib/datamodo/ontology.ts) ~448) | the user's kind registry: each kind + description + `fields(type,unit,required)` + `relations(predicate→targetKind)` | the **closed vocabulary** — "when an entity fits one, use its kind and its exact field/relation names as predicates" |
-| **Concepts** | top-30 existing concept labels by `support` | the topic leash: "tag AT MOST 3, STRONGLY prefer these exact labels" |
+| **Known entities** (`renderKnownBlock`, priming-core.ts) | relevance-primed: labels literally in the text (any support) + ANN over one message embedding (support ≥ 2, sim ≥ .3), cap 15, labels only — never ids | "reuse its EXACT label and kind … if NOT sure it is the same real-world thing, use the message's own wording — never force a match" |
+| **Concepts** | primed (input-relevant) concept labels first, support-ranked fill to 12 | the topic leash: "tag AT MOST 3, STRONGLY prefer these exact labels" |
 | **Business context** | onboarding answers | steers which entities/predicates matter |
 | **Assistant purpose** | the addressed/routed agent's `purpose_text` | per-agent steering (this is what "separate graphs per agent" already partially is — see §9) |
 | Channel / From / Subject | the item envelope | grounding |
@@ -532,6 +535,22 @@ The two remaining adoptions from the prior-art pass, built same day:
   (NULL) instead of erroring. Not yet stamped: entity page opens (the page
   renders from preloaded listKnowledge data — needs a beacon; follow-up) and
   MCP reads.
+
+### ~~P2.6 — Relevance-based entity priming~~ ✅ SHIPPED 2026-07-16 (user call)
+Instead of a static top-30-by-support concept list, the extraction prompt now
+carries **graph entities chosen BY the input** (the Graphiti-style
+resolution-aware ingestion from §10b): a lexical leg (labels literally in the
+message — strongest evidence, works with zero keys) + a semantic leg (ANN
+over ONE embedding of the raw message head, current space, sim ≥ .3,
+support ≥ 2 for non-concepts), merged/capped at 15 (`priming-core.ts` +
+`priming.ts`). Non-concepts render as the "ALREADY IN the user's graph" block
+with the **never-force rule** — labels only, never ids, and uncertain
+identity stays in the message's own words so it flows into the resolution
+ladder + review gate instead of being flattened at write time. Concepts stay
+their own leash line, primed-first with support-ranked fill (never empty
+without embeddings). `EXTRACTION_VERSION` → 4 (requeue optional). Messages
+only for now — priming documents on their own extracted text is the
+follow-up.
 
 ### P3 — PDF → markdown upgrade (structure-preserving document reading) — PHASE 1 ✅ 2026-07-16
 Replace the flat unpdf text layer with structure-preserving conversion.

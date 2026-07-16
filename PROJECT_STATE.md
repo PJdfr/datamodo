@@ -12,6 +12,26 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Relevance-based entity priming (GRAPH_PIPELINE.md
+  P2.6, user call: "give him the entities/concepts/names close to the
+  input")** — the extraction prompt's context is now chosen BY the message,
+  not by popularity: `priming.ts` runs a LEXICAL leg (entity labels
+  literally present in the text — strongest evidence, zero keys needed) and
+  a SEMANTIC leg (ANN over ONE embedding of the message head, current
+  space, sim ≥ .3), merged by pure `rankPrimedCandidates` (named-first, then
+  by sim; support ≥ 2 floor for semantic non-concepts so one-mention strays
+  can't attract force-fits; cap 15). Non-concepts render as a new "ALREADY
+  IN the user's graph" prompt block (`renderKnownBlock` — labels only, never
+  ids) whose NEVER-FORCE rule keeps uncertain identity in the message's own
+  words, flowing into the resolution ladder + review gate as before; the
+  silent-merge risk of priming + tier-0 exact match is thereby bounded.
+  Concepts keep their leash line, now primed-first with support-ranked fill
+  to 12 (`conceptsForPrompt` — never empty without embeddings).
+  `EXTRACTION_VERSION` → 4 (requeue optional — old items valid, just less
+  label-consistent). 6 unit tests on the pure core; suite 319 pass / 3
+  pre-existing canvas failures; tsc/eslint clean. Messages only; document
+  priming (on the doc's own text, inside processItemAttachments) is the
+  follow-up. NOT live-fired.
 - **2026-07-16** — **PDF → markdown, phase 1 (GRAPH_PIPELINE.md P3)** — the
   structure-preserving document-reading seam: `pdf-markdown.ts` shells out
   to whatever `PDF_MARKDOWN_COMMAND` names (Docling/marker/MinerU-style CLI;
