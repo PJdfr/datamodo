@@ -173,3 +173,85 @@ export function buildReviewPreview(
 
   return null;
 }
+
+// --- EXACT-Explorer rendering support (user call 2026-07-16: the real
+// ExplorerView, not a replica): express each future as a TRANSFORMED
+// KnowledgeEntityView[] the walk renders directly. Pure.
+
+export interface FutureGraph {
+  views: KnowledgeEntityView[];
+  centerId: string | null;
+  highlightIds: string[];
+}
+
+const clone = (v: KnowledgeEntityView): KnowledgeEntityView => ({ ...v, facts: v.facts.map((f) => ({ ...f })) });
+
+/** Synthetic minimal views for simulated rows (labels without graph ids),
+ *  so the real Explorer still has something to walk. */
+function syntheticViews(input: ReviewPreviewInput): KnowledgeEntityView[] {
+  const mk = (id: string, label: string, kind: string): KnowledgeEntityView => ({
+    id, label, kind, naturalKeys: {}, bodyMd: null, graphPin: null, edges: 0, facts: [],
+  });
+  if (input.kind === "entity_merge") {
+    const a = mk("sim:a", input.sourceLabel ?? "the new one", "note");
+    const b = mk("sim:b", input.targetLabel ?? "the existing one", "note");
+    a.facts.push({ predicate: "possible_duplicate_of", value: b.label, ref: true, refId: b.id, sources: 1, provenance: [], confidence: 1, validFrom: null });
+    return [a, b];
+  }
+  if (input.kind === "orphan_prune") {
+    return (input.orphans ?? []).map((o, i) => mk(o.id ?? `sim:o${i}`, o.label, o.kind));
+  }
+  const s = mk("sim:s", input.subjectLabel ?? "?", "note");
+  s.facts.push({ predicate: input.predicate ?? "value", value: input.now ?? "?", ref: false, refId: null, sources: 1, provenance: [], confidence: 1, validFrom: null });
+  return [s];
+}
+
+export function futureViews(
+  all: KnowledgeEntityView[],
+  input: ReviewPreviewInput,
+  future: "accept" | "refuse",
+): FutureGraph {
+  const ids = new Set(all.map((v) => v.id));
+  const resolveId = (id?: string | null) => (id && ids.has(id) ? id : null);
+  let views = all.map(clone);
+  if (input.kind === "entity_merge") {
+    let a = resolveId(input.sourceEntityId);
+    let b = resolveId(input.targetEntityId);
+    if (!a || !b) {
+      views = syntheticViews(input);
+      a = "sim:a";
+      b = "sim:b";
+    }
+    if (future === "refuse") return { views, centerId: b, highlightIds: [a, b] };
+    const winner = views.find((v) => v.id === b)!;
+    const loser = views.find((v) => v.id === a);
+    if (loser) {
+      winner.facts = [...winner.facts, ...loser.facts.filter((f) => f.refId !== b)];
+      views = views.filter((v) => v.id !== a);
+      for (const v of views) for (const f of v.facts) if (f.refId === a) { f.refId = b; f.value = winner.label; }
+      winner.edges = winner.facts.length;
+    }
+    return { views, centerId: b, highlightIds: [b] };
+  }
+  if (input.kind === "orphan_prune") {
+    const orphanIds = (input.orphans ?? []).map((o) => o.id).filter((x): x is string => !!x && ids.has(x));
+    const base = orphanIds.length ? views : syntheticViews(input);
+    const oIds = orphanIds.length ? orphanIds : base.map((v) => v.id);
+    if (future === "refuse") return { views: base, centerId: oIds[0] ?? null, highlightIds: oIds };
+    const kept = base.filter((v) => !oIds.includes(v.id));
+    return { views: kept, centerId: kept[0]?.id ?? null, highlightIds: [] };
+  }
+  // fact_conflict: swap the disputed value on the subject.
+  const sid = resolveId(input.subjectEntityId);
+  const base = sid ? views : syntheticViews(input);
+  const center = sid ?? "sim:s";
+  const subject = base.find((v) => v.id === center);
+  if (subject && input.predicate) {
+    const want = future === "accept" ? input.now : input.was;
+    for (const f of subject.facts) if (f.predicate === input.predicate) f.value = want ?? f.value;
+    if (!subject.facts.some((f) => f.predicate === input.predicate) && want) {
+      subject.facts.push({ predicate: input.predicate, value: want, ref: false, refId: null, sources: 1, provenance: [], confidence: 1, validFrom: null });
+    }
+  }
+  return { views: base, centerId: center, highlightIds: [center] };
+}
