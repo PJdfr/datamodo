@@ -38,5 +38,9 @@ jobs:
         run: npx tsc --noEmit
       - name: Lint (== baseline)
         run: node scripts/check-lint-baseline.mjs
+      - name: Boundary (core must not import the cloud layer)
+        run: npm run lint:boundary
+      - name: Local package prune (grep sweep + zero-exception boundary)
+        run: node scripts/build-local-package.mjs --no-pack
       - name: Build
         run: npm run build

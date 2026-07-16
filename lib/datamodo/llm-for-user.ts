@@ -33,5 +33,9 @@ export async function llmForUser(userId: string | null): Promise<LlmProvider> {
       // settings lookup must never take extraction down — fall through
     }
   }
-  return getLlmProvider(undefined, undefined, { models });
+  // Local edition default compute: the machine's own Ollama. The dashboard's
+  // saved server URL (llm.json `url`) beats OLLAMA_BASE_URL env, which beats
+  // localhost — the same dashboard → env → default precedence as model names.
+  // (baseUrl only applies when the resolved provider is ollama.)
+  return getLlmProvider(undefined, undefined, { models, baseUrl: models?.url });
 }

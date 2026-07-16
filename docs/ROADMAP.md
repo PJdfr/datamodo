@@ -4,7 +4,7 @@
 > inventory when they ship; add what the work surfaced. Ordered by value.
 > Siblings: [STATE.md](STATE.md) · [FLOW.md](FLOW.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-15
+> Last updated: 2026-07-16
 
 ## Now (unblocks everything else)
 1. **Set env** (the old "merge PR #35" step is long done): a REAL
@@ -380,6 +380,20 @@
     package (today `serve` runs `next start` in the repo / expects a prebuilt
     `.next/standalone` in the package); local embeddings still want the
     `vector(1536)` column re-declared for a 768-d model at install.
+  - ~~**First-run sizing (RAM → model tier → pull)** ✅ 2026-07-15~~ (packaging
+    brief §5): `datamodo setup` + auto on first `serve` — cgroup-aware RAM
+    detect → tier table (pure `lib/local/sizing.mjs`) → Ollama `/api/pull`
+    with progress → seeds `llm.json`; fail-soft hint without Ollama.
+  - ~~**LOCAL ↔ BYOK settings toggle** ✅ 2026-07-15~~ (brief §3/§8): one
+    install, switchable compute — local Settings shows "Local — on this
+    machine" (Ollama URL + models, live reachability + installed-model
+    suggestions) vs BYOK; no plan/billing card locally.
+  - ~~**Real-Postgres local runtime** ✅ 2026-07-15~~ (brief §4): a
+    user/compose `DATABASE_URL` gets a pooled adapter (no `max:1`, no retry
+    shim — gated to `DATAMODO_EMBEDDED_DB`); `neon/schema.sql` now loads into
+    an empty DB, the embedded fresh build uses it faithfully (functions +
+    triggers + hnsw; `prisma db push` = upgrade diff only), and Docker initdb
+    can mount it.
   - **Phase 3 — BYOB connectors** (local has no public URL for webhooks, so it
     PULLS): ~~**IMAP** ✅ 2026-07-15~~ — `datamodo connect` stores a `0600`
     `connectors.json`; `datamodo serve` runs an in-process imapflow poller that
@@ -432,10 +446,23 @@
     Prisma adapter is still statically imported by `lib/prisma.ts` (sync
     singleton — harmless dormant weight, no secret/eval), and cloud route files
     still exist in the tree (compiled but inert).
-  - **Step B/C — physical severance (still required for OSS):** a workspace
-    with a shared `core` package the local build consumes, cloud package kept
-    private (B), or a build-time prune that emits an OSS subtree (C). Only these
-    make `git`-cloning the local edition reveal local code only.
+  - ~~**Step B/C — physical severance** ✅ 2026-07-16 (option C, build-time
+    prune)~~: `npm run build:local-package` copies the CORE into a clean tree,
+    swaps the 5 seam files for local implementations
+    (`packaging/local/overrides/`), generates the real `datamodo` package.json
+    (cloud deps dropped), PROVES separation (grep sweep + zero-exception
+    dependency-cruiser + optional in-tree `next build`) and packs the npm
+    tarball — 181 files, zero closed-layer paths. Boundary enforced
+    mechanically in the main repo too (`.dependency-cruiser.cjs`, CI).
+    Decision: **MCP ships in the local package** (secret = per-install ingest
+    secret). Docker image builds FROM the pruned tree
+    (`packaging/local/docker/`); one-command installers in `packaging/`.
+    STILL OPEN (needs a human/ops): publish channel (npm name availability,
+    GHCR vs Docker Hub), get.datamodo.dev hosting for the installer + compose
+    file, licensing of the pruned source (FSL/BSL vs AGPL — the tarball is
+    currently "SEE LICENSE", i.e. unlicensed), CI job that builds the Docker
+    image (agent sandboxes can't pull base images), and the workspace split
+    (option B) if/when the prune outgrows itself.
   A local/OSS user gets the **dashboard app + 100%-local storage and NOTHING
   else** — no landing/marketing page, no Neon Auth, no Neon/serverless storage,
   no cloud channel adapters, no billing/Stripe, no cron/ops. A runtime flag

@@ -20,6 +20,11 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 // the pool at ONE (queries serialize) and retry the rare remaining transient
 // drop on idempotent READs — enough to make it reliable without risking a
 // double-write (writes/transactions are never retried).
+//
+// That workaround applies ONLY to the embedded pglite (DATAMODO_EMBEDDED_DB=1,
+// set by `datamodo serve` when it boots pglite itself). A local install pointed
+// at a REAL Postgres (DATABASE_URL — the Docker Compose path, or the user's own
+// server) gets a normal pooled adapter with no cap and no retry shim.
 const TRANSIENT_DB_ERROR = /Connection terminated|Server has closed|Connection ended|ECONNRESET|socket hang up/i;
 const RETRYABLE_READS = new Set([
   "findMany", "findFirst", "findFirstOrThrow", "findUnique", "findUniqueOrThrow", "count", "aggregate", "groupBy",
@@ -29,7 +34,15 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 function makeClient(): PrismaClient {
   const connectionString = process.env.DATABASE_URL;
   if (process.env.DATAMODO_LOCAL === "1") {
-    const base = new PrismaClient({ adapter: new PrismaPg({ connectionString, max: 1 }) });
+    const embedded = process.env.DATAMODO_EMBEDDED_DB === "1";
+    if (!embedded) {
+      // Real Postgres (compose / user's own server): normal pool, no shim.
+      return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+    }
+    // idleTimeoutMillis 0: NEVER close the one connection — pg's default
+    // 10s idle-close + reopen races the single-session socket and surfaces as
+    // "Connection terminated unexpectedly" on the next (often first) write.
+    const base = new PrismaClient({ adapter: new PrismaPg({ connectionString, max: 1, idleTimeoutMillis: 0 }) });
     return base.$extends({
       query: {
         async $allOperations({ operation, args, query }) {
@@ -54,4 +67,10 @@ function makeClient(): PrismaClient {
 
 export const prisma = globalForPrisma.prisma ?? makeClient();
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+// Dev: one client across hot-reloads. LOCAL edition: one client across ROUTE
+// BUNDLES too — in production Next inlines this module into every route, so
+// without the global each route opens its own pool against the embedded
+// pglite socket, which serves ONE connection: each new pool kicks the previous
+// route's ("Server has closed the connection" on first loads). globalThis is
+// per-process, so this makes the client a true singleton.
+if (process.env.NODE_ENV !== "production" || process.env.DATAMODO_LOCAL === "1") globalForPrisma.prisma = prisma;

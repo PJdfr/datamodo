@@ -9,9 +9,124 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-14
+> Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Local packaging phase 3: the shipped tarball driven
+  end-to-end, and the 5 real bugs that only live-driving found** (brief §10 —
+  "don't hand back untested"). Harness: mock Ollama on :11434 (rule-based
+  extractor, real 768-d embeddings) + `npm i -g dist/datamodo-0.1.0.tgz` +
+  `datamodo serve` on a fresh vault + an HTTP driver and a real-Chromium
+  (playwright) click-through. **Result: 18/18 API checks, 8/8 UI checks, 4/4
+  fail-soft checks pass on the PACKED ARTIFACT** — boot/redirect, wizard-seeded
+  models visible+editable via Settings API, text ingest → entities
+  (Acme Corp/INV-42/Jane Doe) + facts (amount/due_date/issued_by), keyword +
+  semantic search, grounded answer, image → VISION model (marker in body_md),
+  text-layer PDF → extraction, dashboard-set model actually used (mock logged
+  `dash-test-model`), agent wizard → @Bookkeeper mention → send → "✓ filed",
+  Data/Explore render with zero console errors, and Ollama-killed-mid-run →
+  item fails soft, dashboard + keyword search stay up. Bugs found & fixed —
+  each "worked" at compile level and broke live: (1) **installed-package build
+  failed typecheck** — a global npm install puts the app inside `node_modules`,
+  where tsc refuses to analyze `.mjs` (local next.config now skips typecheck;
+  the tree is fully checked at pack time); (2) **pg pool idle-close kicked the
+  pglite socket** ("Connection terminated unexpectedly" on first write) —
+  `idleTimeoutMillis: 0` on the embedded pool; (3) **every route bundle opened
+  its own pool** (prod Next inlines lib/prisma.ts per route; the globalThis
+  singleton was dev-only) — pglite serves ONE connection, so routes kicked each
+  other; singleton now always set in local; (4) **first-boot org provisioning
+  raced itself and corrupted BOTH transactions** (two interactive transactions
+  interleave on pglite's single session: nested BEGIN is a no-op, one ROLLBACK
+  undoes both) — provisioning is now sequential idempotent upserts, no
+  transaction, race-safe catch-and-refetch (cloud unchanged semantics);
+  (5) **the Free-plan gate blocked local agent creation** ("Auto mode is a Pro
+  feature") — `planLimits` returns unmetered self-hosted entitlements under
+  `DATAMODO_LOCAL` (server-side), and the sidebar/wizard "runs on" chrome is
+  local-aware ("Local AI — this machine" / "self-hosted · settings"). NOT
+  verified in-sandbox (egress policy): real model quality (no weights
+  reachable), the Docker image build (no base-image pulls), live IMAP.
+- **2026-07-16** — **Local packaging phase 2: physical code separation + Docker
+  runtime + one-command installers** (brief §3/§4/§6 — the ROADMAP "HARD
+  REQUIREMENT"). (1) **Boundary lint**: `.dependency-cruiser.cjs` forbids the
+  CORE (dashboard, core/local API routes, `lib/{datamodo,llm,local,ingest}`,
+  blob-fs, bin, shared UI atoms) from importing the CLOSED layer (Neon Auth
+  server/client, `@neondatabase/*`, `@prisma/adapter-neon`, stripe, `@aws-sdk`,
+  billing/webhooks/auth routes, landing) — seam files (`lib/prisma.ts`,
+  `lib/storage/blob.ts`, `lib/auth/session.ts`, `app/auth/actions.ts`,
+  `proxy.ts`) are the only allowed crossings; `npm run lint:boundary` + a CI
+  step enforce it (0 violations today). (2) **Build-time prune** (`npm run
+  build:local-package` → `scripts/build-local-package.mjs`): copies the core
+  into `dist/local-package/`, swaps the 5 seams + `app/page.tsx` +
+  `next.config.ts` for local implementations checked in under
+  `packaging/local/overrides/`, generates a real `package.json` (name
+  **datamodo**, bin, cloud deps dropped, build-time deps promoted), then
+  PROVES the separation: a grep sweep for closed markers, a ZERO-exception
+  depcruise config generated into the tree, and (`--build`) a full
+  `npm install` + `DATAMODO_LOCAL=1 next build` in the pruned tree. Verified
+  in-session: tree builds green; `npm pack` → **datamodo-0.1.0.tgz, 181 files,
+  ~400 KB, zero closed-layer paths inside**. Decision (brief open question 1):
+  **MCP ships in the local package** (vault-as-tools on the user's own Claude
+  subscription is a flagship local feature); its `MCP_TOKEN_SECRET` derives
+  from the random per-install ingest secret, never the constant local cookie
+  placeholder. Turbopack gotcha for posterity: building the pruned tree NESTED
+  in the repo makes Turbopack infer the OUTER repo as project root and pick up
+  the cloud `proxy.ts` — the local `next.config.ts` pins `turbopack.root`.
+  (3) **Docker runtime** (`packaging/local/docker/`): multi-stage Dockerfile
+  built FROM the pruned tree (cloud code physically absent from the image);
+  compose = app + `pgvector/pgvector:pg16` with healthcheck + named volumes +
+  optional `gpu`-profile Ollama (Linux/NVIDIA only); host Ollama is the default
+  everywhere (macOS containers can't use Metal — §7). `bin/docker-entry.mjs`
+  is the container `serve`: waits for PG, installs the schema from
+  `neon/schema.sql` on a fresh DB (dim-rewritten for local embeddings) or
+  `prisma db push` on upgrade, runs the non-interactive first-run sizing
+  (cgroup RAM), starts `next start` + the IMAP poller — real PG, so the pglite
+  shim stays off. NOT run in-session: the image build itself (sandbox egress
+  blocks Docker Hub base images) — flagged for a human/CI with network.
+  (4) **Installers** (`packaging/install.sh` + `install.ps1`, brief §3): one
+  command → asks Local vs BYOK → Docker Compose vs npm (auto-detect, override
+  flags `--local/--byok/--docker/--npm/--ram/--yes`) → Ollama guidance per OS
+  (macOS host-Ollama note) → npm path installs global + runs `datamodo setup`;
+  docker path fetches the compose bundle and `docker compose up -d`. sh/POSIX
+  syntax-checked. CI gained "Boundary" + "Local package prune" steps.
+- **2026-07-15** — **Local packaging phase 1: real-Postgres runtime + first-run
+  model sizing + LOCAL↔BYOK settings toggle** (packaging brief §2/§3/§5;
+  overnight build). (1) **`neon/schema.sql` now loads top-to-bottom into an
+  EMPTY database** — dropped the psql-only `\restrict` meta-commands and moved
+  the 3 inline `REFERENCES` on `doc_chunks`/`kinds` (hand-added tables) into the
+  end-of-file FK section (same auto-generated constraint names, so deployed DBs
+  match). This unblocks Docker initdb AND lets the embedded DB build the schema
+  **faithfully from schema.sql** on a fresh vault (functions + triggers + hnsw
+  included — the "prisma db push partial schema" gap is gone; push remains only
+  as the app-upgrade diff path, and a `reset all` clears the dump's session SETs
+  since pglite is one shared session). (2) **Real-Postgres local runtime**: the
+  pglite `max:1`/read-retry shim in `lib/prisma.ts` is now gated on
+  `DATAMODO_EMBEDDED_DB=1` (set by `serve` only when it boots pglite); a
+  user-supplied `DATABASE_URL` gets a normal pooled `@prisma/adapter-pg`.
+  (3) **First-run sizing wizard** — `datamodo setup` (and auto on first
+  `serve`): detects RAM (`os.totalmem` capped by the cgroup limit in
+  containers), maps to a model tier (4/8/16/32 GB → llama3.2:3b …
+  qwen2.5:14b + llava/llama3.2-vision + nomic-embed-text; pure core
+  `lib/local/sizing.mjs`, unit-tested), pulls via Ollama `/api/pull` with
+  progress, seeds `~/.datamodo/llm.json` (the dashboard-editable store);
+  fail-soft with an install hint when Ollama is absent. (4) **LOCAL ↔ BYOK is a
+  Settings toggle**: local Settings hides the cloud plan/billing card, the
+  compute cards read "Local — on this machine" vs "Bring your own key"
+  (stored `computeMode` unchanged: "cloud" means platform-default = host
+  Ollama locally; plan gate bypassed under `isLocalMode`), and a new
+  `LocalAiFields` panel edits the **Ollama server URL** (new `url` field in
+  `llm.json`, http(s)-validated) + text/vision models with live reachability +
+  installed-model suggestions (`GET /api/local/llm-models` now probes
+  `/api/tags`). `serve` defaults `LLM_PROVIDER=ollama`. (5) **Mock Ollama**
+  (`scripts/mock-ollama.mjs`): tags/pull/chat(JSON+vision)/embeddings
+  (deterministic 768-d) — lets the whole pipeline run E2E where weights can't
+  (CI/sandboxes). VERIFIED: schema.sql loads clean into empty pglite (22
+  tables/6 triggers/all stored fns); embedded-db integration tests incl. the
+  new upgrade-path test (data kept, hnsw restored); wizard live against the
+  mock (detect 15.7 GB → "plus", `--ram 8` → standard, 3 pulls, idempotent
+  re-run) and against nothing (hint + seeded llm.json); 250 unit tests, tsc
+  clean, lint == baseline, local `next build` green. NOT verifiable in this
+  sandbox: real model pulls (egress policy blocks ollama.com/registry.ollama.ai,
+  huggingface, Docker Hub blobs — see the session report).
 - **2026-07-15** — **Local edition: pick LLM model names from the dashboard**
   (user: "why can't we set these from the dashboard, not the terminal? we can
   do both"). Previously the Ollama model ids were ENV-ONLY

@@ -127,6 +127,9 @@ export interface LocalLlmModels {
   escalate?: string;
   /** The vision model — images and scanned-PDF OCR. */
   vision?: string;
+  /** The Ollama server URL (local compute). Blank = OLLAMA_BASE_URL env, then
+   *  http://localhost:11434. Dashboard-editable like the model names. */
+  url?: string;
 }
 
 /** Where the model overrides live inside the data dir. */
@@ -141,16 +144,20 @@ export function sanitizeLlmModels(raw: unknown): LocalLlmModels {
   const extract = str(o.extract);
   const escalate = str(o.escalate);
   const vision = str(o.vision);
+  const url = str(o.url);
   if (extract) out.extract = extract;
   if (escalate) out.escalate = escalate;
   if (vision) out.vision = vision;
+  // Only an http(s) URL is a server address — anything else is dropped rather
+  // than breaking every LLM call downstream.
+  if (url && /^https?:\/\//i.test(url)) out.url = url.replace(/\/+$/, "");
   return out;
 }
 
 /** The env a local `serve` exports before booting the app — turns the shared
  *  app into its local skin. Returned as a plain map so the CLI can merge it
  *  into the child process env (pure — no process mutation here). */
-export function localServeEnv(cfg: LocalConfig): Record<string, string> {
+export function localServeEnv(cfg: LocalConfig, env: Record<string, string | undefined> = process.env): Record<string, string> {
   const out: Record<string, string> = {
     DATAMODO_LOCAL: "1",
     BLOB_DIR: cfg.blobDir,
@@ -160,9 +167,15 @@ export function localServeEnv(cfg: LocalConfig): Record<string, string> {
     // throwing at import (its session/middleware path is bypassed in local mode).
     NEON_AUTH_COOKIE_SECRET: "local-single-user-no-remote-auth",
     NEON_AUTH_BASE_URL: "http://local.invalid",
+    // The local default compute is a host Ollama (keyless, private); BYOK is a
+    // Settings toggle, never a reinstall.
+    LLM_PROVIDER: env.LLM_PROVIDER?.trim() || "ollama",
     // Offline-first semantic search (no-op when a cloud embeddings key is set).
-    ...localEmbeddingDefaults(),
+    ...localEmbeddingDefaults(env),
   };
   if (cfg.databaseUrl) out.DATABASE_URL = cfg.databaseUrl;
+  // A user-supplied DATABASE_URL means a REAL Postgres — the pglite
+  // single-connection workaround in lib/prisma.ts must stay off for it.
+  else out.DATAMODO_EMBEDDED_DB = "1";
   return out;
 }

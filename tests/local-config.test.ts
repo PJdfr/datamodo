@@ -56,15 +56,25 @@ test("resolveLocalConfig: a bad port falls back to the default", () => {
 
 test("localServeEnv: turns the app into its local skin", () => {
   const cfg = resolveLocalConfig({ home: "/home/me", env: { DATABASE_URL: "postgres://x" } });
-  const env = localServeEnv(cfg);
+  const env = localServeEnv(cfg, {});
   assert.equal(env.DATAMODO_LOCAL, "1");
   assert.equal(env.BLOB_DIR, "/home/me/.datamodo/blobs");
   assert.equal(env.PORT, "4321");
   assert.equal(env.DATABASE_URL, "postgres://x");
   assert.ok(env.NEON_AUTH_COOKIE_SECRET, "a placeholder cookie secret keeps the auth lib import from throwing");
+  // Local default compute is a host Ollama; an explicit LLM_PROVIDER wins.
+  assert.equal(env.LLM_PROVIDER, "ollama");
+  assert.equal(localServeEnv(cfg, { LLM_PROVIDER: "openai" }).LLM_PROVIDER, "openai");
 
-  // No DB set → DATABASE_URL absent (serve then guides the user).
-  assert.equal(localServeEnv(resolveLocalConfig({ home: "/h" })).DATABASE_URL, undefined);
+  // A user DATABASE_URL means a REAL Postgres → the pglite single-connection
+  // workaround must stay OFF (no DATAMODO_EMBEDDED_DB).
+  assert.equal(env.DATAMODO_EMBEDDED_DB, undefined);
+
+  // No DB set → DATABASE_URL absent (serve boots the embedded pglite and the
+  // prisma shim must be ON).
+  const noDb = localServeEnv(resolveLocalConfig({ home: "/h" }), {});
+  assert.equal(noDb.DATABASE_URL, undefined);
+  assert.equal(noDb.DATAMODO_EMBEDDED_DB, "1");
 });
 
 test("localEmbeddingDefaults: Ollama when no cloud key, respects explicit config", () => {
@@ -98,6 +108,14 @@ test("sanitizeLlmModels: trims, drops blanks, ignores junk", () => {
   assert.deepEqual(sanitizeLlmModels({}), {});
   assert.deepEqual(sanitizeLlmModels(null), {});
   assert.deepEqual(sanitizeLlmModels({ extract: "   " }), {}); // whitespace-only → dropped
+});
+
+test("sanitizeLlmModels: url must be http(s), trailing slash trimmed", () => {
+  assert.deepEqual(sanitizeLlmModels({ url: "http://localhost:11434/" }), { url: "http://localhost:11434" });
+  assert.deepEqual(sanitizeLlmModels({ url: "https://my.tunnel.dev" }), { url: "https://my.tunnel.dev" });
+  // Not a server address → dropped rather than breaking every LLM call.
+  assert.deepEqual(sanitizeLlmModels({ url: "localhost:11434" }), {});
+  assert.deepEqual(sanitizeLlmModels({ url: "file:///etc/passwd" }), {});
 });
 
 test("LOCAL_USER: a stable, VALID uuid identity", () => {

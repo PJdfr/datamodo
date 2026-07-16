@@ -69,6 +69,16 @@ export const PLAN_MARKETING: Record<Plan, { tagline: string; features: string[];
   },
 };
 
+/** LOCAL edition entitlements — self-hosted has NO plans: the user runs the
+ *  hardware, so nothing is metered or gated. (Effective server-side, where the
+ *  entitlement checks live; the flag isn't inlined into client bundles.) */
+const SELF_HOSTED: PlanLimits = {
+  key: "max", label: "Local", priceMonthly: 0,
+  maxAgents: null, autoMode: true, cloudCompute: false,
+  storageMb: Number.MAX_SAFE_INTEGER, rowsPerTable: null, historyDays: null,
+};
+
 export function planLimits(plan: Plan): PlanLimits {
+  if (typeof process !== "undefined" && process.env?.DATAMODO_LOCAL === "1") return SELF_HOSTED;
   return PLANS[plan] ?? PLANS.free;
 }

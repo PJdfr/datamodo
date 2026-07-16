@@ -45,3 +45,4 @@ next-env.d.ts
 
 # screenshot harness output (npm run shoot)
 /.shoot/
+dist/

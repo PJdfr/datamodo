@@ -5,7 +5,7 @@
 > how we work, what we decided and why. Siblings: [STATE.md](STATE.md) ·
 > [FLOW.md](FLOW.md) · [ROADMAP.md](ROADMAP.md).
 >
-> Last updated: 2026-07-15
+> Last updated: 2026-07-16
 
 ## What datamodo is (the aim)
 Turn unstructured personal communications into **structured, reviewable,
@@ -200,3 +200,27 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
     1536; 768 for the Ollama default) — so a 768-dim model is no longer
     rejected at store time. Space is still stamped once + requeue-on-change.
     All fail-soft: no Ollama/model → embeddings return null → keyword fallback.
+- **Local edition compute (decided 2026-07-15, packaging brief):** the local
+  default is a **host Ollama** (`serve` sets `LLM_PROVIDER=ollama`; macOS can
+  never run GPU inference in a container, so Ollama lives on the host
+  everywhere and only a Linux/NVIDIA compose profile may containerize it).
+  **LOCAL ↔ BYOK is a Settings toggle, never a reinstall** — stored
+  `computeMode` keeps its cloud meaning ("cloud" = platform default, which
+  locally IS the machine's Ollama). First-run sizing (RAM → tier → pull) only
+  SEEDS `llm.json`; the dashboard stays the owner of model choice.
+- **Code separation is MECHANICAL, not conventional (shipped 2026-07-16):**
+  the OSS-eligible CORE must never import the closed cloud layer — enforced by
+  `.dependency-cruiser.cjs` in CI, with exactly 5 seam files allowed to cross
+  (`lib/prisma.ts`, `lib/storage/blob.ts`, `lib/auth/session.ts`,
+  `app/auth/actions.ts`, `proxy.ts`). The published local artifact is a
+  build-time PRUNE (`scripts/build-local-package.mjs`) that swaps those seams
+  for local implementations and proves cloud absence before packing. Adding a
+  cloud dependency to core code = CI failure by design; route it through a
+  seam. **MCP ships in the local package** (decided 2026-07-16 — vault-as-tools
+  on the user's own Claude subscription is a flagship local feature).
+- **`neon/schema.sql` must stay loadable into an EMPTY database** (fixed
+  2026-07-15: FKs of hand-added tables live in the end-of-file FK section, no
+  psql-only meta-commands). It is the ONE faithful schema source: cloud
+  branches, the embedded pglite fresh build, and Docker initdb all consume it —
+  don't reintroduce inline REFERENCES on tables created before their targets'
+  PKs exist.
