@@ -24,6 +24,16 @@ const DEFAULTS: UserSettings = {
   currentPeriodEnd: null,
 };
 
+/** LOCAL edition: "byok" without a saved credential isn't a real state — work
+ *  runs on this machine's Ollama anyway (llmForUser falls back to the platform
+ *  default). Report the mode actually in effect, so Settings opens on the
+ *  "Local — on this machine" card instead of a BYOK card with no key. The DB
+ *  row keeps its cloud-shaped default ('byok'); only the reading changes. */
+function effectiveSettings(s: UserSettings): UserSettings {
+  if (isLocalMode() && s.computeMode === "byok" && !s.byokKeySet) return { ...s, computeMode: "cloud" };
+  return s;
+}
+
 /** Load the caller's settings (byok_key reduced to a boolean for the client). */
 export async function getSettings(userId: string): Promise<UserSettings> {
   const data = await prisma.user_settings.findFirst({
@@ -37,15 +47,15 @@ export async function getSettings(userId: string): Promise<UserSettings> {
       current_period_end: true,
     },
   });
-  if (!data) return DEFAULTS;
-  return {
+  if (!data) return effectiveSettings(DEFAULTS);
+  return effectiveSettings({
     plan: (data.plan as Plan) ?? "free",
     computeMode: (data.compute_mode as ComputeMode) ?? "byok",
     aiProvider: (data.ai_provider as AiProvider) ?? "anthropic",
     byokKeySet: !!data.byok_key,
     planStatus: data.plan_status,
     currentPeriodEnd: data.current_period_end ? data.current_period_end.toISOString() : null,
-  };
+  });
 }
 
 /** Server-only: the raw key, for calling the provider (never sent to the client). */

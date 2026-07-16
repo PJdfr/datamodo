@@ -218,6 +218,21 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
+  if (path === "/v1/models" || path === "/api/v1/models") {
+    // OpenAI/OpenRouter-shaped model list — feeds the Settings dropdowns and
+    // validates keys (401 on a key that smells wrong, like the real thing).
+    const auth = String(req.headers.authorization ?? "");
+    if (auth && /bad|invalid/.test(auth)) return json(res, 401, { error: { message: "Incorrect API key provided" } });
+    const ids = ["gpt-4o-mini", "gpt-4.1", "gpt-4o", "o4-mini", ...[...installed].map((m) => m.replace(/:latest$/, ""))];
+    return json(res, 200, { data: [...new Set(ids)].map((id) => ({ id, object: "model" })) });
+  }
+  if (path === "/v1/key" || path === "/api/v1/key") {
+    // OpenRouter's key-info endpoint (credential check).
+    const auth = String(req.headers.authorization ?? "");
+    if (!auth || /bad|invalid/.test(auth)) return json(res, 401, { error: { message: "No auth credentials found" } });
+    return json(res, 200, { data: { label: "mock", usage: 0 } });
+  }
+
   if (path === "/v1/embeddings" && req.method === "POST") {
     const body = JSON.parse((await readBody(req)) || "{}");
     const inputs = Array.isArray(body.input) ? body.input : [body.input ?? ""];

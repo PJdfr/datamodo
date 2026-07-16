@@ -208,6 +208,17 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
   `computeMode` keeps its cloud meaning ("cloud" = platform default, which
   locally IS the machine's Ollama). First-run sizing (RAM → tier → pull) only
   SEEDS `llm.json`; the dashboard stays the owner of model choice.
+  **Locally, "byok" without a saved credential is not a real state** — work
+  falls back to the machine's Ollama, so `getSettings` reports the mode
+  actually in effect (2026-07-16): a fresh vault opens Settings on the
+  "Local — on this machine" card. Rely on the reported mode, not the DB
+  column (whose default stays cloud-shaped 'byok').
+  **The local LLM panel is dashboard-only by design (2026-07-16, user ask):**
+  every setup/debug step a non-dev needs — is Ollama running, which models
+  are installed (dropdowns), download the recommended ones, does my key
+  work + which models can it use, does the model actually answer — must
+  stay doable in Settings without a terminal (`/api/local/llm-probe`,
+  `/api/local/ollama-pull`). Don't add local LLM features that require CLI.
 - **Code separation is MECHANICAL, not conventional (shipped 2026-07-16):**
   the OSS-eligible CORE must never import the closed cloud layer — enforced by
   `.dependency-cruiser.cjs` in CI, with exactly 5 seam files allowed to cross
