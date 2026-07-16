@@ -128,6 +128,7 @@ export async function resolveEntity(
   ownerUserId: string | null,
   e: ExtractedEntity,
   llm?: LlmProvider,
+  opts: { adjudicate?: boolean } = {},
 ): Promise<{ id: string; created: boolean }> {
   const key = normalizeKey(e);
 
@@ -186,10 +187,13 @@ export async function resolveEntity(
   // function's substring leg can surface sim≈0.1 matches; a floor drops them
   // (they'd never clear PROPOSE anyway) and a cap keeps the judge prompt
   // small. No candidate above the floor = new entity, zero LLM cost.
-  const worthJudging = candidates
-    .filter((c) => c.sim >= 0.25)
-    .sort((a, b) => b.sim - a.sim)
-    .slice(0, 3);
+  // opts.adjudicate === false (bulk imports): deterministic tiers only — a
+  // thousand-note migration must never fan out LLM calls; the consolidation
+  // worker proposes any fuzzy merges later on its own budget.
+  const worthJudging =
+    opts.adjudicate === false
+      ? []
+      : candidates.filter((c) => c.sim >= 0.25).sort((a, b) => b.sim - a.sim).slice(0, 3);
   const verdict = worthJudging.length
     ? await adjudicateMatch(e, await enrichMatchCandidates(orgId, worthJudging), llm)
     : { matchId: null as string | null, confidence: 0, reason: "" };
@@ -809,6 +813,7 @@ export async function ingestExtraction(
   sourceItemId: string | null,
   extraction: Extraction,
   llm?: LlmProvider,
+  opts: { adjudicate?: boolean } = {},
 ): Promise<IngestExtractionResult> {
   const res: IngestExtractionResult = {
     entitiesResolved: 0,
@@ -830,7 +835,7 @@ export async function ingestExtraction(
   // Resolve entities first so facts can reference canonical ids.
   const idMap = new Map<string, string>();
   for (const e of extraction.entities) {
-    const { id, created } = await resolveEntity(orgId, ownerUserId, e, llm);
+    const { id, created } = await resolveEntity(orgId, ownerUserId, e, llm, opts);
     idMap.set(e.localId, id);
     res.entitiesResolved++;
     if (created) res.entitiesCreated++;

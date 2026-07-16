@@ -12,6 +12,27 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Obsidian vault import, phase 1 (user ask: "give access
+  to the vault folder and we migrate it")** — the engine, zero-LLM by
+  design: pure `obsidian-import.ts` maps notes → `note` entities
+  (body_md = the note, label = basename so wikilink stubs and real notes
+  converge on one key), [[wikilinks]] → mentions edges, frontmatter →
+  typed facts (wikilink values → edges, lists → cardinality many),
+  tags → concepts (`about`), aliases → also_known_as; `planVault` also
+  detects folder SHAPES (≥3 notes sharing ≥2 keys — templates announcing
+  themselves, preview-only for now). `POST /api/import/obsidian`: dry-run
+  plan by default, `confirm:true` ingests via the new
+  `ingestExtraction(..., {adjudicate:false})` option (deterministic
+  resolution tiers only — no LLM fan-out on bulk imports; consolidation
+  embeds/merges later) with content-hash idempotency (items
+  external_id `obsidian:<path>`; unchanged no-op, edited supersede with
+  history). 4 unit tests (frontmatter/lists/wikilinks incl. embeds+self-
+  links excluded, typed mapping, localId integrity, folder shapes); suite
+  340 pass / 3 pre-existing canvas failures; tsc/eslint clean. STILL
+  OPEN (phase 1b/2): the folder-picker modal (webkitdirectory, batched
+  client → dry-run preview → confirm) + Build-menu entry, local CLI
+  `datamodo import obsidian`, folder-shape → category_proposal filing,
+  attachment import. NOT live-fired.
 - **2026-07-16** — **Per-row review graph preview (user ask: the PR should
   show what accepting or refusing ONE row does to the graph)** — a "◍" pill
   on every graph-shaped queue row (entity_merge / orphan_prune /
