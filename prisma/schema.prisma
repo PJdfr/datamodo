@@ -394,6 +394,38 @@ model organizations {
   sheet_links          sheet_links[]
 }
 
+model oauth_clients {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  client_id     String   @unique
+  client_name   String
+  redirect_uris Json
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model oauth_codes {
+  code_hash      String   @id
+  client_id      String
+  user_id        String   @db.Uuid
+  redirect_uri   String
+  code_challenge String
+  scope          String   @default("vault")
+  expires_at     DateTime @db.Timestamptz(6)
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model oauth_tokens {
+  token_hash         String   @id
+  refresh_hash       String   @unique
+  client_id          String
+  user_id            String   @db.Uuid
+  scope              String   @default("vault")
+  access_expires_at  DateTime @db.Timestamptz(6)
+  refresh_expires_at DateTime @db.Timestamptz(6)
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([user_id], map: "oauth_tokens_user_idx")
+}
+
 model llm_usage {
   id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   org_id        String        @db.Uuid

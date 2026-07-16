@@ -32,6 +32,7 @@ import { createRequire } from "node:module";
 import { startEmbeddedDb } from "../lib/local/embedded-db.mjs";
 import { startConnectors, loadConnectors, addConnector, removeConnector } from "../lib/local/connectors/imap-poll.mjs";
 import { runFirstRunSetup } from "../lib/local/setup.mjs";
+import { linkBuildExternals } from "./link-externals.mjs";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json");
@@ -256,10 +257,19 @@ program
       await runFirstRunSetup({ dataDir: cfg.dataDir, interactive: Boolean(process.stdin.isTTY) });
     }
 
+    // The published package SHIPS the production build — restore its
+    // externalized-package links if postinstall couldn't (copied installs,
+    // skipped scripts). Fail-soft: worst case the build check below rebuilds.
+    try {
+      const { missing } = await linkBuildExternals(APP_ROOT);
+      for (const m of missing) console.warn(`datamodo: build external "${m}" is not installed — run npm install`);
+    } catch { /* rebuild path below covers it */ }
+
     // Auto-build on first run (or after a clean) so the user never has to run
     // `next build` by hand — and never has to remember DATAMODO_LOCAL=1, which
     // is the difference between a working local build and a /dashboard prerender
-    // crash asking for cloud auth secrets. A prebuilt package skips this.
+    // crash asking for cloud auth secrets. The published package ships prebuilt,
+    // so this is the repo/dev fallback (and the `datamodo build` clean path).
     if (!(await hasBuild())) {
       // Clear any partial `.next` from a failed/interrupted build first — a
       // half-written build makes `next start` crash on a missing manifest.

@@ -156,9 +156,15 @@
   ego-graph as a tool), `list_facts` (filters + bitemporal as-of),
   `search_documents` (passages), `list_tables`/`get_table_rows` (read-only
   projections; row-writes deliberately excluded — writes go through
-  extraction). Verified 19/19 on the packed local artifact. STILL open:
-  OAuth (claude.ai connectors' dynamic client registration + per-user
-  revocation), MCP `sampling` for the escalation policy.
+  extraction). Verified 19/19 on the packed local artifact. ~~OAuth (claude.ai
+  connectors)~~ ✅ 2026-07-16 — datamodo is its own OAuth 2.1 authorization
+  server: discovery metadata, RFC 7591 dynamic registration, branded consent
+  page, PKCE-S256 code flow, rotating refresh tokens, sha256-hashed storage
+  → per-user revocation; `dmk_` HMAC tokens unchanged for Claude Code.
+  Verified 19/19 OAuth E2E on the packed artifact (needs Neon migration
+  `20260716150000_oauth.sql` in cloud). ~~Settings "disconnect Claude"~~ ✅
+  2026-07-16 — Connected-apps list + per-app revocation (verified: a live
+  refresh token dies). STILL open: MCP `sampling` for the escalation policy.
 - ~~**Per-entity blame** (Review track follow-up)~~ ✅ 2026-07-14 — the entity
   page's "◷ History" disclosure gained a **story ⇄ blame** toggle: blame is
   the commit log filtered to that entity (`?view=commits&entity=`;
@@ -327,11 +333,14 @@
   are code-complete but have never touched the real providers. The core pitch
   ("forward from anywhere") ends here. Now also covers the **channel
   pull-request loop** (shipped 2026-07-12, never live-fired): review pings +
-  reply-to-approve. Follow-ups, not built: Slack reply interception (outbound
-  ping ships; the Slack webhook doesn't parse decisions yet), WhatsApp
-  interactive BUTTONS (Twilio content templates instead of "1 yes"), and an
-  outbound EMAIL provider (Resend/SES) so email users get the ping too — today
-  they only see the Review tab.
+  reply-to-approve. ~~Slack reply interception~~ ✅ 2026-07-16 — the Slack
+  webhook parses "1 yes" DMs through the same `applyReviewReply` core as
+  WhatsApp and confirms back via chat.postMessage. ~~Outbound EMAIL pings~~
+  ✅ 2026-07-16 — Resend sender (`RESEND_API_KEY` + `EMAIL_FROM`;
+  `RESEND_BASE_URL` override), one-way copy ("Review at <url>", no reply
+  hint; email replies aren't parsed). Still not built: WhatsApp interactive
+  BUTTONS (Twilio content templates instead of "1 yes"), an email reply
+  loop, and the live-provider verification above.
 - ~~Spreadsheet-import follow-ups~~ ✅ 2026-07-11 — pre-merge PREVIEW/confirm
   (dry-run shows the reading + honest counts; nothing writes until confirmed),
   column-mapping overrides (kind, identity column, per-column link/fact/skip,
@@ -344,8 +353,10 @@
   `extractFromImage` vision tier as a photo → thick node. Fail-soft: no
   canvas / no vision key / bad bytes → stays `metadata_only` exactly as
   before. Live-verified: the helper rasterizes a real PDF to a valid PNG and
-  returns null (never throws) on garbage. Follow-up: multi-page scans (v1 is
-  page 1 — most receipts/invoices are one page).
+  returns null (never throws) on garbage. ~~Multi-page scans~~ ✅ 2026-07-16 —
+  `rasterizePdfPages` reads up to 6 pages in ONE vision call (payload budget,
+  truncated flag → indexing "partial"); verified 7/7 on the packed artifact
+  (mock counts the image parts: "(vision x3)" / capped "(vision x6)").
 - **Local / open-source single-user edition** — npm-installable, self-hosted.
   Target UX (user, 2026-07-14): `npm install -g datamodo` → `datamodo serve`
   → the dashboard on localhost, where you pick your LLM (API key / Ollama /
@@ -382,10 +393,13 @@
     hold a 1536-d vector) to hnsw/cosine (matching cloud). VERIFIED end-to-end
     (guarded integration test): schema builds, `entities.embedding` is `vector`,
     ANN sim=1 + trigram match on the real tables. Set `DATABASE_URL` to use
-    your own PG instead. Still open: ship the built Next standalone IN the npm
-    package (today `serve` runs `next start` in the repo / expects a prebuilt
-    `.next/standalone` in the package); local embeddings still want the
-    `vector(1536)` column re-declared for a 768-d model at install.
+    your own PG instead. ~~Ship the built Next app IN the npm package~~ ✅
+    2026-07-16 — the tarball carries the production `.next` (junk stripped,
+    turbopack's externalized-package symlinks → manifest recreated at
+    postinstall, required-server-files templated per install dir, deps pinned
+    exact to match the build); first `serve` boots in ~6 s instead of
+    compiling. Local embeddings' `vector(1536)` re-declare shipped earlier
+    via `EMBEDDINGS_COLUMN_DIM`.
   - ~~**First-run sizing (RAM → model tier → pull)** ✅ 2026-07-15~~ (packaging
     brief §5): `datamodo setup` + auto on first `serve` — cgroup-aware RAM
     detect → tier table (pure `lib/local/sizing.mjs`) → Ollama `/api/pull`
@@ -394,6 +408,13 @@
     install, switchable compute — local Settings shows "Local — on this
     machine" (Ollama URL + models, live reachability + installed-model
     suggestions) vs BYOK; no plan/billing card locally.
+  - ~~**Non-dev AI settings panel** ✅ 2026-07-16~~ (user ask): the whole
+    LLM setup is dashboard-only — live Ollama running/not-running status with
+    in-place recovery, installed-model dropdowns, one-click downloads of the
+    machine-recommended models (`/api/local/ollama-pull`), free "Test key"
+    (validates + lists the key's models → dropdowns) and "Test it" (one real
+    tiny call, latency shown) via `/api/local/llm-probe`; fresh vaults open
+    on the Local card (local `getSettings` reports the effective mode).
   - ~~**Real-Postgres local runtime** ✅ 2026-07-15~~ (brief §4): a
     user/compose `DATABASE_URL` gets a pooled adapter (no `max:1`, no retry
     shim — gated to `DATAMODO_EMBEDDED_DB`); `neon/schema.sql` now loads into
@@ -538,7 +559,10 @@
 
 ## Owed by a human (ops, not code)
 - **Apply pending Neon migrations on dev + prod**: `20260714120000_llm_usage.sql`
-  (BYOK cost ledger — dormant/fail-soft until applied). Optional env
+  (BYOK cost ledger — dormant/fail-soft until applied) and
+  `20260716150000_oauth.sql` (MCP OAuth for claude.ai connectors — the
+  register/token endpoints 500 and the consent page shows "unknown client"
+  until applied; HMAC tokens keep working regardless). Optional env
   `MCP_TOKEN_SECRET` (else falls back to `NEON_AUTH_COOKIE_SECRET`).
 - Vercel env: `OPENROUTER_VISION_MODEL`, embeddings key, transcription key
   (`TRANSCRIPTION_API_KEY` or reuse `OPENAI_API_KEY`), `NEXT_PUBLIC_SITE_URL`

@@ -2074,13 +2074,13 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
           <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 8, lineHeight: 1.5 }}>
             {provider === "ollama"
               ? <>No API key needed — models run on <b>your own machine</b>. The URL must be reachable from datamodo&apos;s servers: on the same box use localhost; otherwise expose it via a tunnel (Tailscale funnel, ngrok, cloudflared). Pull a JSON-capable model first (ollama pull llama3.1).</>
-              : <>This is an <b>API key</b> (billed per use), not your ChatGPT Plus / Claude Pro subscription — those don&apos;t grant API access. Get one from {provider === "openai" ? "platform.openai.com" : provider === "openrouter" ? "openrouter.ai/keys" : "console.anthropic.com"}. OpenRouter gives you one key across many models. Signing in to authorise your account is on the roadmap.</>}
+              : <>This is an <b>API key</b> (billed per use), not your ChatGPT Plus / Claude Pro subscription — those don&apos;t grant API access. Get one from {provider === "openai" ? "platform.openai.com" : provider === "openrouter" ? "openrouter.ai/keys" : "console.anthropic.com"}. OpenRouter gives you one key across many models.</>}
           </div>
           {/* Local edition: pick the exact model names here instead of env vars
               — saved PER PROVIDER, so your Ollama names never reach Anthropic
               and vice-versa. (URL/status hidden — in BYOK the server/key field
               above says where.) */}
-          {local && <LocalAiFields key={provider} provider={provider} showUrl={false} showStatus={false} />}
+          {local && <LocalAiFields key={provider} provider={provider} apiKey={key} showUrl={false} showStatus={false} />}
         </div>
       )}
 
@@ -2211,28 +2211,31 @@ function ConnectorsCard() {
   );
 }
 
-/* Local edition — the local-AI config, all persisted to ~/.datamodo/llm.json
- * (the same store the first-run wizard seeds): the Ollama server URL (WHERE)
- * and the model names (WHICH model handles text vs. images/scanned PDFs).
- * Model names are saved PER PROVIDER — the fields shown here belong to the
- * `provider` prop only, so Ollama names never reach a BYOK provider. Blank
- * falls back to the env var, then the built-in default. For Ollama, shows
- * live reachability + the installed models (suggested via datalist). */
-const MODEL_HINTS: Record<string, { extract: string; vision: string }> = {
-  ollama: { extract: "Text model — e.g. llama3.1:8b  (blank = default)", vision: "Vision / scanned-PDF model — e.g. llama3.2-vision  (blank = llava)" },
-  anthropic: { extract: "Text model — e.g. claude-haiku-4-5  (blank = default)", vision: "Vision model — e.g. claude-haiku-4-5  (blank = text model)" },
-  openai: { extract: "Text model — e.g. gpt-4o-mini  (blank = default)", vision: "Vision model — e.g. gpt-4o-mini  (blank = text model)" },
-  openrouter: { extract: "Text model — e.g. anthropic/claude-haiku-4.5  (blank = default)", vision: "Vision model — a vision-capable id  (blank = text model)" },
-};
+/* Local edition — the AI panel, built for NON-DEV users: everything happens
+ * here, never in a terminal. Persisted to ~/.datamodo/llm.json PER PROVIDER
+ * (the wizard's Ollama names never reach a BYOK provider and vice-versa).
+ *  • Ollama: live running/not-running status with retry, model DROPDOWNS from
+ *    what's actually installed, one-click downloads of the models recommended
+ *    for this machine, and a real "Test" call.
+ *  • Claude/OpenAI/OpenRouter: "Test key" validates the key for free AND
+ *    fetches the models the key can use → dropdowns instead of guessing ids.
+ */
+const PROVIDER_LABEL: Record<string, string> = { ollama: "Ollama", anthropic: "Claude", openai: "OpenAI", openrouter: "OpenRouter" };
+const selectStyle: React.CSSProperties = { ...fieldInput, appearance: "auto" as never, cursor: "pointer" };
 
-function LocalAiFields({ provider = "ollama", showUrl = true, showStatus = true }: { provider?: string; showUrl?: boolean; showStatus?: boolean }) {
+function LocalAiFields({ provider = "ollama", apiKey = "", showUrl = true, showStatus = true }: { provider?: string; apiKey?: string; showUrl?: boolean; showStatus?: boolean }) {
   const [extract, setExtract] = useState("");
   const [vision, setVision] = useState("");
   const [url, setUrl] = useState("");
   const [status, setStatus] = useState<{ url: string; reachable: boolean; tags: string[] } | null>(null);
+  const [recommended, setRecommended] = useState<{ ramGb: number; tier: string; text: string; vision: string | null; embed: string } | null>(null);
+  const [providerModels, setProviderModels] = useState<string[] | null>(null);
   const [saved, setSaved] = useState(false);
+  const [pulling, setPulling] = useState<string[]>([]);
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [testing, setTesting] = useState<"key" | "model" | null>(null);
   const isOllama = provider === "ollama";
-  const hints = MODEL_HINTS[provider] ?? MODEL_HINTS.ollama;
+  const tags = useMemo(() => (status?.tags ?? []).map((t) => t.replace(/:latest$/, "")), [status]);
 
   const load = (live?: { on: boolean }) => {
     fetch(`/api/local/llm-models?provider=${encodeURIComponent(provider)}`)
@@ -2241,67 +2244,202 @@ function LocalAiFields({ provider = "ollama", showUrl = true, showStatus = true 
         if (live && !live.on) return;
         if (j?.models) { setExtract(j.models.extract ?? ""); setVision(j.models.vision ?? ""); setUrl(j.models.url ?? ""); }
         if (j?.ollama) setStatus(j.ollama);
+        if (j?.recommended) setRecommended(j.recommended);
       })
       .catch(() => { /* leave blank → defaults */ });
   };
 
+  // Mount-only: the call site keys this component by provider, so switching
+  // provider remounts with fresh (null) probe/test state — no manual resets.
   useEffect(() => {
     const live = { on: true };
     load(live);
     return () => { live.on = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider]);
+  }, []);
 
-  const save = async () => {
+  // While a download runs, keep refreshing the installed list so the model
+  // appears (and the button flips to ✓) the moment Ollama finishes.
+  useEffect(() => {
+    if (pulling.length === 0) return;
+    const t = window.setInterval(load, 4000);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pulling.length]);
+
+  const save = async (next?: { extract?: string; vision?: string; url?: string }) => {
+    const body = { extract: next?.extract ?? extract, vision: next?.vision ?? vision, ...(isOllama ? { url: next?.url ?? url } : {}) };
     try {
       const res = await fetch("/api/local/llm-models", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ provider, models: { extract, vision, ...(isOllama ? { url } : {}) } }),
+        body: JSON.stringify({ provider, models: body }),
       });
       if (res.ok) {
         setSaved(true);
         window.setTimeout(() => setSaved(false), 1600);
-        if (isOllama) load(); // re-probe: a URL change should update reachability + tags
+        if (isOllama) load(); // a URL change should refresh reachability + models
       }
     } catch { /* best-effort */ }
   };
 
+  const probe = async (withModel: boolean) => {
+    setTesting(withModel ? "model" : "key");
+    setTestMsg(null);
+    try {
+      const model = withModel ? (extract || recommended?.text || undefined) : undefined;
+      const res = await fetch("/api/local/llm-probe", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider,
+          ...(isOllama ? { url: url || undefined } : { key: apiKey || undefined }),
+          ...(model ? { model } : {}),
+        }),
+      });
+      const j = await res.json();
+      if (j.models && !isOllama) setProviderModels(j.models);
+      if (isOllama) load();
+      if (withModel && j.modelOk) setTestMsg({ ok: true, text: `✓ ${model} answered in ${((j.latencyMs ?? 0) / 1000).toFixed(1)}s — you're all set` });
+      else if (!withModel && j.ok) setTestMsg({ ok: true, text: `✓ ${isOllama ? "Ollama is running" : `Your ${PROVIDER_LABEL[provider] ?? provider} key works`} · ${j.models?.length ?? 0} models available` });
+      else setTestMsg({ ok: false, text: j.error ?? "Something didn't answer — try again." });
+    } catch {
+      setTestMsg({ ok: false, text: "Couldn't reach the app — is it still running?" });
+    } finally {
+      setTesting(null);
+    }
+  };
+
+  const pull = async (model: string) => {
+    setPulling((p) => [...p, model]);
+    try {
+      const res = await fetch("/api/local/ollama-pull", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) setTestMsg({ ok: false, text: j.error ?? `Couldn't download ${model}.` });
+    } catch { /* the poll keeps watching either way */ }
+    setPulling((p) => p.filter((m) => m !== model));
+    load();
+  };
+
+  /** Model picker: a dropdown when we KNOW the choices (installed Ollama
+   *  models / the key's model list), a free field otherwise. */
+  const modelField = (value: string, onChange: (v: string) => void, kindLabel: string, defaultHint: string) => {
+    const options = isOllama ? tags : providerModels;
+    if (options && options.length > 0 && options.length <= 60) {
+      const known = options.includes(value);
+      return (
+        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <span className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>{kindLabel}</span>
+          <select value={known ? value : value ? "__custom" : ""} onChange={(e) => { const v = e.target.value === "__custom" ? value : e.target.value; onChange(v); void save(kindLabel.startsWith("Text") ? { extract: v } : { vision: v }); }} style={selectStyle}>
+            <option value="">{defaultHint}</option>
+            {options.map((m) => <option key={m} value={m}>{m}</option>)}
+            {!known && value && <option value="__custom">{value} (custom)</option>}
+          </select>
+        </label>
+      );
+    }
+    const listId = `dm-models-${provider}-${kindLabel.split(" ")[0]}`;
+    return (
+      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <span className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>{kindLabel}</span>
+        {options && options.length > 0 && (
+          <datalist id={listId}>{options.map((m) => <option key={m} value={m} />)}</datalist>
+        )}
+        <input type="text" value={value} onChange={(e) => onChange(e.target.value)} onBlur={() => void save()} list={options?.length ? listId : undefined}
+          placeholder={defaultHint} autoComplete="off" style={fieldInput} />
+      </label>
+    );
+  };
+
+  const missingRecommended = isOllama && recommended && status?.reachable
+    ? [recommended.text, recommended.vision, recommended.embed].filter((m): m is string => Boolean(m) && !tags.includes(m!.replace(/:latest$/, "")))
+    : [];
+
   return (
     <div style={showUrl ? undefined : { marginTop: 12, paddingTop: 12, borderTop: "1px solid #ECE5D8" }}>
-      {showUrl && isOllama && (
-        <>
-          <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 8 }}>Ollama server</div>
-          <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} onBlur={() => void save()}
-            placeholder={status?.url ?? "http://localhost:11434  (blank = default)"} autoComplete="off" style={fieldInput} />
-        </>
-      )}
+      {/* ---- Ollama: running or not, in plain words, fixable in place ---- */}
       {showStatus && isOllama && status && (
-        <div className="dm-mono" style={{ fontSize: 11, marginTop: 8, color: status.reachable ? C.green : C.accent }}>
-          {status.reachable
-            ? <>✓ Ollama reachable · {status.tags.length} model{status.tags.length === 1 ? "" : "s"} installed</>
-            : <>✗ Ollama not reachable at {status.url} — start it (or install from ollama.com), or switch to “Bring your own key”. Messages are still stored & filed meanwhile.</>}
+        status.reachable ? (
+          <div className="dm-mono" style={{ fontSize: 11, color: C.green, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span>● Ollama is running · {tags.length} model{tags.length === 1 ? "" : "s"} installed</span>
+            <button type="button" onClick={() => load()} style={{ background: "none", border: "none", color: "#A39B8B", cursor: "pointer", fontSize: 10.5, padding: 0, fontFamily: "inherit", textDecoration: "underline" }}>refresh</button>
+          </div>
+        ) : (
+          <div style={{ padding: "10px 12px", background: "#FBF3EF", border: "1px solid #F0D9CF", borderRadius: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Ollama isn’t running yet</div>
+            <div style={{ fontSize: 12, color: "#57534A", marginTop: 4, lineHeight: 1.55 }}>
+              Ollama is the free app that runs AI models on your machine.
+              <br />1. Download it from <a href="https://ollama.com/download" target="_blank" rel="noreferrer" style={{ color: C.accent }}>ollama.com/download</a> and open it.
+              <br />2. Come back and hit <b>Check again</b> — datamodo takes it from there.
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
+              <Hov onClick={() => load()} base={{ ...ghostBtn, fontSize: 12 }} hover={{ background: "#fff" }}>Check again</Hov>
+              <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B" }}>meanwhile everything is still stored & filed — just not AI-read</span>
+            </div>
+          </div>
+        )
+      )}
+
+      {/* ---- one-click downloads of what fits this machine ---- */}
+      {missingRecommended.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 6 }}>Recommended for this machine ({recommended!.ramGb} GB)</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {missingRecommended.map((m) => (
+              <button key={m} type="button" disabled={pulling.includes(m)} onClick={() => void pull(m)}
+                title={pulling.includes(m) ? "Downloading — this is a one-time multi-GB download" : `Download ${m} (one time)`}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 500, color: C.ink, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 999, padding: "4px 11px", cursor: pulling.includes(m) ? "default" : "pointer", fontFamily: "inherit", opacity: pulling.includes(m) ? 0.7 : 1 }}>
+                {pulling.includes(m)
+                  ? <><span style={{ width: 6, height: 6, borderRadius: "50%", background: "#B08A2E", animation: "cc-pulse 2.2s ease-in-out infinite" }} /> downloading {m}…</>
+                  : <><span style={{ color: C.accent }}>⤓</span> {m}</>}
+              </button>
+            ))}
+          </div>
+          <div className="dm-mono" style={{ fontSize: 10, color: "#A39B8B", marginTop: 5 }}>one-time downloads (a few GB each) — they run 100% on this machine afterwards</div>
         </div>
       )}
+
+      {/* ---- BYOK: prove the key works before saving anything ---- */}
+      {!isOllama && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <Hov onClick={testing ? undefined : () => void probe(false)} base={{ ...ghostBtn, fontSize: 12 }} hover={{ background: "#fff" }}>
+            {testing === "key" ? "Testing…" : "Test key"}
+          </Hov>
+          <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>free check — lists the models your key can use</span>
+        </div>
+      )}
+
       <div className="dm-mono" style={{ ...fieldLabel, margin: "14px 0 8px" }}>
         Models {saved && <span style={{ color: C.green, marginLeft: 6 }}>✓ saved</span>}
       </div>
-      {isOllama && (
-        <datalist id="dm-ollama-tags">
-          {(status?.tags ?? []).map((t) => <option key={t} value={t.replace(/:latest$/, "")} />)}
-        </datalist>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {modelField(extract, setExtract, "Text — reads messages & documents", isOllama ? `Recommended (${recommended?.text ?? "llama3.1:8b"})` : "Recommended (default)")}
+        {modelField(vision, setVision, "Vision — reads photos & scanned PDFs", isOllama ? `Recommended (${recommended?.vision ?? "llava"})` : "Same as text model")}
+      </div>
+
+      {/* ---- advanced: custom Ollama server ---- */}
+      {showUrl && isOllama && (
+        <details style={{ marginTop: 12 }}>
+          <summary className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", cursor: "pointer" }}>Advanced — Ollama runs on another machine?</summary>
+          <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} onBlur={() => void save()}
+            placeholder={status?.url ?? "http://localhost:11434"} autoComplete="off" style={{ ...fieldInput, marginTop: 8 }} />
+        </details>
       )}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <input type="text" value={extract} onChange={(e) => setExtract(e.target.value)} onBlur={() => void save()} list={isOllama ? "dm-ollama-tags" : undefined}
-          placeholder={hints.extract} autoComplete="off" style={fieldInput} />
-        <input type="text" value={vision} onChange={(e) => setVision(e.target.value)} onBlur={() => void save()} list={isOllama ? "dm-ollama-tags" : undefined}
-          placeholder={hints.vision} autoComplete="off" style={fieldInput} />
+
+      {/* ---- the moment of truth: one real (tiny) model call ---- */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
+        <Hov onClick={testing ? undefined : () => void probe(true)} base={{ ...primaryBtn(testing === "model"), padding: "7px 14px", fontSize: 12.5 }} hover={{ background: C.accentPress }}>
+          {testing === "model" ? "Asking the model…" : "Test it"}
+        </Hov>
+        <span className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B" }}>sends one tiny question through the real pipeline</span>
       </div>
-      <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 8, lineHeight: 1.5 }}>
-        {isOllama
-          ? <>Which model reads text vs. images & scanned PDFs. <span style={{ userSelect: "all" }}>datamodo setup</span> sizes and pulls these for your machine; pull others with <span style={{ userSelect: "all" }}>ollama pull llama3.2-vision</span>. Blank uses the built-in default (or an env var if you set one).</>
-          : <>Which {MODEL_HINTS[provider] ? provider : ""} model reads text vs. images & scanned PDFs — saved separately from your Ollama models, so switching back to Local keeps both. Blank uses a sensible default.</>}
-      </div>
+      {testMsg && (
+        <div className="dm-mono dm-fade-in" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.5, color: testMsg.ok ? C.green : C.accent }}>{testMsg.text}</div>
+      )}
     </div>
   );
 }
@@ -2381,10 +2519,15 @@ function UsageCard() {
 }
 
 /* Connect Claude (MCP) — lazy: details fetch only when asked for (the token
- * is derived server-side; showing it writes nothing). */
+ * is derived server-side; showing it writes nothing). Once revealed, the card
+ * also lists the apps connected via OAuth, each with a Disconnect that
+ * revokes its tokens on the spot. */
+type McpGrant = { clientId: string; clientName: string; tokens: number; connectedAt: string };
+
 function McpConnectCard() {
-  const [conn, setConn] = useState<{ url: string; token: string | null } | null>(null);
+  const [conn, setConn] = useState<{ url: string; token: string | null; grants?: McpGrant[] } | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  const [revoking, setRevoking] = useState<string | null>(null);
   const reveal = async () => {
     setState("loading");
     try {
@@ -2394,6 +2537,18 @@ function McpConnectCard() {
       setState("idle");
     } catch {
       setState("error");
+    }
+  };
+  const disconnect = async (clientId: string) => {
+    setRevoking(clientId);
+    try {
+      const res = await fetch(`/api/mcp-token?client_id=${encodeURIComponent(clientId)}`, { method: "DELETE" });
+      if (res.ok) {
+        const j = await res.json();
+        setConn((c) => (c ? { ...c, grants: j.grants ?? [] } : c));
+      }
+    } catch { /* card keeps its state; retry is a click away */ } finally {
+      setRevoking(null);
     }
   };
   const mono: React.CSSProperties = { fontSize: 11, color: "#3A352C", background: "#fff", border: "1px solid #ECE5D8", borderRadius: 8, padding: "7px 10px", overflowWrap: "anywhere", userSelect: "all" };
@@ -2423,13 +2578,28 @@ function McpConnectCard() {
           )}
           <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", lineHeight: 1.6 }}>
             {conn.token ? (
-              <>Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url} --header &quot;Authorization: Bearer {conn.token}&quot;</span>
-              <br />Sign-in-with-datamodo (OAuth, for claude.ai connectors) is on the roadmap.</>
+              <>claude.ai: Settings → Connectors → Add custom connector → paste the server URL — you&apos;ll approve the connection in your browser (no token to copy).
+              <br />Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url} --header &quot;Authorization: Bearer {conn.token}&quot;</span></>
             ) : (
               <>No token needed — this vault lives on your machine, and only this machine can reach it.
               <br />Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url}</span></>
             )}
           </div>
+          {(conn.grants?.length ?? 0) > 0 && (
+            <>
+              <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B", marginTop: 4 }}>Connected apps</div>
+              {conn.grants!.map((g) => (
+                <div key={g.clientId} style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
+                  <div className="dm-mono" style={{ fontSize: 11, color: "#3A352C", background: "#fff", border: "1px solid #ECE5D8", borderRadius: 8, padding: "7px 10px", minWidth: 0 }}>
+                    {g.clientName} · since {g.connectedAt.slice(0, 10)}
+                  </div>
+                  <Hov onClick={revoking ? undefined : () => void disconnect(g.clientId)} base={{ ...ghostBtn, flexShrink: 0, color: C.accent }} hover={{ background: "#FBF3EF" }}>
+                    {revoking === g.clientId ? "Disconnecting…" : "Disconnect"}
+                  </Hov>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       )}
     </div>

@@ -3,8 +3,7 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
-import { verifyMcpToken, mcpTokenSecret } from "@/lib/datamodo/mcp-token";
-import { isLocalMode, LOCAL_USER } from "@/lib/local/config";
+import { isLocalMode } from "@/lib/local/config";
 import { parseExtraction } from "@/lib/datamodo/mcp-extraction";
 import { listKnowledge } from "@/lib/datamodo/knowledge";
 import { searchKnowledge, tokenize } from "@/lib/datamodo/search";
@@ -426,21 +425,28 @@ const handler = createMcpHandler(
   { basePath: "/api/mcp", maxDuration: 60, verboseLogs: false },
 );
 
+// Credentials accepted (all resolved in lib/datamodo/mcp-auth.ts): LOCAL mode
+// is tokenless (127.0.0.1 is the boundary); dmk_ HMAC tokens serve Claude
+// Code; dmo_ OAuth tokens serve claude.ai connectors (phase 3).
 const verifyToken = async (_req: Request, bearer?: string): Promise<AuthInfo | undefined> => {
-  // LOCAL edition: no auth (user call 2026-07-16) — one user, and the server
-  // binds 127.0.0.1 by default, so reaching the port IS the auth boundary.
-  // Claude Desktop/Code connect with just the URL, no token. (If you expose
-  // the port beyond localhost, everything on it is open — including this.)
-  if (isLocalMode()) {
-    return { token: bearer ?? "local", scopes: ["vault"], clientId: LOCAL_USER.id, extra: { userId: LOCAL_USER.id } };
-  }
-  const secret = mcpTokenSecret();
-  if (!bearer || !secret) return undefined;
-  const userId = verifyMcpToken(bearer, secret);
-  if (!userId) return undefined;
-  return { token: bearer, scopes: ["vault"], clientId: userId, extra: { userId } };
+  const { resolveMcpBearer } = await import("@/lib/datamodo/mcp-auth");
+  return resolveMcpBearer(bearer);
 };
 
 const authed = withMcpAuth(handler, verifyToken, { required: !isLocalMode() });
 
-export { authed as GET, authed as POST, authed as DELETE };
+// RFC 9728: a 401 must point the client at the protected-resource metadata so
+// OAuth-capable clients (claude.ai) can discover the authorization server.
+const challenge = (h: typeof authed) => async (req: Request) => {
+  const res = await h(req);
+  if (res.status !== 401) return res;
+  const headers = new Headers(res.headers);
+  headers.set(
+    "www-authenticate",
+    `Bearer resource_metadata="${new URL(req.url).origin}/.well-known/oauth-protected-resource"`,
+  );
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+};
+const routed = challenge(authed);
+
+export { routed as GET, routed as POST, routed as DELETE };

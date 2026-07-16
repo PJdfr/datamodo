@@ -12,6 +12,131 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **"Disconnect Claude" — per-user OAuth revocation UI**
+  (the OAuth PR's flagged follow-up). Settings → Connect Claude now lists
+  the apps connected via OAuth ("Connected apps": client name + since-date,
+  from `listOAuthGrants` — live token pairs grouped by client, fail-soft [])
+  and a **Disconnect** per app: `DELETE /api/mcp-token?client_id=` runs
+  `revokeOAuthGrants` (deletes the user's token rows + un-exchanged codes) —
+  the revocation the stateless HMAC tokens can't do. VERIFIED on the packed
+  artifact: OAuth E2E extended to 22/22 — the grant appears in
+  `/api/mcp-token`, DELETE revokes it, and a LIVE refresh token gets
+  `invalid_grant` afterwards (real revocation, not just list cosmetics) —
+  plus a Playwright pass (Connected apps renders → Disconnect removes the
+  row → grants empty server-side). tsc, 269 tests, lint baseline, boundary
+  clean.
+- **2026-07-16** — **Channel PR-loop: Slack replies + email pings** (ROADMAP
+  "Channel adapters E2E" follow-ups). (1) **Slack reply interception** — the
+  outbound ping asked for "1 yes" but the Slack webhook never parsed it; a
+  text-only DM from a bound sender now runs the SAME `applyReviewReply`
+  shared core WhatsApp uses (before capture; messages with files always
+  capture; fail-soft — a reply-handling error never loses the message) and
+  confirms the decision back in the DM via `chat.postMessage`. (2)
+  **Outbound EMAIL pings (Resend)** — email-channel users used to get NO
+  ping at all; `sendChannelText("email", …)` now posts to Resend
+  (`RESEND_API_KEY` + `EMAIL_FROM`, optional `RESEND_BASE_URL` override for
+  tests/proxies), env-gated dormant like every sender. Email has no reply
+  loop, so `buildReviewPing` gained `replyable:false` — one-way channels get
+  "Review at <url>." instead of a reply hint nobody parses
+  (`extract.ts` marks only whatsapp/slack replyable). VERIFIED: 4 new unit
+  tests drive the Resend sender against a LOCAL mock HTTP server (payload
+  shape, bearer, 422 → reason, dormant without env, bad address) + the
+  one-way ping copy (269 pass). The Slack glue mirrors the shipped WhatsApp
+  pattern; live Slack/Resend still belong to the roadmap's "channel adapters
+  E2E on real providers" human item. tsc clean, boundary clean, lint at
+  baseline (−1 warning: the Slack route's unused `link`).
+- **2026-07-16** — **Multi-page scanned PDFs** (ROADMAP follow-up from the
+  2026-07-14 OCR ship: "v1 is page 1"). A textless (scanned) PDF's pages now
+  ALL reach the vision model in ONE call: `rasterizePdfPages` renders page 1
+  up to `MAX_SCAN_PAGES` (6) within a payload budget
+  (`MAX_SCAN_BASE64_CHARS` ≈ 6.7 MB of image bytes), stopping early and
+  marking `truncated`; a rasterization failure on page N>1 keeps pages
+  1..N-1 (a partially read scan beats an unread one; page-1 failure still →
+  null → metadata_only). `extractFromImage` gained `additionalPages` (the
+  LLM layer already carried an images array — both providers); the prompt
+  tells the model the images are the CONSECUTIVE PAGES of ONE document (one
+  summary, one primary entity, facts from any page). `documents.ts` marks
+  indexing "full" only when every page was seen, else "partial".
+  `rasterizePdfFirstPage` kept as a shim. Mock now logs "(vision xN)" — the
+  page-count proof. VERIFIED: 4 new unit tests (order, cap+truncated flag,
+  garbage→null, shim) — 265 pass — and 7/7 E2E on the packed artifact: a
+  generated 3-page textless PDF → analyzed, mock saw ONE call with
+  "(vision x3)", marker in the doc body; a 9-page scan → "(vision x6)" (cap).
+  tsc clean, lint at baseline, boundary clean.
+- **2026-07-16** — **MCP OAuth (phase 3) — claude.ai connectors**. datamodo
+  is now its own OAuth 2.1 authorization server for the MCP endpoint, so
+  claude.ai's "Add custom connector" works with just the server URL — the
+  user approves in a branded consent page instead of copying a bearer token.
+  Discovery: `/.well-known/oauth-protected-resource` +
+  `/.well-known/oauth-authorization-server` (RFC 9728/8414, path-suffixed
+  forms, CORS) and the MCP 401 now carries `WWW-Authenticate:
+  resource_metadata=…`. Registration: RFC 7591 dynamic, public clients only
+  (PKCE binds the flow — no secrets). Consent (`/oauth/authorize`,
+  dm-auth-styled): client+redirect validated BEFORE render (bad pairs render
+  an error card, never redirect); signed-out users round-trip through
+  `/login?redirectTo=`; the Approve POST carries ONE HMAC-signed field
+  naming the exact grant shown (10-min expiry) so cross-site form posts
+  can't forge a grant. Tokens (`/api/oauth/token`): S256-only PKCE exchange,
+  single-use codes (DELETE-first — replays fail closed), rotating refresh,
+  opaque `dmo_`/`dmr_` values stored sha256-hashed → per-user revocation by
+  row delete. `resolveMcpBearer` (new `lib/datamodo/mcp-auth.ts`) accepts
+  local-tokenless / `dmk_` HMAC / `dmo_` OAuth; the OAuth lookup is
+  fail-soft so an unmigrated cloud keeps HMAC working. Tables in
+  `neon/schema.sql` + `prisma/schema.prisma` + migration
+  `20260716150000_oauth.sql` (⚠️ MUST be applied on dev+prod Neon branches —
+  in "Owed by a human"). VERIFIED: 9 unit tests (RFC 7636 vector, consent
+  signing, redirect rules) and 19/19 OAuth E2E on the packed artifact
+  (discovery → register → consent → approve → PKCE exchange → refresh
+  rotation → MCP tools/list under the OAuth bearer, + 8 negatives), MCP
+  suite re-run 19/19 (its two "401 + token" asserts were stale pre-tokenless
+  expectations, updated to the tokenless-local contract), pipeline 18/18;
+  tsc, 261 unit tests, lint at baseline, boundary clean.
+- **2026-07-16** — **The local tarball ships the prebuilt app** (roadmap gap;
+  user: "go"). First `datamodo serve` on a fresh vault now answers in ~6 s
+  (measured 5.8 s incl. wizard + embedded-DB schema build) instead of running
+  `next build` for minutes on the user's machine. Pack step
+  (`build:local-package --build`) prepares `.next` for shipping: junk `next
+  start` never reads is stripped (cache/trace/types/.nft.json), Turbopack's
+  externalized-package SYMLINKS (`.next/node_modules/pg-<hash>` — npm can't
+  pack symlinks) become `.next/local-externals.json`, and
+  `required-server-files.{json,js}` (read by `next start`, embed the build
+  machine's app dir — deleting them crashes next 16, learned the hard way)
+  ship as path-tokenized `.tmpl`s. New `bin/link-externals.mjs` recreates the
+  links + materializes the server-files for the actual install dir at
+  POSTINSTALL (global dirs can be root-owned when `serve` later runs) and
+  fail-soft on every serve. Build env scrubs `NEXT_PUBLIC_*`; a leak sweep
+  FAILS the pack if any absolute path or NEXT_PUBLIC value survives in the
+  artifact (it caught required-server-files). Local package deps now PINNED
+  EXACT from the installed tree so the user's `next` always matches the
+  shipped build. Tarball 415 KB → 9.6 MB (944 files). VERIFIED on the packed
+  artifact: clean global install → 7 links recreated → appDir materialized →
+  5.8 s first boot, "building the app" absent from the log → 18/18 pipeline
+  E2E + 31/31 AI-panel E2E on that install. tsc, 252 tests, lint baseline,
+  boundary clean; CI's `--no-pack` proof path untouched.
+- **2026-07-16** — **Non-dev AI settings panel** (user: "make the interface
+  easier for non-dev users + allow them to do everything from the dashboard
+  and not in the terminal" + "make sure everything is ready" — no stale
+  roadmap copy). Settings → Local: live Ollama status (green "running · N
+  models" / friendly not-running box with ollama.com link + **Check again**
+  that recovers in place), model **dropdowns from what's installed**,
+  **one-click download chips** for the models the sizing recommends for this
+  machine (`POST /api/local/ollama-pull`, UI polls until the model lands),
+  and **Test it** — one real tiny completion with latency. BYOK: **Test key**
+  (free list-models call: Anthropic `/v1/models`, OpenAI `/v1/models`,
+  OpenRouter `/key`+`/models`) validates the typed key (human 401 copy) and
+  fills the model dropdowns with what that key can use; probe keys are
+  transient, never stored (`POST /api/local/llm-probe`). Removed both
+  "…is on the roadmap" sentences (BYOK helper + MCP card). **Root-cause fix**:
+  fresh local vaults opened Settings on "Bring your own key"/Claude with a
+  red "Add your API key to start" badge because the DB default is
+  cloud-shaped (`compute_mode='byok'`) — local `getSettings` now reports the
+  mode actually in effect (byok without a credential runs on the machine's
+  Ollama anyway), so the Local card + green "Local AI — this machine" badge
+  are the fresh-install truth. VERIFIED 31/31 on the repacked artifact
+  (16 API probes incl. dead-server/bad-key/missing-model errors + 15
+  Playwright steps incl. kill-Ollama→box→restart→Check-again→green and a
+  chip download landing in `/api/tags`); tsc, 252 unit tests, lint at
+  baseline, `lint:boundary` clean.
 - **2026-07-16** — **Live agent suggestion while typing** (user: "if the
   classifier is free and fast, can't we suggest the agent before send?").
   The SAME zero-cost router now also runs IN THE BROWSER on every keystroke

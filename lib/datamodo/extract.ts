@@ -425,7 +425,7 @@ function restrainForKinds(
 
 // --- Vision tier: an IMAGE attachment → understood thick node --------------------
 
-const IMG_SYSTEM = `You LOOK at ONE IMAGE the user received (a photo, screenshot, or scan) and distill it into structured knowledge for a personal data assistant.
+const IMG_SYSTEM = `You LOOK at ONE IMAGE the user received (a photo, screenshot, or scan — possibly several images that are the consecutive pages of ONE scanned document) and distill it into structured knowledge for a personal data assistant.
 
 The original image is archived elsewhere — you are DISTILLING what it shows, not describing pixels.
 
@@ -445,6 +445,9 @@ export interface ImageExtractInput {
   imageBase64: string;
   /** image/png | image/jpeg | image/webp | image/gif */
   mediaType: string;
+  /** Pages 2..N of a multi-page scanned document, in order — sent in the SAME
+   *  vision call so the whole document is one coherent extraction. */
+  additionalPages?: { imageBase64: string; mediaType: string }[];
   filename?: string | null;
   channel?: string | null;
   businessContext?: string | null;
@@ -460,11 +463,19 @@ export async function extractFromImage(
   input: ImageExtractInput,
   llm: LlmProvider = getLlmProvider(),
 ): Promise<DocumentExtractResult> {
+  const extraPages = input.additionalPages ?? [];
   const raw = await llm.chatJSON<LlmExtraction>({
     model: llm.models.vision,
     system: IMG_SYSTEM,
-    user: buildImagePrompt(input),
-    images: [{ mediaType: input.mediaType, dataBase64: input.imageBase64 }],
+    user:
+      buildImagePrompt(input) +
+      (extraPages.length
+        ? `\n\nThe ${extraPages.length + 1} images are the CONSECUTIVE PAGES of ONE scanned document, in order. Read them as a single document: one summary, one primary entity ("e1"), facts drawn from ANY page.`
+        : ""),
+    images: [
+      { mediaType: input.mediaType, dataBase64: input.imageBase64 },
+      ...extraPages.map((p) => ({ mediaType: p.mediaType, dataBase64: p.imageBase64 })),
+    ],
     schema: DOC_RESPONSE_SCHEMA,
     schemaName: "image_extraction",
     maxTokens: 8000,
@@ -750,8 +761,10 @@ export async function runExtractionForItem(
         const { buildReviewPing } = await import("./review-ping");
         const { sendChannelText } = await import("./outbound");
         const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_SITE_URL || null;
+        // Only channels whose webhooks parse decisions get the reply hint.
+        const replyable = row.channel === "whatsapp" || row.channel === "slack";
         const text = questions.length
-          ? buildReviewPing(questions, { reviewUrl: appUrl ? `${appUrl}/dashboard` : null, extraProposals: proposals })
+          ? buildReviewPing(questions, { reviewUrl: appUrl ? `${appUrl}/dashboard` : null, extraProposals: proposals, replyable })
           : `datamodo — ${proposals} table change${proposals === 1 ? "" : "s"} from your message await review${appUrl ? `: ${appUrl}/dashboard` : "."}`;
         const sent = await sendChannelText(row.channel as import("@/lib/ingest/types").IngestChannel, row.sender, text);
         if (!sent.sent) console.log(`[extract] review ping skipped for item ${row.id}: ${sent.reason}`);

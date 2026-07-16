@@ -208,14 +208,30 @@ const server = http.createServer(async (req, res) => {
     const userMsg = body.messages?.find((m) => m.role === "user");
     const parts = Array.isArray(userMsg?.content) ? userMsg.content : null;
     const user = parts ? parts.filter((p) => p.type === "text").map((p) => p.text).join("\n") : String(userMsg?.content ?? "");
-    const hasImages = Boolean(parts?.some((p) => p.type === "image_url"));
+    const imageCount = parts?.filter((p) => p.type === "image_url").length ?? 0;
+    const hasImages = imageCount > 0;
     const out = answerChat(system, user, hasImages);
-    log("chat", model, hasImages ? "(vision)" : "", "→", Object.keys(out).join(","));
+    log("chat", model, hasImages ? `(vision x${imageCount})` : "", "→", Object.keys(out).join(","));
     return json(res, 200, {
       id: "mock",
       choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify(out) }, finish_reason: "stop" }],
       usage: { prompt_tokens: Math.ceil(user.length / 4), completion_tokens: 128 },
     });
+  }
+
+  if (path === "/v1/models" || path === "/api/v1/models") {
+    // OpenAI/OpenRouter-shaped model list — feeds the Settings dropdowns and
+    // validates keys (401 on a key that smells wrong, like the real thing).
+    const auth = String(req.headers.authorization ?? "");
+    if (auth && /bad|invalid/.test(auth)) return json(res, 401, { error: { message: "Incorrect API key provided" } });
+    const ids = ["gpt-4o-mini", "gpt-4.1", "gpt-4o", "o4-mini", ...[...installed].map((m) => m.replace(/:latest$/, ""))];
+    return json(res, 200, { data: [...new Set(ids)].map((id) => ({ id, object: "model" })) });
+  }
+  if (path === "/v1/key" || path === "/api/v1/key") {
+    // OpenRouter's key-info endpoint (credential check).
+    const auth = String(req.headers.authorization ?? "");
+    if (!auth || /bad|invalid/.test(auth)) return json(res, 401, { error: { message: "No auth credentials found" } });
+    return json(res, 200, { data: { label: "mock", usage: 0 } });
   }
 
   if (path === "/v1/embeddings" && req.method === "POST") {

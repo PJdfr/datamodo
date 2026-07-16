@@ -49,7 +49,7 @@ export const MAX_PING_QUESTIONS = 5;
  */
 export function buildReviewPing(
   questions: PingQuestion[],
-  opts: { reviewUrl?: string | null; extraProposals?: number } = {},
+  opts: { reviewUrl?: string | null; extraProposals?: number; replyable?: boolean } = {},
 ): string {
   const shown = questions.slice(0, MAX_PING_QUESTIONS);
   const lines: string[] = [];
@@ -65,11 +65,18 @@ export function buildReviewPing(
   if (opts.extraProposals) {
     lines.push(`(+${opts.extraProposals} table change${opts.extraProposals === 1 ? "" : "s"} to review in the app.)`);
   }
-  lines.push(
-    shown.length === 1
-      ? `Reply "yes" or "no"${opts.reviewUrl ? ` — or review at ${opts.reviewUrl}` : ""}.`
-      : `Reply "1 yes" / "2 no" (or "1y", "2n")${opts.reviewUrl ? ` — or review at ${opts.reviewUrl}` : ""}.`,
-  );
+  // Channels with a reply loop (WhatsApp, Slack) get the reply hint; one-way
+  // channels (email — no inbound decision parsing) point at the Review tab
+  // only, so the ping never asks for a reply nobody reads.
+  if (opts.replyable ?? true) {
+    lines.push(
+      shown.length === 1
+        ? `Reply "yes" or "no"${opts.reviewUrl ? ` — or review at ${opts.reviewUrl}` : ""}.`
+        : `Reply "1 yes" / "2 no" (or "1y", "2n")${opts.reviewUrl ? ` — or review at ${opts.reviewUrl}` : ""}.`,
+    );
+  } else if (opts.reviewUrl) {
+    lines.push(`Review at ${opts.reviewUrl}.`);
+  }
   return lines.join("\n");
 }
 
