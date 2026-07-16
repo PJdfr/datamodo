@@ -582,6 +582,12 @@ export async function recoverExtractionQueue(): Promise<{ requeued: number; aban
   return { requeued, abandoned };
 }
 
+/** Outbound leg of the parse reply — thin wrapper for mockability/clarity. */
+async function sendParseReplyToChannel(channel: string | null, sender: string, text: string) {
+  const { sendChannelText } = await import("./outbound");
+  return sendChannelText(channel as import("@/lib/ingest/types").IngestChannel, sender, text);
+}
+
 export async function runExtractionForItem(
   itemId: string,
   agentPurpose?: string | null,
@@ -595,12 +601,13 @@ export async function runExtractionForItem(
       subject: true,
       sender: true,
       channel: true,
+      capture_mode: true,
       body_hash: true,
       body_preview: true,
       meta: true,
     },
   });
-  const row = item as unknown as ItemRow;
+  const row = item as unknown as ItemRow & { capture_mode: string | null };
 
   await prisma.items.update({ where: { id: row.id }, data: { status: "analyzing" } });
   try {
@@ -719,9 +726,10 @@ export async function runExtractionForItem(
     // blob bucket or a scanned PDF degrades to metadata-only, never fails the
     // item). Dynamic import: documents.ts uses extractFromMessage, so a static
     // import here would be circular.
+    let docResults: import("./documents").AttachmentProcessResult[] = [];
     try {
       const { processItemAttachments } = await import("./documents");
-      await processItemAttachments(row, llm, businessContext, kinds, concepts);
+      docResults = await processItemAttachments(row, llm, businessContext, kinds, concepts);
     } catch (e) {
       console.error(`[extract] attachment processing failed for item ${row.id}`, e);
     }
@@ -749,6 +757,49 @@ export async function runExtractionForItem(
       where: { id: row.id },
       data: { status: "analyzed", extraction_version: EXTRACTION_VERSION },
     });
+    // PINGED? → answer back with what was parsed. Direct pings only
+    // (capture_mode "active": app chat, Slack DM, WhatsApp, direct email) —
+    // passively watched mailboxes stay silent. The app thread stores the
+    // reply on the item (meta.parse_reply → an agent bubble in chat);
+    // outbound channels go through sendChannelText. Best-effort.
+    let questionCount = 0;
+    try {
+      const { pendingQuestions } = await import("./review-inbox");
+      questionCount = (await pendingQuestions(row.org_id, row.id)).length;
+    } catch { /* count is decoration on the reply */ }
+    try {
+      const { buildParseReply, shouldSendParseReply } = await import("./parse-reply");
+      const viaApp = row.channel === "upload" && (row.meta as { via?: string } | null)?.via === "app";
+      const mode = shouldSendParseReply({ captureMode: row.capture_mode, channel: row.channel, viaApp });
+      if (mode) {
+        const reply = buildParseReply({
+          extraction: result.extraction,
+          noteTitle: result.note?.title ?? null,
+          docs: docResults.map((d) => ({ filename: d.filename, factsNew: d.factsNew })),
+          pendingQuestions: viaApp ? 0 : questionCount, // the app thread shows the review bubble itself
+        });
+        if (mode === "app") {
+          // Fresh meta: the auto-router may have stamped routed_agent_* since
+          // `row` was loaded — a stale spread would drop it.
+          const fresh = await prisma.items.findUnique({ where: { id: row.id }, select: { meta: true } });
+          await prisma.items.update({
+            where: { id: row.id },
+            data: {
+              meta: {
+                ...((fresh?.meta as Record<string, unknown> | null) ?? {}),
+                parse_reply: reply,
+                parse_reply_at: new Date().toISOString(),
+              },
+            },
+          });
+        } else if (row.sender) {
+          const sent = await sendParseReplyToChannel(row.channel, row.sender, reply);
+          if (!sent.sent) console.log(`[extract] parse reply skipped for item ${row.id}: ${sent.reason}`);
+        }
+      }
+    } catch (e) {
+      console.error(`[extract] parse reply failed for item ${row.id}`, e);
+    }
     // The PULL REQUEST comes to the user: if THIS message left decisions
     // behind (reviews / proposed rows), ping them back over the channel it
     // arrived on — reply "1 yes" approves right in the thread. Best-effort

@@ -1155,6 +1155,17 @@ code {
   to { opacity: 1; transform: none; }
 }
 
+/* Chat: the agent's "writing…" dots — three offset bounces. */
+@keyframes dm-typing {
+  0%, 60%, 100% { transform: none; opacity: 0.45; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+/* Chat: the agent reply reveals line by line (staggered via inline delay). */
+@keyframes dm-line-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
 /* Respect reduced-motion: kill the hover transforms/entrances too (the
    .dm-app animation guard above only covers @keyframes animations). */
 @media (prefers-reduced-motion: reduce) {

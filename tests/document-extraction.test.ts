@@ -259,3 +259,43 @@ test("rasterizePdfFirstPage: back-compat shim returns page 1 only", async () => 
   assert.ok(one?.imageBase64);
   assert.equal(one!.mediaType, "image/png");
 });
+
+/* ---- interpretable filenames: machine names become human ones ---------- */
+
+test("isCrypticFilename: machine names are cryptic, human names are not", async () => {
+  const { isCrypticFilename } = await import("../lib/datamodo/document-extraction.ts");
+  for (const cryptic of [
+    "IMG_20260716_123456.jpg", "DSC0001.jpg", "PXL_20260101_090000.png",
+    "scan0001.pdf", "Scan 12.pdf", "document (3).pdf", "file2.txt",
+    "untitled.pdf", "Sans titre.pdf", "WhatsApp Image 2026-07-16 at 12.30.01.jpeg",
+    "Screenshot 2026-07-16 at 09.15.22.png", "20260716_123456.pdf",
+    "d0a1f9e2-4c5b-4a6d-9e8f-112233445566.pdf", "a3f9c2e8b1d407.pdf",
+    "1234567.pdf", "", null, "12-34 56.pdf",
+  ]) {
+    assert.equal(isCrypticFilename(cryptic), true, `${cryptic} should be cryptic`);
+  }
+  for (const human of [
+    "invoice-acme-january.pdf", "Contrat de bail 2026.pdf", "meeting-notes.md",
+    "Q3 budget v2.xlsx", "brightwave-proposal.pdf", "cv_jean_dupont.pdf",
+  ]) {
+    assert.equal(isCrypticFilename(human), false, `${human} should stay`);
+  }
+});
+
+test("interpretableFilename: kind + primary subject, extension kept", async () => {
+  const { interpretableFilename } = await import("../lib/datamodo/document-extraction.ts");
+  assert.equal(interpretableFilename("scan0001.pdf", "INV-777", "invoice"), "invoice-inv-777.pdf");
+  assert.equal(interpretableFilename("IMG_2043.JPG", "Receipt Café Lumière", "receipt"), "receipt-cafe-lumiere.jpg");
+  // Label already names the kind — no stuttering prefix.
+  assert.equal(interpretableFilename("document (3).pdf", "Invoice INV-9 Acme", "invoice"), "invoice-inv-9-acme.pdf");
+});
+
+test("interpretableFilename: conservative — human names and weak labels stay", async () => {
+  const { interpretableFilename } = await import("../lib/datamodo/document-extraction.ts");
+  // A name the user chose is NEVER replaced, however good the extraction.
+  assert.equal(interpretableFilename("invoice-acme.pdf", "INV-777", "invoice"), null);
+  // Nothing meaningful to name it after → keep the original.
+  assert.equal(interpretableFilename("scan0001.pdf", null, "invoice"), null);
+  assert.equal(interpretableFilename("scan0001.pdf", "a", "invoice"), null);
+  assert.equal(interpretableFilename("scan0001.pdf", "—", null), null);
+});
