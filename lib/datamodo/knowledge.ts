@@ -180,9 +180,10 @@ export async function resolveEntity(
   }
 
   // Tier 2/3 — ambiguous: ask the model whether it's the same real-world entity,
-  // with a confidence. (Only runs when blocking surfaced candidates.)
+  // with a confidence. Candidates go in ENRICHED (keys, support, top facts) so
+  // doubt is judged on identity evidence, not label similarity alone.
   const verdict = candidates.length
-    ? await adjudicateMatch(e, candidates, llm)
+    ? await adjudicateMatch(e, await enrichMatchCandidates(orgId, candidates), llm)
     : { matchId: null as string | null, confidence: 0, reason: "" };
 
   // High confidence → resolve to the canonical entity now, logged for audit.
@@ -239,6 +240,80 @@ export interface MatchCandidate {
   id: string;
   canonical_label: string;
   sim: number;
+  /** Enrichment (topFactsForEntities / enrichMatchCandidates): identity
+   *  metadata the adjudicator judges WITH, not just labels. */
+  naturalKeys?: Record<string, string>;
+  support?: number;
+  facts?: string[];
+}
+
+/** Top current facts per entity, rendered "predicate: value" — the metadata
+ *  context for merge adjudication (user call 2026-07-16: doubt should be
+ *  judged with the entities' facts, not labels alone). One query, capped. */
+export async function topFactsForEntities(
+  orgId: string,
+  entityIds: string[],
+  perEntity = 4,
+): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (entityIds.length === 0) return out;
+  try {
+    const rows = await prisma.$queryRaw<
+      { subject_entity_id: string; predicate: string; value_text: string | null; value_num: number | null; value_date: Date | null; unit: string | null; object_label: string | null }[]
+    >`
+      SELECT f.subject_entity_id, f.predicate, f.value_text, f.value_num::float8 AS value_num,
+             f.value_date, f.unit, o.canonical_label AS object_label
+        FROM facts f
+        LEFT JOIN entities o ON o.id = f.object_entity_id
+       WHERE f.org_id = ${orgId}::uuid AND f.valid_to IS NULL
+         AND f.subject_entity_id = ANY(${entityIds}::uuid[])
+       ORDER BY f.subject_entity_id, f.confidence DESC, f.created_at DESC`;
+    for (const r of rows) {
+      const list = out.get(r.subject_entity_id) ?? [];
+      if (list.length >= perEntity) continue;
+      const value =
+        r.object_label ?? (r.value_num != null ? `${r.value_num}${r.unit ? " " + r.unit : ""}` : null) ??
+        (r.value_date ? dateOnly(r.value_date) : null) ?? r.value_text ?? "—";
+      list.push(`${r.predicate}: ${value}`);
+      out.set(r.subject_entity_id, list);
+    }
+  } catch (e) {
+    console.error("[knowledge] topFactsForEntities failed", e);
+  }
+  return out;
+}
+
+/** Attach natural keys, support, and top facts to blocking candidates so the
+ *  adjudicator sees WHO each candidate is. Fail-soft: enrichment errors just
+ *  leave the plain labels. */
+export async function enrichMatchCandidates(
+  orgId: string,
+  candidates: MatchCandidate[],
+): Promise<MatchCandidate[]> {
+  if (candidates.length === 0) return candidates;
+  try {
+    const ids = candidates.map((c) => c.id);
+    const [ents, facts] = await Promise.all([
+      prisma.entities.findMany({
+        where: { org_id: orgId, id: { in: ids } },
+        select: { id: true, natural_keys: true, support: true },
+      }),
+      topFactsForEntities(orgId, ids),
+    ]);
+    const byId = new Map(ents.map((e) => [e.id, e]));
+    return candidates.map((c) => {
+      const e = byId.get(c.id);
+      return {
+        ...c,
+        naturalKeys: (e?.natural_keys as Record<string, string>) ?? {},
+        support: e?.support ?? undefined,
+        facts: facts.get(c.id) ?? [],
+      };
+    });
+  } catch (e) {
+    console.error("[knowledge] candidate enrichment failed", e);
+    return candidates;
+  }
 }
 
 /**
@@ -250,17 +325,30 @@ export async function adjudicateMatch(
   e: ExtractedEntity,
   candidates: MatchCandidate[],
   llm: LlmProvider = getLlmProvider(),
+  opts: { subjectFacts?: string[] } = {},
 ): Promise<{ matchId: string | null; confidence: number; reason: string }> {
-  const list = candidates.map((c) => `- id=${c.id} label="${c.canonical_label}"`).join("\n");
+  // Candidates carry their metadata when the caller enriched them
+  // (enrichMatchCandidates) — the judge sees WHO each one is, not just a name.
+  const list = candidates
+    .map((c) => {
+      const keys = c.naturalKeys && Object.keys(c.naturalKeys).length ? ` keys=${JSON.stringify(c.naturalKeys)}` : "";
+      const seen = c.support != null ? ` seen ${c.support}×` : "";
+      const facts = c.facts?.length ? ` · known facts: ${c.facts.join("; ")}` : "";
+      return `- id=${c.id} label="${c.canonical_label}"${keys}${seen}${facts}`;
+    })
+    .join("\n");
   const system =
     "You decide whether a newly-parsed entity refers to the SAME real-world thing " +
     "as one of several existing candidates. Account for abbreviations, legal suffixes " +
-    "(Inc/LLC/Group/Ltd), and common name variations, but do NOT merge genuinely " +
-    "different organizations that merely share a word. Respond with ONLY JSON: " +
+    "(Inc/LLC/Group/Ltd), and common name variations, and USE the candidates' known " +
+    "facts and identifiers as evidence — matching identifiers are near-proof, " +
+    "contradicting identifiers are near-disproof. Do NOT merge genuinely " +
+    "different things that merely share a word. Respond with ONLY JSON: " +
     '{"matchId": <candidate id string or null>, "confidence": <0..1>, "reason": "<one short sentence>"}.';
   const user =
     `New entity: kind="${e.kind}", label="${e.label}"` +
     (e.naturalKeys && Object.keys(e.naturalKeys).length ? `, keys=${JSON.stringify(e.naturalKeys)}` : "") +
+    (opts.subjectFacts?.length ? `\nIts known facts: ${opts.subjectFacts.join("; ")}` : "") +
     `\nExisting candidates:\n${list}\n\nWhich candidate id (if any) is the same real-world ${e.kind}, and why?`;
   try {
     const r = await llm.chatJSON<{ matchId: string | null; confidence: number; reason?: string }>({

@@ -6,6 +6,7 @@ import {
   createMergeReview,
   embedTextForEntity,
   mergeEntities,
+  topFactsForEntities,
   AUTO_MERGE,
   PROPOSE,
 } from "./knowledge";
@@ -250,10 +251,21 @@ export async function consolidateOrg(orgId: string, llm?: LlmProvider | null): P
     let confidence: number;
     let reason: string;
     if (llm) {
+      // Both sides live in the graph — judge with their facts, not labels
+      // (user call 2026-07-16). Fail-soft: an empty map just means bare labels.
+      const factCtx = await topFactsForEntities(orgId, [winner.id, loser.id]);
       const verdict = await adjudicateMatch(
         { localId: "x", kind: loser.kind, label: loser.label, naturalKeys: loser.naturalKeys },
-        [{ id: winner.id, canonical_label: winner.label, sim: pair.sim }],
+        [{
+          id: winner.id,
+          canonical_label: winner.label,
+          sim: pair.sim,
+          naturalKeys: winner.naturalKeys,
+          support: winner.support,
+          facts: factCtx.get(winner.id) ?? [],
+        }],
         llm,
+        { subjectFacts: factCtx.get(loser.id) ?? [] },
       );
       stats.adjudicated++;
       confidence = verdict.matchId === winner.id ? verdict.confidence : 0;

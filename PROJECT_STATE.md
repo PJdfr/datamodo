@@ -12,6 +12,25 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Context-rich documents + metadata-aware merging + PDF
+  vision opt-in (user calls, one commit)**. ① Merge adjudication now judges
+  with EVIDENCE: blocking candidates are enriched with natural keys, support,
+  and their top-4 current facts (`enrichMatchCandidates`/`topFactsForEntities`
+  in knowledge.ts — one query, fail-soft), the consolidation sweep passes
+  BOTH sides' facts, and the judge prompt says matching identifiers ≈ proof,
+  contradicting ≈ disproof. ② Scanned-PDF vision is now OPT-IN
+  (`PDF_SCAN_VISION=1`, default OFF per user call "avoid vision on PDFs for
+  now") — scans stay metadata_only with the blob archived; photos unchanged.
+  ③ Document extraction got the user's WORLD: `buildDocumentPrompt` renders
+  the doc-text-primed known-entities block, active agents (name+purpose),
+  and existing tables (name+columns) — "a dropped PDF usually means extract
+  to a template/table"; `DOC_SYSTEM`'s summary is now a markdown-page style
+  guide (sections, field/value table, bold figures, [[wikilinks]] the entity
+  page renders live); the ≤3-concept cap stays (tags, not content).
+  Audio transcripts get agents+tables too. tests: buildDocumentPrompt block
+  test added; suite 320 pass / 3 pre-existing canvas failures; tsc/eslint
+  clean (gotcha: pure modules imported by test-reachable files need explicit
+  .ts extensions — ontology.ts → priming-core.ts). NOT live-fired.
 - **2026-07-16** — **Relevance-based entity priming (GRAPH_PIPELINE.md
   P2.6, user call: "give him the entities/concepts/names close to the
   input")** — the extraction prompt's context is now chosen BY the message,

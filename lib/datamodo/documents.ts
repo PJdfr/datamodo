@@ -63,6 +63,36 @@ export async function processItemAttachments(
     select: { id: true, filename: true, content_type: true, bytes: true, blob_hash: true },
   });
 
+  // Document context (user call 2026-07-16: "a dropped PDF usually means
+  // extract to a template/table"): the user's agents (why documents arrive)
+  // and tables (where fields should land) ride the distill prompt. Loaded
+  // once per item; best-effort — extraction works without either.
+  const agents = await prisma.agents
+    .findMany({
+      where: { org_id: item.org_id, status: "active", NOT: { purpose_text: null } },
+      select: { name: true, purpose_text: true },
+      take: 6,
+    })
+    .then((rows) => rows.map((a) => ({ name: a.name, purpose: (a.purpose_text ?? "").slice(0, 160) })))
+    .catch(() => []);
+  const tables = await prisma.datasets
+    .findMany({
+      where: { org_id: item.org_id },
+      select: { name: true, columns: true },
+      orderBy: { updated_at: "desc" },
+      take: 8,
+    })
+    .then((rows) =>
+      rows.map((d) => ({
+        name: d.name,
+        columns: (Array.isArray(d.columns) ? (d.columns as { key?: string }[]) : [])
+          .map((c) => c.key ?? "")
+          .filter(Boolean)
+          .slice(0, 10),
+      })),
+    )
+    .catch(() => []);
+
   const results: AttachmentProcessResult[] = [];
   for (const att of atts) {
     try {
@@ -101,7 +131,11 @@ export async function processItemAttachments(
           if (doc.text) {
             // Classify-first + template-restrained: the document is distilled
             // to its category's template (+ ≤3 concepts + a markdown summary),
-            // never free-ranged like a message.
+            // never free-ranged like a message. Relevance priming runs on the
+            // DOCUMENT's own text (labels in it + one embedding) — fail-soft.
+            const known = await import("./priming")
+              .then(({ primeKnownEntities }) => primeKnownEntities(item.org_id, doc!.text))
+              .catch(() => []);
             const res = await extractFromDocument(
               {
                 text: doc.text,
@@ -110,6 +144,9 @@ export async function processItemAttachments(
                 businessContext,
                 kinds,
                 concepts,
+                agents,
+                tables,
+                known,
               },
               llm,
             );
@@ -118,11 +155,15 @@ export async function processItemAttachments(
             docKind = res.docKind;
             offTemplate = res.offTemplateReview;
             indexing = doc.truncated ? "partial" : "full";
-          } else if (kind === "pdf" && isLikelyScannedPdf(doc) && meta.bytes <= MAX_IMAGE_BYTES) {
-            // SCANNED PDF: no text layer — the content is pixels. Rasterize its
-            // pages (up to MAX_SCAN_PAGES / the payload budget) and read them
-            // in ONE vision call, same tier as a photo. Fail-soft: no canvas /
-            // no vision key → stays metadata_only.
+          } else if (kind === "pdf" && isLikelyScannedPdf(doc) && meta.bytes <= MAX_IMAGE_BYTES && process.env.PDF_SCAN_VISION === "1") {
+            // SCANNED PDF: no text layer — the content is pixels. OPT-IN
+            // (user call 2026-07-16: no vision on PDFs for now): set
+            // PDF_SCAN_VISION=1 to rasterize the pages (up to MAX_SCAN_PAGES
+            // / the payload budget) and read them in ONE vision call, same
+            // tier as a photo. Off / no canvas / no vision key → the scan
+            // stays metadata_only (the blob is archived; a requeue after
+            // enabling the flag re-reads it). Photos/screenshots are NOT
+            // affected — only PDFs whose text layer is empty.
             const scan = await rasterizePdfPages(bytes, doc.pages ?? 1);
             if (scan && scan.pages.length > 0) {
               const [first, ...rest] = scan.pages;
@@ -202,6 +243,8 @@ export async function processItemAttachments(
                 businessContext,
                 kinds,
                 concepts,
+                agents,
+                tables,
               },
               llm,
             );

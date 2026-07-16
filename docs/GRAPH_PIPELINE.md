@@ -153,12 +153,19 @@ the exact JSON.
   IS, not what it mentions." User prompt = category *menu* + first 2,000 chars.
   Cheap call, `models.extract`.
 - **② `DOC_SYSTEM`** (~331): "you are DISTILLING, not transcribing" — return a
-  markdown `summary` (3–8 sentences → becomes `body_md`), the primary subject
-  as `e1` using **ONLY the classified kind's template predicates**, entities
-  its relation verbs point at, ≤3 concepts; "NEVER extract incidental
-  entities… Fewer, correct facts beat many." User prompt
-  (`buildDocumentPrompt`) carries just that ONE kind's template (not the whole
-  registry) + concepts + business context + filename + text.
+  markdown `summary` that is **the document's PAGE in the vault** (since
+  2026-07-16: overview → `##` sections when the document has structure → a
+  `| field | value |` table of key values → bold figures → `[[wikilinks]]`
+  around every entity also returned as facts, which the app renders live),
+  the primary subject as `e1` using **ONLY the classified kind's template
+  predicates**, entities its relation verbs point at, ≤3 concepts (a TAG cap,
+  not a content cap — richness lives in the page and the template facts);
+  "NEVER extract incidental entities… Fewer, correct facts beat many." User
+  prompt (`buildDocumentPrompt`) carries that ONE kind's template + the
+  relevance-primed known-entities block (on the DOCUMENT's own text) + the
+  user's **agents** (name+purpose — a dropped PDF usually exists FOR one) +
+  their **tables** (name+columns — matching predicates land straight in) +
+  concepts + business context + filename + text.
 - Off-template facts the model returns anyway are NOT silently dropped:
   `restrictExtractionToTemplates` removes them from the graph and packages
   them as an `off_template` review ("add anyway?").
@@ -173,9 +180,14 @@ unreadable or decorative, return empty and say so."
 ### 3e · Entity-merge adjudication — in `adjudicateMatch` (knowledge.ts ~249)
 
 "You decide whether a newly-parsed entity refers to the SAME real-world thing
-as one of several candidates. Account for abbreviations, legal suffixes
-(Inc/LLC/Group/Ltd), name variations, but do NOT merge genuinely different
-organizations that merely share a word." → `{matchId, confidence, reason}`.
+as one of several candidates… USE the candidates' known facts and identifiers
+as evidence — matching identifiers are near-proof, contradicting identifiers
+are near-disproof… do NOT merge genuinely different things that merely share
+a word." → `{matchId, confidence, reason}`. Since 2026-07-16 (user call)
+candidates go in ENRICHED — natural keys, support count, top-4 current facts
+(`enrichMatchCandidates`/`topFactsForEntities`) — and the consolidation
+sweep passes both sides' facts, so doubt is judged on identity evidence,
+never label similarity alone.
 
 ### 3f · Grounded answers — `SYSTEM` in [`answer.ts`](../lib/datamodo/answer.ts) (~102)
 
@@ -226,7 +238,7 @@ still exists — filename/type/size + `mentions` edges).
 | input | path |
 | --- | --- |
 | **PDF with a text layer** | `extractAttachmentText` via **unpdf** (page-capped, char-capped) → classify-first document pipeline (§3c) → summary=`body_md`, chunks, template facts. |
-| **Scanned PDF** (`isLikelyScannedPdf`: <~24 chars/page) | `rasterizePdfPages` (unpdf `renderPageAsImage` + `@napi-rs/canvas`, up to 6 pages in ONE vision call, payload-budgeted) → `extractFromImage`. |
+| **Scanned PDF** (`isLikelyScannedPdf`: <~24 chars/page) | **OPT-IN since 2026-07-16** (user call: no vision on PDFs for now): only with `PDF_SCAN_VISION=1` does `rasterizePdfPages` (up to 6 pages, ONE vision call) → `extractFromImage` run; otherwise the scan stays `metadata_only` (blob archived — a requeue after enabling re-reads it). Photos are unaffected. |
 | **Image** (photo/screenshot) | vision tier §3d; the summary is the image's only text → chunked so passage search can cite what the image says. |
 | **Audio** (voice memo) | `transcribeAudio` (Whisper-shaped, fail-soft) → the transcript runs the SAME document pipeline; node body = player + summary + transcript. |
 | **Spreadsheet** | `parseWorkbook` → `sheetToText` → document pipeline. (Bulk imports have their own preview/confirm flow.) |

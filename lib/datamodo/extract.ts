@@ -5,7 +5,7 @@ import { readBlob } from "@/lib/ingest/store";
 import { ingestExtraction, createExtractionReview, normalizeKey, type Extraction, type ExtractedFact } from "@/lib/datamodo/knowledge";
 import { buildNoteExtraction, NOTE_KIND, type GeneratedNote } from "@/lib/datamodo/document-extraction";
 import { getOnboardingContext } from "@/lib/datamodo/settings";
-import { renderKnownBlock } from "./priming-core";
+import { renderKnownBlock } from "./priming-core.ts";
 import {
   buildClassifyPrompt,
   buildDocumentPrompt,
@@ -345,7 +345,13 @@ const DOC_SYSTEM = `You distill ONE DOCUMENT (a file the user received) into str
 The document's full text is archived elsewhere — you are DISTILLING, not transcribing.
 
 Return:
-1. "summary": a compact markdown summary (3–8 sentences; a short bullet list where it genuinely helps). A reader should understand the document without opening it. No heading repeating the filename.
+1. "summary": the document's PAGE in the user's knowledge vault — well-formed markdown a note-taking app would be proud of:
+   - Open with a 2–4 sentence overview a reader can trust without opening the document.
+   - Add "## " sections when the document has real structure (terms, findings, line items…); short bullets over prose walls.
+   - Put the key structured values in a compact "| field | value |" table.
+   - Bold the load-bearing figures (**$100**, **2026-01-02**).
+   - Wrap every entity you ALSO return in facts as a [[wikilink]] with its exact label (e.g. [[Acme Group]]) — the app renders these as live links into the graph.
+   - No heading repeating the filename. Length follows the document: an invoice is short, a report earns sections.
 2. entities/facts: the document's PRIMARY SUBJECT as the FIRST entity ("e1"), using the category and ONLY the template predicates given in the instructions; entities the template's relation verbs point at; plus concept tags.
 - Tag with AT MOST 3 "concept" entities for what the document is about (research area, topic, technique). STRONGLY prefer the user's existing concepts when given.
 - NEVER extract incidental entities, passing mentions, boilerplate, or facts outside the template. Fewer, correct facts beat many.
