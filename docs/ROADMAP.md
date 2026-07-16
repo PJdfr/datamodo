@@ -128,6 +128,36 @@
   between cited nodes); re-derive/refresh action on derived tables when the
   graph grows; folder export straight to Drive/Dropbox.
 
+## Optimal-graph track (see [GRAPH_PIPELINE.md](GRAPH_PIPELINE.md) §11 — the full plan)
+The end-to-end pipeline reference + ordered roadmap toward the "optimal
+graph" bar (cheap-LLM append · fast retrieval · no degeneration · multimodal)
+lives in [`docs/GRAPH_PIPELINE.md`](GRAPH_PIPELINE.md) (2026-07-16). Phases,
+in value order — details, file seams, and acceptance criteria in that doc:
+1. **P1 Background consolidation worker** — the missing homeostasis: cron
+   merge sweep (ANN+trigram candidates → adjudicate → auto-merge/propose),
+   orphan-prune reviews, embedding backfill. Highest degeneration risk today.
+2. **P2 Vocabulary telemetry + predicate budget** — measure sprawl
+   (predicates/kind, template-conformity %) + an ontology-health card;
+   predicate growth gets the same review gate kinds already have.
+3. **P3 PDF → markdown** — replace unpdf's flat text layer with a
+   structure-preserving converter (Docling/marker/MinerU sidecar behind the
+   `extractAttachmentText` seam; JS heuristics as fail-soft) → heading-aligned
+   doc_chunks + table extraction.
+4. **P4 Edge metadata via reification** — `reify: true` relations in kind
+   templates (an `employment` node instead of a bare `works_at` edge); no
+   schema change.
+5. **P5 Agent lenses** — ONE graph per user, per-agent read-side filters
+   (stamp `agent_id` on facts at ingest; `agent` param on
+   search/answer/Explorer). Per-agent physical graphs explicitly rejected
+   (identity would fragment — GRAPH_PIPELINE.md §9).
+6. **P6 Shared multimodal embedding space** — only if caption-then-embed
+   demonstrably misses real queries.
+Also assessed there: arXiv 2607.13728 (CwA, Meta FAIR) = learned ANN
+partitioning — wrong scale for per-user vaults today; filed as the future
+index-service seam, one transferable idea (query vs database distribution
+mismatch → keep linking/resolution thresholds separate, eval retrieval on
+real questions).
+
 ## Next build tracks (pick after the above)
 - **MCP server / connectors — run datamodo on a Claude SUBSCRIPTION, no API
   key** (user ask 2026-07-14). **PHASE 1 ✅ SHIPPED 2026-07-14**: Streamable-

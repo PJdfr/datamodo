@@ -12,6 +12,21 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **New living doc: `docs/GRAPH_PIPELINE.md`** (user ask:
+  "make ULTRA CLEAR the pipeline") — the end-to-end graph reference: schema
+  (entities/facts/doc_chunks/reviews), the exact extraction prompts + the
+  context each LLM call gets, model-picking (BYOK → platform, extract/
+  escalate/vision slots), the multimodal paths (unpdf text layer, scan →
+  rasterize → vision, audio → transcript), GraphRAG query flow + grounded-
+  answer shape, claim-key versioning + the review PR loop, edge-fact vs
+  node-attribute semantics, and the ordered optimal-graph roadmap (P1
+  consolidation worker → P2 vocabulary telemetry → P3 PDF→markdown → P4
+  reification → P5 agent lenses → P6 multimodal embeddings). Decisions
+  recorded: ONE graph per user with agent lenses (per-agent physical graphs
+  rejected — identity fragmentation); graph-DB migration explicitly off the
+  roadmap; arXiv 2607.13728 (CwA — learned ANN partitioning, Meta FAIR)
+  assessed as wrong-scale for now, filed as the future index-service seam.
+  ROADMAP.md gained the track summary. Docs only — no behavior change.
 - **2026-07-16** — **Anthropic path is now E2E-verifiable (mock /v1/messages
   + `ANTHROPIC_BASE_URL`)**. The two Claude-key bugs (temperature 400, empty
   response) reached the user because mock-ollama only spoke the
