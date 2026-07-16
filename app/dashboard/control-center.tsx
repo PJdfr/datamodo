@@ -2076,9 +2076,11 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
               ? <>No API key needed — models run on <b>your own machine</b>. The URL must be reachable from datamodo&apos;s servers: on the same box use localhost; otherwise expose it via a tunnel (Tailscale funnel, ngrok, cloudflared). Pull a JSON-capable model first (ollama pull llama3.1).</>
               : <>This is an <b>API key</b> (billed per use), not your ChatGPT Plus / Claude Pro subscription — those don&apos;t grant API access. Get one from {provider === "openai" ? "platform.openai.com" : provider === "openrouter" ? "openrouter.ai/keys" : "console.anthropic.com"}. OpenRouter gives you one key across many models. Signing in to authorise your account is on the roadmap.</>}
           </div>
-          {/* Local edition: pick the exact model names here instead of env vars.
-              (URL/status hidden — in BYOK the server/key field above says where.) */}
-          {local && <LocalAiFields showUrl={false} showStatus={false} />}
+          {/* Local edition: pick the exact model names here instead of env vars
+              — saved PER PROVIDER, so your Ollama names never reach Anthropic
+              and vice-versa. (URL/status hidden — in BYOK the server/key field
+              above says where.) */}
+          {local && <LocalAiFields key={provider} provider={provider} showUrl={false} showStatus={false} />}
         </div>
       )}
 
@@ -2212,17 +2214,28 @@ function ConnectorsCard() {
 /* Local edition — the local-AI config, all persisted to ~/.datamodo/llm.json
  * (the same store the first-run wizard seeds): the Ollama server URL (WHERE)
  * and the model names (WHICH model handles text vs. images/scanned PDFs).
- * Blank falls back to the env var, then the built-in default. Shows live
- * reachability + the models installed on the server (suggested via datalist). */
-function LocalAiFields({ showUrl = true, showStatus = true }: { showUrl?: boolean; showStatus?: boolean }) {
+ * Model names are saved PER PROVIDER — the fields shown here belong to the
+ * `provider` prop only, so Ollama names never reach a BYOK provider. Blank
+ * falls back to the env var, then the built-in default. For Ollama, shows
+ * live reachability + the installed models (suggested via datalist). */
+const MODEL_HINTS: Record<string, { extract: string; vision: string }> = {
+  ollama: { extract: "Text model — e.g. llama3.1:8b  (blank = default)", vision: "Vision / scanned-PDF model — e.g. llama3.2-vision  (blank = llava)" },
+  anthropic: { extract: "Text model — e.g. claude-haiku-4-5  (blank = default)", vision: "Vision model — e.g. claude-haiku-4-5  (blank = text model)" },
+  openai: { extract: "Text model — e.g. gpt-4o-mini  (blank = default)", vision: "Vision model — e.g. gpt-4o-mini  (blank = text model)" },
+  openrouter: { extract: "Text model — e.g. anthropic/claude-haiku-4.5  (blank = default)", vision: "Vision model — a vision-capable id  (blank = text model)" },
+};
+
+function LocalAiFields({ provider = "ollama", showUrl = true, showStatus = true }: { provider?: string; showUrl?: boolean; showStatus?: boolean }) {
   const [extract, setExtract] = useState("");
   const [vision, setVision] = useState("");
   const [url, setUrl] = useState("");
   const [status, setStatus] = useState<{ url: string; reachable: boolean; tags: string[] } | null>(null);
   const [saved, setSaved] = useState(false);
+  const isOllama = provider === "ollama";
+  const hints = MODEL_HINTS[provider] ?? MODEL_HINTS.ollama;
 
   const load = (live?: { on: boolean }) => {
-    fetch("/api/local/llm-models")
+    fetch(`/api/local/llm-models?provider=${encodeURIComponent(provider)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (live && !live.on) return;
@@ -2236,33 +2249,34 @@ function LocalAiFields({ showUrl = true, showStatus = true }: { showUrl?: boolea
     const live = { on: true };
     load(live);
     return () => { live.on = false; };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider]);
 
   const save = async () => {
     try {
       const res = await fetch("/api/local/llm-models", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ models: { extract, vision, url } }),
+        body: JSON.stringify({ provider, models: { extract, vision, ...(isOllama ? { url } : {}) } }),
       });
       if (res.ok) {
         setSaved(true);
         window.setTimeout(() => setSaved(false), 1600);
-        load(); // re-probe: a URL change should update reachability + tags
+        if (isOllama) load(); // re-probe: a URL change should update reachability + tags
       }
     } catch { /* best-effort */ }
   };
 
   return (
     <div style={showUrl ? undefined : { marginTop: 12, paddingTop: 12, borderTop: "1px solid #ECE5D8" }}>
-      {showUrl && (
+      {showUrl && isOllama && (
         <>
           <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 8 }}>Ollama server</div>
           <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} onBlur={() => void save()}
             placeholder={status?.url ?? "http://localhost:11434  (blank = default)"} autoComplete="off" style={fieldInput} />
         </>
       )}
-      {showStatus && status && (
+      {showStatus && isOllama && status && (
         <div className="dm-mono" style={{ fontSize: 11, marginTop: 8, color: status.reachable ? C.green : C.accent }}>
           {status.reachable
             ? <>✓ Ollama reachable · {status.tags.length} model{status.tags.length === 1 ? "" : "s"} installed</>
@@ -2272,17 +2286,21 @@ function LocalAiFields({ showUrl = true, showStatus = true }: { showUrl?: boolea
       <div className="dm-mono" style={{ ...fieldLabel, margin: "14px 0 8px" }}>
         Models {saved && <span style={{ color: C.green, marginLeft: 6 }}>✓ saved</span>}
       </div>
-      <datalist id="dm-ollama-tags">
-        {(status?.tags ?? []).map((t) => <option key={t} value={t.replace(/:latest$/, "")} />)}
-      </datalist>
+      {isOllama && (
+        <datalist id="dm-ollama-tags">
+          {(status?.tags ?? []).map((t) => <option key={t} value={t.replace(/:latest$/, "")} />)}
+        </datalist>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <input type="text" value={extract} onChange={(e) => setExtract(e.target.value)} onBlur={() => void save()} list="dm-ollama-tags"
-          placeholder="Text model — e.g. llama3.1  (blank = default)" autoComplete="off" style={fieldInput} />
-        <input type="text" value={vision} onChange={(e) => setVision(e.target.value)} onBlur={() => void save()} list="dm-ollama-tags"
-          placeholder="Vision / scanned-PDF model — e.g. llama3.2-vision  (blank = llava)" autoComplete="off" style={fieldInput} />
+        <input type="text" value={extract} onChange={(e) => setExtract(e.target.value)} onBlur={() => void save()} list={isOllama ? "dm-ollama-tags" : undefined}
+          placeholder={hints.extract} autoComplete="off" style={fieldInput} />
+        <input type="text" value={vision} onChange={(e) => setVision(e.target.value)} onBlur={() => void save()} list={isOllama ? "dm-ollama-tags" : undefined}
+          placeholder={hints.vision} autoComplete="off" style={fieldInput} />
       </div>
       <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 8, lineHeight: 1.5 }}>
-        Which model reads text vs. images & scanned PDFs. <span style={{ userSelect: "all" }}>datamodo setup</span> sizes and pulls these for your machine; pull others with <span style={{ userSelect: "all" }}>ollama pull llama3.2-vision</span>. Blank uses the built-in default (or an env var if you set one).
+        {isOllama
+          ? <>Which model reads text vs. images & scanned PDFs. <span style={{ userSelect: "all" }}>datamodo setup</span> sizes and pulls these for your machine; pull others with <span style={{ userSelect: "all" }}>ollama pull llama3.2-vision</span>. Blank uses the built-in default (or an env var if you set one).</>
+          : <>Which {MODEL_HINTS[provider] ? provider : ""} model reads text vs. images & scanned PDFs — saved separately from your Ollama models, so switching back to Local keeps both. Blank uses a sensible default.</>}
       </div>
     </div>
   );

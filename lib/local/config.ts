@@ -118,7 +118,7 @@ export function localEmbeddingDefaults(env: Record<string, string | undefined> =
 }
 
 /** Per-user LLM model overrides (local edition) — the model NAMES to request
- *  from the chosen provider, settable from the dashboard so it's not env-only.
+ *  from ONE provider, settable from the dashboard so it's not env-only.
  *  Empty fields fall through to the env override, then the built-in default. */
 export interface LocalLlmModels {
   /** The text-extraction model (the workhorse). */
@@ -127,30 +127,65 @@ export interface LocalLlmModels {
   escalate?: string;
   /** The vision model — images and scanned-PDF OCR. */
   vision?: string;
-  /** The Ollama server URL (local compute). Blank = OLLAMA_BASE_URL env, then
-   *  http://localhost:11434. Dashboard-editable like the model names. */
+}
+
+/** The providers the local edition can run compute on. */
+export const LOCAL_AI_PROVIDERS = ["ollama", "anthropic", "openai", "openrouter"] as const;
+export type LocalAiProvider = (typeof LOCAL_AI_PROVIDERS)[number];
+
+/** The whole llm.json: model names are stored PER PROVIDER — the first-run
+ *  wizard seeds Ollama names (llama3.1:8b, …) and those must NEVER leak into
+ *  a BYOK provider's requests (Anthropic has no "llama3.1:8b"). `url` is the
+ *  Ollama server address for local compute. */
+export interface LocalLlmFile {
   url?: string;
+  providers: Partial<Record<LocalAiProvider, LocalLlmModels>>;
 }
 
 /** Where the model overrides live inside the data dir. */
 export const LOCAL_LLM_FILE = "llm.json";
 
-/** Validate/normalize raw model config into typed overrides (trim, drop blanks).
+const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+
+/** Validate/normalize one provider's raw model config (trim, drop blanks).
  *  Pure — the route + runtime reader share it. */
 export function sanitizeLlmModels(raw: unknown): LocalLlmModels {
   const o = (raw ?? {}) as Record<string, unknown>;
-  const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
   const out: LocalLlmModels = {};
   const extract = str(o.extract);
   const escalate = str(o.escalate);
   const vision = str(o.vision);
-  const url = str(o.url);
   if (extract) out.extract = extract;
   if (escalate) out.escalate = escalate;
   if (vision) out.vision = vision;
-  // Only an http(s) URL is a server address — anything else is dropped rather
-  // than breaking every LLM call downstream.
-  if (url && /^https?:\/\//i.test(url)) out.url = url.replace(/\/+$/, "");
+  return out;
+}
+
+/** Only an http(s) URL is a server address — anything else is dropped rather
+ *  than breaking every LLM call downstream. */
+export function sanitizeOllamaUrl(raw: unknown): string | undefined {
+  const url = str(raw);
+  return url && /^https?:\/\//i.test(url) ? url.replace(/\/+$/, "") : undefined;
+}
+
+/** Validate/normalize the whole llm.json. Accepts the LEGACY flat shape
+ *  ({extract, vision, url} — pre-provider-namespacing) and migrates it to
+ *  `providers.ollama` (the wizard was the only writer of the flat shape, and
+ *  it always wrote Ollama names). Pure. */
+export function sanitizeLlmFile(raw: unknown): LocalLlmFile {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const out: LocalLlmFile = { providers: {} };
+  const url = sanitizeOllamaUrl(o.url);
+  if (url) out.url = url;
+  if (o.providers && typeof o.providers === "object") {
+    for (const p of LOCAL_AI_PROVIDERS) {
+      const models = sanitizeLlmModels((o.providers as Record<string, unknown>)[p]);
+      if (Object.keys(models).length) out.providers[p] = models;
+    }
+  } else {
+    const legacy = sanitizeLlmModels(o);
+    if (Object.keys(legacy).length) out.providers.ollama = legacy;
+  }
   return out;
 }
 

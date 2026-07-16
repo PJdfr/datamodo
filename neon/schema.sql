@@ -1835,3 +1835,26 @@ ALTER TABLE ONLY public.sheet_links
 -- PostgreSQL database dump complete
 --
 
+
+
+--
+-- Name: llm_usage; Type: TABLE; Schema: public; Owner: -
+--
+-- BYOK provider cost ledger (migration 20260714120000): what the user's OWN
+-- LLM key cost while datamodo ran it. Fail-soft everywhere; cost_usd exact for
+-- OpenRouter, estimated for Anthropic/OpenAI, null when unpriced.
+
+CREATE TABLE IF NOT EXISTS public.llm_usage (
+    id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id        uuid        NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    user_id       uuid        NOT NULL,
+    provider      text        NOT NULL,
+    model         text        NOT NULL,
+    input_tokens  integer     NOT NULL DEFAULT 0,
+    output_tokens integer     NOT NULL DEFAULT 0,
+    cost_usd      double precision,
+    estimated     boolean     NOT NULL DEFAULT true,
+    created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS llm_usage_org_created_idx ON public.llm_usage (org_id, created_at DESC);

@@ -12,6 +12,36 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Local BYOK verified + per-provider model config** (user:
+  "make sure in local i can use my own claude api key or openai or
+  openrouter"). The Settings toggle existed, but live-driving found the trap:
+  the first-run wizard seeds `llm.json` with OLLAMA model names
+  (llama3.1:8b…) and `llmForUser` applied them to EVERY provider — switching
+  to a Claude/OpenAI/OpenRouter key would have requested "llama3.1:8b" from
+  that API and failed every call. Fix: **`llm.json` model names are now
+  namespaced PER PROVIDER** (`{url, providers: {ollama: {…}, anthropic: {…},
+  openai: {…}, openrouter: {…}}}`; legacy flat files migrate to
+  `providers.ollama` on read — pure `sanitizeLlmFile` in `lib/local/config.ts`,
+  unit-tested). `llmForUser` applies only the RESOLVED provider's saved models
+  (byok → `settings.aiProvider`'s slot; local default → the `LLM_PROVIDER`
+  env-resolved slot, ollama). `/api/local/llm-models` takes `?provider=` /
+  `{provider, models}`; Settings' `LocalAiFields` is provider-aware
+  (per-provider placeholders — claude-haiku-4-5 / gpt-4o-mini /
+  anthropic-claude-haiku-4.5 —, Ollama-only URL/status/datalist, byok panel
+  edits the SELECTED provider's slot). Two more real fixes: **`llm_usage` now
+  ships in `neon/schema.sql`** (the BYOK spend card was permanently empty
+  locally — the ledger table only existed as an unapplied cloud migration),
+  and **`usageSummary` was broken everywhere**: Prisma `groupBy._max` on the
+  boolean `estimated` emits `max(boolean)` → 42883 (never seen in cloud only
+  because the table was never migrated there) — rewritten as raw SQL with
+  `bool_or`. Mock-ollama now accepts any model id on keyed requests (cloud-API
+  semantics) so BYOK is drivable against it. VERIFIED on the packed tarball
+  (fresh vault, `OPENAI_BASE_URL` → mock): **11/11 BYOK E2E** — key saved
+  through the real Settings UI, extraction runs with the bearer key, OpenAI
+  default model used (no Ollama-name leak), per-provider dashboard override
+  honored, ollama/openai slots isolated, spend ledger populates, toggle back
+  to Local resumes keyless llama3.1:8b. Anthropic rides the same routing (its
+  API client is cloud-shared code, not mock-drivable).
 - **2026-07-16** — **Local packaging phase 3: the shipped tarball driven
   end-to-end, and the 5 real bugs that only live-driving found** (brief §10 —
   "don't hand back untested"). Harness: mock Ollama on :11434 (rule-based
