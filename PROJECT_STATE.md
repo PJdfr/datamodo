@@ -12,6 +12,19 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Fix: "anthropic: empty response" on Sonnet 5 (thinking
+  blocks)** — follow-up to the temperature fix below; user hit it on the next
+  real chat message. Two causes, both from the same model generation: (1) on
+  Sonnet 5 / Opus 4.7+ omitting `thinking` now runs ADAPTIVE thinking, so the
+  reply's `content[]` leads with thinking blocks (empty text under the default
+  display) and thinking tokens bill against `max_tokens`; (2) our parser read
+  `content[0].text` blindly → "empty response". Fixes in `lib/llm/anthropic.ts`:
+  `buildAnthropicBody` now sends `thinking:{type:"disabled"}` on those models
+  (our chatJSON calls are structured JSON extraction, formerly temperature-0;
+  never sent on always-thinking families where "disabled" is itself a 400 —
+  `anthropicAlwaysThinks`), and the reply is parsed with `extractAnthropicText`
+  (joins `text` blocks, ignores thinking) with a clearer error naming
+  `stop_reason` when there's genuinely no text. Both pure + unit-tested.
 - **2026-07-16** — **Fix: Anthropic `temperature` 400 on newest Claude models**
   (user bug report: "temperature is deprecated for this model" when using a
   Claude API key). Anthropic removed sampling params (`temperature`/`top_p`/
