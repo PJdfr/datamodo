@@ -12,6 +12,24 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **MCP is CLOUD-ONLY** (user call — reverses the same-day
+  "MCP ships local" decision from the packaging build; settles brief open
+  question 1 the other way). The local artifact no longer contains the MCP
+  host: `app/api/mcp` + `app/api/mcp-token` dropped from the prune INCLUDE,
+  the contract cores `lib/datamodo/mcp-{extraction,token}.ts` deleted from
+  the copied tree (new `EXCLUDE_FILES` step), and `mcp-handler` + `zod`
+  dropped from the local package.json (`@modelcontextprotocol/sdk` no longer
+  pinned — zod's only importers were the MCP files). Boundary lint closes MCP
+  again (`app/api/mcp`, `lib/datamodo/mcp-`, `mcp-handler`,
+  `@modelcontextprotocol` are CLOSED targets in both the repo config and the
+  generated zero-exception in-tree config; grep sweep gains the same
+  markers). Local Settings hides the "✦ Connect Claude" card (`!local`);
+  `serve`/docker-entry no longer export `MCP_TOKEN_SECRET`. Cloud unchanged —
+  the MCP host keeps working exactly as shipped 2026-07-14. VERIFIED: pruned
+  tree builds green with zero MCP/zod references (grep + zero-exception
+  depcruise), tarball boots fresh, dashboard Settings shows no Connect-Claude
+  card locally, `/api/mcp*` 404 in the local artifact, 246 unit tests, tsc,
+  lint == baseline.
 - **2026-07-16** — **Local BYOK verified + per-provider model config** (user:
   "make sure in local i can use my own claude api key or openai or
   openrouter"). The Settings toggle existed, but live-driving found the trap:

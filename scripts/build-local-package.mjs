@@ -46,8 +46,8 @@ const INCLUDE = [
   "app/api/kinds",
   "app/api/knowledge",
   "app/api/local",
-  "app/api/mcp",       // the vault on the user's Claude subscription — ships local
-  "app/api/mcp-token",
+  // NO app/api/mcp / mcp-token: MCP is CLOUD-ONLY (user call 2026-07-16) —
+  // the vault-as-tools host stays behind with auth/billing/webhooks.
   "app/api/onboarding",
   "app/api/relations",
   "app/api/search",
@@ -73,6 +73,14 @@ const INCLUDE = [
   "tsconfig.json",
 ];
 
+/** Files inside INCLUDEd dirs that are nonetheless CLOSED — deleted from the
+ *  tree after the copy. (The MCP contract cores live in lib/datamodo, which
+ *  ships wholesale; MCP itself is cloud-only.) */
+const EXCLUDE_FILES = [
+  "lib/datamodo/mcp-extraction.ts",
+  "lib/datamodo/mcp-token.ts",
+];
+
 /** Seam files whose LOCAL implementation replaces the cloud-aware original. */
 const OVERRIDES_DIR = path.join(ROOT, "packaging", "local", "overrides");
 
@@ -83,6 +91,9 @@ const DROP_DEPS = new Set([
   "@neondatabase/serverless",
   "@prisma/adapter-neon",
   "stripe",
+  // MCP host is cloud-only; zod rides out with it (its only importers).
+  "mcp-handler",
+  "zod",
 ]);
 
 /** Build-time deps the local package needs as REGULAR deps (a global install
@@ -97,6 +108,9 @@ const CLOSED_MARKERS = [
   'from "stripe"',
   "lib/auth/server",
   "lib/auth/client",
+  "lib/datamodo/mcp-",
+  "mcp-handler",
+  "@modelcontextprotocol",
   "components/landing",
   // dir-shaped (not URL-shaped): the dashboard legitimately contains dead
   // client fetches like "/api/billing/checkout" behind the local flag — the
@@ -104,6 +118,7 @@ const CLOSED_MARKERS = [
   "app/api/webhooks",
   "app/api/billing",
   "app/api/auth/",
+  "app/api/mcp",
 ];
 
 /* ------------------------------------------------------------------ */
@@ -140,10 +155,6 @@ async function writePackageJson() {
   for (const [k, v] of Object.entries(root.dependencies)) {
     if (!DROP_DEPS.has(k)) deps[k] = v;
   }
-  // Direct import in the MCP route; transitive via mcp-handler otherwise.
-  // (Read the file straight — the SDK's exports map blocks require()ing it.)
-  const sdkPkg = JSON.parse(await fs.readFile(path.join(ROOT, "node_modules", "@modelcontextprotocol", "sdk", "package.json"), "utf8"));
-  deps["@modelcontextprotocol/sdk"] = `^${sdkPkg.version}`;
   for (const k of PROMOTE_DEV_DEPS) {
     deps[k] = root.devDependencies[k] ?? root.dependencies[k];
     if (!deps[k]) throw new Error(`local package needs ${k} but the root package.json doesn't have it`);
@@ -180,9 +191,11 @@ module.exports = {
       from: {},
       to: { path: [
         "^lib/auth/(server|client)",
+        "^lib/datamodo/mcp-",
         "^components/(landing|google-button)",
-        "^app/api/(auth|billing|webhooks)",
+        "^app/api/(auth|billing|webhooks|mcp)",
         "@neondatabase", "@prisma/adapter-neon", "^stripe$", "@aws-sdk",
+        "^mcp-handler$", "@modelcontextprotocol", "^zod$",
       ] },
     },
     {
@@ -237,6 +250,10 @@ await fs.mkdir(OUT, { recursive: true });
 for (const rel of INCLUDE) {
   await copyInto(rel);
   console.log(`  copy    ${rel}`);
+}
+for (const rel of EXCLUDE_FILES) {
+  await fs.rm(path.join(OUT, rel), { force: true });
+  console.log(`  drop    ${rel}`);
 }
 await applyOverrides();
 await writePackageJson();

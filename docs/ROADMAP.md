@@ -454,8 +454,10 @@
     dependency-cruiser + optional in-tree `next build`) and packs the npm
     tarball — 181 files, zero closed-layer paths. Boundary enforced
     mechanically in the main repo too (`.dependency-cruiser.cjs`, CI).
-    Decision: **MCP ships in the local package** (secret = per-install ingest
-    secret). Docker image builds FROM the pruned tree
+    ~~Decision: MCP ships in the local package~~ **REVERSED 2026-07-16 (user
+    call): MCP is CLOUD-ONLY** — the host, its contract cores
+    (`lib/datamodo/mcp-*`) and `mcp-handler`/`zod` are excluded from the
+    prune; local Settings hides "Connect Claude". Docker image builds FROM the pruned tree
     (`packaging/local/docker/`); one-command installers in `packaging/`.
     STILL OPEN (needs a human/ops): publish channel (npm name availability,
     GHCR vs Docker Hub), get.datamodo.dev hosting for the installer + compose
