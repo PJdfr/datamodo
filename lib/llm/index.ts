@@ -65,6 +65,9 @@ export function getLlmProvider(
     case "anthropic":
       return new AnthropicProvider({
         apiKey: apiKey ?? env("ANTHROPIC_API_KEY"),
+        // Override for mocks/proxies — E2E drives the REAL provider code
+        // against a mock Anthropic server, same pattern as *_BASE_URL above.
+        baseUrl: env("ANTHROPIC_BASE_URL"),
         hooks,
         models: {
           extract: m.extract ?? env("ANTHROPIC_EXTRACT_MODEL") ?? "claude-haiku-4-5",
