@@ -394,6 +394,13 @@
     install, switchable compute — local Settings shows "Local — on this
     machine" (Ollama URL + models, live reachability + installed-model
     suggestions) vs BYOK; no plan/billing card locally.
+  - ~~**Non-dev AI settings panel** ✅ 2026-07-16~~ (user ask): the whole
+    LLM setup is dashboard-only — live Ollama running/not-running status with
+    in-place recovery, installed-model dropdowns, one-click downloads of the
+    machine-recommended models (`/api/local/ollama-pull`), free "Test key"
+    (validates + lists the key's models → dropdowns) and "Test it" (one real
+    tiny call, latency shown) via `/api/local/llm-probe`; fresh vaults open
+    on the Local card (local `getSettings` reports the effective mode).
   - ~~**Real-Postgres local runtime** ✅ 2026-07-15~~ (brief §4): a
     user/compose `DATABASE_URL` gets a pooled adapter (no `max:1`, no retry
     shim — gated to `DATAMODO_EMBEDDED_DB`); `neon/schema.sql` now loads into

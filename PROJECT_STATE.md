@@ -12,6 +12,30 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Non-dev AI settings panel** (user: "make the interface
+  easier for non-dev users + allow them to do everything from the dashboard
+  and not in the terminal" + "make sure everything is ready" — no stale
+  roadmap copy). Settings → Local: live Ollama status (green "running · N
+  models" / friendly not-running box with ollama.com link + **Check again**
+  that recovers in place), model **dropdowns from what's installed**,
+  **one-click download chips** for the models the sizing recommends for this
+  machine (`POST /api/local/ollama-pull`, UI polls until the model lands),
+  and **Test it** — one real tiny completion with latency. BYOK: **Test key**
+  (free list-models call: Anthropic `/v1/models`, OpenAI `/v1/models`,
+  OpenRouter `/key`+`/models`) validates the typed key (human 401 copy) and
+  fills the model dropdowns with what that key can use; probe keys are
+  transient, never stored (`POST /api/local/llm-probe`). Removed both
+  "…is on the roadmap" sentences (BYOK helper + MCP card). **Root-cause fix**:
+  fresh local vaults opened Settings on "Bring your own key"/Claude with a
+  red "Add your API key to start" badge because the DB default is
+  cloud-shaped (`compute_mode='byok'`) — local `getSettings` now reports the
+  mode actually in effect (byok without a credential runs on the machine's
+  Ollama anyway), so the Local card + green "Local AI — this machine" badge
+  are the fresh-install truth. VERIFIED 31/31 on the repacked artifact
+  (16 API probes incl. dead-server/bad-key/missing-model errors + 15
+  Playwright steps incl. kill-Ollama→box→restart→Check-again→green and a
+  chip download landing in `/api/tags`); tsc, 252 unit tests, lint at
+  baseline, `lint:boundary` clean.
 - **2026-07-16** — **Live agent suggestion while typing** (user: "if the
   classifier is free and fast, can't we suggest the agent before send?").
   The SAME zero-cost router now also runs IN THE BROWSER on every keystroke

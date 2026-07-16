@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { isLocalMode, LOCAL_AI_PROVIDERS, type LocalAiProvider } from "@/lib/local/config";
 import { readLocalLlmFile, writeLocalLlmModels } from "@/lib/local/llm-config";
-import { ollamaTags, DEFAULT_OLLAMA_URL } from "@/lib/local/setup.mjs";
+import { ollamaTags, DEFAULT_OLLAMA_URL, detectRamGb } from "@/lib/local/setup.mjs";
+import { pickTier } from "@/lib/local/sizing.mjs";
 
 // LOCAL-ONLY: read/write the per-user LLM config (~/.datamodo/llm.json) — the
 // Ollama server URL + which model handles text vs. vision, stored PER PROVIDER
@@ -39,7 +40,15 @@ export async function GET(req: Request) {
   }
   // `url` rides inside models for the Settings form (one save shape).
   if (provider === "ollama") models.url = file.url;
-  return NextResponse.json({ provider, models, ...(ollama ? { ollama } : {}) });
+  // What the first-run wizard would pick for THIS machine — Settings offers
+  // the same as one-click downloads (terminal-free `datamodo setup`).
+  let recommended: { ramGb: number; tier: string; text: string; vision: string | null; embed: string } | undefined;
+  if (provider === "ollama") {
+    const ramGb = await detectRamGb().catch(() => 0);
+    const tier = pickTier(ramGb);
+    recommended = { ramGb, tier: tier.name, text: tier.text, vision: tier.vision, embed: tier.embed };
+  }
+  return NextResponse.json({ provider, models, ...(ollama ? { ollama } : {}), ...(recommended ? { recommended } : {}) });
 }
 
 export async function POST(req: Request) {
