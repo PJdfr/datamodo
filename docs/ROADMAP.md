@@ -382,10 +382,13 @@
     hold a 1536-d vector) to hnsw/cosine (matching cloud). VERIFIED end-to-end
     (guarded integration test): schema builds, `entities.embedding` is `vector`,
     ANN sim=1 + trigram match on the real tables. Set `DATABASE_URL` to use
-    your own PG instead. Still open: ship the built Next standalone IN the npm
-    package (today `serve` runs `next start` in the repo / expects a prebuilt
-    `.next/standalone` in the package); local embeddings still want the
-    `vector(1536)` column re-declared for a 768-d model at install.
+    your own PG instead. ~~Ship the built Next app IN the npm package~~ ✅
+    2026-07-16 — the tarball carries the production `.next` (junk stripped,
+    turbopack's externalized-package symlinks → manifest recreated at
+    postinstall, required-server-files templated per install dir, deps pinned
+    exact to match the build); first `serve` boots in ~6 s instead of
+    compiling. Local embeddings' `vector(1536)` re-declare shipped earlier
+    via `EMBEDDINGS_COLUMN_DIM`.
   - ~~**First-run sizing (RAM → model tier → pull)** ✅ 2026-07-15~~ (packaging
     brief §5): `datamodo setup` + auto on first `serve` — cgroup-aware RAM
     detect → tier table (pure `lib/local/sizing.mjs`) → Ollama `/api/pull`

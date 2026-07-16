@@ -134,6 +134,16 @@ async function applyOverrides(dir = OVERRIDES_DIR, rel = "") {
   }
 }
 
+/** The version actually installed in the root tree (read straight — some
+ *  packages' exports maps block require()ing their package.json). */
+async function installedVersion(name) {
+  try {
+    return JSON.parse(await fs.readFile(path.join(ROOT, "node_modules", name, "package.json"), "utf8")).version ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function writePackageJson() {
   const root = require(path.join(ROOT, "package.json"));
   const deps = {};
@@ -141,12 +151,19 @@ async function writePackageJson() {
     if (!DROP_DEPS.has(k)) deps[k] = v;
   }
   // Direct import in the MCP route; transitive via mcp-handler otherwise.
-  // (Read the file straight — the SDK's exports map blocks require()ing it.)
-  const sdkPkg = JSON.parse(await fs.readFile(path.join(ROOT, "node_modules", "@modelcontextprotocol", "sdk", "package.json"), "utf8"));
-  deps["@modelcontextprotocol/sdk"] = `^${sdkPkg.version}`;
+  deps["@modelcontextprotocol/sdk"] = null; // pinned from the installed tree below
   for (const k of PROMOTE_DEV_DEPS) {
     deps[k] = root.devDependencies[k] ?? root.dependencies[k];
-    if (!deps[k]) throw new Error(`local package needs ${k} but the root package.json doesn't have it`);
+    if (!deps[k] && !(await installedVersion(k))) throw new Error(`local package needs ${k} but the root package.json doesn't have it`);
+  }
+  // Pin EVERY dependency to the exact version installed here: the tarball
+  // ships a PREBUILT `.next`, and `next start` must run under the exact
+  // next/react (and friends) the build was made with — a ^range that resolves
+  // newer on the user's machine would mismatch the shipped build.
+  for (const k of Object.keys(deps)) {
+    const exact = await installedVersion(k);
+    if (exact) deps[k] = exact;
+    if (!deps[k]) throw new Error(`cannot resolve a version for local dependency ${k}`);
   }
   const pkg = {
     name: "datamodo",
@@ -157,7 +174,10 @@ async function writePackageJson() {
     homepage: "https://datamodo.dev",
     bin: { datamodo: "bin/datamodo.mjs" },
     scripts: {
-      postinstall: "prisma generate",
+      // link-externals restores the shipped build's `.next/node_modules`
+      // symlinks (npm can't pack symlinks) — at install time, because a
+      // global install dir may be root-owned when `serve` later runs as a user.
+      postinstall: "prisma generate && node bin/link-externals.mjs",
       build: "node bin/datamodo.mjs build",
       start: "node bin/datamodo.mjs serve",
     },
@@ -241,9 +261,12 @@ for (const rel of INCLUDE) {
 await applyOverrides();
 await writePackageJson();
 await writePrunedBoundaryConfig();
+// `.next` is NOT ignored — the prebuilt app ships (prepareBuildForShipping
+// strips what `next start` doesn't need). cache/ is belt-and-braces: it's
+// deleted before packing, but must never ride along if that ever changes.
 await fs.writeFile(
   path.join(OUT, ".npmignore"),
-  [".next/", "node_modules/", ".dependency-cruiser.cjs", "*.tsbuildinfo", "next-env.d.ts"].join("\n") + "\n",
+  [".next/cache/", "node_modules/", ".dependency-cruiser.cjs", "*.tsbuildinfo", "next-env.d.ts"].join("\n") + "\n",
 );
 await fs.copyFile(path.join(ROOT, "packaging", "local", "README.md"), path.join(OUT, "README.md"));
 
@@ -261,18 +284,111 @@ const depcruise = path.join(ROOT, "node_modules", ".bin", "depcruise");
 await run(depcruise, ["app", "lib", "bin", "components", "--config", ".dependency-cruiser.cjs"], { cwd: OUT });
 console.log("✓ boundary lint (zero exceptions) passed on the pruned tree");
 
-// ---- PROOF 3 (--build): the tree builds standalone -------------------------
+// ---- PROOF 3 (--build): the tree builds standalone --------------------------
+// The build is not only a proof anymore — it SHIPS. The tarball carries the
+// production `.next`, so a user's first `datamodo serve` boots in seconds
+// instead of compiling the app on their machine.
 if (args.has("--build")) {
   console.log("installing + building the pruned tree (this takes a few minutes)…");
   await run("npm", ["install", "--no-audit", "--no-fund"], { cwd: OUT });
-  await run("npx", ["next", "build"], { cwd: OUT, env: { ...process.env, DATAMODO_LOCAL: "1", NEXT_TELEMETRY_DISABLED: "1" } });
+  // Scrub NEXT_PUBLIC_* from the build env: those values get INLINED into
+  // client bundles and prerendered pages — a dev/CI machine's values must
+  // never ship inside the artifact. (Server-side env is read at runtime.)
+  const buildEnv = { ...process.env, DATAMODO_LOCAL: "1", NEXT_TELEMETRY_DISABLED: "1" };
+  for (const k of Object.keys(buildEnv)) if (k.startsWith("NEXT_PUBLIC_")) delete buildEnv[k];
+  await run("npx", ["next", "build"], { cwd: OUT, env: buildEnv });
   console.log("✓ pruned tree builds with DATAMODO_LOCAL=1");
+  await prepareBuildForShipping();
 }
 
-// ---- pack -------------------------------------------------------------------
+/** Make the fresh `.next` shippable: drop build junk `next start` never reads,
+ *  turn the un-packable symlinks into a manifest (see bin/link-externals.mjs),
+ *  and PROVE nothing from this machine leaked into the artifact. */
+async function prepareBuildForShipping() {
+  const NEXT = path.join(OUT, ".next");
+  await fs.access(path.join(NEXT, "prerender-manifest.json")); // complete build?
+
+  // Junk `next start` doesn't use: build cache, traces, editor types, and the
+  // per-route .nft.json tracing files (standalone/deploy tracing metadata).
+  for (const d of ["cache", "trace", "trace-build", "diagnostics", "types"]) {
+    await fs.rm(path.join(NEXT, d), { recursive: true, force: true });
+  }
+
+  // required-server-files.{json,js} ARE read by `next start` — but they embed
+  // this machine's absolute app dir. Ship them as TEMPLATES (path → token);
+  // bin/link-externals.mjs writes the real files with the install dir at
+  // postinstall. The originals are removed so a stale copy can't half-work.
+  for (const f of ["required-server-files.json", "required-server-files.js"]) {
+    const p = path.join(NEXT, f);
+    const text = await fs.readFile(p, "utf8");
+    if (!text.includes(OUT)) throw new Error(`${f} no longer embeds the app dir — revisit the template step`);
+    await fs.writeFile(p + ".tmpl", text.replaceAll(OUT, "__DATAMODO_APP_ROOT__"));
+    await fs.rm(p);
+  }
+  async function rmNft(dir) {
+    for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) await rmNft(p);
+      else if (e.name.endsWith(".nft.json")) await fs.rm(p);
+    }
+  }
+  await rmNft(NEXT);
+
+  // Turbopack externalizes server packages behind hashed aliases —
+  // `.next/node_modules/pg-<hash>` → symlink to the real package. npm pack
+  // cannot ship symlinks, so record alias → package name and drop the links;
+  // postinstall (bin/link-externals.mjs) recreates them on the user's machine.
+  const linksDir = path.join(NEXT, "node_modules");
+  const manifest = {};
+  async function collectLinks(dir, rel = "") {
+    for (const e of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const abs = path.join(dir, e.name);
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isSymbolicLink()) {
+        const target = await fs.readlink(abs);
+        const pkgName = target.split("node_modules/")[1];
+        if (!pkgName) throw new Error(`unexpected external symlink target: ${r} → ${target}`);
+        manifest[r] = pkgName;
+        await fs.rm(abs, { force: true });
+      } else if (e.isDirectory()) {
+        await collectLinks(abs, r);
+      }
+    }
+  }
+  await collectLinks(linksDir);
+  await fs.writeFile(path.join(NEXT, "local-externals.json"), JSON.stringify(manifest, null, 2) + "\n");
+  console.log(`✓ build prepared for shipping (${Object.keys(manifest).length} externals → manifest)`);
+
+  // PROOF: nothing machine-specific inside the shipped build — no absolute
+  // paths from this checkout and none of this machine's NEXT_PUBLIC_* values.
+  const needles = [ROOT, ...Object.entries(process.env)
+    .filter(([k, v]) => k.startsWith("NEXT_PUBLIC_") && v && v.length >= 8)
+    .map(([, v]) => v)];
+  const leaks = [];
+  async function sweep(dir) {
+    for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) await sweep(p);
+      else if (/\.(js|json|html|rsc|txt|css|meta|tmpl)$/.test(e.name)) {
+        const text = await fs.readFile(p, "utf8").catch(() => "");
+        for (const n of needles) if (text.includes(n)) leaks.push(`${path.relative(OUT, p)} contains "${n.slice(0, 40)}…"`);
+      }
+    }
+  }
+  await sweep(NEXT);
+  if (leaks.length) {
+    console.error("\n✗ machine-specific values leaked into the shipped build:");
+    for (const l of leaks.slice(0, 10)) console.error("   " + l);
+    process.exit(1);
+  }
+  console.log("✓ leak sweep: no local paths / NEXT_PUBLIC values in the shipped build");
+}
+
+// ---- pack --------------------------------------------------------------------
 if (!args.has("--no-pack")) {
-  // Pack from a pristine copy? npm pack respects .npmignore — .next/node_modules
-  // excluded even after --build.
+  if (!args.has("--build")) {
+    console.log("note: packing WITHOUT --build — the tarball ships no prebuilt app, so the user's first `serve` compiles it (slow). Release tarballs should be packed with --build.");
+  }
   await run("npm", ["pack", "--pack-destination", path.join(ROOT, "dist")], { cwd: OUT });
   console.log("✓ packed → dist/datamodo-<version>.tgz");
 }

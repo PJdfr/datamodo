@@ -227,7 +227,12 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
   build-time PRUNE (`scripts/build-local-package.mjs`) that swaps those seams
   for local implementations and proves cloud absence before packing. Adding a
   cloud dependency to core code = CI failure by design; route it through a
-  seam. **MCP ships in BOTH editions (FINAL, user call 2026-07-16 after two
+  seam. **The release tarball ships the PREBUILT `.next` (2026-07-16)** —
+  pack with `--build`; deps are pinned EXACT so the user's `next` matches the
+  shipped build; `bin/link-externals.mjs` restores what npm can't pack
+  (externalized-package symlinks, per-install `required-server-files`).
+  Never delete `required-server-files.{json,js}` from a build `next start`
+  will run — Next 16 reads them at boot. **MCP ships in BOTH editions (FINAL, user call 2026-07-16 after two
   same-day reversals):** same server code, each instance bound to the vault of
   the app that hosts it — cloud MCP reads/writes the hosted Neon org, local
   MCP the machine's own Postgres; the two vaults never sync. Local token

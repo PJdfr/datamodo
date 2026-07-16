@@ -12,6 +12,28 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **The local tarball ships the prebuilt app** (roadmap gap;
+  user: "go"). First `datamodo serve` on a fresh vault now answers in ~6 s
+  (measured 5.8 s incl. wizard + embedded-DB schema build) instead of running
+  `next build` for minutes on the user's machine. Pack step
+  (`build:local-package --build`) prepares `.next` for shipping: junk `next
+  start` never reads is stripped (cache/trace/types/.nft.json), Turbopack's
+  externalized-package SYMLINKS (`.next/node_modules/pg-<hash>` — npm can't
+  pack symlinks) become `.next/local-externals.json`, and
+  `required-server-files.{json,js}` (read by `next start`, embed the build
+  machine's app dir — deleting them crashes next 16, learned the hard way)
+  ship as path-tokenized `.tmpl`s. New `bin/link-externals.mjs` recreates the
+  links + materializes the server-files for the actual install dir at
+  POSTINSTALL (global dirs can be root-owned when `serve` later runs) and
+  fail-soft on every serve. Build env scrubs `NEXT_PUBLIC_*`; a leak sweep
+  FAILS the pack if any absolute path or NEXT_PUBLIC value survives in the
+  artifact (it caught required-server-files). Local package deps now PINNED
+  EXACT from the installed tree so the user's `next` always matches the
+  shipped build. Tarball 415 KB → 9.6 MB (944 files). VERIFIED on the packed
+  artifact: clean global install → 7 links recreated → appDir materialized →
+  5.8 s first boot, "building the app" absent from the log → 18/18 pipeline
+  E2E + 31/31 AI-panel E2E on that install. tsc, 252 tests, lint baseline,
+  boundary clean; CI's `--no-pack` proof path untouched.
 - **2026-07-16** — **Non-dev AI settings panel** (user: "make the interface
   easier for non-dev users + allow them to do everything from the dashboard
   and not in the terminal" + "make sure everything is ready" — no stale
