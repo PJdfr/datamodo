@@ -12,6 +12,26 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Channel PR-loop: Slack replies + email pings** (ROADMAP
+  "Channel adapters E2E" follow-ups). (1) **Slack reply interception** — the
+  outbound ping asked for "1 yes" but the Slack webhook never parsed it; a
+  text-only DM from a bound sender now runs the SAME `applyReviewReply`
+  shared core WhatsApp uses (before capture; messages with files always
+  capture; fail-soft — a reply-handling error never loses the message) and
+  confirms the decision back in the DM via `chat.postMessage`. (2)
+  **Outbound EMAIL pings (Resend)** — email-channel users used to get NO
+  ping at all; `sendChannelText("email", …)` now posts to Resend
+  (`RESEND_API_KEY` + `EMAIL_FROM`, optional `RESEND_BASE_URL` override for
+  tests/proxies), env-gated dormant like every sender. Email has no reply
+  loop, so `buildReviewPing` gained `replyable:false` — one-way channels get
+  "Review at <url>." instead of a reply hint nobody parses
+  (`extract.ts` marks only whatsapp/slack replyable). VERIFIED: 4 new unit
+  tests drive the Resend sender against a LOCAL mock HTTP server (payload
+  shape, bearer, 422 → reason, dormant without env, bad address) + the
+  one-way ping copy (269 pass). The Slack glue mirrors the shipped WhatsApp
+  pattern; live Slack/Resend still belong to the roadmap's "channel adapters
+  E2E on real providers" human item. tsc clean, boundary clean, lint at
+  baseline (−1 warning: the Slack route's unused `link`).
 - **2026-07-16** — **Multi-page scanned PDFs** (ROADMAP follow-up from the
   2026-07-14 OCR ship: "v1 is page 1"). A textless (scanned) PDF's pages now
   ALL reach the vision model in ONE call: `rasterizePdfPages` renders page 1

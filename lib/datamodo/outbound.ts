@@ -5,8 +5,11 @@
 //   whatsapp — Twilio REST (TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN +
 //              TWILIO_WHATSAPP_FROM, the shared bot number)
 //   slack    — chat.postMessage with SLACK_BOT_TOKEN (handle = user/channel id)
-//   email/teams — no outbound sender yet: pings are skipped (the Review tab
-//              still shows everything); an email provider is a roadmap item.
+//   email    — Resend (RESEND_API_KEY + EMAIL_FROM; RESEND_BASE_URL override
+//              for tests/self-hosted proxies). Email has no reply loop yet —
+//              the ping links to the Review tab instead of "reply 1 yes".
+//   teams    — no outbound sender yet: pings are skipped (the Review tab
+//              still shows everything).
 
 import type { IngestChannel } from "@/lib/ingest/types";
 
@@ -57,6 +60,33 @@ async function sendSlack(channel: string, text: string): Promise<SendResult> {
   }
 }
 
+async function sendEmail(to: string, text: string): Promise<SendResult> {
+  const key = process.env.RESEND_API_KEY;
+  const from = process.env.EMAIL_FROM;
+  if (!key || !from) return { sent: false, reason: "resend env not set" };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return { sent: false, reason: "handle is not an email address" };
+  const base = (process.env.RESEND_BASE_URL?.trim() || "https://api.resend.com").replace(/\/$/, "");
+  try {
+    const res = await fetch(`${base}/emails`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        from,
+        to: [to],
+        subject: "datamodo — a few things need your OK",
+        text,
+      }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { message?: string };
+      return { sent: false, reason: `resend ${res.status}${err.message ? ` ${err.message}` : ""}` };
+    }
+    return { sent: true };
+  } catch (e) {
+    return { sent: false, reason: String((e as Error)?.message ?? e) };
+  }
+}
+
 /** Send `text` to `handle` on `channel`. Never throws. */
 export async function sendChannelText(
   channel: IngestChannel,
@@ -69,6 +99,8 @@ export async function sendChannelText(
       return sendWhatsApp(handle, text);
     case "slack":
       return sendSlack(handle, text);
+    case "email":
+      return sendEmail(handle, text);
     default:
       return { sent: false, reason: `no outbound sender for ${channel}` };
   }

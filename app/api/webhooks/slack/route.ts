@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { ingest } from "@/lib/ingest/store";
-import { isHandleBound, redeemChannelLinkCode } from "@/lib/datamodo/channels";
+import { getBoundSource, redeemChannelLinkCode } from "@/lib/datamodo/channels";
+import { applyReviewReply } from "@/lib/datamodo/review-inbox";
+import { sendChannelText } from "@/lib/datamodo/outbound";
 import { isLocalMode } from "@/lib/local/config";
 import type { IngestAttachment, IngestEnvelope } from "@/lib/ingest/types";
 
 // Slack inbound adapter (Events API). One shared Slack app serves every user;
 // we identify the user by their Slack user id (event.user), bound once via a
-// link code they DM to the bot (see lib/datamodo/channels.ts).
+// link code they DM to the bot (see lib/datamodo/channels.ts). A DM that
+// parses as a review decision ("1 yes") resolves that review and confirms
+// back — the same PR loop WhatsApp has; anything else is captured.
 export const runtime = "nodejs";
 
 const MAX_SKEW_SECONDS = 300; // reject stale requests (replay protection)
@@ -94,13 +98,30 @@ export async function POST(req: Request) {
 
   const handle = ev.user;
 
-  const bound = await isHandleBound("slack", handle);
+  const bound = await getBoundSource("slack", handle);
   if (!bound) {
-    const link = await redeemChannelLinkCode("slack", handle, ev.text, { provider: "slack" });
+    await redeemChannelLinkCode("slack", handle, ev.text, { provider: "slack" });
     // Whether it was an unknown sender (no code) or a just-completed bind, the
     // activation message carries no user data — acknowledge without capturing it.
     // (No auto-reply here; that would need chat.postMessage. The app UI confirms.)
     return NextResponse.json({ ok: true });
+  }
+
+  // The PR loop's return path: a text-only DM that reads as a decision on a
+  // pending review ("1 yes" / "2 no" / plain "yes") resolves it and confirms
+  // in the same DM. Anything that doesn't parse as a decision — or arrives
+  // with files — flows to capture below. Fail-soft: a reply-handling error
+  // must never lose the message.
+  if (ev.text?.trim() && !(ev.files?.length)) {
+    try {
+      const confirmation = await applyReviewReply(bound.orgId, ev.text);
+      if (confirmation) {
+        await sendChannelText("slack", handle, confirmation);
+        return NextResponse.json({ ok: true });
+      }
+    } catch (e) {
+      console.error("[slack] review reply handling failed", e);
+    }
   }
 
   const attachments: IngestAttachment[] = [];
