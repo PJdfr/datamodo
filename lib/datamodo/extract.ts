@@ -761,8 +761,10 @@ export async function runExtractionForItem(
         const { buildReviewPing } = await import("./review-ping");
         const { sendChannelText } = await import("./outbound");
         const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_SITE_URL || null;
+        // Only channels whose webhooks parse decisions get the reply hint.
+        const replyable = row.channel === "whatsapp" || row.channel === "slack";
         const text = questions.length
-          ? buildReviewPing(questions, { reviewUrl: appUrl ? `${appUrl}/dashboard` : null, extraProposals: proposals })
+          ? buildReviewPing(questions, { reviewUrl: appUrl ? `${appUrl}/dashboard` : null, extraProposals: proposals, replyable })
           : `datamodo — ${proposals} table change${proposals === 1 ? "" : "s"} from your message await review${appUrl ? `: ${appUrl}/dashboard` : "."}`;
         const sent = await sendChannelText(row.channel as import("@/lib/ingest/types").IngestChannel, row.sender, text);
         if (!sent.sent) console.log(`[extract] review ping skipped for item ${row.id}: ${sent.reason}`);

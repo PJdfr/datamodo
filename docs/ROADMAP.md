@@ -333,11 +333,14 @@
   are code-complete but have never touched the real providers. The core pitch
   ("forward from anywhere") ends here. Now also covers the **channel
   pull-request loop** (shipped 2026-07-12, never live-fired): review pings +
-  reply-to-approve. Follow-ups, not built: Slack reply interception (outbound
-  ping ships; the Slack webhook doesn't parse decisions yet), WhatsApp
-  interactive BUTTONS (Twilio content templates instead of "1 yes"), and an
-  outbound EMAIL provider (Resend/SES) so email users get the ping too — today
-  they only see the Review tab.
+  reply-to-approve. ~~Slack reply interception~~ ✅ 2026-07-16 — the Slack
+  webhook parses "1 yes" DMs through the same `applyReviewReply` core as
+  WhatsApp and confirms back via chat.postMessage. ~~Outbound EMAIL pings~~
+  ✅ 2026-07-16 — Resend sender (`RESEND_API_KEY` + `EMAIL_FROM`;
+  `RESEND_BASE_URL` override), one-way copy ("Review at <url>", no reply
+  hint; email replies aren't parsed). Still not built: WhatsApp interactive
+  BUTTONS (Twilio content templates instead of "1 yes"), an email reply
+  loop, and the live-provider verification above.
 - ~~Spreadsheet-import follow-ups~~ ✅ 2026-07-11 — pre-merge PREVIEW/confirm
   (dry-run shows the reading + honest counts; nothing writes until confirmed),
   column-mapping overrides (kind, identity column, per-column link/fact/skip,
