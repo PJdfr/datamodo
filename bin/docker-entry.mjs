@@ -145,7 +145,6 @@ const env = {
   HOSTNAME: host,
   NEON_AUTH_COOKIE_SECRET: process.env.NEON_AUTH_COOKIE_SECRET || "local-single-user-no-remote-auth",
   INGEST_WEBHOOK_SECRET: ingestSecret,
-  MCP_TOKEN_SECRET: process.env.MCP_TOKEN_SECRET || ingestSecret,
   LLM_PROVIDER: process.env.LLM_PROVIDER || "ollama",
   OLLAMA_BASE_URL: ollamaUrl,
   ...(hasCloudEmbeddings ? {} : {

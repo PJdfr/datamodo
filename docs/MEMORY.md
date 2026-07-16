@@ -216,8 +216,12 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
   build-time PRUNE (`scripts/build-local-package.mjs`) that swaps those seams
   for local implementations and proves cloud absence before packing. Adding a
   cloud dependency to core code = CI failure by design; route it through a
-  seam. **MCP ships in the local package** (decided 2026-07-16 — vault-as-tools
-  on the user's own Claude subscription is a flagship local feature).
+  seam. ~~MCP ships in the local package~~ **REVERSED same day (user call
+  2026-07-16): MCP is CLOUD-ONLY** — it's the free-tier acquisition funnel
+  through Claude subscribers (the monetization framing in ROADMAP), so the
+  host (`app/api/mcp*`), its contract cores (`lib/datamodo/mcp-*`), and
+  `mcp-handler`/`@modelcontextprotocol`/`zod` never ship in the local
+  artifact; local Settings hides the "Connect Claude" card.
 - **`neon/schema.sql` must stay loadable into an EMPTY database** (fixed
   2026-07-15: FKs of hand-added tables live in the end-of-file FK section, no
   psql-only meta-commands). It is the ONE faithful schema source: cloud

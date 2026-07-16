@@ -91,9 +91,6 @@ function serveEnv(cfg) {
     // Shared secret the in-process IMAP poller uses to POST captured mail to
     // the local /api/local/imap route (same trust boundary as the cloud webhook).
     INGEST_WEBHOOK_SECRET: cfg.ingestSecret,
-    // MCP bearer tokens must not derive from the CONSTANT local cookie
-    // placeholder (forgeable) — use the random per-install secret instead.
-    MCP_TOKEN_SECRET: process.env.MCP_TOKEN_SECRET || cfg.ingestSecret,
     // The local default compute is a host Ollama (keyless, private). BYOK is a
     // Settings toggle on top of this — never a reinstall.
     LLM_PROVIDER: process.env.LLM_PROVIDER || "ollama",
