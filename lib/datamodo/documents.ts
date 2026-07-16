@@ -20,6 +20,7 @@ import {
   MAX_DOC_CHARS,
   MAX_IMAGE_BYTES,
   extractAttachmentText,
+  interpretableFilename,
   sheetToText,
   type DocumentIndexing,
   DOCUMENT_KIND,
@@ -209,7 +210,34 @@ export async function processItemAttachments(
         }
       }
 
+      // NON-UNDERSTANDABLE NAME → an interpretable one (user request
+      // 2026-07-16): once the document is UNDERSTOOD, a machine name
+      // (scan0001.pdf, IMG_2043.jpg, a UUID) is replaced by what the document
+      // IS — kind + primary subject — BEFORE it's saved anywhere the user
+      // reads: the attachments row, the document entity's label/natural key,
+      // reviews, the parse reply. Human-looking names are never touched, and
+      // the original is kept as an original_filename fact. Re-runs are
+      // stable: the renamed file is no longer cryptic, so it keeps its name
+      // (and its natural key) on reprocessing.
+      const renamedFrom = att.filename;
+      const better = interpretableFilename(att.filename, inner?.entities[0]?.label, docKind);
+      if (better) {
+        meta.filename = better;
+        await prisma.attachments
+          .update({ where: { id: att.id }, data: { filename: better } })
+          .catch((e) => console.error(`[documents] filename update failed for ${att.id}`, e));
+        console.log(`[documents] renamed "${renamedFrom ?? "(unnamed)"}" → "${better}" (${docKind ?? "document"})`);
+      }
+
       const extraction = buildDocumentExtraction(meta, indexing, inner);
+      if (better && renamedFrom) {
+        extraction.facts.push({
+          subjectLocalId: extraction.entities[0].localId,
+          predicate: "original_filename",
+          cardinality: "one",
+          value: { kind: "text", text: renamedFrom },
+        });
+      }
       const folded = await ingestExtraction(item.org_id, item.owner_user_id, item.id, extraction, llm);
 
       // Template drops become a pending review instead of vanishing — the
@@ -219,7 +247,7 @@ export async function processItemAttachments(
         try {
           await createOffTemplateReview(item.org_id, item.owner_user_id, {
             itemId: item.id,
-            docLabel: att.filename ?? "attachment",
+            docLabel: meta.filename ?? "attachment",
             docKind,
             extraction: offTemplate.extraction,
             display: offTemplate.display,
@@ -260,7 +288,7 @@ export async function processItemAttachments(
       }
       results.push({
         attachmentId: att.id,
-        filename: att.filename,
+        filename: meta.filename, // the interpretable name when renamed
         indexing,
         factsNew: folded.factsNew,
       });

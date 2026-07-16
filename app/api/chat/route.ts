@@ -78,6 +78,9 @@ export async function GET() {
       // Where the zero-cost auto-router filed it when nobody was addressed
       // (attribution stays visible — routing is never silent).
       routedAgent: (i.meta as { routed_agent_name?: string } | null)?.routed_agent_name ?? null,
+      // The agent's answer: what it parsed from this message (pinged-only
+      // behavior — the app thread is always a direct ping).
+      reply: (i.meta as { parse_reply?: string } | null)?.parse_reply ?? null,
     })),
     questions,
     reviews,

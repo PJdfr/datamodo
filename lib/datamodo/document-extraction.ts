@@ -211,6 +211,64 @@ export async function rasterizePdfFirstPage(bytes: Uint8Array): Promise<{ imageB
 
 // --- Chunks: the evidence layer -------------------------------------------------
 
+/* ---- interpretable filenames (user request 2026-07-16) --------------------
+ * Camera rolls, scanners and messengers name files for machines
+ * (IMG_20260716_123456.jpg, scan0001.pdf, a UUID). Once the pipeline has
+ * UNDERSTOOD the document, we can name it for humans instead — kind +
+ * primary subject — before it's saved anywhere the user will read it.
+ * Pure + conservative: renaming a name the user chose is worse than keeping
+ * a cryptic one, so anything that might be human-authored stays. */
+
+const CRYPTIC_PATTERNS: RegExp[] = [
+  // Camera / phone / scanner counters: IMG_1234, DSC0001, PXL_2026…, scan-12
+  /^(img|image|dsc|dscn|dscf|pxl|dcim|mvimg|gopr|vid|mov|scan|scanned|snap)[ _-]?\d{2,}/i,
+  // Generic no-name names, numbered or not: "document (3)", "file2", "untitled"
+  /^(image|img|photo|pic|picture|scan|document|doc|file|attachment|untitled|unnamed|new ?doc(ument)?|sans[ -]?titre|screenshot|capture|export|download|data|temp|tmp)[ _()-]*\d*[ _()-]*$/i,
+  // Messenger exports: "WhatsApp Image 2026-07-16 at …", "signal-2026-…"
+  /^(whatsapp|signal|telegram)[ _-]?(image|document|video|audio)?[ _-]?\d{4}/i,
+  // Screenshot timestamps: "Screenshot 2026-07-16 at 12.30.01"
+  /^(screen ?shot|screen ?capture|capture)[ _-]?\d{4}/i,
+  // Pure timestamps: 20260716_123456, 2026-07-16 12.30.01
+  /^\d{8}[ _-]?\d{4,6}$/,
+  /^\d{4}-\d{2}-\d{2}[ _.]?\d{0,2}[ _.:-]?\d{0,2}[ _.:-]?\d{0,2}$/,
+  // UUIDs / long hex / long digit runs
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  /^[0-9a-f]{12,}$/i,
+  /^\d{6,}$/,
+];
+
+/** Machine-named? (null/empty counts.) Judged on the stem, extension aside. */
+export function isCrypticFilename(filename: string | null | undefined): boolean {
+  const stem = (filename ?? "").replace(/\.[A-Za-z0-9]{1,8}$/, "").trim();
+  if (!stem) return true;
+  if (CRYPTIC_PATTERNS.some((re) => re.test(stem))) return true;
+  // A letterless stem ("12 34-56") says nothing either.
+  if (!/[a-z]/i.test(stem)) return true;
+  return false;
+}
+
+/** The human name for an understood document: `<kind>-<primary subject>.<ext>`
+ *  (slugified, deduped when the label already names the kind). Returns null
+ *  when the original deserves to stay: it's not cryptic, or the extraction
+ *  didn't produce a usable primary label. */
+export function interpretableFilename(
+  original: string | null | undefined,
+  primaryLabel: string | null | undefined,
+  docKind: string | null | undefined,
+): string | null {
+  if (!isCrypticFilename(original)) return null;
+  const slug = (s: string) =>
+    s.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const labelSlug = slug(primaryLabel?.trim() ?? "");
+  if (labelSlug.length < 3) return null; // nothing meaningful to name it after
+  const kindSlug = slug(docKind ?? "");
+  const base = kindSlug && !labelSlug.startsWith(kindSlug) ? `${kindSlug}-${labelSlug}` : labelSlug;
+  const ext = original?.match(/\.[A-Za-z0-9]{1,8}$/)?.[0]?.toLowerCase() ?? "";
+  const name = base.slice(0, 60).replace(/-+$/, "") + ext;
+  return name === original ? null : name;
+}
+
 export interface DocChunk {
   seq: number;
   page: number | null;

@@ -27,6 +27,40 @@
   roadmap; arXiv 2607.13728 (CwA — learned ANN partitioning, Meta FAIR)
   assessed as wrong-scale for now, filed as the future index-service seam.
   ROADMAP.md gained the track summary. Docs only — no behavior change.
+- **2026-07-16** — **Interpretable filenames** (user request): a document
+  arriving with a MACHINE name (scan0001.pdf, IMG_20260716_123456.jpg,
+  "document (3)", a UUID/hex/digit blob, WhatsApp/Screenshot exports) is
+  RENAMED once the pipeline has understood it — `<kind>-<primary subject>.<ext>`
+  (e.g. `invoice-initech-corp.txt`), applied before anything user-facing is
+  saved: the `attachments` row, the document entity's label + natural key,
+  off-template review labels, the parse reply. Conservative by design
+  (`isCrypticFilename` allowlist of machine patterns — anything possibly
+  human-authored is NEVER touched; no rename without a ≥3-char primary
+  label). Original kept as an `original_filename` fact on the document node.
+  Re-runs are stable: the renamed file is no longer cryptic so it keeps its
+  name/key on reprocessing. Pure + unit-tested (`isCrypticFilename`/
+  `interpretableFilename` in document-extraction.ts, 3 test blocks over ~22
+  names); rename hook in `processItemAttachments` (documents.ts). Verified
+  3/3 E2E on the packed artifact (scan0001.txt → invoice-initech-corp.txt;
+  reply uses the new name; brightwave-proposal.txt untouched).
+- **2026-07-16** — **Chat animations + parse-summary reply on direct pings**
+  (user request). (1) The chat thread feels alive: a three-dot TYPING bubble
+  (ink, `dm-typing` keyframes) while the pipeline reads a message, and the
+  agent's reply reveals line by line (`dm-line-in`, staggered). (2) When the
+  agent is PINGED DIRECTLY it answers with what it parsed: entities with up
+  to 3 inline facts, documents read, the note kept, concept tags — or a plain
+  "Nothing to file from this one". Ping = `items.capture_mode = 'active'`
+  (app chat, Slack DM, WhatsApp, direct email); passively watched IMAP
+  mailboxes (`auto`) stay silent — the bot never narrates an inbox. Reply
+  text is built by pure `buildParseReply` / gated by `shouldSendParseReply`
+  (`lib/datamodo/parse-reply.ts`, unit-tested ×7); app-thread delivery is
+  `meta.parse_reply` on the item (fresh-meta merge so routed_agent_* stamps
+  survive) rendered as a `datamodo` bubble via GET /api/chat `reply`; channel
+  delivery reuses `sendChannelText`. Review-question count rides along on
+  channel replies (the app shows its own review bubble). Verified 5/5 E2E on
+  the packed artifact (typing indicator seen mid-read; reply lists INV-777
+  (invoice) with facts; trivial "hey hello" → "Nothing to file"; replies on
+  the API). tsc clean, 288/290 tests, no new lint errors.
 - **2026-07-16** — **Anthropic path is now E2E-verifiable (mock /v1/messages
   + `ANTHROPIC_BASE_URL`)**. The two Claude-key bugs (temperature 400, empty
   response) reached the user because mock-ollama only spoke the
