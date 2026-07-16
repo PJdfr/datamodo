@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { verifyMcpToken, mcpTokenSecret } from "@/lib/datamodo/mcp-token";
+import { isLocalMode, LOCAL_USER } from "@/lib/local/config";
 import { parseExtraction } from "@/lib/datamodo/mcp-extraction";
 import { listKnowledge } from "@/lib/datamodo/knowledge";
 import { searchKnowledge, tokenize } from "@/lib/datamodo/search";
@@ -426,6 +427,13 @@ const handler = createMcpHandler(
 );
 
 const verifyToken = async (_req: Request, bearer?: string): Promise<AuthInfo | undefined> => {
+  // LOCAL edition: no auth (user call 2026-07-16) — one user, and the server
+  // binds 127.0.0.1 by default, so reaching the port IS the auth boundary.
+  // Claude Desktop/Code connect with just the URL, no token. (If you expose
+  // the port beyond localhost, everything on it is open — including this.)
+  if (isLocalMode()) {
+    return { token: bearer ?? "local", scopes: ["vault"], clientId: LOCAL_USER.id, extra: { userId: LOCAL_USER.id } };
+  }
   const secret = mcpTokenSecret();
   if (!bearer || !secret) return undefined;
   const userId = verifyMcpToken(bearer, secret);
@@ -433,6 +441,6 @@ const verifyToken = async (_req: Request, bearer?: string): Promise<AuthInfo | u
   return { token: bearer, scopes: ["vault"], clientId: userId, extra: { userId } };
 };
 
-const authed = withMcpAuth(handler, verifyToken, { required: true });
+const authed = withMcpAuth(handler, verifyToken, { required: !isLocalMode() });
 
 export { authed as GET, authed as POST, authed as DELETE };

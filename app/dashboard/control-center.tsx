@@ -2383,7 +2383,7 @@ function UsageCard() {
 /* Connect Claude (MCP) — lazy: details fetch only when asked for (the token
  * is derived server-side; showing it writes nothing). */
 function McpConnectCard() {
-  const [conn, setConn] = useState<{ url: string; token: string } | null>(null);
+  const [conn, setConn] = useState<{ url: string; token: string | null } | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
   const reveal = async () => {
     setState("loading");
@@ -2415,11 +2415,20 @@ function McpConnectCard() {
         <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
           <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>Server URL</div>
           <div className="dm-mono" style={mono}>{conn.url}</div>
-          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>Bearer token — treat it like a password</div>
-          <div className="dm-mono" style={mono}>{conn.token}</div>
+          {conn.token && (
+            <>
+              <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>Bearer token — treat it like a password</div>
+              <div className="dm-mono" style={mono}>{conn.token}</div>
+            </>
+          )}
           <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", lineHeight: 1.6 }}>
-            Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url} --header &quot;Authorization: Bearer {conn.token}&quot;</span>
-            <br />Sign-in-with-datamodo (OAuth, for claude.ai connectors) is on the roadmap.
+            {conn.token ? (
+              <>Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url} --header &quot;Authorization: Bearer {conn.token}&quot;</span>
+              <br />Sign-in-with-datamodo (OAuth, for claude.ai connectors) is on the roadmap.</>
+            ) : (
+              <>No token needed — this vault lives on your machine, and only this machine can reach it.
+              <br />Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url}</span></>
+            )}
           </div>
         </div>
       )}
