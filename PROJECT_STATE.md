@@ -12,6 +12,35 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Local MCP is tokenless + zero-cost auto-mode agent
+  routing** (two user calls). (1) **MCP auth split**: the LOCAL edition's MCP
+  needs NO bearer token — one user, and the server binds 127.0.0.1, so
+  reaching the port IS the boundary (`verifyToken` returns `LOCAL_USER` under
+  `isLocalMode`; `withMcpAuth required` only in cloud; `/api/mcp-token`
+  returns `{token: null, authRequired: false}` locally and the Connect-Claude
+  card shows a header-less `claude mcp add` one-liner; documented caveat:
+  binding beyond localhost opens everything, MCP included). Cloud keeps
+  HMAC bearer tokens unchanged. (2) **Zero-cost agent router** — the
+  ROADMAP's deferred "reroute" step, built the FREE way (user: auto mode is
+  too expensive if routing needs an LLM): pure `lib/datamodo/agent-router.ts`
+  — each ACTIVE **auto**-mode agent's name+purpose becomes a keyword profile
+  (idf-style weights: terms shared across profiles are discounted, name terms
+  ×2, plural folding), an UNADDRESSED item routes to the top agent only when
+  it clears an absolute floor AND a margin over the runner-up — **ambiguity
+  never routes** (generic datamodo agent, exactly as before). Deterministic,
+  no LLM call, no spend. Hook in `runExtractionForItem`: explicit `@agent`
+  meta always wins; a routed pick steers extraction with that agent's
+  purpose and is stamped on the item (`meta.routed_agent_id/name/terms` —
+  attribution is never silent; chat GET now returns `routedAgent`).
+  (3) Bonus CLI fix the E2E surfaced: `datamodo serve` now handles SIGTERM
+  (not just Ctrl-C) — `kill <pid>` used to orphan the next-server child on
+  the port with a dead embedded DB. VERIFIED on the packed artifact (8/8):
+  tokenless tools/list + tool call read the vault; two auto agents created
+  through the real wizard; unaddressed "Invoice INV-77…" → Bookkeeper,
+  "Interview with the candidate…" → Recruiter, "Lunch on Thursday…" →
+  generic (no stamp), explicit @Recruiter on invoice-ish text beats the
+  router. 6 new unit tests (252 total), tsc, lint == baseline, boundary +
+  prune clean.
 - **2026-07-16** — **MCP everywhere + the full tool surface (14 tools)** (user
   call — reverses the hours-earlier "cloud-only" call; FINAL state: the MCP
   server ships in BOTH editions, same code, each bound to its own vault —

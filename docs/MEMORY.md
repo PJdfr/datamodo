@@ -222,7 +222,16 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
   MCP the machine's own Postgres; the two vaults never sync. Local token
   secret = the random per-install ingest secret (never the constant cookie
   placeholder). Local MCP is for Claude Desktop/Code on the same machine
-  (claude.ai web cannot reach localhost).
+  (claude.ai web cannot reach localhost). **Local MCP is TOKENLESS (user call
+  2026-07-16)**: one user, bound to 127.0.0.1 — the port is the auth
+  boundary; cloud keeps per-user bearer tokens. Exposing the local port
+  beyond localhost opens the vault — don't, or put auth back first.
+- **Per-message costs must be ZERO for plumbing (decided 2026-07-16):**
+  routing/classification that runs on EVERY item (e.g. which agent steers an
+  unaddressed message in auto mode) must never call an LLM — auto mode
+  becomes unaffordable otherwise. The agent router is a deterministic lexical
+  classifier (`agent-router.ts`); LLM spend stays reserved for extraction
+  itself and on-demand user asks.
 - **`neon/schema.sql` must stay loadable into an EMPTY database** (fixed
   2026-07-15: FKs of hand-added tables live in the end-of-file FK section, no
   psql-only meta-commands). It is the ONE faithful schema source: cloud

@@ -310,7 +310,12 @@ program
 
     const shutdown = async () => { connectors?.stop(); await db?.stop(); };
     child.on("exit", async (code) => { await shutdown(); process.exit(code ?? 0); });
-    process.on("SIGINT", async () => { child.kill("SIGINT"); await shutdown(); process.exit(0); });
+    // BOTH signals: `kill <pid>` sends SIGTERM — without this handler the
+    // parent dies, the embedded DB dies with it, but the next-server child
+    // survives as an orphan holding the port with a dead database.
+    const stop = (sig) => async () => { child.kill(sig); await shutdown(); process.exit(0); };
+    process.on("SIGINT", stop("SIGINT"));
+    process.on("SIGTERM", stop("SIGTERM"));
   });
 
 program
