@@ -604,6 +604,46 @@ export async function runExtractionForItem(
         .then((a) => a?.purpose_text ?? null)
         .catch(() => null);
     }
+    // UNADDRESSED items: zero-cost auto-routing (user call 2026-07-16). A
+    // deterministic lexical classifier (agent-router.ts — no LLM, no spend)
+    // matches the item against the ACTIVE AUTO agents' purposes; a confident
+    // winner's purpose steers extraction and the pick is stamped on the item
+    // (routed_agent_*) for attribution. Ambiguity/no-match = the generic
+    // datamodo agent, exactly as before. Best-effort: never fails the item.
+    if (agentPurpose == null && !addressedAgentId) {
+      try {
+        const autoAgents = await prisma.agents.findMany({
+          where: { org_id: row.org_id, status: "active", mode: "auto", NOT: { purpose_text: null } },
+          select: { id: true, name: true, purpose_text: true },
+        });
+        if (autoAgents.length > 0) {
+          const { buildAgentProfiles, routeToAgent } = await import("./agent-router");
+          const routed = routeToAgent(
+            `${row.subject ?? ""}\n${text}`,
+            buildAgentProfiles(autoAgents.map((a) => ({ id: a.id, name: a.name, purposeText: a.purpose_text ?? "" }))),
+          );
+          if (routed) {
+            const a = autoAgents.find((x) => x.id === routed.agentId)!;
+            agentPurpose = a.purpose_text;
+            await prisma.items
+              .update({
+                where: { id: row.id },
+                data: {
+                  meta: {
+                    ...((row.meta as Record<string, unknown> | null) ?? {}),
+                    routed_agent_id: a.id,
+                    routed_agent_name: a.name,
+                    routed_terms: routed.matched.slice(0, 6),
+                  },
+                },
+              })
+              .catch(() => {});
+          }
+        }
+      } catch {
+        /* routing is best-effort — generic steering otherwise */
+      }
+    }
     const businessContext = row.owner_user_id
       ? (await getOnboardingContext(row.owner_user_id)).businessContext
       : null;

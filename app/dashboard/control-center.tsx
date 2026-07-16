@@ -281,9 +281,10 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
 
   const providerLabel = settings.aiProvider === "openai" ? "OpenAI" : settings.aiProvider === "openrouter" ? "OpenRouter" : settings.aiProvider === "ollama" ? "Ollama" : "Claude";
   const ollama = settings.aiProvider === "ollama";
-  const runtimeLabel = cloud ? "Datamodo cloud" : ollama ? "Your Ollama server" : `Your ${providerLabel} key`;
+  // Local edition: the platform default ("cloud") IS this machine's Ollama.
+  const runtimeLabel = cloud ? (local ? "Local AI — this machine" : "Datamodo cloud") : ollama ? "Your Ollama server" : `Your ${providerLabel} key`;
   const runtimeSub = cloud
-    ? "We run every agent for you."
+    ? (local ? "Models run here via Ollama — private, free." : "We run every agent for you.")
     : settings.byokKeySet
     ? (ollama ? "Runs on your own Ollama server — keyless." : `Runs on your ${providerLabel} API key.`)
     : (ollama ? "Add your server URL to start." : "Add your API key to start.");
@@ -385,7 +386,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           <span style={{ width: 30, height: 30, borderRadius: "50%", background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{initial}</span>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, color: "#F1ECE1", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</div>
-            <button type="button" onClick={() => setSettingsOpen(true)} className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B", background: "none", border: "none", padding: 0, cursor: "pointer" }}>{plan.label} plan · manage</button>
+            <button type="button" onClick={() => setSettingsOpen(true)} className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B", background: "none", border: "none", padding: 0, cursor: "pointer" }}>{local ? "self-hosted · settings" : `${plan.label} plan · manage`}</button>
           </div>
           <form action={signout} style={{ marginLeft: "auto", display: local ? "none" : undefined }}>
             <Hov tag="button" type="submit" title="Sign out" base={{ background: "none", border: "none", color: "#7C766B", fontSize: 11, cursor: "pointer" }} hover={{ color: "#F1ECE1" }}>
@@ -1970,7 +1971,9 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
   const [billing, startBilling] = useTransition();
   const [billingMsg, setBillingMsg] = useState<string | null>(null);
   const limits = planLimits(settings.plan);
-  const cloudLocked = !limits.cloudCompute;
+  // Local edition: computeMode "cloud" MEANS "local — models on this machine"
+  // (the platform default is the host Ollama), and there is no plan gate.
+  const cloudLocked = !limits.cloudCompute && !local;
 
   const save = () => run(
     () => updateComputeSettingsAction({ computeMode: mode, aiProvider: provider, byokKey: key ? key : undefined }),
@@ -2008,7 +2011,8 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
         </>
       )}
     >
-      {/* Plan */}
+      {/* Plan — cloud only; the local edition has no plans or billing. */}
+      {!local && (
       <div style={{ border: "1px solid #E7E0D2", borderRadius: 12, background: "#fff", padding: "14px 16px", marginBottom: 18 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
           <div>
@@ -2027,14 +2031,16 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
         </div>
         {billingMsg && <div className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginTop: 10 }}>{billingMsg}</div>}
       </div>
+      )}
 
-      {/* Compute mode */}
+      {/* Compute mode. Local edition: LOCAL (this machine's Ollama) ↔ BYOK is a
+          toggle — switching is never a reinstall. */}
       <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 10 }}>How should your data be analysed?</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <button type="button" disabled={cloudLocked} onClick={() => !cloudLocked && setMode("cloud")} style={{ ...modeCard(mode === "cloud"), opacity: cloudLocked ? 0.55 : 1, cursor: cloudLocked ? "not-allowed" : "pointer" }}>
           <div style={{ textAlign: "left" }}>
-            <div style={{ fontWeight: 600, fontSize: 14.5 }}>Datamodo cloud {cloudLocked && <span className="dm-mono" style={{ fontSize: 10, color: C.accent, marginLeft: 6 }}>Pro</span>}</div>
-            <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>We run the models for you. {cloudLocked ? "Upgrade to enable." : "Nothing to configure."}</div>
+            <div style={{ fontWeight: 600, fontSize: 14.5 }}>{local ? "Local — on this machine" : <>Datamodo cloud {cloudLocked && <span className="dm-mono" style={{ fontSize: 10, color: C.accent, marginLeft: 6 }}>Pro</span>}</>}</div>
+            <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>{local ? "Models run on your own machine via Ollama. Private, free, works offline." : <>We run the models for you. {cloudLocked ? "Upgrade to enable." : "Nothing to configure."}</>}</div>
           </div>
           <span style={radioDot(mode === "cloud")} />
         </button>
@@ -2046,6 +2052,14 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
           <span style={radioDot(mode === "byok")} />
         </button>
       </div>
+
+      {/* Local compute config: the Ollama server + which models read what.
+          Everything the first-run wizard seeded stays editable here. */}
+      {local && mode === "cloud" && (
+        <div style={{ marginTop: 14, padding: "14px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
+          <LocalAiFields />
+        </div>
+      )}
 
       {mode === "byok" && (
         <div style={{ marginTop: 14, padding: "14px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
@@ -2062,8 +2076,11 @@ function SettingsModal({ settings, local, onClose, onSaved }: { settings: UserSe
               ? <>No API key needed — models run on <b>your own machine</b>. The URL must be reachable from datamodo&apos;s servers: on the same box use localhost; otherwise expose it via a tunnel (Tailscale funnel, ngrok, cloudflared). Pull a JSON-capable model first (ollama pull llama3.1).</>
               : <>This is an <b>API key</b> (billed per use), not your ChatGPT Plus / Claude Pro subscription — those don&apos;t grant API access. Get one from {provider === "openai" ? "platform.openai.com" : provider === "openrouter" ? "openrouter.ai/keys" : "console.anthropic.com"}. OpenRouter gives you one key across many models. Signing in to authorise your account is on the roadmap.</>}
           </div>
-          {/* Local edition: pick the exact model names here instead of env vars. */}
-          {local && <LocalModelsFields />}
+          {/* Local edition: pick the exact model names here instead of env vars
+              — saved PER PROVIDER, so your Ollama names never reach Anthropic
+              and vice-versa. (URL/status hidden — in BYOK the server/key field
+              above says where.) */}
+          {local && <LocalAiFields key={provider} provider={provider} showUrl={false} showStatus={false} />}
         </div>
       )}
 
@@ -2194,47 +2211,96 @@ function ConnectorsCard() {
   );
 }
 
-/* Local edition — pick the model NAMES here instead of env vars. The URL/key
- * above says WHERE; this says WHICH model handles text vs. images/scanned PDFs.
- * Saved to ~/.datamodo/llm.json; blank falls back to the env var, then default. */
-function LocalModelsFields() {
+/* Local edition — the local-AI config, all persisted to ~/.datamodo/llm.json
+ * (the same store the first-run wizard seeds): the Ollama server URL (WHERE)
+ * and the model names (WHICH model handles text vs. images/scanned PDFs).
+ * Model names are saved PER PROVIDER — the fields shown here belong to the
+ * `provider` prop only, so Ollama names never reach a BYOK provider. Blank
+ * falls back to the env var, then the built-in default. For Ollama, shows
+ * live reachability + the installed models (suggested via datalist). */
+const MODEL_HINTS: Record<string, { extract: string; vision: string }> = {
+  ollama: { extract: "Text model — e.g. llama3.1:8b  (blank = default)", vision: "Vision / scanned-PDF model — e.g. llama3.2-vision  (blank = llava)" },
+  anthropic: { extract: "Text model — e.g. claude-haiku-4-5  (blank = default)", vision: "Vision model — e.g. claude-haiku-4-5  (blank = text model)" },
+  openai: { extract: "Text model — e.g. gpt-4o-mini  (blank = default)", vision: "Vision model — e.g. gpt-4o-mini  (blank = text model)" },
+  openrouter: { extract: "Text model — e.g. anthropic/claude-haiku-4.5  (blank = default)", vision: "Vision model — a vision-capable id  (blank = text model)" },
+};
+
+function LocalAiFields({ provider = "ollama", showUrl = true, showStatus = true }: { provider?: string; showUrl?: boolean; showStatus?: boolean }) {
   const [extract, setExtract] = useState("");
   const [vision, setVision] = useState("");
+  const [url, setUrl] = useState("");
+  const [status, setStatus] = useState<{ url: string; reachable: boolean; tags: string[] } | null>(null);
   const [saved, setSaved] = useState(false);
+  const isOllama = provider === "ollama";
+  const hints = MODEL_HINTS[provider] ?? MODEL_HINTS.ollama;
+
+  const load = (live?: { on: boolean }) => {
+    fetch(`/api/local/llm-models?provider=${encodeURIComponent(provider)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (live && !live.on) return;
+        if (j?.models) { setExtract(j.models.extract ?? ""); setVision(j.models.vision ?? ""); setUrl(j.models.url ?? ""); }
+        if (j?.ollama) setStatus(j.ollama);
+      })
+      .catch(() => { /* leave blank → defaults */ });
+  };
 
   useEffect(() => {
-    let live = true;
-    fetch("/api/local/llm-models")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (live && j?.models) { setExtract(j.models.extract ?? ""); setVision(j.models.vision ?? ""); } })
-      .catch(() => { /* leave blank → defaults */ });
-    return () => { live = false; };
-  }, []);
+    const live = { on: true };
+    load(live);
+    return () => { live.on = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider]);
 
   const save = async () => {
     try {
       const res = await fetch("/api/local/llm-models", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ models: { extract, vision } }),
+        body: JSON.stringify({ provider, models: { extract, vision, ...(isOllama ? { url } : {}) } }),
       });
-      if (res.ok) { setSaved(true); window.setTimeout(() => setSaved(false), 1600); }
+      if (res.ok) {
+        setSaved(true);
+        window.setTimeout(() => setSaved(false), 1600);
+        if (isOllama) load(); // re-probe: a URL change should update reachability + tags
+      }
     } catch { /* best-effort */ }
   };
 
   return (
-    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #ECE5D8" }}>
-      <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 8 }}>
+    <div style={showUrl ? undefined : { marginTop: 12, paddingTop: 12, borderTop: "1px solid #ECE5D8" }}>
+      {showUrl && isOllama && (
+        <>
+          <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 8 }}>Ollama server</div>
+          <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} onBlur={() => void save()}
+            placeholder={status?.url ?? "http://localhost:11434  (blank = default)"} autoComplete="off" style={fieldInput} />
+        </>
+      )}
+      {showStatus && isOllama && status && (
+        <div className="dm-mono" style={{ fontSize: 11, marginTop: 8, color: status.reachable ? C.green : C.accent }}>
+          {status.reachable
+            ? <>✓ Ollama reachable · {status.tags.length} model{status.tags.length === 1 ? "" : "s"} installed</>
+            : <>✗ Ollama not reachable at {status.url} — start it (or install from ollama.com), or switch to “Bring your own key”. Messages are still stored & filed meanwhile.</>}
+        </div>
+      )}
+      <div className="dm-mono" style={{ ...fieldLabel, margin: "14px 0 8px" }}>
         Models {saved && <span style={{ color: C.green, marginLeft: 6 }}>✓ saved</span>}
       </div>
+      {isOllama && (
+        <datalist id="dm-ollama-tags">
+          {(status?.tags ?? []).map((t) => <option key={t} value={t.replace(/:latest$/, "")} />)}
+        </datalist>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <input type="text" value={extract} onChange={(e) => setExtract(e.target.value)} onBlur={() => void save()}
-          placeholder="Text model — e.g. llama3.1  (blank = default)" autoComplete="off" style={fieldInput} />
-        <input type="text" value={vision} onChange={(e) => setVision(e.target.value)} onBlur={() => void save()}
-          placeholder="Vision / scanned-PDF model — e.g. llama3.2-vision  (blank = llava)" autoComplete="off" style={fieldInput} />
+        <input type="text" value={extract} onChange={(e) => setExtract(e.target.value)} onBlur={() => void save()} list={isOllama ? "dm-ollama-tags" : undefined}
+          placeholder={hints.extract} autoComplete="off" style={fieldInput} />
+        <input type="text" value={vision} onChange={(e) => setVision(e.target.value)} onBlur={() => void save()} list={isOllama ? "dm-ollama-tags" : undefined}
+          placeholder={hints.vision} autoComplete="off" style={fieldInput} />
       </div>
       <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 8, lineHeight: 1.5 }}>
-        Which model reads text vs. images & scanned PDFs. Pull them first (e.g. <span style={{ userSelect: "all" }}>ollama pull llama3.2-vision</span>). Blank uses the built-in default (or an env var if you set one).
+        {isOllama
+          ? <>Which model reads text vs. images & scanned PDFs. <span style={{ userSelect: "all" }}>datamodo setup</span> sizes and pulls these for your machine; pull others with <span style={{ userSelect: "all" }}>ollama pull llama3.2-vision</span>. Blank uses the built-in default (or an env var if you set one).</>
+          : <>Which {MODEL_HINTS[provider] ? provider : ""} model reads text vs. images & scanned PDFs — saved separately from your Ollama models, so switching back to Local keeps both. Blank uses a sensible default.</>}
       </div>
     </div>
   );
@@ -2317,7 +2383,7 @@ function UsageCard() {
 /* Connect Claude (MCP) — lazy: details fetch only when asked for (the token
  * is derived server-side; showing it writes nothing). */
 function McpConnectCard() {
-  const [conn, setConn] = useState<{ url: string; token: string } | null>(null);
+  const [conn, setConn] = useState<{ url: string; token: string | null } | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
   const reveal = async () => {
     setState("loading");
@@ -2349,11 +2415,20 @@ function McpConnectCard() {
         <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
           <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>Server URL</div>
           <div className="dm-mono" style={mono}>{conn.url}</div>
-          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>Bearer token — treat it like a password</div>
-          <div className="dm-mono" style={mono}>{conn.token}</div>
+          {conn.token && (
+            <>
+              <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>Bearer token — treat it like a password</div>
+              <div className="dm-mono" style={mono}>{conn.token}</div>
+            </>
+          )}
           <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", lineHeight: 1.6 }}>
-            Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url} --header &quot;Authorization: Bearer {conn.token}&quot;</span>
-            <br />Sign-in-with-datamodo (OAuth, for claude.ai connectors) is on the roadmap.
+            {conn.token ? (
+              <>Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url} --header &quot;Authorization: Bearer {conn.token}&quot;</span>
+              <br />Sign-in-with-datamodo (OAuth, for claude.ai connectors) is on the roadmap.</>
+            ) : (
+              <>No token needed — this vault lives on your machine, and only this machine can reach it.
+              <br />Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url}</span></>
+            )}
           </div>
         </div>
       )}

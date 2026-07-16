@@ -17,7 +17,6 @@ create schema if not exists private;
 -- PostgreSQL database dump
 --
 
-\restrict 00rvmrPt4n0ZyDJ0UfZBJyXSFhNJ3YwvfXxWJrMbIc1xppG39maia9GVUBAy9XY
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -119,12 +118,10 @@ $$;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 00rvmrPt4n0ZyDJ0UfZBJyXSFhNJ3YwvfXxWJrMbIc1xppG39maia9GVUBAy9XY
 --
 -- PostgreSQL database dump
 --
 
-\restrict fxdPUuJNYQiA5izh1LLelkKUnmD89ZfJ5d9OuE3DiOOpRsdnPwzNVg4pcemnSAy
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -659,10 +656,13 @@ CREATE TABLE public.items (
 -- optional embeddings) so search and grounded answers can cite from INSIDE
 -- documents, not just from extracted facts.
 
+-- NOTE: FKs live in the "FK CONSTRAINT" section at the end of this file (with
+-- every other table's), so the file loads top-to-bottom into an EMPTY database
+-- — an inline REFERENCES here would run before the referenced PKs exist.
 CREATE TABLE public.doc_chunks (
     id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    org_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
-    entity_id uuid NOT NULL REFERENCES public.entities(id) ON DELETE CASCADE,
+    org_id uuid NOT NULL,
+    entity_id uuid NOT NULL,
     item_id uuid,
     seq integer NOT NULL,
     page integer,
@@ -687,9 +687,11 @@ CREATE INDEX doc_chunks_embedding_idx ON public.doc_chunks USING hnsw (embedding
 -- identity, classifier-steering description, field template + relation
 -- vocabulary per entity kind. Builtins seeded per org, editable.
 
+-- NOTE: the org FK lives in the "FK CONSTRAINT" section at the end (load-order;
+-- see doc_chunks above).
 CREATE TABLE public.kinds (
     id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    org_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    org_id uuid NOT NULL,
     owner_user_id uuid,
     kind text NOT NULL,
     label text NOT NULL,
@@ -1572,6 +1574,33 @@ ALTER TABLE ONLY public.dataset_snapshots
 
 
 --
+-- Name: doc_chunks doc_chunks_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.doc_chunks
+    ADD CONSTRAINT doc_chunks_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.organizations(id) ON DELETE CASCADE;
+
+
+
+--
+-- Name: doc_chunks doc_chunks_entity_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.doc_chunks
+    ADD CONSTRAINT doc_chunks_entity_id_fkey FOREIGN KEY (entity_id) REFERENCES public.entities(id) ON DELETE CASCADE;
+
+
+
+--
+-- Name: kinds kinds_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kinds
+    ADD CONSTRAINT kinds_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.organizations(id) ON DELETE CASCADE;
+
+
+
+--
 -- Name: datasets datasets_agent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1806,4 +1835,26 @@ ALTER TABLE ONLY public.sheet_links
 -- PostgreSQL database dump complete
 --
 
-\unrestrict fxdPUuJNYQiA5izh1LLelkKUnmD89ZfJ5d9OuE3DiOOpRsdnPwzNVg4pcemnSAy
+
+
+--
+-- Name: llm_usage; Type: TABLE; Schema: public; Owner: -
+--
+-- BYOK provider cost ledger (migration 20260714120000): what the user's OWN
+-- LLM key cost while datamodo ran it. Fail-soft everywhere; cost_usd exact for
+-- OpenRouter, estimated for Anthropic/OpenAI, null when unpriced.
+
+CREATE TABLE IF NOT EXISTS public.llm_usage (
+    id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id        uuid        NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    user_id       uuid        NOT NULL,
+    provider      text        NOT NULL,
+    model         text        NOT NULL,
+    input_tokens  integer     NOT NULL DEFAULT 0,
+    output_tokens integer     NOT NULL DEFAULT 0,
+    cost_usd      double precision,
+    estimated     boolean     NOT NULL DEFAULT true,
+    created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS llm_usage_org_created_idx ON public.llm_usage (org_id, created_at DESC);

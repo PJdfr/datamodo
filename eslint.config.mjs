@@ -16,6 +16,10 @@ const eslintConfig = defineConfig([
     "design/**",
     // Screenshot-harness build output (npm run shoot).
     ".shoot/**",
+    // Local-package build output + seam overrides (only valid inside the
+    // pruned tree — npm run build:local-package).
+    "dist/**",
+    "packaging/**",
   ]),
 ]);
 

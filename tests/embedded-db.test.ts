@@ -1,8 +1,9 @@
 // Integration test for the local edition's embedded database
-// (lib/local/embedded-db.mjs): boot pglite → build the schema via `prisma db
-// push` over the socket → the index fixup → real vector + trigram queries.
-// This is the whole zero-setup DB path. Slower than a unit test (it spawns
-// prisma), so it's guarded — set DATAMODO_TEST_DB=1 to run it. Run with:
+// (lib/local/embedded-db.mjs): boot pglite → build the schema by loading
+// neon/schema.sql (fresh vault; faithful — functions/triggers/hnsw included)
+// → real vector + trigram queries; plus the `prisma db push` UPGRADE path.
+// This is the whole zero-setup DB path. Slower than a unit test, so it's
+// guarded — set DATAMODO_TEST_DB=1 to run it. Run with:
 //   DATAMODO_TEST_DB=1 npm test
 
 import { test } from "node:test";
@@ -13,7 +14,7 @@ import path from "node:path";
 
 const RUN = process.env.DATAMODO_TEST_DB === "1";
 
-test("embedded db: pglite + prisma db push + vector/trigram", { skip: !RUN }, async () => {
+test("embedded db: fresh build loads neon/schema.sql faithfully", { skip: !RUN }, async () => {
   const { startEmbeddedDb } = await import("../lib/local/embedded-db.mjs");
   const pg = (await import("pg")).default;
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "dm-edb-"));
@@ -56,10 +57,30 @@ test("embedded db: pglite + prisma db push + vector/trigram", { skip: !RUN }, as
       const trgCount = await c.query("select count(*)::int n from pg_trigger where tgname like '%refcount%' or tgname like '%touch_updated_at%'");
       assert.ok(trgCount.rows[0].n >= 6, `expected the refcount/updated_at triggers, got ${trgCount.rows[0].n}`);
 
+      // The vector indexes come from schema.sql directly — hnsw, like the cloud.
+      const idx = await c.query("select indexdef from pg_indexes where indexname='entities_embedding_idx'");
+      assert.match(idx.rows[0]?.indexdef ?? "", /hnsw/i, "entities embedding index is hnsw");
+
       // ensureSchema is idempotent — a second call re-applies functions cleanly.
       await db.ensureSchema("test-1");
     } finally {
       await c.end();
+    }
+
+    // UPGRADE path: a stale marker (app updated) must diff-sync via
+    // `prisma db push` WITHOUT wiping the vault, and keep hnsw. (Connect only
+    // after — pglite-socket serves ONE connection at a time, and in real life
+    // ensureSchema always runs before the app connects.)
+    await db.ensureSchema("test-2");
+    const c2 = new pg.Client({ connectionString: db.url });
+    await c2.connect();
+    try {
+      const still = await c2.query("select canonical_label from entities");
+      assert.equal(still.rows[0]?.canonical_label, "Acme Group", "upgrade keeps existing data");
+      const idx2 = await c2.query("select indexdef from pg_indexes where indexname='entities_embedding_idx'");
+      assert.match(idx2.rows[0]?.indexdef ?? "", /hnsw/i, "upgrade restores the hnsw index");
+    } finally {
+      await c2.end();
     }
   } finally {
     await db.stop();

@@ -1,0 +1,67 @@
+# datamodo local edition — Docker Compose runtime (packaging brief §4).
+# App + REAL Postgres (pgvector). The app image is built from the PRUNED
+# local-only tree, so cloud code is physically absent.
+#
+#   node scripts/build-local-package.mjs                      # → dist/local-package
+#   docker build -f packaging/local/docker/Dockerfile -t datamodo/local dist/local-package
+#   docker compose -f packaging/local/docker/docker-compose.yml up -d
+#
+# AI models: Ollama runs on the HOST by default (install from ollama.com) —
+# macOS containers cannot use the GPU (§7), so a containerized Ollama would be
+# CPU-only and slow there. On Linux with an NVIDIA GPU you may instead run:
+#   OLLAMA_URL=http://ollama:11434 docker compose --profile gpu up -d
+# Re-size the models any time:
+#   docker compose exec app node bin/datamodo.mjs setup --force --yes --data-dir /data
+
+services:
+  db:
+    image: pgvector/pgvector:pg16          # Postgres 16 + pgvector preinstalled
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: datamodo
+      POSTGRES_DB: datamodo
+    volumes:
+      - datamodo-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d datamodo"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    image: ${DATAMODO_IMAGE:-datamodo/local:latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:datamodo@db:5432/datamodo
+      # Host Ollama by default; override OLLAMA_URL for a tunnel or the gpu profile.
+      OLLAMA_BASE_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      # Optional: RAM budget (GB) for first-run model sizing; default = the
+      # container/host limit detected inside the app.
+      DATAMODO_RAM_GB: ${DATAMODO_RAM_GB:-}
+    ports:
+      - "${DATAMODO_PORT:-4321}:4321"
+    volumes:
+      - datamodo-data:/data                # blobs, llm.json, connectors.json, secrets
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Linux: make host Ollama reachable
+
+  # OPTIONAL — Linux + NVIDIA only (profile "gpu"). macOS/Windows: use host Ollama.
+  ollama:
+    image: ollama/ollama
+    profiles: ["gpu"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: ["gpu"]
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  datamodo-db: {}
+  datamodo-data: {}
+  ollama: {}

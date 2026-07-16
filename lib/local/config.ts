@@ -118,7 +118,7 @@ export function localEmbeddingDefaults(env: Record<string, string | undefined> =
 }
 
 /** Per-user LLM model overrides (local edition) — the model NAMES to request
- *  from the chosen provider, settable from the dashboard so it's not env-only.
+ *  from ONE provider, settable from the dashboard so it's not env-only.
  *  Empty fields fall through to the env override, then the built-in default. */
 export interface LocalLlmModels {
   /** The text-extraction model (the workhorse). */
@@ -129,14 +129,28 @@ export interface LocalLlmModels {
   vision?: string;
 }
 
+/** The providers the local edition can run compute on. */
+export const LOCAL_AI_PROVIDERS = ["ollama", "anthropic", "openai", "openrouter"] as const;
+export type LocalAiProvider = (typeof LOCAL_AI_PROVIDERS)[number];
+
+/** The whole llm.json: model names are stored PER PROVIDER — the first-run
+ *  wizard seeds Ollama names (llama3.1:8b, …) and those must NEVER leak into
+ *  a BYOK provider's requests (Anthropic has no "llama3.1:8b"). `url` is the
+ *  Ollama server address for local compute. */
+export interface LocalLlmFile {
+  url?: string;
+  providers: Partial<Record<LocalAiProvider, LocalLlmModels>>;
+}
+
 /** Where the model overrides live inside the data dir. */
 export const LOCAL_LLM_FILE = "llm.json";
 
-/** Validate/normalize raw model config into typed overrides (trim, drop blanks).
+const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+
+/** Validate/normalize one provider's raw model config (trim, drop blanks).
  *  Pure — the route + runtime reader share it. */
 export function sanitizeLlmModels(raw: unknown): LocalLlmModels {
   const o = (raw ?? {}) as Record<string, unknown>;
-  const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
   const out: LocalLlmModels = {};
   const extract = str(o.extract);
   const escalate = str(o.escalate);
@@ -147,10 +161,38 @@ export function sanitizeLlmModels(raw: unknown): LocalLlmModels {
   return out;
 }
 
+/** Only an http(s) URL is a server address — anything else is dropped rather
+ *  than breaking every LLM call downstream. */
+export function sanitizeOllamaUrl(raw: unknown): string | undefined {
+  const url = str(raw);
+  return url && /^https?:\/\//i.test(url) ? url.replace(/\/+$/, "") : undefined;
+}
+
+/** Validate/normalize the whole llm.json. Accepts the LEGACY flat shape
+ *  ({extract, vision, url} — pre-provider-namespacing) and migrates it to
+ *  `providers.ollama` (the wizard was the only writer of the flat shape, and
+ *  it always wrote Ollama names). Pure. */
+export function sanitizeLlmFile(raw: unknown): LocalLlmFile {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const out: LocalLlmFile = { providers: {} };
+  const url = sanitizeOllamaUrl(o.url);
+  if (url) out.url = url;
+  if (o.providers && typeof o.providers === "object") {
+    for (const p of LOCAL_AI_PROVIDERS) {
+      const models = sanitizeLlmModels((o.providers as Record<string, unknown>)[p]);
+      if (Object.keys(models).length) out.providers[p] = models;
+    }
+  } else {
+    const legacy = sanitizeLlmModels(o);
+    if (Object.keys(legacy).length) out.providers.ollama = legacy;
+  }
+  return out;
+}
+
 /** The env a local `serve` exports before booting the app — turns the shared
  *  app into its local skin. Returned as a plain map so the CLI can merge it
  *  into the child process env (pure — no process mutation here). */
-export function localServeEnv(cfg: LocalConfig): Record<string, string> {
+export function localServeEnv(cfg: LocalConfig, env: Record<string, string | undefined> = process.env): Record<string, string> {
   const out: Record<string, string> = {
     DATAMODO_LOCAL: "1",
     BLOB_DIR: cfg.blobDir,
@@ -160,9 +202,15 @@ export function localServeEnv(cfg: LocalConfig): Record<string, string> {
     // throwing at import (its session/middleware path is bypassed in local mode).
     NEON_AUTH_COOKIE_SECRET: "local-single-user-no-remote-auth",
     NEON_AUTH_BASE_URL: "http://local.invalid",
+    // The local default compute is a host Ollama (keyless, private); BYOK is a
+    // Settings toggle, never a reinstall.
+    LLM_PROVIDER: env.LLM_PROVIDER?.trim() || "ollama",
     // Offline-first semantic search (no-op when a cloud embeddings key is set).
-    ...localEmbeddingDefaults(),
+    ...localEmbeddingDefaults(env),
   };
   if (cfg.databaseUrl) out.DATABASE_URL = cfg.databaseUrl;
+  // A user-supplied DATABASE_URL means a REAL Postgres — the pglite
+  // single-connection workaround in lib/prisma.ts must stay off for it.
+  else out.DATAMODO_EMBEDDED_DB = "1";
   return out;
 }

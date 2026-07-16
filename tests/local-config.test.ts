@@ -15,6 +15,8 @@ import {
   localEmbeddingDefaults,
   localDataDir,
   sanitizeLlmModels,
+  sanitizeLlmFile,
+  sanitizeOllamaUrl,
   LOCAL_USER,
 } from "../lib/local/config.ts";
 
@@ -56,15 +58,25 @@ test("resolveLocalConfig: a bad port falls back to the default", () => {
 
 test("localServeEnv: turns the app into its local skin", () => {
   const cfg = resolveLocalConfig({ home: "/home/me", env: { DATABASE_URL: "postgres://x" } });
-  const env = localServeEnv(cfg);
+  const env = localServeEnv(cfg, {});
   assert.equal(env.DATAMODO_LOCAL, "1");
   assert.equal(env.BLOB_DIR, "/home/me/.datamodo/blobs");
   assert.equal(env.PORT, "4321");
   assert.equal(env.DATABASE_URL, "postgres://x");
   assert.ok(env.NEON_AUTH_COOKIE_SECRET, "a placeholder cookie secret keeps the auth lib import from throwing");
+  // Local default compute is a host Ollama; an explicit LLM_PROVIDER wins.
+  assert.equal(env.LLM_PROVIDER, "ollama");
+  assert.equal(localServeEnv(cfg, { LLM_PROVIDER: "openai" }).LLM_PROVIDER, "openai");
 
-  // No DB set → DATABASE_URL absent (serve then guides the user).
-  assert.equal(localServeEnv(resolveLocalConfig({ home: "/h" })).DATABASE_URL, undefined);
+  // A user DATABASE_URL means a REAL Postgres → the pglite single-connection
+  // workaround must stay OFF (no DATAMODO_EMBEDDED_DB).
+  assert.equal(env.DATAMODO_EMBEDDED_DB, undefined);
+
+  // No DB set → DATABASE_URL absent (serve boots the embedded pglite and the
+  // prisma shim must be ON).
+  const noDb = localServeEnv(resolveLocalConfig({ home: "/h" }), {});
+  assert.equal(noDb.DATABASE_URL, undefined);
+  assert.equal(noDb.DATAMODO_EMBEDDED_DB, "1");
 });
 
 test("localEmbeddingDefaults: Ollama when no cloud key, respects explicit config", () => {
@@ -98,6 +110,41 @@ test("sanitizeLlmModels: trims, drops blanks, ignores junk", () => {
   assert.deepEqual(sanitizeLlmModels({}), {});
   assert.deepEqual(sanitizeLlmModels(null), {});
   assert.deepEqual(sanitizeLlmModels({ extract: "   " }), {}); // whitespace-only → dropped
+});
+
+test("sanitizeOllamaUrl: http(s) only, trailing slash trimmed", () => {
+  assert.equal(sanitizeOllamaUrl("http://localhost:11434/"), "http://localhost:11434");
+  assert.equal(sanitizeOllamaUrl("https://my.tunnel.dev"), "https://my.tunnel.dev");
+  // Not a server address → dropped rather than breaking every LLM call.
+  assert.equal(sanitizeOllamaUrl("localhost:11434"), undefined);
+  assert.equal(sanitizeOllamaUrl("file:///etc/passwd"), undefined);
+});
+
+test("sanitizeLlmFile: models are namespaced PER PROVIDER", () => {
+  const f = sanitizeLlmFile({
+    url: "http://localhost:11434/",
+    providers: {
+      ollama: { extract: "llama3.1:8b", vision: "llama3.2-vision" },
+      anthropic: { extract: " claude-haiku-4-5 " },
+      openai: { extract: "   " }, // blank-only → provider entry dropped
+      junk: { extract: "x" },     // unknown provider → ignored
+    },
+  });
+  assert.equal(f.url, "http://localhost:11434");
+  assert.deepEqual(f.providers.ollama, { extract: "llama3.1:8b", vision: "llama3.2-vision" });
+  assert.deepEqual(f.providers.anthropic, { extract: "claude-haiku-4-5" });
+  assert.equal(f.providers.openai, undefined);
+  assert.equal((f.providers as Record<string, unknown>).junk, undefined);
+});
+
+test("sanitizeLlmFile: LEGACY flat llm.json migrates to providers.ollama", () => {
+  // The pre-namespacing wizard wrote {extract, vision, url} — those were
+  // always OLLAMA names, and they must never leak into a BYOK provider.
+  const f = sanitizeLlmFile({ extract: "llama3.1:8b", vision: "llava", url: "http://localhost:11434" });
+  assert.deepEqual(f.providers.ollama, { extract: "llama3.1:8b", vision: "llava" });
+  assert.equal(f.providers.anthropic, undefined);
+  assert.equal(f.url, "http://localhost:11434");
+  assert.deepEqual(sanitizeLlmFile(null), { providers: {} });
 });
 
 test("LOCAL_USER: a stable, VALID uuid identity", () => {

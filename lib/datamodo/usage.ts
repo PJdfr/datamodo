@@ -74,29 +74,41 @@ export async function usageSummary(orgId: string, opts: { days?: number } = {}):
     calls: 0, inputTokens: 0, outputTokens: 0, byModel: [],
   };
   try {
-    const rows = await prisma.llm_usage.groupBy({
-      by: ["provider", "model"],
-      where: { org_id: orgId, created_at: { gte: since } },
-      _count: { _all: true },
-      _sum: { input_tokens: true, output_tokens: true, cost_usd: true },
-      _max: { estimated: true },
-    });
+    // Raw aggregation: Prisma's groupBy can't fold a boolean (`_max` on
+    // `estimated` emits max(boolean), which Postgres rejects — 42883). The
+    // group semantics we want ARE bool_or: "any row in the group was an
+    // estimate" / "any call hit an unpriced model".
+    const rows = await prisma.$queryRaw<{
+      provider: string; model: string; calls: number;
+      input_tokens: number; output_tokens: number;
+      cost_usd: number | null; estimated: boolean; has_unpriced: boolean;
+    }[]>`
+      select provider, model,
+             count(*)::int                    as calls,
+             coalesce(sum(input_tokens), 0)::int  as input_tokens,
+             coalesce(sum(output_tokens), 0)::int as output_tokens,
+             sum(cost_usd)::double precision  as cost_usd,
+             bool_or(estimated)               as estimated,
+             bool_or(cost_usd is null)        as has_unpriced
+        from public.llm_usage
+       where org_id = ${orgId}::uuid and created_at >= ${since}
+       group by provider, model`;
     const byModel = rows
       .map((r) => ({
         provider: r.provider,
         model: r.model,
-        calls: r._count._all,
-        inputTokens: r._sum.input_tokens ?? 0,
-        outputTokens: r._sum.output_tokens ?? 0,
-        costUsd: r._sum.cost_usd ?? null,
-        estimated: r._max.estimated ?? true,
+        calls: r.calls,
+        inputTokens: r.input_tokens,
+        outputTokens: r.output_tokens,
+        costUsd: r.cost_usd,
+        estimated: r.estimated ?? true,
       }))
       .sort((a, b) => (b.costUsd ?? 0) - (a.costUsd ?? 0) || b.calls - a.calls);
 
     return {
       since: since.toISOString(),
       totalCostUsd: byModel.reduce((n, m) => n + (m.costUsd ?? 0), 0),
-      hasUnpriced: byModel.some((m) => m.costUsd === null && (m.inputTokens > 0 || m.outputTokens > 0)),
+      hasUnpriced: rows.some((r) => r.has_unpriced && (r.input_tokens > 0 || r.output_tokens > 0)),
       calls: byModel.reduce((n, m) => n + m.calls, 0),
       inputTokens: byModel.reduce((n, m) => n + m.inputTokens, 0),
       outputTokens: byModel.reduce((n, m) => n + m.outputTokens, 0),

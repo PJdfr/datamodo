@@ -9,9 +9,247 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-14
+> Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Live agent suggestion while typing** (user: "if the
+  classifier is free and fast, can't we suggest the agent before send?").
+  The SAME zero-cost router now also runs IN THE BROWSER on every keystroke
+  (`agent-router.ts` is pure/import-free, so the client bundle imports it
+  directly — no API call, microseconds per run): while an unaddressed draft
+  (≥12 chars) confidently matches one auto agent, the composer's "to" row
+  shows a coral-tinted chip — **"↪ Bookkeeper? Tab"** — click or Tab makes it
+  the explicit recipient (same `pickAgent` path as the picker/@mention), ✕
+  dismisses for that match (re-arms on the next draft). An explicit/sticky
+  recipient suppresses it; ignoring it is fine — the server routes the sent
+  message identically and the bubble now shows the **↪ routedAgent**
+  attribution chip (server stamp surfaced; explicit "→ agent" unchanged).
+  Suggest → accept-or-ignore → attribute: the loop is visible end to end,
+  all at zero LLM cost. VERIFIED 7/7 on the packed artifact (Playwright):
+  chip appears while typing an invoice draft, Tab addresses (chip gone,
+  "→ Bookkeeper" on the sent bubble), off-topic draft shows nothing, ✕
+  dismisses, and a dismissed-but-sent interview note came back with
+  "↪ Recruiter" from the server. Also live-proved this session: the SIGTERM
+  fix (serve now stops cleanly, port freed) and the router's twin-profile
+  behavior (duplicate same-purpose agents tie every score → correctly never
+  routes).
+- **2026-07-16** — **Local MCP is tokenless + zero-cost auto-mode agent
+  routing** (two user calls). (1) **MCP auth split**: the LOCAL edition's MCP
+  needs NO bearer token — one user, and the server binds 127.0.0.1, so
+  reaching the port IS the boundary (`verifyToken` returns `LOCAL_USER` under
+  `isLocalMode`; `withMcpAuth required` only in cloud; `/api/mcp-token`
+  returns `{token: null, authRequired: false}` locally and the Connect-Claude
+  card shows a header-less `claude mcp add` one-liner; documented caveat:
+  binding beyond localhost opens everything, MCP included). Cloud keeps
+  HMAC bearer tokens unchanged. (2) **Zero-cost agent router** — the
+  ROADMAP's deferred "reroute" step, built the FREE way (user: auto mode is
+  too expensive if routing needs an LLM): pure `lib/datamodo/agent-router.ts`
+  — each ACTIVE **auto**-mode agent's name+purpose becomes a keyword profile
+  (idf-style weights: terms shared across profiles are discounted, name terms
+  ×2, plural folding), an UNADDRESSED item routes to the top agent only when
+  it clears an absolute floor AND a margin over the runner-up — **ambiguity
+  never routes** (generic datamodo agent, exactly as before). Deterministic,
+  no LLM call, no spend. Hook in `runExtractionForItem`: explicit `@agent`
+  meta always wins; a routed pick steers extraction with that agent's
+  purpose and is stamped on the item (`meta.routed_agent_id/name/terms` —
+  attribution is never silent; chat GET now returns `routedAgent`).
+  (3) Bonus CLI fix the E2E surfaced: `datamodo serve` now handles SIGTERM
+  (not just Ctrl-C) — `kill <pid>` used to orphan the next-server child on
+  the port with a dead embedded DB. VERIFIED on the packed artifact (8/8):
+  tokenless tools/list + tool call read the vault; two auto agents created
+  through the real wizard; unaddressed "Invoice INV-77…" → Bookkeeper,
+  "Interview with the candidate…" → Recruiter, "Lunch on Thursday…" →
+  generic (no stamp), explicit @Recruiter on invoice-ish text beats the
+  router. 6 new unit tests (252 total), tsc, lint == baseline, boundary +
+  prune clean.
+- **2026-07-16** — **MCP everywhere + the full tool surface (14 tools)** (user
+  call — reverses the hours-earlier "cloud-only" call; FINAL state: the MCP
+  server ships in BOTH editions, same code, each bound to its own vault —
+  cloud → the hosted Neon org, local → the machine's pglite/compose Postgres;
+  local reachable by Claude Desktop/Code on the same machine, claude.ai web
+  can't hit localhost). Restored the local packaging state (routes + contract
+  cores + `mcp-handler`/`zod`/sdk deps back in the prune, boundary treats MCP
+  as core, Connect-Claude card visible locally, `MCP_TOKEN_SECRET` from the
+  per-install ingest secret). **Six NEW tools** complete the surface, each a
+  thin wrapper over an existing tested core: `capture_message` (forward raw
+  content → SAME ingest + post-response extraction kick; the no-extraction
+  counterpart to submit_extraction), `walk_graph` (the Explorer as a tool —
+  `buildEgoGraph` hop-1/2 neighborhood with predicates+confidence),
+  `list_facts` (structured lookups by subject/predicate/kind with **as-of
+  date** over the bitemporal validity window), `search_documents` (passage
+  search via `searchChunks`, keyword+semantic), `list_tables` +
+  `get_table_rows` (datasets as read-only projections — deliberately NO
+  row-write tool; writes go through extraction). Deliberately absent: entity
+  deletion (append-only vault), review bypass. VERIFIED 19/19 on the packed
+  artifact with a raw streamable-HTTP JSON-RPC client: 401 without token,
+  token minted locally, initialize, all 14 tools advertised, capture →
+  pipeline extraction lands (Hooli), submit_extraction files (C-77 → facts
+  value/signed_on/party), get_entity/walk_graph/get_context read it back,
+  list_facts as-of 2020 correctly empty, org-scoped table-id validation,
+  inbox/reviews execute. `datamodo-*.tgz` rebuilt with MCP included.
+- **2026-07-16** — ~~**MCP is CLOUD-ONLY**~~ (superseded above) (user call — reverses the same-day
+  "MCP ships local" decision from the packaging build; settles brief open
+  question 1 the other way). The local artifact no longer contains the MCP
+  host: `app/api/mcp` + `app/api/mcp-token` dropped from the prune INCLUDE,
+  the contract cores `lib/datamodo/mcp-{extraction,token}.ts` deleted from
+  the copied tree (new `EXCLUDE_FILES` step), and `mcp-handler` + `zod`
+  dropped from the local package.json (`@modelcontextprotocol/sdk` no longer
+  pinned — zod's only importers were the MCP files). Boundary lint closes MCP
+  again (`app/api/mcp`, `lib/datamodo/mcp-`, `mcp-handler`,
+  `@modelcontextprotocol` are CLOSED targets in both the repo config and the
+  generated zero-exception in-tree config; grep sweep gains the same
+  markers). Local Settings hides the "✦ Connect Claude" card (`!local`);
+  `serve`/docker-entry no longer export `MCP_TOKEN_SECRET`. Cloud unchanged —
+  the MCP host keeps working exactly as shipped 2026-07-14. VERIFIED: pruned
+  tree builds green with zero MCP/zod references (grep + zero-exception
+  depcruise), tarball boots fresh, dashboard Settings shows no Connect-Claude
+  card locally, `/api/mcp*` 404 in the local artifact, 246 unit tests, tsc,
+  lint == baseline.
+- **2026-07-16** — **Local BYOK verified + per-provider model config** (user:
+  "make sure in local i can use my own claude api key or openai or
+  openrouter"). The Settings toggle existed, but live-driving found the trap:
+  the first-run wizard seeds `llm.json` with OLLAMA model names
+  (llama3.1:8b…) and `llmForUser` applied them to EVERY provider — switching
+  to a Claude/OpenAI/OpenRouter key would have requested "llama3.1:8b" from
+  that API and failed every call. Fix: **`llm.json` model names are now
+  namespaced PER PROVIDER** (`{url, providers: {ollama: {…}, anthropic: {…},
+  openai: {…}, openrouter: {…}}}`; legacy flat files migrate to
+  `providers.ollama` on read — pure `sanitizeLlmFile` in `lib/local/config.ts`,
+  unit-tested). `llmForUser` applies only the RESOLVED provider's saved models
+  (byok → `settings.aiProvider`'s slot; local default → the `LLM_PROVIDER`
+  env-resolved slot, ollama). `/api/local/llm-models` takes `?provider=` /
+  `{provider, models}`; Settings' `LocalAiFields` is provider-aware
+  (per-provider placeholders — claude-haiku-4-5 / gpt-4o-mini /
+  anthropic-claude-haiku-4.5 —, Ollama-only URL/status/datalist, byok panel
+  edits the SELECTED provider's slot). Two more real fixes: **`llm_usage` now
+  ships in `neon/schema.sql`** (the BYOK spend card was permanently empty
+  locally — the ledger table only existed as an unapplied cloud migration),
+  and **`usageSummary` was broken everywhere**: Prisma `groupBy._max` on the
+  boolean `estimated` emits `max(boolean)` → 42883 (never seen in cloud only
+  because the table was never migrated there) — rewritten as raw SQL with
+  `bool_or`. Mock-ollama now accepts any model id on keyed requests (cloud-API
+  semantics) so BYOK is drivable against it. VERIFIED on the packed tarball
+  (fresh vault, `OPENAI_BASE_URL` → mock): **11/11 BYOK E2E** — key saved
+  through the real Settings UI, extraction runs with the bearer key, OpenAI
+  default model used (no Ollama-name leak), per-provider dashboard override
+  honored, ollama/openai slots isolated, spend ledger populates, toggle back
+  to Local resumes keyless llama3.1:8b. Anthropic rides the same routing (its
+  API client is cloud-shared code, not mock-drivable).
+- **2026-07-16** — **Local packaging phase 3: the shipped tarball driven
+  end-to-end, and the 5 real bugs that only live-driving found** (brief §10 —
+  "don't hand back untested"). Harness: mock Ollama on :11434 (rule-based
+  extractor, real 768-d embeddings) + `npm i -g dist/datamodo-0.1.0.tgz` +
+  `datamodo serve` on a fresh vault + an HTTP driver and a real-Chromium
+  (playwright) click-through. **Result: 18/18 API checks, 8/8 UI checks, 4/4
+  fail-soft checks pass on the PACKED ARTIFACT** — boot/redirect, wizard-seeded
+  models visible+editable via Settings API, text ingest → entities
+  (Acme Corp/INV-42/Jane Doe) + facts (amount/due_date/issued_by), keyword +
+  semantic search, grounded answer, image → VISION model (marker in body_md),
+  text-layer PDF → extraction, dashboard-set model actually used (mock logged
+  `dash-test-model`), agent wizard → @Bookkeeper mention → send → "✓ filed",
+  Data/Explore render with zero console errors, and Ollama-killed-mid-run →
+  item fails soft, dashboard + keyword search stay up. Bugs found & fixed —
+  each "worked" at compile level and broke live: (1) **installed-package build
+  failed typecheck** — a global npm install puts the app inside `node_modules`,
+  where tsc refuses to analyze `.mjs` (local next.config now skips typecheck;
+  the tree is fully checked at pack time); (2) **pg pool idle-close kicked the
+  pglite socket** ("Connection terminated unexpectedly" on first write) —
+  `idleTimeoutMillis: 0` on the embedded pool; (3) **every route bundle opened
+  its own pool** (prod Next inlines lib/prisma.ts per route; the globalThis
+  singleton was dev-only) — pglite serves ONE connection, so routes kicked each
+  other; singleton now always set in local; (4) **first-boot org provisioning
+  raced itself and corrupted BOTH transactions** (two interactive transactions
+  interleave on pglite's single session: nested BEGIN is a no-op, one ROLLBACK
+  undoes both) — provisioning is now sequential idempotent upserts, no
+  transaction, race-safe catch-and-refetch (cloud unchanged semantics);
+  (5) **the Free-plan gate blocked local agent creation** ("Auto mode is a Pro
+  feature") — `planLimits` returns unmetered self-hosted entitlements under
+  `DATAMODO_LOCAL` (server-side), and the sidebar/wizard "runs on" chrome is
+  local-aware ("Local AI — this machine" / "self-hosted · settings"). NOT
+  verified in-sandbox (egress policy): real model quality (no weights
+  reachable), the Docker image build (no base-image pulls), live IMAP.
+- **2026-07-16** — **Local packaging phase 2: physical code separation + Docker
+  runtime + one-command installers** (brief §3/§4/§6 — the ROADMAP "HARD
+  REQUIREMENT"). (1) **Boundary lint**: `.dependency-cruiser.cjs` forbids the
+  CORE (dashboard, core/local API routes, `lib/{datamodo,llm,local,ingest}`,
+  blob-fs, bin, shared UI atoms) from importing the CLOSED layer (Neon Auth
+  server/client, `@neondatabase/*`, `@prisma/adapter-neon`, stripe, `@aws-sdk`,
+  billing/webhooks/auth routes, landing) — seam files (`lib/prisma.ts`,
+  `lib/storage/blob.ts`, `lib/auth/session.ts`, `app/auth/actions.ts`,
+  `proxy.ts`) are the only allowed crossings; `npm run lint:boundary` + a CI
+  step enforce it (0 violations today). (2) **Build-time prune** (`npm run
+  build:local-package` → `scripts/build-local-package.mjs`): copies the core
+  into `dist/local-package/`, swaps the 5 seams + `app/page.tsx` +
+  `next.config.ts` for local implementations checked in under
+  `packaging/local/overrides/`, generates a real `package.json` (name
+  **datamodo**, bin, cloud deps dropped, build-time deps promoted), then
+  PROVES the separation: a grep sweep for closed markers, a ZERO-exception
+  depcruise config generated into the tree, and (`--build`) a full
+  `npm install` + `DATAMODO_LOCAL=1 next build` in the pruned tree. Verified
+  in-session: tree builds green; `npm pack` → **datamodo-0.1.0.tgz, 181 files,
+  ~400 KB, zero closed-layer paths inside**. Decision (brief open question 1):
+  **MCP ships in the local package** (vault-as-tools on the user's own Claude
+  subscription is a flagship local feature); its `MCP_TOKEN_SECRET` derives
+  from the random per-install ingest secret, never the constant local cookie
+  placeholder. Turbopack gotcha for posterity: building the pruned tree NESTED
+  in the repo makes Turbopack infer the OUTER repo as project root and pick up
+  the cloud `proxy.ts` — the local `next.config.ts` pins `turbopack.root`.
+  (3) **Docker runtime** (`packaging/local/docker/`): multi-stage Dockerfile
+  built FROM the pruned tree (cloud code physically absent from the image);
+  compose = app + `pgvector/pgvector:pg16` with healthcheck + named volumes +
+  optional `gpu`-profile Ollama (Linux/NVIDIA only); host Ollama is the default
+  everywhere (macOS containers can't use Metal — §7). `bin/docker-entry.mjs`
+  is the container `serve`: waits for PG, installs the schema from
+  `neon/schema.sql` on a fresh DB (dim-rewritten for local embeddings) or
+  `prisma db push` on upgrade, runs the non-interactive first-run sizing
+  (cgroup RAM), starts `next start` + the IMAP poller — real PG, so the pglite
+  shim stays off. NOT run in-session: the image build itself (sandbox egress
+  blocks Docker Hub base images) — flagged for a human/CI with network.
+  (4) **Installers** (`packaging/install.sh` + `install.ps1`, brief §3): one
+  command → asks Local vs BYOK → Docker Compose vs npm (auto-detect, override
+  flags `--local/--byok/--docker/--npm/--ram/--yes`) → Ollama guidance per OS
+  (macOS host-Ollama note) → npm path installs global + runs `datamodo setup`;
+  docker path fetches the compose bundle and `docker compose up -d`. sh/POSIX
+  syntax-checked. CI gained "Boundary" + "Local package prune" steps.
+- **2026-07-15** — **Local packaging phase 1: real-Postgres runtime + first-run
+  model sizing + LOCAL↔BYOK settings toggle** (packaging brief §2/§3/§5;
+  overnight build). (1) **`neon/schema.sql` now loads top-to-bottom into an
+  EMPTY database** — dropped the psql-only `\restrict` meta-commands and moved
+  the 3 inline `REFERENCES` on `doc_chunks`/`kinds` (hand-added tables) into the
+  end-of-file FK section (same auto-generated constraint names, so deployed DBs
+  match). This unblocks Docker initdb AND lets the embedded DB build the schema
+  **faithfully from schema.sql** on a fresh vault (functions + triggers + hnsw
+  included — the "prisma db push partial schema" gap is gone; push remains only
+  as the app-upgrade diff path, and a `reset all` clears the dump's session SETs
+  since pglite is one shared session). (2) **Real-Postgres local runtime**: the
+  pglite `max:1`/read-retry shim in `lib/prisma.ts` is now gated on
+  `DATAMODO_EMBEDDED_DB=1` (set by `serve` only when it boots pglite); a
+  user-supplied `DATABASE_URL` gets a normal pooled `@prisma/adapter-pg`.
+  (3) **First-run sizing wizard** — `datamodo setup` (and auto on first
+  `serve`): detects RAM (`os.totalmem` capped by the cgroup limit in
+  containers), maps to a model tier (4/8/16/32 GB → llama3.2:3b …
+  qwen2.5:14b + llava/llama3.2-vision + nomic-embed-text; pure core
+  `lib/local/sizing.mjs`, unit-tested), pulls via Ollama `/api/pull` with
+  progress, seeds `~/.datamodo/llm.json` (the dashboard-editable store);
+  fail-soft with an install hint when Ollama is absent. (4) **LOCAL ↔ BYOK is a
+  Settings toggle**: local Settings hides the cloud plan/billing card, the
+  compute cards read "Local — on this machine" vs "Bring your own key"
+  (stored `computeMode` unchanged: "cloud" means platform-default = host
+  Ollama locally; plan gate bypassed under `isLocalMode`), and a new
+  `LocalAiFields` panel edits the **Ollama server URL** (new `url` field in
+  `llm.json`, http(s)-validated) + text/vision models with live reachability +
+  installed-model suggestions (`GET /api/local/llm-models` now probes
+  `/api/tags`). `serve` defaults `LLM_PROVIDER=ollama`. (5) **Mock Ollama**
+  (`scripts/mock-ollama.mjs`): tags/pull/chat(JSON+vision)/embeddings
+  (deterministic 768-d) — lets the whole pipeline run E2E where weights can't
+  (CI/sandboxes). VERIFIED: schema.sql loads clean into empty pglite (22
+  tables/6 triggers/all stored fns); embedded-db integration tests incl. the
+  new upgrade-path test (data kept, hnsw restored); wizard live against the
+  mock (detect 15.7 GB → "plus", `--ram 8` → standard, 3 pulls, idempotent
+  re-run) and against nothing (hint + seeded llm.json); 250 unit tests, tsc
+  clean, lint == baseline, local `next build` green. NOT verifiable in this
+  sandbox: real model pulls (egress policy blocks ollama.com/registry.ollama.ai,
+  huggingface, Docker Hub blobs — see the session report).
 - **2026-07-15** — **Local edition: pick LLM model names from the dashboard**
   (user: "why can't we set these from the dashboard, not the terminal? we can
   do both"). Previously the Ollama model ids were ENV-ONLY

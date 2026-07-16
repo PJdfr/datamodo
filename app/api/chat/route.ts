@@ -75,6 +75,9 @@ export async function GET() {
       attachments: byItem.get(i.id) ?? [],
       // The addressee, for the bubble's "→ agent" chip (null = general).
       agent: (i.meta as { agent_name?: string } | null)?.agent_name ?? null,
+      // Where the zero-cost auto-router filed it when nobody was addressed
+      // (attribution stays visible — routing is never silent).
+      routedAgent: (i.meta as { routed_agent_name?: string } | null)?.routed_agent_name ?? null,
     })),
     questions,
     reviews,

@@ -1,42 +1,32 @@
-import { getAuth } from "./server";
 import { prisma } from "@/lib/prisma";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { provisionInbox } from "@/lib/datamodo/inbox";
-import { isLocalMode, LOCAL_USER } from "@/lib/local/config";
+import { LOCAL_USER } from "@/lib/local/config";
 import type { ActiveOrg } from "@/lib/datamodo/types";
+
+// LOCAL EDITION build of lib/auth/session.ts — no auth at all. There is
+// exactly one user (the person at the keyboard), so the session is a constant
+// and provisioning runs like any first sign-in. The cloud edition's Neon Auth
+// integration is closed-layer and not part of this package;
+// scripts/build-local-package.mjs swaps this file in.
 
 export type SessionUser = { id: string; email: string; name: string | null };
 
-/** The signed-in user, or null. Replaces `supabase.auth.getUser()`.
- *  Local edition: there is exactly one user (the person at the keyboard), so
- *  auth is a constant — no Neon Auth, no login — and provisioning runs the
- *  same as any first sign-in. */
+/** The one local user — always signed in. */
 export async function getSessionUser(): Promise<SessionUser | null> {
-  if (isLocalMode()) return { ...LOCAL_USER };
-  const { data: session } = await (await getAuth()).getSession();
-  const u = session?.user;
-  if (!u) return null;
-  return { id: u.id, email: u.email ?? "", name: u.name ?? null };
+  return { ...LOCAL_USER };
 }
 
-/**
- * App-layer authz entry point: the signed-in user + their personal org, or null
- * if not signed in. Every server action / route handler / page uses this instead
- * of RLS. Lazily provisions the personal org on first access, so it covers both
- * email/password sign-up and OAuth (which has no explicit sign-up action).
- */
+/** App-layer authz entry point: the local user + their personal org. */
 export async function requireUserOrg(): Promise<{ user: SessionUser; org: ActiveOrg } | null> {
   const user = await getSessionUser();
   if (!user) return null;
   return { user, org: await getOrCreateOrg(user) };
 }
 
-/** The user's personal org, provisioning it on first access. Use this at
- *  authenticated entry points (dashboard page/layout) so a freshly signed-up
- *  user — including OAuth — gets their org/profile/settings/inbox created.
- *  Race-safe: two parallel first requests both reach provisioning (a fresh
- *  dashboard load fires several) — the loser's unique-violation resolves to
- *  the winner's org instead of failing the request. */
+/** The user's personal org, provisioning it on first access. Race-safe: a
+ *  fresh dashboard load fires several parallel requests — the provisioning
+ *  loser's unique-violation resolves to the winner's org. */
 export async function getOrCreateOrg(user: SessionUser): Promise<ActiveOrg> {
   const existing = await getActiveOrg(user.id);
   if (existing) return existing;
@@ -49,18 +39,11 @@ export async function getOrCreateOrg(user: SessionUser): Promise<ActiveOrg> {
   }
 }
 
-/**
- * Create a user's personal org + profile + settings + inbox on first sign-in.
- * Reimplements the old `handle_new_user` Postgres trigger in app code (Neon Auth
- * users live in the neon_auth schema; there is no trigger on them).
- *
- * Deliberately NOT a $transaction: every step is an idempotent upsert keyed on
- * stable ids, so a concurrent or crashed run self-heals on the next call. On
- * the local edition's embedded pglite (ONE shared session) two interleaved
- * interactive transactions corrupt each other (a nested BEGIN is a no-op, so
- * one ROLLBACK undoes both) — sequential idempotent steps sidestep that whole
- * class, and the cloud is equally happy with them.
- */
+/** Create the personal org + profile + settings on the very first boot.
+ *  Deliberately NOT a $transaction: the embedded pglite is ONE shared session,
+ *  where two interleaved interactive transactions corrupt each other (a nested
+ *  BEGIN is a no-op, so one ROLLBACK undoes both). Sequential idempotent
+ *  upserts self-heal instead — a concurrent or crashed run converges. */
 async function provisionPersonalOrg(user: SessionUser): Promise<ActiveOrg> {
   const name = (user.name || user.email.split("@")[0] || "New user").trim();
   const slug = `personal-${user.id.slice(0, 8)}`;
@@ -92,7 +75,7 @@ async function provisionPersonalOrg(user: SessionUser): Promise<ActiveOrg> {
     update: {},
   });
 
-  // Best-effort inbound email address (its own unique-retry loop).
+  // Best-effort inbound address bookkeeping (harmless locally).
   await provisionInbox(org.id, user.id).catch(() => {});
 
   return {
