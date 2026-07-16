@@ -237,7 +237,7 @@ still exists — filename/type/size + `mentions` edges).
 
 | input | path |
 | --- | --- |
-| **PDF with a text layer** | `extractAttachmentText` via **unpdf** (page-capped, char-capped) → classify-first document pipeline (§3c) → summary=`body_md`, chunks, template facts. |
+| **PDF with a text layer** | **No size limit** (user call 2026-07-16): `extractAttachmentText` via **unpdf** reads the WHOLE document (safety ceilings only: 500 pages / 600k chars) and ALL of it is chunked + stored (`MAX_CHUNKS` 500). Above the 24k-char prompt budget, the classify call reads the head, then the **zero-LLM chunk-importance selector** (`chunk-select.ts`: section headers, info density, template/agent term overlap, position; openings always kept) picks what the distill LLM reads — page-marked, elision-marked, document order. Omitted passages stay searchable in `doc_chunks`. Same selection applies to long audio transcripts. |
 | **Scanned PDF** (`isLikelyScannedPdf`: <~24 chars/page) | **OPT-IN since 2026-07-16** (user call: no vision on PDFs for now): only with `PDF_SCAN_VISION=1` does `rasterizePdfPages` (up to 6 pages, ONE vision call) → `extractFromImage` run; otherwise the scan stays `metadata_only` (blob archived — a requeue after enabling re-reads it). Photos are unaffected. |
 | **Image** (photo/screenshot) | vision tier §3d; the summary is the image's only text → chunked so passage search can cite what the image says. |
 | **Audio** (voice memo) | `transcribeAudio` (Whisper-shaped, fail-soft) → the transcript runs the SAME document pipeline; node body = player + summary + transcript. |

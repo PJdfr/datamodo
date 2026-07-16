@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { readBlob } from "@/lib/ingest/store";
 import type { LlmProvider } from "@/lib/llm";
-import { extractFromDocument, extractFromImage } from "./extract";
+import { classifyDocumentKind, extractFromDocument, extractFromImage } from "./extract";
+import { keyTermsFrom, selectChunksForPrompt, DOC_PROMPT_BUDGET_CHARS } from "./chunk-select";
 import { createOffTemplateReview, ingestExtraction } from "./knowledge";
 import { parseWorkbook } from "./spreadsheet";
 import { storeDocChunks } from "./chunks";
@@ -35,6 +36,42 @@ import {
 // becomes the node's body_md), and link the document to what it mentions.
 // Fails safe at every step — a missing blob bucket, a scanned PDF, or an LLM
 // error degrades that document to metadata-only; it never fails the item.
+
+/** What the distill LLM should READ for one document. Short documents pass
+ *  whole; long ones (no size limit — user call 2026-07-16) classify from the
+ *  head, then the zero-LLM chunk scorer (chunk-select.ts) picks the
+ *  passages worth the prompt budget, steered by the classified kind's
+ *  template vocabulary and the agents' purposes. Fail-soft everywhere. */
+async function distillInput(
+  doc: { text: string },
+  chunks: import("./document-extraction").DocChunk[],
+  filename: string | null,
+  kinds: import("./ontology").KindDef[] | undefined,
+  agents: { name: string; purpose: string }[],
+  llm: LlmProvider,
+): Promise<{ text: string; docKind: string | null }> {
+  if (doc.text.length <= DOC_PROMPT_BUDGET_CHARS) return { text: doc.text, docKind: null };
+  let docKind: string | null = null;
+  if (kinds?.length) {
+    try {
+      docKind = (await classifyDocumentKind({ filename, text: doc.text, kinds }, llm)).kind;
+    } catch (e) {
+      console.error(`[documents] pre-selection classify failed for "${filename}"`, e);
+    }
+  }
+  const def = kinds?.find((k) => k.kind === docKind);
+  const keyTerms = keyTermsFrom(
+    def?.description,
+    ...(def?.fields.map((f) => `${f.key} ${f.label}`) ?? []),
+    ...(def?.relations.map((r) => `${r.predicate} ${r.label}`) ?? []),
+    ...agents.map((a) => a.purpose),
+  );
+  const sel = selectChunksForPrompt(chunks, { keyTerms });
+  console.log(
+    `[documents] chunk selection for "${filename}": ${sel.includedSeqs.length}/${chunks.length} chunks in prompt (${sel.droppedChunks} omitted — still stored + searchable)`,
+  );
+  return { text: sel.text, docKind };
+}
 
 export interface AttachmentProcessResult {
   attachmentId: string;
@@ -136,9 +173,14 @@ export async function processItemAttachments(
             const known = await import("./priming")
               .then(({ primeKnownEntities }) => primeKnownEntities(item.org_id, doc!.text))
               .catch(() => []);
+            // No size limit: the WHOLE document is chunked; the prompt gets
+            // the important chunks only (classify from the head, then the
+            // zero-LLM scorer — chunk-select.ts).
+            const di = await distillInput(doc, chunkDocText(doc), att.filename, kinds, agents, llm);
             const res = await extractFromDocument(
               {
-                text: doc.text,
+                text: di.text,
+                docKind: di.docKind ?? undefined,
                 filename: att.filename,
                 channel: item.channel,
                 businessContext,
@@ -235,9 +277,13 @@ export async function processItemAttachments(
               truncated: transcript.length > MAX_DOC_CHARS,
               pages: null,
             };
+            // Long transcripts get the same chunk-importance selection as
+            // long documents — the full transcript still lands in doc_chunks.
+            const di = await distillInput(doc, chunkDocText(doc), att.filename, kinds, agents, llm);
             const res = await extractFromDocument(
               {
-                text: doc.text,
+                text: di.text,
+                docKind: di.docKind ?? undefined,
                 filename: att.filename,
                 channel: item.channel,
                 businessContext,

@@ -21,10 +21,13 @@ export const DOCUMENT_KIND = "document";
 /** How much of the document's content made it into the graph. */
 export type DocumentIndexing = "full" | "partial" | "metadata_only";
 
-/** Guardrails for big documents: index the first N pages / M chars, mark the
- *  entity `partial`, never inline more into a prompt. */
-export const MAX_DOC_PAGES = 20;
-export const MAX_DOC_CHARS = 20_000;
+/** SAFETY CEILINGS, not product limits (user call 2026-07-16: "no limit on
+ *  PDF size"): the WHOLE document is read and chunked — these only stop a
+ *  pathological file from exhausting memory. What reaches the LLM is decided
+ *  separately by the chunk-importance selector (chunk-select.ts), never by
+ *  chopping at page 20. Beyond a ceiling the entity is marked `partial`. */
+export const MAX_DOC_PAGES = 500;
+export const MAX_DOC_CHARS = 600_000;
 
 export interface AttachmentMeta {
   filename: string | null;
@@ -275,9 +278,11 @@ export interface DocChunk {
   text: string;
 }
 
-/** Target chunk size (chars) and a hard cap on chunks per document. */
+/** Target chunk size (chars) and a hard cap on chunks per document — sized
+ *  so the cap only bites at the MAX_DOC_CHARS safety ceiling, never on a
+ *  real document (the whole evidence layer holds the whole document). */
 export const CHUNK_SIZE = 1200;
-export const MAX_CHUNKS = 60;
+export const MAX_CHUNKS = 500;
 
 /** Split one block of text into ~CHUNK_SIZE pieces on paragraph, then
  *  sentence boundaries — never mid-word unless a single token exceeds it. */

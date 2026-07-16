@@ -12,6 +12,25 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Unbounded documents + chunk-importance selection (user
+  call: "no limit on PDF size — but don't put everything in the LLM
+  context; classify which chunks matter")** — the 20-page/20k-char read
+  caps became safety ceilings (500 pages / 600k chars / 500 chunks): the
+  WHOLE document is read, chunked, embedded, and passage-searchable. The
+  distill prompt now gets a SELECTION: above a 24k-char budget,
+  `distillInput` (documents.ts) classifies the kind from the document head,
+  then the pure zero-LLM scorer `chunk-select.ts` ranks every chunk —
+  boost results/summary/conclusion headings, demote
+  references/appendix/acknowledgments, reward digit/%/currency density and
+  overlap with the classified kind's template vocabulary + agent purposes,
+  keep openings always — and fills the budget, re-ordered by document
+  position with [p.N] markers and "[… less relevant passages omitted …]"
+  marks so the model knows it reads a selection. Same path for long audio
+  transcripts. The "25-page paper" gap (pages 21–25 invisible) is closed:
+  every page is stored and citable; only the prompt is selective. 5 new
+  tests (term extraction, scoring order, budget/openings/page markers);
+  suite 330 pass / 3 pre-existing canvas failures; tsc/eslint clean
+  (chunks.test now builds MAX_CHUNKS+50 paragraphs). NOT live-fired.
 - **2026-07-16** — **Efficiency track, step 1 (user ask: "reduce LLM bill,
   avoid degeneration, faster queries, leaner storage — small steps")** —
   six shippable steps, plan + backlog in GRAPH_PIPELINE.md "Efficiency
