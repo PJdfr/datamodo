@@ -156,24 +156,57 @@ export async function extractAttachmentText(
   return { text: s.slice(0, MAX_DOC_CHARS), truncated: s.length > MAX_DOC_CHARS, pages: null };
 }
 
-/** Rasterize a scanned PDF's first page to a PNG for the vision tier. Returns
- *  base64 PNG + media type, or null (never throws) when rendering isn't
- *  possible here (no canvas backend, corrupt PDF) — the caller then stays
- *  metadata_only exactly as before. `scale: 2` keeps text legible to the
- *  vision model without ballooning the payload. Page 1 only in v1 — most
- *  scanned receipts/invoices are one page; multi-page OCR is a follow-up. */
-export async function rasterizePdfFirstPage(bytes: Uint8Array): Promise<{ imageBase64: string; mediaType: string } | null> {
-  try {
-    const { renderPageAsImage } = await import("unpdf");
-    const buf = await renderPageAsImage(new Uint8Array(bytes), 1, {
-      scale: 2,
-      canvasImport: () => import("@napi-rs/canvas") as unknown as Promise<typeof import("@napi-rs/canvas")>,
-    });
-    return { imageBase64: Buffer.from(buf).toString("base64"), mediaType: "image/png" };
-  } catch (e) {
-    console.error("[documents] scanned-PDF rasterization failed", e);
-    return null;
+/** How much of a scanned PDF the vision tier reads in ONE call: at most this
+ *  many pages, and at most ~this much base64 across them (a page at scale 2
+ *  is roughly 0.3–1.5 MB base64; vision payloads have real limits). Pages
+ *  beyond either cap are dropped and the result is marked truncated. */
+export const MAX_SCAN_PAGES = 6;
+export const MAX_SCAN_BASE64_CHARS = 9_000_000; // ≈ 6.7 MB of image bytes
+
+export interface RasterizedScan {
+  /** 1-based consecutive pages, always starting at page 1. */
+  pages: { imageBase64: string; mediaType: string; page: number }[];
+  /** True when the document had more pages than we rasterized. */
+  truncated: boolean;
+}
+
+/** Rasterize a scanned PDF's pages to PNGs for the vision tier — page 1 up to
+ *  MAX_SCAN_PAGES, stopping early when the payload budget is spent. Returns
+ *  null (never throws) when rendering isn't possible at all (no canvas
+ *  backend, corrupt PDF) — the caller then stays metadata_only exactly as
+ *  before. A failure on page N>1 keeps pages 1..N-1 (truncated), because a
+ *  partially read scan still beats an unread one. `scale: 2` keeps text
+ *  legible without ballooning the payload. */
+export async function rasterizePdfPages(bytes: Uint8Array, totalPages: number): Promise<RasterizedScan | null> {
+  const want = Math.max(1, Math.min(totalPages || 1, MAX_SCAN_PAGES));
+  const pages: RasterizedScan["pages"] = [];
+  let budget = MAX_SCAN_BASE64_CHARS;
+  for (let page = 1; page <= want; page++) {
+    try {
+      const { renderPageAsImage } = await import("unpdf");
+      const buf = await renderPageAsImage(new Uint8Array(bytes), page, {
+        scale: 2,
+        canvasImport: () => import("@napi-rs/canvas") as unknown as Promise<typeof import("@napi-rs/canvas")>,
+      });
+      const imageBase64 = Buffer.from(buf).toString("base64");
+      if (pages.length > 0 && imageBase64.length > budget) {
+        return { pages, truncated: true }; // budget spent — ship what we have
+      }
+      budget -= imageBase64.length;
+      pages.push({ imageBase64, mediaType: "image/png", page });
+    } catch (e) {
+      console.error(`[documents] scanned-PDF rasterization failed on page ${page}`, e);
+      if (pages.length === 0) return null;
+      return { pages, truncated: true };
+    }
   }
+  return { pages, truncated: (totalPages || 1) > want };
+}
+
+/** Back-compat shim: just the first page (kept for tests/tooling). */
+export async function rasterizePdfFirstPage(bytes: Uint8Array): Promise<{ imageBase64: string; mediaType: string } | null> {
+  const scan = await rasterizePdfPages(bytes, 1);
+  return scan?.pages[0] ? { imageBase64: scan.pages[0].imageBase64, mediaType: scan.pages[0].mediaType } : null;
 }
 
 // --- Chunks: the evidence layer -------------------------------------------------

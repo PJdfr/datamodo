@@ -12,6 +12,24 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Multi-page scanned PDFs** (ROADMAP follow-up from the
+  2026-07-14 OCR ship: "v1 is page 1"). A textless (scanned) PDF's pages now
+  ALL reach the vision model in ONE call: `rasterizePdfPages` renders page 1
+  up to `MAX_SCAN_PAGES` (6) within a payload budget
+  (`MAX_SCAN_BASE64_CHARS` ≈ 6.7 MB of image bytes), stopping early and
+  marking `truncated`; a rasterization failure on page N>1 keeps pages
+  1..N-1 (a partially read scan beats an unread one; page-1 failure still →
+  null → metadata_only). `extractFromImage` gained `additionalPages` (the
+  LLM layer already carried an images array — both providers); the prompt
+  tells the model the images are the CONSECUTIVE PAGES of ONE document (one
+  summary, one primary entity, facts from any page). `documents.ts` marks
+  indexing "full" only when every page was seen, else "partial".
+  `rasterizePdfFirstPage` kept as a shim. Mock now logs "(vision xN)" — the
+  page-count proof. VERIFIED: 4 new unit tests (order, cap+truncated flag,
+  garbage→null, shim) — 265 pass — and 7/7 E2E on the packed artifact: a
+  generated 3-page textless PDF → analyzed, mock saw ONE call with
+  "(vision x3)", marker in the doc body; a 9-page scan → "(vision x6)" (cap).
+  tsc clean, lint at baseline, boundary clean.
 - **2026-07-16** — **MCP OAuth (phase 3) — claude.ai connectors**. datamodo
   is now its own OAuth 2.1 authorization server for the MCP endpoint, so
   claude.ai's "Add custom connector" works with just the server URL — the

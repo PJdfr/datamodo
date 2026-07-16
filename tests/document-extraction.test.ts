@@ -223,3 +223,39 @@ test("isLikelyScannedPdf: scales with page count — sparse text over many pages
   // 30 chars on a single page → over the 24/page bar → real text.
   assert.equal(isLikelyScannedPdf({ text: "x".repeat(30), pages: 1 }), false);
 });
+
+// --- rasterizePdfPages (multi-page scan → vision payload) ----------------------
+
+test("rasterizePdfPages: renders every page of a small scan, in order", async () => {
+  const { rasterizePdfPages } = await import("../lib/datamodo/document-extraction.ts");
+  const pdf = makePdf(["Page one", "Page two", "Page three"]);
+  const scan = await rasterizePdfPages(pdf, 3);
+  assert.ok(scan);
+  assert.equal(scan!.truncated, false);
+  assert.deepEqual(scan!.pages.map((p) => p.page), [1, 2, 3]);
+  for (const p of scan!.pages) {
+    assert.equal(p.mediaType, "image/png");
+    assert.ok(p.imageBase64.length > 1000, "page rendered to a real PNG");
+  }
+});
+
+test("rasterizePdfPages: caps at MAX_SCAN_PAGES and marks truncated", async () => {
+  const { rasterizePdfPages, MAX_SCAN_PAGES } = await import("../lib/datamodo/document-extraction.ts");
+  const many = makePdf(Array.from({ length: MAX_SCAN_PAGES + 2 }, (_, i) => `Page ${i + 1}`));
+  const scan = await rasterizePdfPages(many, MAX_SCAN_PAGES + 2);
+  assert.ok(scan);
+  assert.equal(scan!.pages.length, MAX_SCAN_PAGES);
+  assert.equal(scan!.truncated, true);
+});
+
+test("rasterizePdfPages: garbage bytes → null, never throws", async () => {
+  const { rasterizePdfPages } = await import("../lib/datamodo/document-extraction.ts");
+  assert.equal(await rasterizePdfPages(new TextEncoder().encode("not a pdf"), 2), null);
+});
+
+test("rasterizePdfFirstPage: back-compat shim returns page 1 only", async () => {
+  const { rasterizePdfFirstPage } = await import("../lib/datamodo/document-extraction.ts");
+  const one = await rasterizePdfFirstPage(makePdf(["Solo page"]));
+  assert.ok(one?.imageBase64);
+  assert.equal(one!.mediaType, "image/png");
+});
