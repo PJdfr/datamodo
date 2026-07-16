@@ -12,6 +12,28 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **P2.5 research adoptions (GRAPH_PIPELINE.md §10b)** —
+  the two open items from the degeneration-literature pass, built: ①
+  **alias-aware growth gate** (RELATE/KGGen-lite): `predicatesLookAlike`
+  (snake_case token subset / Jaccard ≥ .5 — "invoice_total_amount"→"amount",
+  "was_issued_by"→"issued_by"; no substring accidents) makes
+  `proposeFieldAdditions` emit `aliasOf` proposals; accept appends the alias
+  to the matching field/relation via `updateKind`, so canonicalization
+  collapses the spelling on every future write (existing facts keep the old
+  predicate — migration deferred). Card/ping/Studio wording adapts ("Add
+  alias"). ② **usage-weighted retention**: new `entities.last_used_at`
+  (migration `20260716210000_entity_usage.sql` + schema.sql + prisma model);
+  `touchEntities` (raw, fail-soft) stamps graph seeds + answer-cited
+  entities in `/api/search` and dossier downloads; `orphanEligible` skips
+  anything read inside its prune window and orphan-ACCEPT re-checks usage in
+  SQL. Every reader goes through `to_jsonb(e)->>'last_used_at'` so
+  un-migrated cloud DBs read NULL instead of erroring. CwA (2607.13728)
+  stays parked as the index-service seam (trigger: pgvector strain at ~1M+
+  vectors). 20 unit tests on the pure cores (4 new suites-worth: look-alike,
+  alias routing, usage windows); suite 309 pass / 3 pre-existing canvas
+  failures; tsc clean on changed files; the knowledge.ts unused-interface
+  lint warning pre-exists. NOT live-fired. **Migration owed on dev+prod.**
+  Follow-ups: page-open beacon, MCP-read stamping, embedding-level snap.
 - **2026-07-16** — **Ontology-health telemetry + template growth gate
   (GRAPH_PIPELINE.md P2)** + **prior-art research folded into the doc
   (§10b)**. Research first (user ask): the degeneration problem maps to four

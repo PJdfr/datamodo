@@ -181,6 +181,27 @@ export interface FieldProposal {
   /** Entity-valued predicates become template RELATIONS, not fields. */
   asRelation: boolean;
   unit?: string;
+  /** Set when the predicate looks like a SPELLING of an existing template
+   *  key ("invoice_amount" vs "amount") — the proposal is then "add it as an
+   *  alias of <key>" instead of a new field, so canonicalization starts
+   *  collapsing it on every future write (RELATE/KGGen-lite, string level;
+   *  embedding-level mapping is the escalation if this proves too blunt). */
+  aliasOf?: string;
+}
+
+/** Token-level predicate similarity — the cheap alias detector. Predicates
+ *  are snake_case, so tokens are the semantic units: "invoice_amount" ⊃
+ *  {amount} means it's a spelling of "amount", not a new concept. True when
+ *  one side's tokens are a subset of the other's, or Jaccard ≥ 0.5. */
+export function predicatesLookAlike(a: string, b: string): boolean {
+  if (a === b) return true;
+  const ta = new Set(a.split("_").filter(Boolean));
+  const tb = new Set(b.split("_").filter(Boolean));
+  if (ta.size === 0 || tb.size === 0) return false;
+  let shared = 0;
+  for (const t of ta) if (tb.has(t)) shared++;
+  if (shared === ta.size || shared === tb.size) return true; // subset either way
+  return shared / (ta.size + tb.size - shared) >= 0.5;
 }
 
 /** Off-template predicates in heavy enough use that the template should
@@ -215,6 +236,15 @@ export function proposeFieldAdditions(
   const majority = <T>(m: Map<T, number>): T | undefined =>
     [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 
+  // Canonical template keys per kind, for alias detection: an off-template
+  // predicate that LOOKS LIKE an existing key proposes an alias, not a field.
+  const keysByKind = new Map(
+    kinds.map((k) => [
+      k.kind,
+      [...k.fields.map((f) => f.key), ...k.relations.map((r) => r.predicate)],
+    ]),
+  );
+
   const perKind = new Map<string, number>();
   const out: FieldProposal[] = [];
   const ranked = [...acc.entries()].sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0]));
@@ -225,13 +255,15 @@ export function proposeFieldAdditions(
     if (used >= maxPerKind) continue;
     perKind.set(kind, used + 1);
     const valueType = majority(a.types) ?? "text";
+    const aliasOf = (keysByKind.get(kind) ?? []).find((k) => predicatesLookAlike(predicate, k));
     out.push({
       kind,
       predicate,
       count: a.count,
       valueType,
-      asRelation: valueType === "entity",
+      asRelation: !aliasOf && valueType === "entity",
       unit: majority(a.units),
+      ...(aliasOf ? { aliasOf } : {}),
     });
   }
   return out;

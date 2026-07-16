@@ -99,6 +99,17 @@ test("orphanEligible: only old, unlinked, uncorroborated, bodyless strays", () =
   assert.equal(orphanEligible(ent({ kind: "note" }), now), false);
 });
 
+test("orphanEligible: recent retrieval usage protects an unlinked stray", () => {
+  const now = new Date();
+  // Old, unlinked, bodyless — but read last week → NOT an orphan.
+  assert.equal(orphanEligible(ent({ lastUsedAt: days(7) }), now), false);
+  // Same entity, last read two months ago → orphan again.
+  assert.equal(orphanEligible(ent({ lastUsedAt: days(60) }), now), true);
+  // Concepts use their shorter window for the usage guard too.
+  assert.equal(orphanEligible(ent({ kind: "concept", createdAt: days(30), lastUsedAt: days(3) }), now), false);
+  assert.equal(orphanEligible(ent({ kind: "concept", createdAt: days(30), lastUsedAt: days(10) }), now), true);
+});
+
 test("orphanEligible: concepts get the short grace period", () => {
   const now = new Date();
   assert.equal(orphanEligible(ent({ kind: "concept", createdAt: days(10) }), now), true);

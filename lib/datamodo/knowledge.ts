@@ -398,6 +398,22 @@ export async function createExtractionReview(
   });
 }
 
+/** Usage-weighted retention (GRAPH_PIPELINE.md §10b): stamp the entities a
+ *  retrieval actually SURFACED (answer citations, graph seeds, page opens) so
+ *  consolidation never prunes what the user still reads. Raw SQL + fail-soft:
+ *  a deployment that hasn't applied migration 20260716210000 yet just no-ops. */
+export async function touchEntities(orgId: string, entityIds: string[]): Promise<void> {
+  const ids = [...new Set(entityIds)].filter(Boolean);
+  if (ids.length === 0) return;
+  try {
+    await prisma.$executeRaw`
+      UPDATE entities SET last_used_at = now()
+       WHERE org_id = ${orgId}::uuid AND id = ANY(${ids}::uuid[])`;
+  } catch {
+    /* column not migrated yet / bad id — the read path never fails on this */
+  }
+}
+
 async function bumpSupport(id: string): Promise<void> {
   // Atomic in the database (support = support + 1) — safe under concurrent
   // per-entity extraction, and one round-trip instead of two.

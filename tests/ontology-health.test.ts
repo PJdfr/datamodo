@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import {
   computeOntologyHealth,
   proposeFieldAdditions,
+  predicatesLookAlike,
   templateVocabulary,
   type HealthFact,
 } from "../lib/datamodo/ontology-health.ts";
@@ -144,6 +145,35 @@ test("proposeFieldAdditions: per-kind cap keeps the gate calm", () => {
   }
   assert.equal(proposeFieldAdditions(facts, [INVOICE]).length, 2); // default maxPerKind
   assert.equal(proposeFieldAdditions(facts, [INVOICE], { maxPerKind: 4 }).length, 4);
+});
+
+test("predicatesLookAlike: token subset and Jaccard, not substring accidents", () => {
+  assert.equal(predicatesLookAlike("invoice_amount", "amount"), true); // subset
+  assert.equal(predicatesLookAlike("total_amount_due", "amount_due"), true); // subset
+  assert.equal(predicatesLookAlike("due_date", "date_due"), true); // same tokens
+  assert.equal(predicatesLookAlike("payment_terms", "amount"), false);
+  assert.equal(predicatesLookAlike("rate", "corporate"), false); // substring ≠ token
+  assert.equal(predicatesLookAlike("issued_by", "approved_by"), false); // 1/3 shared
+});
+
+test("proposeFieldAdditions: a look-alike predicate proposes an ALIAS, not a field", () => {
+  const facts: HealthFact[] = [
+    fact({ predicate: "invoice_total_amount", valueType: "number" }),
+    fact({ predicate: "invoice_total_amount", valueType: "number" }),
+    fact({ predicate: "invoice_total_amount", valueType: "number" }),
+    // Entity-valued look-alike of a RELATION → alias too, asRelation false
+    fact({ predicate: "was_issued_by", valueType: "entity" }),
+    fact({ predicate: "was_issued_by", valueType: "entity" }),
+    fact({ predicate: "was_issued_by", valueType: "entity" }),
+  ];
+  const out = proposeFieldAdditions(facts, [INVOICE]);
+  assert.deepEqual(
+    out.map((p) => [p.predicate, p.aliasOf, p.asRelation]),
+    [
+      ["invoice_total_amount", "amount", false],
+      ["was_issued_by", "issued_by", false],
+    ],
+  );
 });
 
 test("proposeFieldAdditions: majority unit rides along", () => {

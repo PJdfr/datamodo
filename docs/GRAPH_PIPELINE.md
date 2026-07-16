@@ -511,6 +511,28 @@ appearance is inside the trailing window), per kind and overall.
   (idempotent if hand-added meanwhile); decline never re-asks. Not
   live-fired (sandbox); unit-tested (8 tests).
 
+### ~~P2.5 — Research adoptions (§10b)~~ ✅ SHIPPED 2026-07-16
+The two remaining adoptions from the prior-art pass, built same day:
+- **Alias-aware growth gate** (RELATE/KGGen-lite, string level): an
+  off-template predicate whose snake_case tokens subset/Jaccard-match an
+  existing template key ("invoice_total_amount" → "amount",
+  "was_issued_by" → "issued_by") proposes an ALIAS instead of a new field —
+  accept appends it to that field/relation's aliases, so canonicalization
+  collapses it on every future write. Facts already written under the old
+  spelling keep it (predicate migration = a later step). Escalation path if
+  string-level proves too blunt: embed template predicates and snap
+  semantically (RELATE proper).
+- **Usage-weighted retention** (the sleep-consolidation literature's
+  usage-frequency reweighting): retrieval stamps `entities.last_used_at`
+  (migration `20260716210000_entity_usage.sql`) when an entity is a graph
+  seed or a grounded answer cites it (search route) or its dossier is
+  downloaded; the orphan pass skips anything read inside its prune window,
+  and orphan-accept re-checks usage before deleting. All readers go through
+  `to_jsonb(e)->>'last_used_at'` so a pre-migration cloud DB fails soft
+  (NULL) instead of erroring. Not yet stamped: entity page opens (the page
+  renders from preloaded listKnowledge data — needs a beacon; follow-up) and
+  MCP reads.
+
 ### P3 — PDF → markdown upgrade (structure-preserving document reading)
 Replace the flat unpdf text layer with structure-preserving conversion.
 - Decision to make first: **library vs sidecar.** The app is TypeScript;

@@ -35,7 +35,9 @@ export function reviewQuestion(
     case "category_proposal":
       return `Create the category "${(detail.label as string) ?? "?"}"${detail.count ? ` (${detail.count} things waiting)` : ""}?`;
     case "field_proposal":
-      return `Add "${String(detail.predicate ?? "?").replace(/_/g, " ")}" to the ${(detail.kind as string) ?? "?"} template${detail.count ? ` (${detail.count} facts already use it)` : ""}?`;
+      return detail.aliasOf
+        ? `Treat "${String(detail.predicate ?? "?").replace(/_/g, " ")}" as another name for ${(detail.kind as string) ?? "?"}'s "${String(detail.aliasOf).replace(/_/g, " ")}"?`
+        : `Add "${String(detail.predicate ?? "?").replace(/_/g, " ")}" to the ${(detail.kind as string) ?? "?"} template${detail.count ? ` (${detail.count} facts already use it)` : ""}?`;
     case "orphan_prune": {
       const n = Array.isArray(detail.entityIds) ? (detail.entityIds as string[]).length : 0;
       return `Prune ${n || "some"} stray entit${n === 1 ? "y" : "ies"} linked to nothing?`;

@@ -145,7 +145,12 @@ in value order — details, file seams, and acceptance criteria in that doc:
    gate: hot off-template predicates (≥3 facts) → `field_proposal` reviews
    filed by the consolidation tick; accept adds the field/relation to the
    template, decline never re-asks. Prior-art research folded into
-   GRAPH_PIPELINE.md §10b.
+   GRAPH_PIPELINE.md §10b. ~~P2.5 research adoptions~~ ✅ same day:
+   alias-aware gate (look-alike predicate → alias proposal, canonicalization
+   then collapses future writes) + usage-weighted retention
+   (`entities.last_used_at` stamped by retrieval; orphan pass + accept both
+   respect recent reads; **migration `20260716210000_entity_usage.sql` owed
+   on dev+prod** — fail-soft via to_jsonb until applied).
 3. **P3 PDF → markdown** — replace unpdf's flat text layer with a
    structure-preserving converter (Docling/marker/MinerU sidecar behind the
    `extractAttachmentText` seam; JS heuristics as fail-soft) → heading-aligned
@@ -600,7 +605,10 @@ real questions).
   seam in `analytics.ts`).
 
 ## Owed by a human (ops, not code)
-- **Apply pending Neon migrations on dev + prod**: `20260714120000_llm_usage.sql`
+- **Apply pending Neon migrations on dev + prod**: `20260716210000_entity_usage.sql`
+  (usage-weighted retention — fail-soft until applied: retrieval stamps no-op
+  and the orphan pass just lacks the read-side guard), plus the earlier
+  `20260714120000_llm_usage.sql`
   (BYOK cost ledger — dormant/fail-soft until applied),
   `20260716150000_oauth.sql` (MCP OAuth for claude.ai connectors — the
   register/token endpoints 500 and the consent page shows "unknown client"

@@ -264,8 +264,8 @@ function FieldProposalCard({ f, onResolve }: { f: FieldProposalReview; onResolve
         <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginLeft: "auto" }}>{f.count} in use · {relTime(f.createdAt)}</span>
       </>}
       footer={<>
-        <span style={{ fontSize: 12, color: "#8A8477" }}>Accepting adds the {f.asRelation ? "relation" : "field"} to the category; declining never asks about this one again.</span>
-        <div style={{ marginLeft: "auto" }}><Actions id={f.id} onResolve={onResolve} acceptLabel={f.asRelation ? "Add relation" : "Add field"} rejectLabel="No thanks" /></div>
+        <span style={{ fontSize: 12, color: "#8A8477" }}>Accepting adds the {f.aliasOf ? "alias" : f.asRelation ? "relation" : "field"} to the category; declining never asks about this one again.</span>
+        <div style={{ marginLeft: "auto" }}><Actions id={f.id} onResolve={onResolve} acceptLabel={f.aliasOf ? "Add alias" : f.asRelation ? "Add relation" : "Add field"} rejectLabel="No thanks" /></div>
       </>}
     >
       <ReviewCardBody item={f} skin={PAPER_SKIN} />

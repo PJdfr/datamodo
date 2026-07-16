@@ -191,6 +191,7 @@ model entities {
   graph_pin                                                      Json?
   created_at                                                     DateTime               @default(now()) @db.Timestamptz(6)
   updated_at                                                     DateTime               @default(now()) @db.Timestamptz(6)
+  last_used_at                                                   DateTime?              @db.Timestamptz(6)
   dataset_rows                                                   dataset_rows[]
   doc_chunks                                                     doc_chunks[]
   entities                                                       entities?              @relation("entitiesToentities", fields: [merged_into], references: [id], onUpdate: NoAction)

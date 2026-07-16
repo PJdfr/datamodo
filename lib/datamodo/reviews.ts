@@ -253,6 +253,7 @@ export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
         valueType: (r.detail.valueType as "text" | "number" | "date" | "entity") || "text",
         asRelation: Boolean(r.detail.asRelation),
         unit: (r.detail.unit as string) || undefined,
+        aliasOf: (r.detail.aliasOf as string) || undefined,
       });
     } else if (r.kind === "orphan_prune") {
       // Display list pre-rendered at filing time (consolidate.ts); ids stay
@@ -335,22 +336,39 @@ export async function acceptReview(orgId: string, id: string): Promise<void> {
       if (def?.id && !templateVocabulary(def).has(predicate)) {
         const label = predicate.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
         const asRelation = Boolean(r.detail.asRelation);
-        await updateKind(orgId, def.id, {
-          ...def,
-          fields: asRelation
-            ? def.fields
-            : [...def.fields, {
-                key: predicate,
-                label,
-                type: ((r.detail.valueType as string) === "number" || (r.detail.valueType as string) === "date"
-                  ? (r.detail.valueType as "number" | "date")
-                  : "text"),
-                unit: (r.detail.unit as string) || undefined,
-              }],
-          relations: asRelation
-            ? [...def.relations, { predicate, label: label.toLowerCase() }]
-            : def.relations,
-        });
+        const aliasOf = (r.detail.aliasOf as string) || null;
+        if (aliasOf) {
+          // A spelling of an existing key → alias, not a new field; every
+          // future extraction canonicalizes onto the canonical key. (Facts
+          // already written under the old spelling keep it — a predicate
+          // migration is a separate, later step.)
+          await updateKind(orgId, def.id, {
+            ...def,
+            fields: def.fields.map((f) =>
+              f.key === aliasOf ? { ...f, aliases: [...(f.aliases ?? []), predicate] } : f,
+            ),
+            relations: def.relations.map((rel) =>
+              rel.predicate === aliasOf ? { ...rel, aliases: [...(rel.aliases ?? []), predicate] } : rel,
+            ),
+          });
+        } else {
+          await updateKind(orgId, def.id, {
+            ...def,
+            fields: asRelation
+              ? def.fields
+              : [...def.fields, {
+                  key: predicate,
+                  label,
+                  type: ((r.detail.valueType as string) === "number" || (r.detail.valueType as string) === "date"
+                    ? (r.detail.valueType as "number" | "date")
+                    : "text"),
+                  unit: (r.detail.unit as string) || undefined,
+                }],
+            relations: asRelation
+              ? [...def.relations, { predicate, label: label.toLowerCase() }]
+              : def.relations,
+          });
+        }
       }
     }
   } else if (r.kind === "orphan_prune") {
@@ -360,10 +378,14 @@ export async function acceptReview(orgId: string, id: string): Promise<void> {
     // their subject, and this review keeps only ids (no entity FK).
     const ids = ((r.detail.entityIds as string[]) ?? []).filter(Boolean);
     if (ids.length) {
+      // Usage guard rides via to_jsonb (fail-soft pre-migration): an entity
+      // retrieval touched in the last 30 days is in use — never delete it.
       const still = await prisma.$queryRaw<{ id: string }[]>`
         SELECT e.id FROM entities e
          WHERE e.org_id = ${orgId}::uuid AND e.id = ANY(${ids}::uuid[])
            AND e.merged_into IS NULL AND e.body_md IS NULL
+           AND (to_jsonb(e) ->> 'last_used_at' IS NULL
+                OR (to_jsonb(e) ->> 'last_used_at')::timestamptz < now() - interval '30 days')
            AND NOT EXISTS (
              SELECT 1 FROM facts f
               WHERE f.org_id = e.org_id

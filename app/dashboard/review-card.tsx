@@ -163,12 +163,16 @@ export function ReviewCardBody({ item, skin }: { item: ReviewItem; skin: ReviewS
     return (
       <div>
         <div style={{ fontSize: 12, color: skin.sub, lineHeight: 1.5, marginBottom: 8 }}>
-          {item.count} fact{item.count === 1 ? "" : "s"} on your <b style={{ fontWeight: 600, color: skin.text }}>{item.targetKind}</b> entities use a predicate the template doesn&apos;t cover — adding it makes future extractions land there consistently.
+          {item.aliasOf ? (
+            <>&quot;{item.predicate.replace(/_/g, " ")}&quot; looks like another spelling of <b style={{ fontWeight: 600, color: skin.text }}>{item.aliasOf.replace(/_/g, " ")}</b> on your <b style={{ fontWeight: 600, color: skin.text }}>{item.targetKind}</b> template — accepting folds future mentions onto the one field.</>
+          ) : (
+            <>{item.count} fact{item.count === 1 ? "" : "s"} on your <b style={{ fontWeight: 600, color: skin.text }}>{item.targetKind}</b> entities use a predicate the template doesn&apos;t cover — adding it makes future extractions land there consistently.</>
+          )}
         </div>
         <div style={{ background: skin.surfaceAlt, border: `1px solid ${skin.border}`, borderRadius: 10, padding: "8px 11px", display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span className="dm-mono" style={{ fontSize: 11.5, color: item.asRelation ? skin.accent : skin.sub, fontWeight: 600 }}>{item.predicate}</span>
+          <span className="dm-mono" style={{ fontSize: 11.5, color: item.asRelation ? skin.accent : skin.sub, fontWeight: 600 }}>{item.predicate}{item.aliasOf ? ` → ${item.aliasOf}` : ""}</span>
           <span className="dm-mono" style={{ marginLeft: "auto", fontSize: 9.5, color: skin.faint }}>
-            {item.asRelation ? "relation →" : item.valueType}{item.unit ? ` · ${item.unit}` : ""} · {item.count} in use
+            {item.aliasOf ? "alias" : item.asRelation ? "relation →" : item.valueType}{item.unit ? ` · ${item.unit}` : ""} · {item.count} in use
           </span>
         </div>
       </div>

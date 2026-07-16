@@ -110,6 +110,9 @@ export interface FieldProposalReview extends ReviewBase {
   valueType: "text" | "number" | "date" | "entity";
   asRelation: boolean;
   unit?: string;
+  /** Set when the predicate is a SPELLING of this existing template key —
+   *  accept adds it as an alias there instead of creating a new field. */
+  aliasOf?: string;
 }
 
 export type ReviewItem = MergeReview | ConflictReview | ExtractionReview | OffTemplateReview | CategoryProposalReview | OrphanPruneReview | FieldProposalReview;

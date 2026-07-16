@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
-import { listKnowledge } from "@/lib/datamodo/knowledge";
+import { listKnowledge, touchEntities } from "@/lib/datamodo/knowledge";
 import { buildDossier, dossierFilename } from "@/lib/datamodo/dossier";
 
 // Download an entity's DOSSIER: its page + 1-hop neighborhood as cited
@@ -20,6 +20,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const target = entities.find((e) => e.id === id);
   const md = buildDossier(entities, id, new Date().toISOString().slice(0, 10));
   if (!target || !md) return NextResponse.json({ error: "entity not found" }, { status: 404 });
+  // Downloading a dossier is the clearest "I still use this" signal there is.
+  await touchEntities(org.id, [id]);
 
   return new NextResponse(md, {
     headers: {

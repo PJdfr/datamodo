@@ -15,6 +15,9 @@ export interface ConsolidationEntity {
   edgeCount: number;
   bodyMd: string | null;
   createdAt: Date;
+  /** Last time retrieval surfaced this entity (answer citation, graph seed,
+   *  dossier download). Null = never, or predates the usage column. */
+  lastUsedAt?: Date | null;
 }
 
 /** A candidate duplicate pair surfaced by trigram or ANN blocking. */
@@ -104,8 +107,12 @@ const NEVER_PRUNE_KINDS = new Set(["document", "note"]);
 export function orphanEligible(e: ConsolidationEntity, now: Date): boolean {
   if (NEVER_PRUNE_KINDS.has(e.kind)) return false;
   if (e.edgeCount > 0 || e.support > 1 || e.bodyMd) return false;
+  const window = e.kind === "concept" ? CONCEPT_ORPHAN_AFTER_DAYS : ORPHAN_AFTER_DAYS;
+  // Usage-weighted retention (§10b): an entity retrieval recently surfaced is
+  // in use, however unlinked it looks — reads protect what writes never did.
+  if (e.lastUsedAt && (now.getTime() - e.lastUsedAt.getTime()) / 86_400_000 <= window) return false;
   const days = (now.getTime() - e.createdAt.getTime()) / 86_400_000;
-  return days > (e.kind === "concept" ? CONCEPT_ORPHAN_AFTER_DAYS : ORPHAN_AFTER_DAYS);
+  return days > window;
 }
 
 /** What one consolidation tick did to one org — the route's observability. */

@@ -3,7 +3,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { searchDatasets, searchKnowledge } from "@/lib/datamodo/search";
 import { searchChunks } from "@/lib/datamodo/chunks";
-import { annLinkEntities, listKnowledge } from "@/lib/datamodo/knowledge";
+import { annLinkEntities, listKnowledge, touchEntities } from "@/lib/datamodo/knowledge";
 import { linkQueryEntities, expandFromSeeds, mergeKnowledgeHits } from "@/lib/datamodo/graphrag";
 import { embedTexts } from "@/lib/llm/embeddings";
 import { answerQuestion } from "@/lib/datamodo/answer";
@@ -57,6 +57,14 @@ export async function GET(req: Request) {
     entityIds: graph.scopeIds.length ? graph.scopeIds : undefined,
   }).catch(() => []);
   const answer = await answerQuestion(user.id, q, result.hits, evidence, passages);
+  // Usage-weighted retention: the entities this retrieval actually SURFACED
+  // (graph seeds + whatever the answer cited) count as "read" — consolidation
+  // then never prunes them. Fail-soft, never blocks the response.
+  await touchEntities(org.id, [
+    ...textSeeds,
+    ...annSeeds,
+    ...(answer?.sources.map((s) => s.entityId).filter(Boolean) as string[] ?? []),
+  ]);
   // The UI's result lists keep the plain keyword hits; only the grounded
   // answer runs on the graph evidence.
   return NextResponse.json({ ...result, entities, passages, answer });

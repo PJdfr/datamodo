@@ -73,8 +73,10 @@ async function loadEntities(orgId: string): Promise<Map<string, ConsolidationEnt
         owner_user_id: true,
       },
     }) as Promise<EntityRow[]>,
-    prisma.$queryRaw<{ id: string; edges: bigint }[]>`
-      SELECT e.id, count(f.id) AS edges
+    // last_used_at rides via to_jsonb so a cloud DB that hasn't applied
+    // migration 20260716210000 yet reads NULL instead of erroring.
+    prisma.$queryRaw<{ id: string; edges: bigint; last_used: string | null }[]>`
+      SELECT e.id, count(f.id) AS edges, to_jsonb(e) ->> 'last_used_at' AS last_used
         FROM entities e
         LEFT JOIN facts f
           ON f.org_id = e.org_id
@@ -83,6 +85,7 @@ async function loadEntities(orgId: string): Promise<Map<string, ConsolidationEnt
        GROUP BY e.id`,
   ]);
   const edgeCount = new Map(edges.map((r) => [r.id, Number(r.edges)]));
+  const lastUsed = new Map(edges.map((r) => [r.id, r.last_used ? new Date(r.last_used) : null]));
   const out = new Map<string, ConsolidationEntity & { ownerUserId: string | null }>();
   for (const e of ents) {
     out.set(e.id, {
@@ -94,6 +97,7 @@ async function loadEntities(orgId: string): Promise<Map<string, ConsolidationEnt
       edgeCount: edgeCount.get(e.id) ?? 0,
       bodyMd: e.body_md,
       createdAt: e.created_at,
+      lastUsedAt: lastUsed.get(e.id) ?? null,
       ownerUserId: e.owner_user_id,
     });
   }
@@ -344,6 +348,7 @@ export async function consolidateOrg(orgId: string, llm?: LlmProvider | null): P
             valueType: p.valueType,
             asRelation: p.asRelation,
             ...(p.unit ? { unit: p.unit } : {}),
+            ...(p.aliasOf ? { aliasOf: p.aliasOf } : {}),
           },
         },
       });
