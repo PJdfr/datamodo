@@ -12,6 +12,27 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **BYOK monthly spend cap** (ROADMAP cost-tracking
+  follow-up) + **version 0.2.0**. Settings → BYOK gains "Monthly spend cap
+  (USD)" (`user_settings.byok_monthly_cap_usd`, migration
+  `20260716170000_byok_cap.sql` + schema.sql + prisma; empty = no cap).
+  Enforcement in `llmForUser` BEFORE burning the key: month-to-date ledger
+  spend (`monthToDateSpendUsd`, calendar month UTC, fail-soft 0) feeds the
+  pure `byokCapDecision` (llm-cost.ts) — under cap "ok"; at/over cap LOCAL
+  **falls back to the machine's free Ollama** (logged plainly), CLOUD
+  **blocks** with a clear requeue-able error (never silently bills anyone;
+  the block error is rethrown past the fail-soft catch — it IS the feature).
+  Ollama-as-BYOK is keyless/free → cap hidden/ignored there. `/api/usage`
+  now returns `monthToDateUsd` + `capUsd`; the Usage card shows a cap
+  progress bar ("Monthly cap reached — your key is paused" state).
+  **Version bumped 0.1.0 → 0.2.0** so existing local vaults take the
+  `prisma db push` upgrade (schema grew oauth tables + this column since
+  0.1.0). VERIFIED: 2 pure unit tests (273 pass) + 6/6 E2E on the packed
+  0.2.0 artifact against a REAL 0.1.0-era vault (marker upgraded
+  0.1.0:768 → 0.2.0:768, data kept): cap saved via UI → message 1 runs on
+  the key (bearer in mock log, ledger $0.000142) → message 2 falls back to
+  KEYLESS ollama → serve log states the cap → Usage card shows the reached
+  bar. tsc, lint baseline, boundary clean.
 - **2026-07-16** — **"Disconnect Claude" — per-user OAuth revocation UI**
   (the OAuth PR's flagged follow-up). Settings → Connect Claude now lists
   the apps connected via OAuth ("Connected apps": client name + since-date,
