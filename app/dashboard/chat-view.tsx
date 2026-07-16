@@ -22,6 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { C } from "./ui";
 import { ReviewCardBody, INK_SKIN } from "./review-card";
 import { activeMention, matchAgents, stripMention, type ChatAgentRef, type MentionSpan } from "@/lib/datamodo/chat-address";
+import { buildAgentProfiles, routeToAgent } from "@/lib/datamodo/agent-router";
 import type { ReviewItem } from "@/lib/datamodo/review-types";
 
 interface ChatAttachment { filename: string | null; contentType: string | null; bytes: number }
@@ -34,6 +35,9 @@ interface ChatMessage {
   attachments: ChatAttachment[];
   /** The addressed agent's name (null/absent = the general datamodo agent). */
   agent?: string | null;
+  /** Where the zero-cost auto-router filed an UNADDRESSED message (server-side
+   *  stamp; attribution stays visible — routing is never silent). */
+  routedAgent?: string | null;
   /** Optimistic bubble, not yet confirmed by the server. */
   local?: boolean;
   /** Local-only image previews for the optimistic bubble. */
@@ -152,6 +156,9 @@ function Bubble({ m }: { m: ChatMessage }) {
       <div style={{ display: "flex", gap: 8, alignItems: "center", paddingRight: 2 }}>
         {m.agent && (
           <span className="dm-mono" title={`Addressed to your "${m.agent}" agent`} style={{ fontSize: 9.5, color: "#8A8477" }}>→ {m.agent}</span>
+        )}
+        {!m.agent && m.routedAgent && (
+          <span className="dm-mono" title={`datamodo routed this to your "${m.routedAgent}" agent (free on-device match — address explicitly with @ to override)`} style={{ fontSize: 9.5, color: "#8A8477" }}>↪ {m.routedAgent}</span>
         )}
         <span className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F" }}>{fmtTime(m.at)}</span>
         <StatusLine m={m} />
@@ -330,6 +337,24 @@ export function ChatView() {
     textArea.current?.focus();
   };
 
+  /* ---- live agent suggestion: the SAME zero-cost router the server runs,
+     here in the browser on every keystroke (it's a pure function — no API
+     call, microseconds per run). While the draft confidently matches one
+     agent's purpose and nobody is addressed yet, offer it in the "to" row:
+     click or Tab makes it the explicit recipient; ✕ dismisses for this
+     match. Ignored = fine — the server routes it identically on send. */
+  const [suggestionDismissed, setSuggestionDismissed] = useState<string | null>(null);
+  const agentProfiles = useMemo(
+    () => buildAgentProfiles(agents.map((a) => ({ id: a.id, name: a.name, purposeText: a.purposeText ?? "" }))),
+    [agents],
+  );
+  const suggestion = useMemo(() => {
+    if (recipient || agents.length === 0 || text.trim().length < 12) return null;
+    const hit = routeToAgent(text, agentProfiles);
+    return hit ? agents.find((a) => a.id === hit.agentId) ?? null : null;
+  }, [text, agentProfiles, recipient, agents]);
+  const suggestionShown = suggestion && suggestionDismissed !== suggestion.id ? suggestion : null;
+
   const addFiles = useCallback((list: FileList | File[] | null, kind: "file" | "voice" = "file") => {
     if (!list) return;
     const files = [...list].map((file) => ({
@@ -418,6 +443,7 @@ export function ChatView() {
       local: true,
     }]);
     setText("");
+    setSuggestionDismissed(null); // a fresh draft gets fresh suggestions
     setPending([]);
     requestAnimationFrame(grow);
     try {
@@ -648,7 +674,20 @@ export function ChatView() {
               <button type="button" onClick={() => pickAgent(null)} title="Back to the general agent" aria-label="Clear recipient"
                 style={{ background: "none", border: "none", color: "#A39B8B", cursor: "pointer", fontSize: 12, padding: 0, fontFamily: "inherit" }}>×</button>
             )}
-            <span className="dm-mono" style={{ fontSize: 9.5, color: "#C9C2B4", marginLeft: "auto" }}>@ in the box works too</span>
+            {suggestionShown ? (
+              <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5, animation: "dm-drop-in .22s cubic-bezier(0.16,1,0.3,1)" }}>
+                <button type="button" onClick={() => pickAgent(suggestionShown)}
+                  title={`This reads like one for "${suggestionShown.name}" (free on-device match) — click or press Tab to address it`}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 500, color: C.ink, background: "#FBF3EF", border: "1px solid #F0D9CF", borderRadius: 999, padding: "2px 10px", cursor: "pointer", fontFamily: "inherit" }}>
+                  <span style={{ color: C.accent }}>↪</span> {suggestionShown.name}?
+                  <span className="dm-mono" style={{ fontSize: 9, color: "#B08A7A" }}>Tab</span>
+                </button>
+                <button type="button" onClick={() => setSuggestionDismissed(suggestionShown.id)} title="Not this one" aria-label="Dismiss suggestion"
+                  style={{ background: "none", border: "none", color: "#A39B8B", cursor: "pointer", fontSize: 11, padding: 0, fontFamily: "inherit" }}>×</button>
+              </span>
+            ) : (
+              <span className="dm-mono" style={{ fontSize: 9.5, color: "#C9C2B4", marginLeft: "auto" }}>@ in the box works too</span>
+            )}
 
             {toOpen && (
               <div style={{ position: "absolute", bottom: "calc(100% + 10px)", left: 0, zIndex: 60, minWidth: 280, maxWidth: 360, background: "#fff", border: "1px solid #E7E0D2", borderRadius: 12, boxShadow: "0 14px 34px rgba(33,30,24,.16)", overflow: "hidden" }}>
@@ -709,6 +748,8 @@ export function ChatView() {
                 if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickAgent(mentionMatches[mentionIdx], mention); return; }
                 if (e.key === "Escape") { e.preventDefault(); dismissedMention.current = mention.query; setMention(null); return; }
               }
+              // The live suggestion chip: Tab addresses the suggested agent.
+              if (e.key === "Tab" && suggestionShown) { e.preventDefault(); pickAgent(suggestionShown); return; }
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); }
             }}
             onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }}

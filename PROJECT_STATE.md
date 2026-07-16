@@ -12,6 +12,27 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Live agent suggestion while typing** (user: "if the
+  classifier is free and fast, can't we suggest the agent before send?").
+  The SAME zero-cost router now also runs IN THE BROWSER on every keystroke
+  (`agent-router.ts` is pure/import-free, so the client bundle imports it
+  directly — no API call, microseconds per run): while an unaddressed draft
+  (≥12 chars) confidently matches one auto agent, the composer's "to" row
+  shows a coral-tinted chip — **"↪ Bookkeeper? Tab"** — click or Tab makes it
+  the explicit recipient (same `pickAgent` path as the picker/@mention), ✕
+  dismisses for that match (re-arms on the next draft). An explicit/sticky
+  recipient suppresses it; ignoring it is fine — the server routes the sent
+  message identically and the bubble now shows the **↪ routedAgent**
+  attribution chip (server stamp surfaced; explicit "→ agent" unchanged).
+  Suggest → accept-or-ignore → attribute: the loop is visible end to end,
+  all at zero LLM cost. VERIFIED 7/7 on the packed artifact (Playwright):
+  chip appears while typing an invoice draft, Tab addresses (chip gone,
+  "→ Bookkeeper" on the sent bubble), off-topic draft shows nothing, ✕
+  dismisses, and a dismissed-but-sent interview note came back with
+  "↪ Recruiter" from the server. Also live-proved this session: the SIGTERM
+  fix (serve now stops cleanly, port freed) and the router's twin-profile
+  behavior (duplicate same-purpose agents tie every score → correctly never
+  routes).
 - **2026-07-16** — **Local MCP is tokenless + zero-cost auto-mode agent
   routing** (two user calls). (1) **MCP auth split**: the LOCAL edition's MCP
   needs NO bearer token — one user, and the server binds 127.0.0.1, so
