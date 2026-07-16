@@ -12,6 +12,19 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **"Disconnect Claude" — per-user OAuth revocation UI**
+  (the OAuth PR's flagged follow-up). Settings → Connect Claude now lists
+  the apps connected via OAuth ("Connected apps": client name + since-date,
+  from `listOAuthGrants` — live token pairs grouped by client, fail-soft [])
+  and a **Disconnect** per app: `DELETE /api/mcp-token?client_id=` runs
+  `revokeOAuthGrants` (deletes the user's token rows + un-exchanged codes) —
+  the revocation the stateless HMAC tokens can't do. VERIFIED on the packed
+  artifact: OAuth E2E extended to 22/22 — the grant appears in
+  `/api/mcp-token`, DELETE revokes it, and a LIVE refresh token gets
+  `invalid_grant` afterwards (real revocation, not just list cosmetics) —
+  plus a Playwright pass (Connected apps renders → Disconnect removes the
+  row → grants empty server-side). tsc, 269 tests, lint baseline, boundary
+  clean.
 - **2026-07-16** — **Channel PR-loop: Slack replies + email pings** (ROADMAP
   "Channel adapters E2E" follow-ups). (1) **Slack reply interception** — the
   outbound ping asked for "1 yes" but the Slack webhook never parsed it; a

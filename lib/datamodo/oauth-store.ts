@@ -142,3 +142,58 @@ export async function pruneExpiredOAuthRows(): Promise<void> {
   await prisma.oauth_codes.deleteMany({ where: { expires_at: { lt: now } } }).catch(() => {});
   await prisma.oauth_tokens.deleteMany({ where: { refresh_expires_at: { lt: now } } }).catch(() => {});
 }
+
+export interface OAuthGrant {
+  clientId: string;
+  clientName: string;
+  /** Live token pairs for this client (usually 1; refresh rotation keeps it there). */
+  tokens: number;
+  /** When the newest pair was issued (ISO). */
+  connectedAt: string;
+}
+
+/** The apps a user has connected via OAuth — what "Connected apps" in
+ *  Settings shows. FAIL-SOFT to [] (unmigrated deployment / no grants). */
+export async function listOAuthGrants(userId: string): Promise<OAuthGrant[]> {
+  try {
+    const rows = await prisma.oauth_tokens.findMany({
+      where: { user_id: userId, refresh_expires_at: { gt: new Date() } },
+      select: { client_id: true, created_at: true },
+      orderBy: { created_at: "desc" },
+    });
+    if (rows.length === 0) return [];
+    const byClient = new Map<string, { tokens: number; newest: Date }>();
+    for (const r of rows) {
+      const cur = byClient.get(r.client_id);
+      if (cur) cur.tokens++;
+      else byClient.set(r.client_id, { tokens: 1, newest: r.created_at });
+    }
+    const clients = await prisma.oauth_clients.findMany({
+      where: { client_id: { in: [...byClient.keys()] } },
+      select: { client_id: true, client_name: true },
+    });
+    const names = new Map(clients.map((c) => [c.client_id, c.client_name]));
+    return [...byClient.entries()].map(([clientId, g]) => ({
+      clientId,
+      clientName: names.get(clientId) ?? "MCP client",
+      tokens: g.tokens,
+      connectedAt: g.newest.toISOString(),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** Revoke a user's OAuth access — one client's grants, or all of them. This
+ *  is THE per-user revocation the stateless HMAC tokens can't offer: the
+ *  deleted rows make every access AND refresh token dead on next use. */
+export async function revokeOAuthGrants(userId: string, clientId?: string): Promise<number> {
+  const res = await prisma.oauth_tokens.deleteMany({
+    where: { user_id: userId, ...(clientId ? { client_id: clientId } : {}) },
+  });
+  // Any un-exchanged codes die with the grant too.
+  await prisma.oauth_codes.deleteMany({
+    where: { user_id: userId, ...(clientId ? { client_id: clientId } : {}) },
+  }).catch(() => {});
+  return res.count;
+}
