@@ -13,8 +13,8 @@
  * Flow: triage header → impact spotlight → calmer grouped sections, ranked by impact.
  *
  * Data comes from GET /api/knowledge/reviews (typed by lib/datamodo/review-types).
- * When there are no real reviews yet, we show a SIMULATED set (same shape) as a
- * labelled preview so the design is visible.
+ * Real reviews only (user call 2026-07-16): no review = the calm all-caught-up
+ * state, never simulated rows.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -22,56 +22,6 @@ import { C, Hov, ghostBtn, relTime } from "./ui";
 import { ReviewCardBody, PAPER_SKIN } from "./review-card";
 import { ReviewGraphPanel, previewInputFor } from "./review-graph-modal";
 import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, OffTemplateReview, CategoryProposalReview, OrphanPruneReview, FieldProposalReview } from "@/lib/datamodo/review-types";
-
-/* --------------------------- simulated fallback --------------------------- */
-
-const ago = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
-
-const SIMULATED: ReviewItem[] = [
-  {
-    id: "sim-m1", kind: "entity_merge", impact: 12, confidence: 0.9, createdAt: ago(2),
-    parsed: { label: "Acme", type: "company", source: "Email · “Q3 renewal”", attrs: [{ k: "email domain", v: "acme.com" }, { k: "connected", v: "1 fact" }] },
-    canonical: { label: "Acme Group", type: "company", attrs: [{ k: "domain", v: "acme.com" }, { k: "connected", v: "12 facts" }] },
-    reason: "Same email domain (acme.com); “Acme” is the common short form of the canonical name.",
-  },
-  {
-    id: "sim-m2", kind: "entity_merge", impact: 4, confidence: 0.74, createdAt: ago(5),
-    parsed: { label: "J. Porter", type: "person", source: "WhatsApp", attrs: [{ k: "at", v: "Brightwave" }, { k: "connected", v: "1 fact" }] },
-    canonical: { label: "James Porter", type: "person", attrs: [{ k: "email", v: "james.porter@brightwave.io" }, { k: "connected", v: "4 facts" }] },
-    reason: "Initial + surname match, both tied to Brightwave.",
-  },
-  {
-    id: "sim-c1", kind: "fact_conflict", impact: 3, confidence: 0.88, createdAt: ago(3),
-    subject: "Invoice INV-4417", field: "amount", was: "$18,500.00", now: "$17,650.00",
-    wasSource: "1 source", nowSource: "2 sources", note: "A later email restated the total after the multi-year discount.",
-  },
-  {
-    id: "sim-c2", kind: "fact_conflict", impact: 2, confidence: 0.95, createdAt: ago(6),
-    subject: "Brightwave", field: "account manager", was: "James Porter", now: "Elena Ruiz",
-    wasSource: "1 source", nowSource: "1 source", note: "“Our new account manager, Elena Ruiz, will be your main point of contact.”",
-  },
-  {
-    id: "sim-e1", kind: "extraction", impact: 2, confidence: 0.58, createdAt: ago(20), from: "+1 (415) 555-0142", channel: "whatsapp",
-    snippet: "Dinner with the Northwind team Thurs 7pm — they’ll send the SOW next week 👍",
-    entities: [{ label: "Northwind", type: "company" }],
-    facts: [{ s: "Northwind", p: "meeting", v: "Thu 7:00pm", c: 0.62 }, { s: "Northwind", p: "expected", v: "SOW next week", c: 0.55 }],
-  },
-  {
-    id: "sim-o1", kind: "off_template", impact: 2, confidence: null, createdAt: ago(8),
-    docLabel: "INV-4417.pdf", docKind: "invoice",
-    facts: [{ s: "INV-4417", p: "purchase_order", v: "PO-2211", c: 1 }, { s: "INV-4417", p: "payment_terms", v: "net 45", c: 1 }],
-  },
-  {
-    id: "sim-k1", kind: "category_proposal", impact: 4, confidence: null, createdAt: ago(12),
-    proposedKind: "subscription", label: "Subscription", count: 4,
-    sampleLabels: ["Figma Org plan", "Notion Team", "Vercel Pro", "Linear"],
-    fields: [{ key: "plan", label: "Plan", type: "text" }, { key: "monthly_cost", label: "Monthly cost", type: "number" }, { key: "renews_on", label: "Renews on", type: "date" }],
-    relations: [{ predicate: "billed_by", label: "Billed by", targetKind: "company" }],
-    icon: "🔁", description: "A recurring service the user pays for.",
-  },
-];
-
-export const SIMULATED_REVIEW_COUNT = SIMULATED.length;
 
 /* ------------------------------ small atoms ------------------------------- */
 
@@ -393,7 +343,6 @@ function DiffRow({ it, expanded, onToggle, onResolve }: { it: ReviewItem; expand
 export function ReviewStudio() {
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [preview, setPreview] = useState(false); // showing simulated fallback
   const [expanded, setExpanded] = useState<string | null>(null);
   const [done, setDone] = useState({ accepted: 0, rejected: 0 });
 
@@ -405,10 +354,9 @@ export function ReviewStudio() {
         const json = await res.json();
         const real: ReviewItem[] = json.reviews ?? [];
         if (!alive) return;
-        if (real.length > 0) { setItems(real); setPreview(false); }
-        else { setItems(SIMULATED); setPreview(true); }
+        setItems(real);
       } catch {
-        if (alive) { setItems(SIMULATED); setPreview(true); }
+        if (alive) setItems([]);
       } finally {
         if (alive) setLoading(false);
       }
@@ -420,11 +368,9 @@ export function ReviewStudio() {
     setItems((s) => s.filter((i) => i.id !== id));
     setDone((d) => (action === "accept" ? { ...d, accepted: d.accepted + 1 } : { ...d, rejected: d.rejected + 1 }));
     setExpanded((e) => (e === id ? null : e));
-    if (!preview) {
-      void fetch(`/api/knowledge/reviews/${id}`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }),
-      });
-    }
+    void fetch(`/api/knowledge/reviews/${id}`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }),
+    });
   };
 
   const live = useMemo(() => [...items].sort((a, b) => b.impact - a.impact), [items]);
@@ -459,11 +405,6 @@ export function ReviewStudio() {
 
   return (
     <div style={{ maxWidth: 880 }}>
-      {preview && (
-        <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: "#6B551F", background: "#FBEFD6", border: "1px solid #E6CF92", borderRadius: 10, padding: "8px 12px", marginBottom: 12 }}>
-          <span>◑</span> Preview — no real reviews yet, so this is simulated data showing how the queue looks.
-        </div>
-      )}
 
       <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, overflow: "hidden" }}>
         {/* PR header */}
