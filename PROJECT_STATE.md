@@ -12,6 +12,39 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Local packaging phase 3: the shipped tarball driven
+  end-to-end, and the 5 real bugs that only live-driving found** (brief §10 —
+  "don't hand back untested"). Harness: mock Ollama on :11434 (rule-based
+  extractor, real 768-d embeddings) + `npm i -g dist/datamodo-0.1.0.tgz` +
+  `datamodo serve` on a fresh vault + an HTTP driver and a real-Chromium
+  (playwright) click-through. **Result: 18/18 API checks, 8/8 UI checks, 4/4
+  fail-soft checks pass on the PACKED ARTIFACT** — boot/redirect, wizard-seeded
+  models visible+editable via Settings API, text ingest → entities
+  (Acme Corp/INV-42/Jane Doe) + facts (amount/due_date/issued_by), keyword +
+  semantic search, grounded answer, image → VISION model (marker in body_md),
+  text-layer PDF → extraction, dashboard-set model actually used (mock logged
+  `dash-test-model`), agent wizard → @Bookkeeper mention → send → "✓ filed",
+  Data/Explore render with zero console errors, and Ollama-killed-mid-run →
+  item fails soft, dashboard + keyword search stay up. Bugs found & fixed —
+  each "worked" at compile level and broke live: (1) **installed-package build
+  failed typecheck** — a global npm install puts the app inside `node_modules`,
+  where tsc refuses to analyze `.mjs` (local next.config now skips typecheck;
+  the tree is fully checked at pack time); (2) **pg pool idle-close kicked the
+  pglite socket** ("Connection terminated unexpectedly" on first write) —
+  `idleTimeoutMillis: 0` on the embedded pool; (3) **every route bundle opened
+  its own pool** (prod Next inlines lib/prisma.ts per route; the globalThis
+  singleton was dev-only) — pglite serves ONE connection, so routes kicked each
+  other; singleton now always set in local; (4) **first-boot org provisioning
+  raced itself and corrupted BOTH transactions** (two interactive transactions
+  interleave on pglite's single session: nested BEGIN is a no-op, one ROLLBACK
+  undoes both) — provisioning is now sequential idempotent upserts, no
+  transaction, race-safe catch-and-refetch (cloud unchanged semantics);
+  (5) **the Free-plan gate blocked local agent creation** ("Auto mode is a Pro
+  feature") — `planLimits` returns unmetered self-hosted entitlements under
+  `DATAMODO_LOCAL` (server-side), and the sidebar/wizard "runs on" chrome is
+  local-aware ("Local AI — this machine" / "self-hosted · settings"). NOT
+  verified in-sandbox (egress policy): real model quality (no weights
+  reachable), the Docker image build (no base-image pulls), live IMAP.
 - **2026-07-16** — **Local packaging phase 2: physical code separation + Docker
   runtime + one-command installers** (brief §3/§4/§6 — the ROADMAP "HARD
   REQUIREMENT"). (1) **Boundary lint**: `.dependency-cruiser.cjs` forbids the

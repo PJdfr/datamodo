@@ -26,7 +26,10 @@ function makeClient(): PrismaClient {
   if (!embedded) {
     return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   }
-  const base = new PrismaClient({ adapter: new PrismaPg({ connectionString, max: 1 }) });
+  // idleTimeoutMillis 0: NEVER close the one connection — pg's default 10s
+  // idle-close + reopen races the single-session socket and surfaces as
+  // "Connection terminated unexpectedly" on the next (often first) write.
+  const base = new PrismaClient({ adapter: new PrismaPg({ connectionString, max: 1, idleTimeoutMillis: 0 }) });
   return base.$extends({
     query: {
       async $allOperations({ operation, args, query }) {
@@ -49,4 +52,8 @@ function makeClient(): PrismaClient {
 
 export const prisma = globalForPrisma.prisma ?? makeClient();
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+// ALWAYS a per-process singleton here: in production Next inlines this module
+// into every route bundle, and without the global each route would open its
+// own pool against the embedded pglite socket — which serves ONE connection,
+// so each new pool kicks the previous route's mid-flight.
+globalForPrisma.prisma = prisma;

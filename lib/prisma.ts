@@ -39,7 +39,10 @@ function makeClient(): PrismaClient {
       // Real Postgres (compose / user's own server): normal pool, no shim.
       return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
     }
-    const base = new PrismaClient({ adapter: new PrismaPg({ connectionString, max: 1 }) });
+    // idleTimeoutMillis 0: NEVER close the one connection — pg's default
+    // 10s idle-close + reopen races the single-session socket and surfaces as
+    // "Connection terminated unexpectedly" on the next (often first) write.
+    const base = new PrismaClient({ adapter: new PrismaPg({ connectionString, max: 1, idleTimeoutMillis: 0 }) });
     return base.$extends({
       query: {
         async $allOperations({ operation, args, query }) {
@@ -64,4 +67,10 @@ function makeClient(): PrismaClient {
 
 export const prisma = globalForPrisma.prisma ?? makeClient();
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+// Dev: one client across hot-reloads. LOCAL edition: one client across ROUTE
+// BUNDLES too — in production Next inlines this module into every route, so
+// without the global each route opens its own pool against the embedded
+// pglite socket, which serves ONE connection: each new pool kicks the previous
+// route's ("Server has closed the connection" on first loads). globalThis is
+// per-process, so this makes the client a true singleton.
+if (process.env.NODE_ENV !== "production" || process.env.DATAMODO_LOCAL === "1") globalForPrisma.prisma = prisma;

@@ -33,42 +33,63 @@ export async function requireUserOrg(): Promise<{ user: SessionUser; org: Active
 
 /** The user's personal org, provisioning it on first access. Use this at
  *  authenticated entry points (dashboard page/layout) so a freshly signed-up
- *  user — including OAuth — gets their org/profile/settings/inbox created. */
+ *  user — including OAuth — gets their org/profile/settings/inbox created.
+ *  Race-safe: two parallel first requests both reach provisioning (a fresh
+ *  dashboard load fires several) — the loser's unique-violation resolves to
+ *  the winner's org instead of failing the request. */
 export async function getOrCreateOrg(user: SessionUser): Promise<ActiveOrg> {
-  return (await getActiveOrg(user.id)) ?? provisionPersonalOrg(user);
+  const existing = await getActiveOrg(user.id);
+  if (existing) return existing;
+  try {
+    return await provisionPersonalOrg(user);
+  } catch (e) {
+    const raced = await getActiveOrg(user.id);
+    if (raced) return raced;
+    throw e;
+  }
 }
 
 /**
  * Create a user's personal org + profile + settings + inbox on first sign-in.
  * Reimplements the old `handle_new_user` Postgres trigger in app code (Neon Auth
  * users live in the neon_auth schema; there is no trigger on them).
+ *
+ * Deliberately NOT a $transaction: every step is an idempotent upsert keyed on
+ * stable ids, so a concurrent or crashed run self-heals on the next call. On
+ * the local edition's embedded pglite (ONE shared session) two interleaved
+ * interactive transactions corrupt each other (a nested BEGIN is a no-op, so
+ * one ROLLBACK undoes both) — sequential idempotent steps sidestep that whole
+ * class, and the cloud is equally happy with them.
  */
 async function provisionPersonalOrg(user: SessionUser): Promise<ActiveOrg> {
   const name = (user.name || user.email.split("@")[0] || "New user").trim();
+  const slug = `personal-${user.id.slice(0, 8)}`;
 
-  const org = await prisma.$transaction(async (tx) => {
-    await tx.profiles.upsert({
-      where: { id: user.id },
-      create: { id: user.id, email: user.email, full_name: name },
-      update: {},
-    });
-    const created = await tx.organizations.create({
-      data: {
-        name,
-        slug: `personal-${user.id.slice(0, 8)}`,
-        is_personal: true,
-        created_by: user.id,
-      },
-    });
-    await tx.organization_members.create({
-      data: { org_id: created.id, user_id: user.id, role: "owner" },
-    });
-    await tx.user_settings.upsert({
-      where: { user_id: user.id },
-      create: { user_id: user.id },
-      update: {},
-    });
-    return created;
+  await prisma.profiles.upsert({
+    where: { id: user.id },
+    create: { id: user.id, email: user.email, full_name: name },
+    update: {},
+  });
+  let org = await prisma.organizations.findFirst({ where: { slug } });
+  if (!org) {
+    try {
+      org = await prisma.organizations.create({
+        data: { name, slug, is_personal: true, created_by: user.id },
+      });
+    } catch (e) {
+      org = await prisma.organizations.findFirst({ where: { slug } }); // lost the race — reuse the winner's
+      if (!org) throw e;
+    }
+  }
+  await prisma.organization_members.upsert({
+    where: { org_id_user_id: { org_id: org.id, user_id: user.id } },
+    create: { org_id: org.id, user_id: user.id, role: "owner" },
+    update: {},
+  });
+  await prisma.user_settings.upsert({
+    where: { user_id: user.id },
+    create: { user_id: user.id },
+    update: {},
   });
 
   // Best-effort inbound email address (its own unique-retry loop).

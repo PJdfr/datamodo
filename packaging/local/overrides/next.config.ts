@@ -9,6 +9,13 @@ const nextConfig: NextConfig = {
   // nested inside the monorepo (CI/dev) makes Turbopack infer the outer repo
   // as root and pick up the CLOUD proxy.ts as middleware.
   turbopack: { root: process.cwd() },
+  // The first-run build happens on the USER'S machine, where a global install
+  // puts this package inside a node_modules path — and TypeScript refuses to
+  // analyze .mjs files under node_modules (no declarations → implicit-any
+  // errors that don't exist in the repo). The tree is fully typechecked at
+  // pack time (CI + build-local-package --build); re-checking here adds
+  // nothing and would fail spuriously, so skip it.
+  typescript: { ignoreBuildErrors: true },
 };
 
 export default nextConfig;

@@ -281,9 +281,10 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
 
   const providerLabel = settings.aiProvider === "openai" ? "OpenAI" : settings.aiProvider === "openrouter" ? "OpenRouter" : settings.aiProvider === "ollama" ? "Ollama" : "Claude";
   const ollama = settings.aiProvider === "ollama";
-  const runtimeLabel = cloud ? "Datamodo cloud" : ollama ? "Your Ollama server" : `Your ${providerLabel} key`;
+  // Local edition: the platform default ("cloud") IS this machine's Ollama.
+  const runtimeLabel = cloud ? (local ? "Local AI — this machine" : "Datamodo cloud") : ollama ? "Your Ollama server" : `Your ${providerLabel} key`;
   const runtimeSub = cloud
-    ? "We run every agent for you."
+    ? (local ? "Models run here via Ollama — private, free." : "We run every agent for you.")
     : settings.byokKeySet
     ? (ollama ? "Runs on your own Ollama server — keyless." : `Runs on your ${providerLabel} API key.`)
     : (ollama ? "Add your server URL to start." : "Add your API key to start.");
@@ -385,7 +386,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           <span style={{ width: 30, height: 30, borderRadius: "50%", background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{initial}</span>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, color: "#F1ECE1", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</div>
-            <button type="button" onClick={() => setSettingsOpen(true)} className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B", background: "none", border: "none", padding: 0, cursor: "pointer" }}>{plan.label} plan · manage</button>
+            <button type="button" onClick={() => setSettingsOpen(true)} className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B", background: "none", border: "none", padding: 0, cursor: "pointer" }}>{local ? "self-hosted · settings" : `${plan.label} plan · manage`}</button>
           </div>
           <form action={signout} style={{ marginLeft: "auto", display: local ? "none" : undefined }}>
             <Hov tag="button" type="submit" title="Sign out" base={{ background: "none", border: "none", color: "#7C766B", fontSize: 11, cursor: "pointer" }} hover={{ color: "#F1ECE1" }}>
