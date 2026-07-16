@@ -1290,6 +1290,22 @@ CREATE INDEX facts_agent_idx ON public.facts USING btree (agent_id) WHERE (agent
 
 
 --
+-- Name: facts_org_current_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX facts_org_current_idx ON public.facts USING btree (org_id) WHERE (valid_to IS NULL);
+
+
+
+--
+-- Name: facts_subject_current_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX facts_subject_current_idx ON public.facts USING btree (subject_entity_id) WHERE (valid_to IS NULL);
+
+
+
+--
 -- Name: facts_current_claim_uq; Type: INDEX; Schema: public; Owner: -
 --
 

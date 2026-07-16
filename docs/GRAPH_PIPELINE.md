@@ -666,6 +666,49 @@ match pixels directly. Costs a second embedding column/space and an
 coexistence). Do this only when caption-search demonstrably misses real
 queries — revisit after P1–P3 have soaked.
 
+### Efficiency track (2026-07-16 — user ask: cost ↓, degeneration ↓, queries ↑, storage ↓, small steps)
+Shipped in step 1 (all fail-soft, all unit-tested where pure):
+1. **Triviality gate** (`extract-gate.ts`) — unmistakable acks ("ok",
+   "merci 🙏", emoji-only) skip the ENTIRE stack: no steering, no priming
+   embedding, no provider resolution, no extraction call; the item files
+   analyzed with zero facts and the chat still replies "Nothing to file".
+   Conservative by design: attachments, note-subjects, length > 80, any
+   digit/currency/URL/@/question mark, or one unknown token → extract.
+   Biggest per-user cost lever: acks are a large share of chat traffic.
+2. **Stable-prefix prompts + Anthropic prompt caching** — the org's
+   categories block moved from the user prompt into the SYSTEM prompt, so
+   `SYSTEM + categories` is a per-org constant prefix; the Anthropic
+   provider sends systems ≥ 4000 chars as a `cache_control` block (~90%
+   input-price cut on cache hits), and OpenAI's automatic prefix caching
+   benefits for free.
+3. **Adjudication floor + cap** — blocking's substring leg can surface
+   sim≈0.1 candidates; resolution now judges only candidates ≥ 0.25, top 3.
+   No candidate above the floor = new entity at zero LLM cost. (Also
+   anti-degeneration: hopeless candidates can't win a bad merge.)
+4. **Search fast path** — `listKnowledge({provenance:false})` skips the two
+   heaviest queries (every fact_source + its item) on the search/GraphRAG
+   path, which never renders provenance. UI surfaces keep the default.
+5. **Current-claims partial indexes** — migration
+   `20260716230000_perf_indexes.sql`: `facts(org_id)` and
+   `facts(subject_entity_id)` WHERE `valid_to IS NULL`; the hot set stays
+   tight as supersession history accumulates.
+6. **Snippet cap** — fact_source snippets capped at 280 chars (quotes, not
+   transcripts).
+Next steps, in value order (not yet built):
+- **Embedding dimension knob as default guidance**: `EMBEDDINGS_DIMENSIONS`
+  already exists — documenting 512-dim (Matryoshka) as the recommended cloud
+  setting would cut vector storage 3× and speed ANN, at a small recall cost;
+  needs a re-embed pass (embed-requeue exists) and a column-width story.
+- **Classify-excerpt trim**: the doc classifier reads 2,000 chars; 1,200 is
+  probably enough (measure first — needs live traffic).
+- **Cache the DOC system prompt too** (template varies per kind — cache per
+  kind's focused prompt; smaller win, same mechanism).
+- **Session-batched consolidation adjudication**: several pairs in ONE call
+  (matrix prompt) — cuts the sweep's call count ~5× at slight quality risk;
+  do after live-fire data shows the sweep's real volume.
+- **History compaction** (storage, far later): superseded facts older than N
+  years → summarized tombstones. Only when a real vault shows bloat.
+
 ### Explicitly NOT on the roadmap
 - **Graph database migration** (Neo4j etc.) — the access patterns are 1–2
   hops + similarity + temporal, all Postgres-shaped; a migration buys deep-

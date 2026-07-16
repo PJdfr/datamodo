@@ -12,6 +12,29 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Efficiency track, step 1 (user ask: "reduce LLM bill,
+  avoid degeneration, faster queries, leaner storage — small steps")** —
+  six shippable steps, plan + backlog in GRAPH_PIPELINE.md "Efficiency
+  track": ① TRIVIALITY GATE (pure `extract-gate.ts`, 15 tests-worth of
+  cases): "ok/merci 🙏/👍" never reaches steering, priming (an embedding),
+  provider resolution (a BYOK cap can't fail an ack), or extraction —
+  conservative allowlist (en/fr ack tokens, ≤80 chars, no
+  digit/€$/URL/@/?), attachments + note-subjects always pass; item files
+  analyzed as `gate:trivial`, the chat ping still replies "Nothing to
+  file". ② STABLE-PREFIX PROMPTS + CACHING: categories moved from user →
+  SYSTEM prompt (per-org constant prefix), Anthropic sends ≥4000-char
+  systems as `cache_control` ephemeral blocks (short ones stay strings —
+  below the cacheable minimum), mock-ollama accepts both shapes; OpenAI
+  prefix-caching benefits automatically. ③ ADJUDICATION FLOOR/CAP: judge
+  only candidates sim ≥.25, top 3 — substring-blocking's sim≈.1 noise no
+  longer buys an LLM call (and can't win a bad merge). ④ SEARCH FAST PATH:
+  `listKnowledge({provenance:false})` on search/GraphRAG skips the
+  fact_sources+items joins (KnowledgeHit never renders provenance).
+  ⑤ PARTIAL INDEXES `20260716230000_perf_indexes.sql`
+  (facts org/current + subject/current — the hot set stays tight as
+  supersession history grows; **owed on dev+prod**). ⑥ SNIPPET CAP 280
+  chars on fact_sources. Suite 325 pass / 3 pre-existing canvas failures;
+  tsc/eslint clean on changed files. NOT live-fired.
 - **2026-07-16** — **Agent lenses, phase 1 (GRAPH_PIPELINE.md P5)** — the
   last big graph-track phase: per-agent READ views over the ONE shared
   graph. `facts.agent_id` lands via migration

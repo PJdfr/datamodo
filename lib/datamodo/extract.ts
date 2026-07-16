@@ -184,7 +184,10 @@ export const EXTRACTION_VERSION = 4;
 
 export function buildUserPrompt(input: ExtractInput): string {
   const parts: string[] = [];
-  if (input.kinds?.length) parts.push(promptCategories(input.kinds));
+  // NOTE: the CATEGORIES block deliberately does NOT live here — it is stable
+  // per org, so it rides the SYSTEM prompt (see extractFromMessage), where
+  // provider-side prompt caching (Anthropic cache_control, OpenAI automatic
+  // prefix caching) can make it near-free across every message.
   const knownBlock = renderKnownBlock(input.known ?? []);
   if (knownBlock) parts.push(knownBlock);
   if (input.concepts?.length) {
@@ -253,11 +256,14 @@ export async function extractFromMessage(
   llm: LlmProvider = getLlmProvider(),
 ): Promise<ExtractResult> {
   const user = buildUserPrompt(input);
+  // Stable content leads: SYSTEM + the org's categories form a per-org
+  // constant prefix, so provider prompt caches hit on every message.
+  const system = input.kinds?.length ? `${SYSTEM}\n\n${promptCategories(input.kinds)}` : SYSTEM;
 
   const run = async (model: string) =>
     llm.chatJSON<LlmExtraction>({
       model,
-      system: SYSTEM,
+      system,
       user,
       schema: RESPONSE_SCHEMA,
       schemaName: "extraction",
@@ -631,11 +637,19 @@ export async function runExtractionForItem(
   await prisma.items.update({ where: { id: row.id }, data: { status: "analyzing" } });
   try {
     const text = await loadItemText(row);
+    // TRIVIALITY GATE (efficiency track 2026-07-16): unmistakable acks never
+    // reach an LLM or an embedding — steering, priming, and extraction are
+    // all skipped and the item files as analyzed with zero facts (the chat
+    // reply still answers "Nothing to file"). Attachments always pass.
+    const { worthExtracting } = await import("./extract-gate");
+    const hasAttachments =
+      (await prisma.attachments.count({ where: { item_id: row.id } }).catch(() => 0)) > 0;
+    const trivial = !worthExtracting({ text, subject: row.subject, hasAttachments });
     // Addressed items (chat "@agent" / picker) carry their agent in meta —
     // that agent's purpose steers extraction. An explicit param still wins;
     // no addressee = no steering (the general datamodo agent). Best-effort.
     const addressedAgentId = (row.meta as { agent_id?: string } | null)?.agent_id;
-    if (agentPurpose == null && addressedAgentId) {
+    if (!trivial && agentPurpose == null && addressedAgentId) {
       agentPurpose = await prisma.agents
         .findFirst({ where: { id: addressedAgentId, org_id: row.org_id }, select: { purpose_text: true } })
         .then((a) => a?.purpose_text ?? null)
@@ -647,7 +661,7 @@ export async function runExtractionForItem(
     // winner's purpose steers extraction and the pick is stamped on the item
     // (routed_agent_*) for attribution. Ambiguity/no-match = the generic
     // datamodo agent, exactly as before. Best-effort: never fails the item.
-    if (agentPurpose == null && !addressedAgentId) {
+    if (!trivial && agentPurpose == null && !addressedAgentId) {
       try {
         const autoAgents = await prisma.agents.findMany({
           where: { org_id: row.org_id, status: "active", mode: "auto", NOT: { purpose_text: null } },
@@ -681,13 +695,13 @@ export async function runExtractionForItem(
         /* routing is best-effort — generic steering otherwise */
       }
     }
-    const businessContext = row.owner_user_id
+    const businessContext = !trivial && row.owner_user_id
       ? (await getOnboardingContext(row.owner_user_id)).businessContext
       : null;
     // The user's category registry steers classification + canonicalizes
     // kinds/predicates. Best-effort: extraction works without it.
     const { listKinds } = await import("./kinds");
-    const kinds = await listKinds(row.org_id, row.owner_user_id).catch(() => []);
+    const kinds = trivial ? [] : await listKinds(row.org_id, row.owner_user_id).catch(() => []);
     // RELEVANCE PRIMING (user call 2026-07-16): candidates chosen BY the
     // input — labels literally in the text + ANN over one message embedding —
     // replace the old static top-30 concept list. Non-concepts feed the
@@ -696,33 +710,50 @@ export async function runExtractionForItem(
     // up from the support ranking so it never goes empty without embeddings.
     const { primeKnownEntities } = await import("./priming");
     const { conceptsForPrompt } = await import("./priming-core");
-    const known = await primeKnownEntities(row.org_id, `${row.subject ?? ""}\n${text}`).catch(() => []);
-    const conceptRows = await prisma.entities
-      .findMany({
-        where: { org_id: row.org_id, kind: "concept", merged_into: null },
-        select: { canonical_label: true },
-        orderBy: { support: "desc" },
-        take: 30,
-      })
-      .catch(() => []);
+    const known = trivial
+      ? []
+      : await primeKnownEntities(row.org_id, `${row.subject ?? ""}\n${text}`).catch(() => []);
+    const conceptRows = trivial
+      ? []
+      : await prisma.entities
+          .findMany({
+            where: { org_id: row.org_id, kind: "concept", merged_into: null },
+            select: { canonical_label: true },
+            orderBy: { support: "desc" },
+            take: 30,
+          })
+          .catch(() => []);
     const concepts = conceptsForPrompt(known, conceptRows.map((c) => c.canonical_label));
     // BYOK: analysis runs on the owner's own provider account when they've
-    // brought a key; otherwise on the platform provider from env.
-    const llm = await llmForUser(row.owner_user_id);
-    const result = await extractFromMessage(
-      {
-        text,
-        subject: row.subject,
-        sender: row.sender,
-        channel: row.channel,
-        agentPurpose,
-        businessContext,
-        kinds,
-        concepts,
-        known,
-      },
-      llm,
-    );
+    // brought a key; otherwise on the platform provider from env. Trivial
+    // items never resolve a provider at all (a BYOK cap must not fail them).
+    let llm: LlmProvider | undefined;
+    let result: ExtractResult;
+    if (trivial) {
+      result = {
+        extraction: { entities: [], facts: [] },
+        note: null,
+        model: "gate:trivial",
+        overallConfidence: 1,
+        escalated: false,
+      };
+    } else {
+      llm = await llmForUser(row.owner_user_id);
+      result = await extractFromMessage(
+        {
+          text,
+          subject: row.subject,
+          sender: row.sender,
+          channel: row.channel,
+          agentPurpose,
+          businessContext,
+          kinds,
+          concepts,
+          known,
+        },
+        llm,
+      );
+    }
     const knowledge = await ingestExtraction(row.org_id, row.owner_user_id, row.id, result.extraction, llm);
     // A substantive dump becomes a NOTE the pipeline authors: a thick node
     // whose body is our distilled markdown, edged to what the message
@@ -755,11 +786,13 @@ export async function runExtractionForItem(
     // item). Dynamic import: documents.ts uses extractFromMessage, so a static
     // import here would be circular.
     let docResults: import("./documents").AttachmentProcessResult[] = [];
-    try {
-      const { processItemAttachments } = await import("./documents");
-      docResults = await processItemAttachments(row, llm, businessContext, kinds, concepts);
-    } catch (e) {
-      console.error(`[extract] attachment processing failed for item ${row.id}`, e);
+    if (!trivial && llm) {
+      try {
+        const { processItemAttachments } = await import("./documents");
+        docResults = await processItemAttachments(row, llm, businessContext, kinds, concepts);
+      } catch (e) {
+        console.error(`[extract] attachment processing failed for item ${row.id}`, e);
+      }
     }
     // AGENT LENS stamp (GRAPH_PIPELINE.md P5): facts remember which agent's
     // pipeline wrote them. Attribution reads back off the item's meta (the

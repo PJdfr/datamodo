@@ -38,13 +38,23 @@ export function anthropicAlwaysThinks(model: string): boolean {
   return /^claude-(fable|mythos)-/.test(model.trim().toLowerCase());
 }
 
+/** Above this many characters (≈1k tokens, Anthropic's minimum cacheable
+ *  prefix) the system prompt is sent as a cache_control block: extraction
+ *  reuses ONE stable system per org (rules + categories), so every message
+ *  after the first reads it from cache at ~10% of the input price. Below the
+ *  minimum, caching wouldn't engage — send the plain string. */
+export const CACHE_SYSTEM_ABOVE_CHARS = 4000;
+
 /** The request body for one chatJSON call — split out so the sampling-param
  *  rule above is testable without a network. */
 export function buildAnthropicBody(req: ChatJsonRequest): Record<string, unknown> {
   const acceptsSampling = anthropicAcceptsSampling(req.model);
   return {
     model: req.model,
-    system: req.system,
+    system:
+      req.system.length >= CACHE_SYSTEM_ABOVE_CHARS
+        ? [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }]
+        : req.system,
     max_tokens: req.maxTokens ?? 2048,
     // Newest models (Sonnet 5 / Opus 4.7+ / Fable 5) reject temperature — omit it there.
     ...(acceptsSampling ? { temperature: req.temperature ?? 0 } : {}),

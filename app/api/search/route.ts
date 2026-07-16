@@ -36,7 +36,9 @@ export async function GET(req: Request) {
   // so a failure there never drops the table results.
   const [result, kviews] = await Promise.all([
     searchDatasets(org.id, q),
-    listKnowledge(org.id, { agentId }).catch(() => []),
+    // provenance:false — search evidence never renders per-fact sources, so
+    // skip the two heaviest queries (all fact_sources + their items).
+    listKnowledge(org.id, { agentId, provenance: false }).catch(() => []),
   ]);
   const entities = searchKnowledge(kviews, result.terms);
 

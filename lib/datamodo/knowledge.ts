@@ -182,8 +182,16 @@ export async function resolveEntity(
   // Tier 2/3 — ambiguous: ask the model whether it's the same real-world entity,
   // with a confidence. Candidates go in ENRICHED (keys, support, top facts) so
   // doubt is judged on identity evidence, not label similarity alone.
-  const verdict = candidates.length
-    ? await adjudicateMatch(e, await enrichMatchCandidates(orgId, candidates), llm)
+  // Efficiency: never spend the call on hopeless candidates — the blocking
+  // function's substring leg can surface sim≈0.1 matches; a floor drops them
+  // (they'd never clear PROPOSE anyway) and a cap keeps the judge prompt
+  // small. No candidate above the floor = new entity, zero LLM cost.
+  const worthJudging = candidates
+    .filter((c) => c.sim >= 0.25)
+    .sort((a, b) => b.sim - a.sim)
+    .slice(0, 3);
+  const verdict = worthJudging.length
+    ? await adjudicateMatch(e, await enrichMatchCandidates(orgId, worthJudging), llm)
     : { matchId: null as string | null, confidence: 0, reason: "" };
 
   // High confidence → resolve to the canonical entity now, logged for audit.
@@ -608,13 +616,16 @@ async function upsertFact(
     // NULLs are distinct in the (fact_id, source_item_id) unique index, so a
     // null source can't participate in an ON CONFLICT upsert — always insert it
     // (matches the original onConflict semantics). Only dedupe when we have an id.
+    // Storage: snippets are QUOTES, not transcripts — cap them (an LLM can
+    // hand back a whole paragraph; ~280 chars carries any evidence quote).
+    const snippet = fact.snippet ? fact.snippet.slice(0, 280) : null;
     if (sourceItemId === null) {
       await prisma.fact_sources.create({
         data: {
           org_id: orgId,
           fact_id: factId,
           source_item_id: null,
-          snippet: fact.snippet ?? null,
+          snippet,
           extracted_at: now,
         },
       });
@@ -626,10 +637,10 @@ async function upsertFact(
         org_id: orgId,
         fact_id: factId,
         source_item_id: sourceItemId,
-        snippet: fact.snippet ?? null,
+        snippet,
         extracted_at: now,
       },
-      update: { snippet: fact.snippet ?? null, extracted_at: now },
+      update: { snippet, extracted_at: now },
     });
   };
 
@@ -879,7 +890,7 @@ interface KFact {
  *  never split, they just show fewer facts under a lens). */
 export async function listKnowledge(
   orgId: string,
-  opts: { agentId?: string | null } = {},
+  opts: { agentId?: string | null; provenance?: boolean } = {},
 ): Promise<KnowledgeEntityView[]> {
   const [ents, facts] = await Promise.all([
     prisma.entities.findMany({
@@ -912,7 +923,10 @@ export async function listKnowledge(
   // PostgREST embed, so we don't depend on the FK relationship being named.
   const provByFact = new Map<string, FactSourceView[]>();
   const factIds = factList.map((f) => f.id);
-  if (factIds.length) {
+  // opts.provenance === false skips the two heaviest queries (every
+  // fact_source + its item) — the search/GraphRAG path never renders
+  // provenance, so it shouldn't pay for it. UI surfaces keep the default.
+  if (opts.provenance !== false && factIds.length) {
     const fs = await prisma.fact_sources.findMany({
       where: { fact_id: { in: factIds } },
       select: { fact_id: true, snippet: true, source_item_id: true },

@@ -6,7 +6,7 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { getLlmProvider, normalizeOllamaUrl } from "../lib/llm/index.ts";
-import { anthropicAcceptsSampling, buildAnthropicBody, extractAnthropicText } from "../lib/llm/anthropic.ts";
+import { anthropicAcceptsSampling, buildAnthropicBody, extractAnthropicText, CACHE_SYSTEM_ABOVE_CHARS } from "../lib/llm/anthropic.ts";
 import { isOpenAiReasoningModel } from "../lib/llm/openai-compatible.ts";
 
 const realFetch = globalThis.fetch;
@@ -207,4 +207,13 @@ test("anthropic body: vision requests put image blocks before the text", () => {
   });
   const content = (body.messages as Array<{ content: unknown }>)[0].content as Array<{ type: string }>;
   assert.deepEqual(content.map((c) => c.type), ["image", "text"]);
+});
+
+test("anthropic body: long stable system rides a cache_control block; short stays a string", () => {
+  const long = buildAnthropicBody({ system: "r".repeat(CACHE_SYSTEM_ABOVE_CHARS), user: "u", model: "claude-haiku-4-5" });
+  assert.deepEqual(long.system, [
+    { type: "text", text: "r".repeat(CACHE_SYSTEM_ABOVE_CHARS), cache_control: { type: "ephemeral" } },
+  ]);
+  const short = buildAnthropicBody({ system: "small", user: "u", model: "claude-haiku-4-5" });
+  assert.equal(short.system, "small"); // below the cacheable minimum — plain string
 });
