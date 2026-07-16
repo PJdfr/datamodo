@@ -12,6 +12,26 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **PDF → markdown, phase 1 (GRAPH_PIPELINE.md P3)** — the
+  structure-preserving document-reading seam: `pdf-markdown.ts` shells out
+  to whatever `PDF_MARKDOWN_COMMAND` names (Docling/marker/MinerU-style CLI;
+  PDF temp path appended, markdown on stdout, `PDF_MARKDOWN_TIMEOUT_MS` 45 s,
+  4 MB output cap, <40 non-ws chars = scan = null) — null/error falls back
+  to the unpdf text layer with the scanned-PDF vision path intact, so the
+  seam is pure upside. `chunkDocText` gained markdown awareness
+  (`looksLikeMarkdown` ≥2 headings): section-aligned chunks with the heading
+  prefixed on EVERY piece, so passage citations name their section (markdown
+  drops page lineage; headings replace it; page-lineage chunking unchanged
+  when pageTexts exist). Import uses the explicit `.ts` extension
+  (node strip-types resolution, lib/llm precedent). 6 new tests via fake
+  converter fixture scripts (happy path, fail-soft, seam-off, markdown
+  detection, section chunking, page-lineage precedence); suite 313 pass / 3
+  pre-existing canvas failures; tsc/eslint clean on changed files (the 2 tsc
+  hits are the sandbox's missing @napi-rs/canvas). Phase 2 open: package an
+  actual converter per deployment + live-fire on a real structured PDF.
+  Also this session: the user-requested graph schema infographic
+  (3 mermaid diagrams: ER structure, LLM prompt view, merge path) delivered
+  as a file, not committed.
 - **2026-07-16** — **P2.5 research adoptions (GRAPH_PIPELINE.md §10b)** —
   the two open items from the degeneration-literature pass, built: ①
   **alias-aware growth gate** (RELATE/KGGen-lite): `predicatesLookAlike`

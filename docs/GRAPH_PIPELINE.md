@@ -533,8 +533,22 @@ The two remaining adoptions from the prior-art pass, built same day:
   renders from preloaded listKnowledge data — needs a beacon; follow-up) and
   MCP reads.
 
-### P3 — PDF → markdown upgrade (structure-preserving document reading)
+### P3 — PDF → markdown upgrade (structure-preserving document reading) — PHASE 1 ✅ 2026-07-16
 Replace the flat unpdf text layer with structure-preserving conversion.
+- **Phase 1 shipped**: the recommended shape (external converter behind the
+  seam, JS fail-soft) is in — `lib/datamodo/pdf-markdown.ts` shells out to
+  whatever `PDF_MARKDOWN_COMMAND` names (Docling / marker / MinerU /
+  pymupdf4llm CLI; contract: PDF path appended as last arg, markdown on
+  stdout; `PDF_MARKDOWN_TIMEOUT_MS` default 45 s); non-zero exit, timeout, or
+  near-empty output (a scan) → null and the unpdf path runs exactly as
+  before, keeping scanned-PDF vision detection intact. Markdown output flows
+  into **section-aligned chunking**: `chunkDocText` detects markdown (≥2
+  headings) and chunks per section with the heading carried on every piece —
+  cited passages now say which section they came from (page lineage is
+  markdown's trade-off; headings replace it). Unit-tested via fake converter
+  scripts. **Phase 2 (open)**: pick + package an actual converter per
+  deployment (cloud worker image; optional dependency for the local
+  edition), and a live-fire comparison on a real structured PDF (tables!).
 - Decision to make first: **library vs sidecar.** The app is TypeScript;
   the best converters (Docling, marker, MinerU, pymupdf4llm) are Python.
   Options: (a) a small Python sidecar/CLI invoked per document (local

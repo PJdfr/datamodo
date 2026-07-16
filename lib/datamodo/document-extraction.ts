@@ -307,8 +307,35 @@ function splitBlock(text: string): string[] {
   return out;
 }
 
+/** ≥2 markdown headings = structured text (a converter's output or authored
+ *  markdown) — chunking should follow sections, not blind paragraphs. */
+export function looksLikeMarkdown(text: string): boolean {
+  return (text.match(/^#{1,6}\s+\S/gm) ?? []).length >= 2;
+}
+
+/** Section-aligned chunking for markdown (GRAPH_PIPELINE.md P3): split on
+ *  heading lines, size-chunk within each section, and prefix every piece with
+ *  its heading so a cited passage always says which section it came from. */
+function chunkMarkdownSections(text: string): DocChunk[] {
+  const lines = text.split("\n");
+  const sections: { heading: string; body: string[] }[] = [{ heading: "", body: [] }];
+  for (const line of lines) {
+    if (/^#{1,6}\s+\S/.test(line)) sections.push({ heading: line.trim(), body: [] });
+    else sections[sections.length - 1].body.push(line);
+  }
+  const chunks: DocChunk[] = [];
+  for (const s of sections) {
+    for (const piece of splitBlock(s.body.join("\n"))) {
+      chunks.push({ seq: chunks.length, page: null, text: s.heading ? `${s.heading}\n\n${piece}` : piece });
+      if (chunks.length >= MAX_CHUNKS) return chunks;
+    }
+  }
+  return chunks;
+}
+
 /** Chunk a document's text for the evidence layer. PDFs chunk per page (page
- *  lineage survives into citations); plain text chunks by paragraphs. */
+ *  lineage survives into citations); markdown chunks per SECTION (heading
+ *  lineage instead); plain text chunks by paragraphs. */
 export function chunkDocText(doc: ExtractedDocText): DocChunk[] {
   const chunks: DocChunk[] = [];
   if (doc.pageTexts?.length) {
@@ -320,6 +347,7 @@ export function chunkDocText(doc: ExtractedDocText): DocChunk[] {
     }
     return chunks;
   }
+  if (looksLikeMarkdown(doc.text)) return chunkMarkdownSections(doc.text);
   for (const piece of splitBlock(doc.text)) {
     chunks.push({ seq: chunks.length, page: null, text: piece });
     if (chunks.length >= MAX_CHUNKS) break;

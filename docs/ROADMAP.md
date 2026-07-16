@@ -151,10 +151,12 @@ in value order — details, file seams, and acceptance criteria in that doc:
    (`entities.last_used_at` stamped by retrieval; orphan pass + accept both
    respect recent reads; **migration `20260716210000_entity_usage.sql` owed
    on dev+prod** — fail-soft via to_jsonb until applied).
-3. **P3 PDF → markdown** — replace unpdf's flat text layer with a
-   structure-preserving converter (Docling/marker/MinerU sidecar behind the
-   `extractAttachmentText` seam; JS heuristics as fail-soft) → heading-aligned
-   doc_chunks + table extraction.
+3. **P3 PDF → markdown** — PHASE 1 ✅ 2026-07-16: the converter seam
+   (`PDF_MARKDOWN_COMMAND` shells to any Docling/marker/MinerU-style CLI,
+   fail-soft to unpdf; scanned-PDF vision path intact) + section-aligned
+   markdown chunking (headings carried on every cited piece). PHASE 2 open:
+   package a real converter per deployment (cloud worker image, local-edition
+   optional dep) + live-fire on a structured PDF with tables.
 4. **P4 Edge metadata via reification** — `reify: true` relations in kind
    templates (an `employment` node instead of a bare `works_at` edge); no
    schema change.

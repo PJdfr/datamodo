@@ -7,6 +7,7 @@ import { parseWorkbook } from "./spreadsheet";
 import { storeDocChunks } from "./chunks";
 import { normalizeKey } from "./knowledge";
 import { transcribeAudio } from "@/lib/llm/transcription";
+import { convertPdfToMarkdown } from "./pdf-markdown";
 import {
   attachmentAudioType,
   attachmentImageType,
@@ -86,10 +87,17 @@ export async function processItemAttachments(
       if (kind) {
         try {
           const bytes = await readBlob(item.org_id, att.blob_hash);
+          // PDFs try the structure-preserving converter seam first
+          // (PDF_MARKDOWN_COMMAND, GRAPH_PIPELINE.md P3) — markdown output
+          // gets section-aligned chunks and a structured prompt; null (seam
+          // off / converter failed / scan) falls back to the unpdf text
+          // layer, which also keeps the scanned-PDF vision detection intact.
+          const md = kind === "pdf" ? await convertPdfToMarkdown(bytes) : null;
           doc =
-            kind === "sheet"
+            md ??
+            (kind === "sheet"
               ? sheetToText(await parseWorkbook(bytes))
-              : await extractAttachmentText(bytes, kind);
+              : await extractAttachmentText(bytes, kind));
           if (doc.text) {
             // Classify-first + template-restrained: the document is distilled
             // to its category's template (+ ≤3 concepts + a markdown summary),
