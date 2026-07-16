@@ -9,9 +9,52 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-15
+> Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Local packaging phase 2: physical code separation + Docker
+  runtime + one-command installers** (brief §3/§4/§6 — the ROADMAP "HARD
+  REQUIREMENT"). (1) **Boundary lint**: `.dependency-cruiser.cjs` forbids the
+  CORE (dashboard, core/local API routes, `lib/{datamodo,llm,local,ingest}`,
+  blob-fs, bin, shared UI atoms) from importing the CLOSED layer (Neon Auth
+  server/client, `@neondatabase/*`, `@prisma/adapter-neon`, stripe, `@aws-sdk`,
+  billing/webhooks/auth routes, landing) — seam files (`lib/prisma.ts`,
+  `lib/storage/blob.ts`, `lib/auth/session.ts`, `app/auth/actions.ts`,
+  `proxy.ts`) are the only allowed crossings; `npm run lint:boundary` + a CI
+  step enforce it (0 violations today). (2) **Build-time prune** (`npm run
+  build:local-package` → `scripts/build-local-package.mjs`): copies the core
+  into `dist/local-package/`, swaps the 5 seams + `app/page.tsx` +
+  `next.config.ts` for local implementations checked in under
+  `packaging/local/overrides/`, generates a real `package.json` (name
+  **datamodo**, bin, cloud deps dropped, build-time deps promoted), then
+  PROVES the separation: a grep sweep for closed markers, a ZERO-exception
+  depcruise config generated into the tree, and (`--build`) a full
+  `npm install` + `DATAMODO_LOCAL=1 next build` in the pruned tree. Verified
+  in-session: tree builds green; `npm pack` → **datamodo-0.1.0.tgz, 181 files,
+  ~400 KB, zero closed-layer paths inside**. Decision (brief open question 1):
+  **MCP ships in the local package** (vault-as-tools on the user's own Claude
+  subscription is a flagship local feature); its `MCP_TOKEN_SECRET` derives
+  from the random per-install ingest secret, never the constant local cookie
+  placeholder. Turbopack gotcha for posterity: building the pruned tree NESTED
+  in the repo makes Turbopack infer the OUTER repo as project root and pick up
+  the cloud `proxy.ts` — the local `next.config.ts` pins `turbopack.root`.
+  (3) **Docker runtime** (`packaging/local/docker/`): multi-stage Dockerfile
+  built FROM the pruned tree (cloud code physically absent from the image);
+  compose = app + `pgvector/pgvector:pg16` with healthcheck + named volumes +
+  optional `gpu`-profile Ollama (Linux/NVIDIA only); host Ollama is the default
+  everywhere (macOS containers can't use Metal — §7). `bin/docker-entry.mjs`
+  is the container `serve`: waits for PG, installs the schema from
+  `neon/schema.sql` on a fresh DB (dim-rewritten for local embeddings) or
+  `prisma db push` on upgrade, runs the non-interactive first-run sizing
+  (cgroup RAM), starts `next start` + the IMAP poller — real PG, so the pglite
+  shim stays off. NOT run in-session: the image build itself (sandbox egress
+  blocks Docker Hub base images) — flagged for a human/CI with network.
+  (4) **Installers** (`packaging/install.sh` + `install.ps1`, brief §3): one
+  command → asks Local vs BYOK → Docker Compose vs npm (auto-detect, override
+  flags `--local/--byok/--docker/--npm/--ram/--yes`) → Ollama guidance per OS
+  (macOS host-Ollama note) → npm path installs global + runs `datamodo setup`;
+  docker path fetches the compose bundle and `docker compose up -d`. sh/POSIX
+  syntax-checked. CI gained "Boundary" + "Local package prune" steps.
 - **2026-07-15** — **Local packaging phase 1: real-Postgres runtime + first-run
   model sizing + LOCAL↔BYOK settings toggle** (packaging brief §2/§3/§5;
   overnight build). (1) **`neon/schema.sql` now loads top-to-bottom into an

@@ -4,7 +4,7 @@
 > inventory when they ship; add what the work surfaced. Ordered by value.
 > Siblings: [STATE.md](STATE.md) · [FLOW.md](FLOW.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-15
+> Last updated: 2026-07-16
 
 ## Now (unblocks everything else)
 1. **Set env** (the old "merge PR #35" step is long done): a REAL
@@ -446,10 +446,23 @@
     Prisma adapter is still statically imported by `lib/prisma.ts` (sync
     singleton — harmless dormant weight, no secret/eval), and cloud route files
     still exist in the tree (compiled but inert).
-  - **Step B/C — physical severance (still required for OSS):** a workspace
-    with a shared `core` package the local build consumes, cloud package kept
-    private (B), or a build-time prune that emits an OSS subtree (C). Only these
-    make `git`-cloning the local edition reveal local code only.
+  - ~~**Step B/C — physical severance** ✅ 2026-07-16 (option C, build-time
+    prune)~~: `npm run build:local-package` copies the CORE into a clean tree,
+    swaps the 5 seam files for local implementations
+    (`packaging/local/overrides/`), generates the real `datamodo` package.json
+    (cloud deps dropped), PROVES separation (grep sweep + zero-exception
+    dependency-cruiser + optional in-tree `next build`) and packs the npm
+    tarball — 181 files, zero closed-layer paths. Boundary enforced
+    mechanically in the main repo too (`.dependency-cruiser.cjs`, CI).
+    Decision: **MCP ships in the local package** (secret = per-install ingest
+    secret). Docker image builds FROM the pruned tree
+    (`packaging/local/docker/`); one-command installers in `packaging/`.
+    STILL OPEN (needs a human/ops): publish channel (npm name availability,
+    GHCR vs Docker Hub), get.datamodo.dev hosting for the installer + compose
+    file, licensing of the pruned source (FSL/BSL vs AGPL — the tarball is
+    currently "SEE LICENSE", i.e. unlicensed), CI job that builds the Docker
+    image (agent sandboxes can't pull base images), and the workspace split
+    (option B) if/when the prune outgrows itself.
   A local/OSS user gets the **dashboard app + 100%-local storage and NOTHING
   else** — no landing/marketing page, no Neon Auth, no Neon/serverless storage,
   no cloud channel adapters, no billing/Stripe, no cron/ops. A runtime flag
