@@ -6,6 +6,7 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { getLlmProvider, normalizeOllamaUrl } from "../lib/llm/index.ts";
+import { anthropicAcceptsSampling, buildAnthropicBody } from "../lib/llm/anthropic.ts";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -65,4 +66,55 @@ test("a key, when given anyway, rides along (authenticated ollama proxies)", asy
   const llm = getLlmProvider("ollama", "proxy-token");
   await llm.chatJSON({ system: "s", user: "u", model: "llama3.1" });
   assert.equal(cap.headers?.authorization, "Bearer proxy-token");
+});
+
+// ---- Anthropic sampling-param removal (temperature 400 on newest models) ----
+
+test("anthropic: newest models REJECT temperature — it must be omitted", () => {
+  for (const m of [
+    "claude-sonnet-5",     // our escalate default — the exact model the bug hit
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-fable-5",
+    "claude-mythos-5",
+    "claude-sonnet-4-7",   // hypothetical future 4.7+ — not in the 4.0–4.6 allowlist
+  ]) {
+    assert.equal(anthropicAcceptsSampling(m), false, `${m} should NOT get temperature`);
+  }
+});
+
+test("anthropic: older models still accept temperature", () => {
+  for (const m of [
+    "claude-haiku-4-5",             // our extract/vision default
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-5-20250929",   // dated snapshot id
+    "claude-sonnet-4-6",
+    "claude-opus-4-6",
+    "claude-opus-4-0",
+    "claude-opus-4-1-20250805",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-haiku-20240307",
+    "claude-2.1",
+  ]) {
+    assert.equal(anthropicAcceptsSampling(m), true, `${m} should keep temperature`);
+  }
+});
+
+test("anthropic body: temperature included only for models that accept it", () => {
+  const escalate = buildAnthropicBody({ system: "s", user: "u", model: "claude-sonnet-5", temperature: 0 });
+  assert.equal("temperature" in escalate, false, "claude-sonnet-5 body must not carry temperature");
+  assert.equal(escalate.model, "claude-sonnet-5");
+  assert.equal(escalate.max_tokens, 2048);
+
+  const extract = buildAnthropicBody({ system: "s", user: "u", model: "claude-haiku-4-5" });
+  assert.equal(extract.temperature, 0, "claude-haiku-4-5 keeps the deterministic default");
+});
+
+test("anthropic body: vision requests put image blocks before the text", () => {
+  const body = buildAnthropicBody({
+    system: "s", user: "describe", model: "claude-haiku-4-5",
+    images: [{ mediaType: "image/png", dataBase64: "aGk=" }],
+  });
+  const content = (body.messages as Array<{ content: unknown }>)[0].content as Array<{ type: string }>;
+  assert.deepEqual(content.map((c) => c.type), ["image", "text"]);
 });
