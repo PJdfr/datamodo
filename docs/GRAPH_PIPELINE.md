@@ -340,6 +340,27 @@ This is also why "each attribute could itself be an entity" needs no schema
 change: **promote the value to an entity and the attribute becomes an edge.**
 That's reification (roadmap P4) — an ontology/prompt decision, not storage.
 
+**Template block (user decision 2026-07-16):** template FIELDS are a
+guarantee, not a suggestion — at the end of every ingest, each node of a
+templated kind carries **at least** its template fields, null-filled when
+unknown (`ensureTemplateSlots`; the prompt also says "ATTEMPT EVERY template
+field"). The first real value fills a null slot **silently** (completion,
+not a `fact_conflict`), and extra metadata beyond the template stays
+welcome. Placeholders render as "—", and are excluded from orphan
+edge-counts, ontology-health usage, and adjudication fact context — they are
+schema, not observations. Net effect: a table over a kind can always just
+read the metadata; every row has every column, possibly null.
+
+**Templates create themselves (growth loop, enriched 2026-07-16):** when
+several entities share unregistered kind + metadata "by chance", the
+`category_proposal` draft is no longer generic — it is grounded in the
+user's world: the entities' **observed literal predicates** ("prefer fields
+matching these"), their **observed edges grouped by target kind**
+(deterministically merged into the drafted relations — the model may phrase
+them, never drop them), the onboarding business context, and the agents'
+purposes. Deriving a table from a non-uniform graph stays available
+(derive-table); proactive templates are now the primary path.
+
 ## 9 · One graph vs one-graph-per-agent (decision)
 
 **Decision: ONE graph per user, with agent *lenses* — not physically separate

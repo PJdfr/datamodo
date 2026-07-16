@@ -12,6 +12,26 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Template block + self-creating templates (user
+  decisions)**. ① Templates' FIELDS became a guarantee (MEMORY.md decision
+  revised): `ensureTemplateSlots` runs at the end of every `ingestExtraction`
+  — each templated node gets placeholder facts (all-null value, confidence 0,
+  `skipDuplicates` race-safe) for missing template fields, so "each row in a
+  table is a node with AT LEAST the columns as metadata, possibly null"
+  holds by construction. `upsertFact` fills a placeholder SILENTLY (no
+  fact_conflict review — null→value is completion); `promptKindTemplate`
+  adds "ATTEMPT EVERY template field". Placeholders are schema, not
+  observations: excluded from orphan edge-counts (consolidate + accept-time
+  recheck), ontology-health telemetry, and adjudication fact context; they
+  render "—" (existing fmt fallback). ② The growth loop's drafts are now
+  grounded (user call "the LLM should take the initiative on templates"):
+  `maybeProposeCategories` feeds `suggestKindTemplate` the entities'
+  observed literal predicates, their observed EDGES grouped by target kind
+  (merged deterministically into the drafted relations — never droppable by
+  the model), the onboarding business context, and agent purposes — so
+  entities sharing metadata "by chance" become a proposed template whose
+  table-relationships are inferred from the graph. Suite 320 pass / 3
+  pre-existing canvas failures; tsc/eslint clean. NOT live-fired.
 - **2026-07-16** — **Context-rich documents + metadata-aware merging + PDF
   vision opt-in (user calls, one commit)**. ① Merge adjudication now judges
   with EVIDENCE: blocking candidates are enriched with natural keys, support,

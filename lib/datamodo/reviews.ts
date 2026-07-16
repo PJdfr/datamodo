@@ -390,6 +390,8 @@ export async function acceptReview(orgId: string, id: string): Promise<void> {
              SELECT 1 FROM facts f
               WHERE f.org_id = e.org_id
                 AND (f.subject_entity_id = e.id OR f.object_entity_id = e.id)
+                AND (f.object_entity_id IS NOT NULL OR f.value_text IS NOT NULL
+                     OR f.value_num IS NOT NULL OR f.value_date IS NOT NULL)
            )`;
       const prunable = still.map((s) => s.id);
       if (prunable.length) {

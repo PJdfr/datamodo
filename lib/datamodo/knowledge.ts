@@ -267,6 +267,8 @@ export async function topFactsForEntities(
         LEFT JOIN entities o ON o.id = f.object_entity_id
        WHERE f.org_id = ${orgId}::uuid AND f.valid_to IS NULL
          AND f.subject_entity_id = ANY(${entityIds}::uuid[])
+         AND (f.object_entity_id IS NOT NULL OR f.value_text IS NOT NULL
+              OR f.value_num IS NOT NULL OR f.value_date IS NOT NULL)
        ORDER BY f.subject_entity_id, f.confidence DESC, f.created_at DESC`;
     for (const r of rows) {
       const list = out.get(r.subject_entity_id) ?? [];
@@ -670,6 +672,15 @@ async function upsertFact(
     return "deduped";
   }
 
+  // TEMPLATE BLOCK: an all-null current fact is a PLACEHOLDER slot
+  // (ensureTemplateSlots) — the first real value FILLS it silently. No
+  // conflict review: null → value is completion, not contradiction.
+  const placeholder =
+    current.value_text == null &&
+    current.value_num == null &&
+    dateOnly(current.value_date) == null &&
+    current.object_entity_id == null;
+
   // Different value on a single-valued slot → contradiction: supersede, don't
   // delete. (Multi-valued facts never reach here — their value is in the key.)
   // Retire the old fact FIRST so it leaves the `valid_to IS NULL` partial unique
@@ -678,6 +689,7 @@ async function upsertFact(
   const newId = await insertFact();
   await prisma.facts.update({ where: { id: current.id }, data: { superseded_by: newId } });
   await addSource(newId);
+  if (placeholder) return "new"; // a filled slot is new knowledge, not a change
   // Surface the conflict for the user to validate (auto-applied but reviewable).
   await createConflictReview(orgId, ownerUserId, {
     oldId: current.id,
@@ -735,6 +747,51 @@ export function embedTextForEntity(
   return `${kind}: ${label}${keys.length ? " (" + keys.join(", ") + ")" : ""}`;
 }
 
+/** TEMPLATE BLOCK (user decision 2026-07-16): a kind's template fields are a
+ *  GUARANTEE, not a suggestion — every node of a templated kind carries at
+ *  least those fields, null-filled when unknown (extra facts stay welcome).
+ *  Tables then just read the metadata. Placeholders are all-null-value facts
+ *  (confidence 0) occupying the claim slot; upsertFact fills them SILENTLY
+ *  on the first real value (no fact_conflict review), and orphan detection
+ *  ignores them (a null slot is not a link). Idempotent + race-safe
+ *  (skipDuplicates against the current-claim unique index). */
+export async function ensureTemplateSlots(
+  orgId: string,
+  ownerUserId: string | null,
+  entities: { id: string; kind: string }[],
+  kinds: { kind: string; fields: { key: string }[] }[],
+): Promise<number> {
+  const fieldsByKind = new Map(kinds.filter((k) => k.fields.length).map((k) => [k.kind, k.fields.map((f) => f.key)]));
+  const wanted: { entityId: string; predicate: string }[] = [];
+  for (const e of entities) {
+    for (const key of fieldsByKind.get(e.kind) ?? []) wanted.push({ entityId: e.id, predicate: key });
+  }
+  if (wanted.length === 0) return 0;
+  const claimKeys = wanted.map((w) => `${w.entityId}::${w.predicate}`);
+  const existing = await prisma.facts.findMany({
+    where: { org_id: orgId, claim_key: { in: claimKeys }, valid_to: null },
+    select: { claim_key: true },
+  });
+  const have = new Set(existing.map((f) => f.claim_key));
+  const missing = wanted.filter((w) => !have.has(`${w.entityId}::${w.predicate}`));
+  if (missing.length === 0) return 0;
+  const now = new Date();
+  const res = await prisma.facts.createMany({
+    data: missing.map((w) => ({
+      org_id: orgId,
+      owner_user_id: ownerUserId,
+      subject_entity_id: w.entityId,
+      predicate: w.predicate,
+      cardinality: "one",
+      claim_key: `${w.entityId}::${w.predicate}`,
+      confidence: 0,
+      valid_from: now,
+    })),
+    skipDuplicates: true,
+  });
+  return res.count;
+}
+
 export async function ingestExtraction(
   orgId: string,
   ownerUserId: string | null,
@@ -779,6 +836,21 @@ export async function ingestExtraction(
     if (outcome === "new") res.factsNew++;
     else if (outcome === "deduped") res.factsDeduped++;
     else res.factsSuperseded++;
+  }
+
+  // TEMPLATE BLOCK: every templated node ends the ingest with AT LEAST its
+  // template fields (null-filled). Best-effort — never fails the ingest.
+  try {
+    const { listKinds } = await import("./kinds");
+    const kinds = await listKinds(orgId, ownerUserId);
+    await ensureTemplateSlots(
+      orgId,
+      ownerUserId,
+      extraction.entities.map((e) => ({ id: idMap.get(e.localId)!, kind: e.kind })).filter((e) => e.id),
+      kinds,
+    );
+  } catch (e) {
+    console.error("[knowledge] template-slot fill failed", e);
   }
 
   return res;

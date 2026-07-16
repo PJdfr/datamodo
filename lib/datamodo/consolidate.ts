@@ -76,12 +76,17 @@ async function loadEntities(orgId: string): Promise<Map<string, ConsolidationEnt
     }) as Promise<EntityRow[]>,
     // last_used_at rides via to_jsonb so a cloud DB that hasn't applied
     // migration 20260716210000 yet reads NULL instead of erroring.
+    // Null-filled TEMPLATE SLOTS are not links — only facts with a value (or
+    // an edge) count, so placeholder rows can't shield a stray from the
+    // orphan pass.
     prisma.$queryRaw<{ id: string; edges: bigint; last_used: string | null }[]>`
       SELECT e.id, count(f.id) AS edges, to_jsonb(e) ->> 'last_used_at' AS last_used
         FROM entities e
         LEFT JOIN facts f
           ON f.org_id = e.org_id
          AND (f.subject_entity_id = e.id OR f.object_entity_id = e.id)
+         AND (f.object_entity_id IS NOT NULL OR f.value_text IS NOT NULL
+              OR f.value_num IS NOT NULL OR f.value_date IS NOT NULL)
        WHERE e.org_id = ${orgId}::uuid AND e.merged_into IS NULL
        GROUP BY e.id`,
   ]);

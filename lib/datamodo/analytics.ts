@@ -189,6 +189,10 @@ export async function loadHealthFacts(orgId: string): Promise<import("./ontology
       FROM facts f
       JOIN entities e ON e.id = f.subject_entity_id
      WHERE f.org_id = ${orgId}::uuid
+       -- null-filled TEMPLATE SLOTS are guarantees, not observations — they
+       -- must not inflate conformance or count as predicate usage
+       AND (f.object_entity_id IS NOT NULL OR f.value_text IS NOT NULL
+            OR f.value_num IS NOT NULL OR f.value_date IS NOT NULL)
      LIMIT 20000`;
   return rows.map((r) => ({
     predicate: r.predicate,

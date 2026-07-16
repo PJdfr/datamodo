@@ -587,6 +587,9 @@ export function promptKindTemplate(kind: KindDef): string {
     `The document's PRIMARY SUBJECT is a ${kind.kind}${kind.description ? ` (${kind.description})` : ""}.`,
     fields ? `Its template fields — the ONLY attribute predicates to use: ${fields}.` : null,
     rels ? `Its relation verbs — the ONLY relationship predicates to use: ${rels}.` : null,
+    // Template block (user decision 2026-07-16): fields are a guarantee —
+    // extraction should try to FILL each one, not cherry-pick.
+    fields ? `ATTEMPT EVERY template field — omit one only when the document truly does not state it.` : null,
   ]
     .filter(Boolean)
     .join("\n");
