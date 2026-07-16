@@ -127,6 +127,8 @@ export interface ConsolidationStats {
   orphansFlagged: number;
   /** Hot off-template predicates proposed as template fields (P2 gate). */
   fieldsProposed: number;
+  /** Null template slots added to nodes that predate their template. */
+  slotsBackfilled: number;
 }
 
 export function emptyStats(): ConsolidationStats {
@@ -139,5 +141,6 @@ export function emptyStats(): ConsolidationStats {
     dismissed: 0,
     orphansFlagged: 0,
     fieldsProposed: 0,
+    slotsBackfilled: 0,
   };
 }

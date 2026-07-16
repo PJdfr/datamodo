@@ -121,6 +121,7 @@ Rules:
 - Return ONLY facts supported by the text. Never invent data.
 - Model real-world things as ENTITIES (person, org, invoice, project, product, event...). Give each a stable localId ("e1", "e2"...) used to reference it from facts.
 - Each FACT links a subject entity to a predicate and a value. Use snake_case predicates (e.g. invoice_amount, due_date, sender_email, mentions).
+- A relationship that carries its OWN attributes (an employment with a role and start date, a contract with a value and term, an enrollment) is ITSELF an entity: give it its own kind ("employment") and a stable label naming both ends ("James Porter — Acme Group"), link it to each end with entity-valued facts, and put the relationship's attributes on it. Simple attribute-less links stay plain facts.
 - cardinality "one" = single-valued attribute (an invoice's amount); "many" = list-like (a person's several emails).
 - valueType: "number" (put digits in valueNumber, plus unit like "USD"), "date" (valueDate as YYYY-MM-DD), "entity" (valueEntityLocalId referencing another entity), else "text" (valueText).
 - Put strong identifiers on the entity (email/phone/invoiceNo) so duplicates can be resolved.

@@ -162,9 +162,14 @@ in value order — details, file seams, and acceptance criteria in that doc:
    markdown chunking (headings carried on every cited piece). PHASE 2 open:
    package a real converter per deployment (cloud worker image, local-edition
    optional dep) + live-fire on a structured PDF with tables.
-4. **P4 Edge metadata via reification** — `reify: true` relations in kind
-   templates (an `employment` node instead of a bare `works_at` edge); no
-   schema change.
+4. ~~**P4 Edge metadata via reification**~~ ✅ 2026-07-16 — shipped as a
+   PATTERN (simpler than planned): a relationship kind IS just a kind
+   (employment = fields role/start_date + relations to both ends); the
+   message SYSTEM prompt teaches it ("own kind, stable label naming both
+   ends, attributes on it"), the growth loop can propose such kinds from
+   observed edges, and the template block guarantees their slots. No
+   `reify` flag, no schema change. `facts.attributes` jsonb deliberately
+   not built.
 5. **P5 Agent lenses** — ONE graph per user, per-agent read-side filters
    (stamp `agent_id` on facts at ingest; `agent` param on
    search/answer/Explorer). Per-agent physical graphs explicitly rejected

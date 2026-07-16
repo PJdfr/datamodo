@@ -5,6 +5,7 @@ import {
   adjudicateMatch,
   createMergeReview,
   embedTextForEntity,
+  ensureTemplateSlots,
   mergeEntities,
   topFactsForEntities,
   AUTO_MERGE,
@@ -321,6 +322,20 @@ export async function consolidateOrg(orgId: string, llm?: LlmProvider | null): P
       });
       stats.dismissed++;
     }
+  }
+
+  // ②b TEMPLATE BLOCK backfill: nodes created before their template existed
+  // (or before the 2026-07-16 decision) gain their null slots here — the
+  // ingest-time fill only touches entities an extraction mentions. Budget-
+  // capped; idempotent (ensureTemplateSlots skips existing slots).
+  try {
+    const { listKinds } = await import("./kinds");
+    const kinds = await listKinds(orgId, ownerUserId);
+    const templated = new Set(kinds.filter((k) => k.fields.length > 0).map((k) => k.kind));
+    const nodes = entityList.filter((e) => templated.has(e.kind)).slice(0, 200);
+    stats.slotsBackfilled = await ensureTemplateSlots(orgId, ownerUserId, nodes, kinds);
+  } catch (e) {
+    console.error("[consolidate] template-slot backfill failed", e);
   }
 
   // ③ (P2 growth gate) Hot off-template predicates → field proposals. Pure

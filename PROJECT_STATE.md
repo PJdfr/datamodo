@@ -12,6 +12,20 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Template-slot backfill + reification pattern (P4)**.
+  ① The consolidation tick gained pass ②b: existing nodes that predate their
+  kind's template (ingest-time fill only touches entities an extraction
+  mentions) get their null slots backfilled — `ensureTemplateSlots` over the
+  org's templated nodes, capped 200/org/tick, idempotent; new
+  `slotsBackfilled` stat. ② P4 shipped as a PATTERN, simpler than the
+  planned `reify:true` flag: after the template block, a relationship kind
+  IS just a kind — the message SYSTEM prompt now teaches "a relationship
+  with its OWN attributes is ITSELF an entity: own kind, stable label naming
+  both ends ('James Porter — Acme Group'), entity-valued facts to each end";
+  the stable label makes repeat mentions converge on ONE node via tier-0/1
+  resolution, and the growth loop can propose relationship kinds from
+  observed edges. `facts.attributes` jsonb deliberately not built. Suite
+  320 pass / 3 pre-existing canvas failures. NOT live-fired.
 - **2026-07-16** — **Template block + self-creating templates (user
   decisions)**. ① Templates' FIELDS became a guarantee (MEMORY.md decision
   revised): `ensureTemplateSlots` runs at the end of every `ingestExtraction`

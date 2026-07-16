@@ -617,20 +617,25 @@ Replace the flat unpdf text layer with structure-preserving conversion.
 - Acceptance: a structured PDF (headings + a table) yields section-aligned
   chunks and correctly-extracted table facts that flat-text extraction missed.
 
-### P4 — Edge metadata via reification (+ optional `attributes` jsonb)
+### ~~P4 — Edge metadata via reification~~ ✅ SHIPPED 2026-07-16 (as a PATTERN, simpler than planned)
 "Facts about facts": *works_at since 2024 as CTO, per this email*.
-- Ontology rule, not schema: kind templates gain an optional
-  `reify: true` on relations; the extraction prompt then teaches the pattern
-  (an `employment` entity with `person→`, `company→`, `role`, `start_date`
-  instead of a bare `works_at` edge). Restraint enforces it like any
-  template.
-- Optionally add `facts.attributes jsonb` for *lightweight* edge annotations
-  that don't merit a node (display hints, extraction locale). NOT for
-  knowledge — anything queryable belongs in the graph proper.
-- Acceptance: the same email ingested twice produces ONE employment node
-  (resolution works on reified nodes too — they get normalized keys from
-  their endpoints), and the Explorer renders it as a node between person and
-  company.
+- **The reframing that shipped**: after the template block, no `reify: true`
+  flag is needed — **a relationship kind IS just a kind**. "employment" is a
+  registry kind like any other, with fields (role, start_date) and relations
+  (employee→person, employer→company); the categories block already teaches
+  it, restraint already enforces it, the growth loop can already PROPOSE it
+  (observed edges feed drafted relations), and the template block guarantees
+  its slots. What shipped in code: the message `SYSTEM` prompt now teaches
+  the pattern explicitly — "a relationship that carries its OWN attributes
+  is ITSELF an entity: own kind, stable label naming both ends ('James
+  Porter — Acme Group'), entity-valued facts to each end, attributes on it;
+  simple attribute-less links stay plain facts." The stable two-ends label
+  makes tier-0/1 resolution converge repeat mentions onto ONE node.
+- Still deliberately NOT built: `facts.attributes jsonb` (lightweight edge
+  annotations) — nothing has needed it; anything queryable belongs in the
+  graph proper.
+- Acceptance stands: the same employment mentioned twice → ONE node between
+  person and company in the Explorer.
 
 ### P5 — Agent lenses (the §9 decision, implemented)
 - Stamp `agent_id` on facts at ingest (from `meta.agent_id` /
