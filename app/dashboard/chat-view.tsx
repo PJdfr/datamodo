@@ -38,6 +38,9 @@ interface ChatMessage {
   /** Where the zero-cost auto-router filed an UNADDRESSED message (server-side
    *  stamp; attribution stays visible — routing is never silent). */
   routedAgent?: string | null;
+  /** The agent's answer: what it parsed from this message (the app thread is
+   *  always a direct ping, so every analyzed message gets one). */
+  reply?: string | null;
   /** Optimistic bubble, not yet confirmed by the server. */
   local?: boolean;
   /** Local-only image previews for the optimistic bubble. */
@@ -162,6 +165,62 @@ function Bubble({ m }: { m: ChatMessage }) {
         )}
         <span className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F" }}>{fmtTime(m.at)}</span>
         <StatusLine m={m} />
+      </div>
+    </div>
+  );
+}
+
+/* ---- the agent is "writing" — three offset dots, shown while any message
+ * is still being read. Same ink bubble as the agent's replies, so the dots
+ * visibly BECOME the answer when it lands. ---- */
+function TypingBubble({ label }: { label: string }) {
+  return (
+    <div style={{ alignSelf: "flex-start", display: "flex", flexDirection: "column", gap: 4, animation: "dm-drop-in .3s cubic-bezier(0.16,1,0.3,1)" }}>
+      <div style={{
+        background: "#211E18", borderRadius: "16px 16px 16px 6px", padding: "13px 16px",
+        boxShadow: "0 18px 40px -26px rgba(33,30,24,.65)",
+        display: "inline-flex", alignItems: "center", gap: 9,
+      }}>
+        <span style={{ color: "#E4593B", fontSize: 12 }}>✦</span>
+        <span style={{ display: "inline-flex", gap: 4 }}>
+          {[0, 1, 2].map((i) => (
+            <span key={i} style={{
+              width: 6, height: 6, borderRadius: "50%", background: "#B7AF9F",
+              animation: `dm-typing 1.2s ease-in-out ${i * 0.16}s infinite`,
+            }} />
+          ))}
+        </span>
+      </div>
+      <span className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F", paddingLeft: 2 }}>{label}</span>
+    </div>
+  );
+}
+
+/* ---- the agent's answer: what it parsed from the message. Lines reveal one
+ * by one (staggered dm-line-in) — the "it's writing back" moment. ---- */
+function AgentReplyBubble({ text }: { text: string }) {
+  const lines = text.split("\n").filter((l) => l.trim());
+  return (
+    <div style={{ alignSelf: "flex-start", maxWidth: "min(78%, 640px)", display: "flex", flexDirection: "column", gap: 4, animation: "dm-drop-in .34s cubic-bezier(0.16,1,0.3,1)" }}>
+      <div style={{
+        background: "#211E18", color: "#F1ECE1",
+        borderRadius: "16px 16px 16px 6px", padding: "11px 15px",
+        boxShadow: "0 18px 40px -26px rgba(33,30,24,.65)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: lines.length > 1 ? 7 : 5 }}>
+          <span style={{ color: "#E4593B", fontSize: 12 }}>✦</span>
+          <span className="dm-mono" style={{ fontSize: 9.5, letterSpacing: "0.09em", textTransform: "uppercase", color: "#9C958A" }}>datamodo</span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          {lines.map((line, i) => (
+            <div key={i} style={{
+              fontSize: 13, lineHeight: 1.5, overflowWrap: "anywhere",
+              fontFamily: /^[•▤✎]/.test(line) ? "var(--font-geist-mono), monospace" : undefined,
+              ...(/^[•▤✎]/.test(line) ? { fontSize: 11.5, color: "#D8D2C6" } : {}),
+              animation: `dm-line-in .3s ease ${0.12 + i * 0.09}s both`,
+            }}>{line}</div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -302,9 +361,12 @@ export function ChatView() {
     return () => window.clearInterval(t);
   }, [messages, load]);
 
+  // Scroll on new messages AND when an agent reply/typing state lands (length
+  // alone misses a reply arriving on an existing message).
+  const threadSignature = `${messages.length}:${messages.filter((m) => m.reply).length}:${messages.some((m) => !m.local && BUSY.has(m.status))}`;
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [messages.length, loading]);
+  }, [threadSignature, loading]);
 
   // Recording elapsed clock (the counter resets where recording starts).
   useEffect(() => {
@@ -571,11 +633,19 @@ export function ChatView() {
                 <span className="dm-mono" style={{ fontSize: 9.5, letterSpacing: "0.09em", textTransform: "uppercase", color: "#B7AF9F" }}>{g.label}</span>
                 <span style={{ flex: 1, height: 1, background: "#EBE2D2" }} />
               </div>
-              {g.items.map((m) => <Bubble key={m.id} m={m} />)}
+              {g.items.map((m) => (
+                <div key={m.id} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <Bubble m={m} />
+                  {m.reply && <AgentReplyBubble text={m.reply} />}
+                </div>
+              ))}
             </div>
           ))}
           {(questions.length > 0 || resolved.length > 0) && (
             <ReviewBubble questions={questions} reviews={reviews} onDecide={(id, accept) => void decide(id, accept)} resolved={resolved} />
+          )}
+          {messages.some((m) => !m.local && BUSY.has(m.status)) && (
+            <TypingBubble label={messages.some((m) => m.status === "analyzing") ? "reading your message…" : "on it…"} />
           )}
           <div ref={bottom} />
         </div>

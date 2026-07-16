@@ -12,6 +12,24 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Chat animations + parse-summary reply on direct pings**
+  (user request). (1) The chat thread feels alive: a three-dot TYPING bubble
+  (ink, `dm-typing` keyframes) while the pipeline reads a message, and the
+  agent's reply reveals line by line (`dm-line-in`, staggered). (2) When the
+  agent is PINGED DIRECTLY it answers with what it parsed: entities with up
+  to 3 inline facts, documents read, the note kept, concept tags — or a plain
+  "Nothing to file from this one". Ping = `items.capture_mode = 'active'`
+  (app chat, Slack DM, WhatsApp, direct email); passively watched IMAP
+  mailboxes (`auto`) stay silent — the bot never narrates an inbox. Reply
+  text is built by pure `buildParseReply` / gated by `shouldSendParseReply`
+  (`lib/datamodo/parse-reply.ts`, unit-tested ×7); app-thread delivery is
+  `meta.parse_reply` on the item (fresh-meta merge so routed_agent_* stamps
+  survive) rendered as a `datamodo` bubble via GET /api/chat `reply`; channel
+  delivery reuses `sendChannelText`. Review-question count rides along on
+  channel replies (the app shows its own review bubble). Verified 5/5 E2E on
+  the packed artifact (typing indicator seen mid-read; reply lists INV-777
+  (invoice) with facts; trivial "hey hello" → "Nothing to file"; replies on
+  the API). tsc clean, 288/290 tests, no new lint errors.
 - **2026-07-16** — **Anthropic path is now E2E-verifiable (mock /v1/messages
   + `ANTHROPIC_BASE_URL`)**. The two Claude-key bugs (temperature 400, empty
   response) reached the user because mock-ollama only spoke the
