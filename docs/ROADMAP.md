@@ -531,9 +531,14 @@
   estimated), unknown models tokens-only, Ollama free. Settings "Your provider
   spend" card (30-day total + per-model). Only BYOK (cloud = our cost).
   Follow-ups: per-KIND breakdown (extract/vision/answer — needs a purpose tag
-  through `chatJSON`), a spend cap/alert, longer windows/CSV. **Migration
-  `20260714120000_llm_usage.sql` MUST be applied on dev+prod Neon branches**
-  (the ledger is dormant until then — recording + summary fail soft).
+  through `chatJSON`), longer windows/CSV. ~~Spend cap~~ ✅ 2026-07-16 —
+  `user_settings.byok_monthly_cap_usd` (Settings input + Usage-card progress
+  bar); `llmForUser` checks month-to-date ledger spend BEFORE burning the
+  key: local falls back to free Ollama, cloud fails the item with a clear
+  requeue-able reason (migration `20260716170000_byok_cap.sql`). **Migrations
+  `20260714120000_llm_usage.sql` + `20260716150000_oauth.sql` +
+  `20260716170000_byok_cap.sql` MUST be applied on dev+prod Neon branches**
+  (all fail-soft until then; the cap can't engage without the ledger).
 - ~~Model unification, phase 2~~ ✅ 2026-07-11 — `datasets.kind_id` binds a
   dataset to the kind it materializes (structural; plural-name match remains
   only as a fallback for pre-migration rows).
@@ -559,11 +564,14 @@
 
 ## Owed by a human (ops, not code)
 - **Apply pending Neon migrations on dev + prod**: `20260714120000_llm_usage.sql`
-  (BYOK cost ledger — dormant/fail-soft until applied) and
+  (BYOK cost ledger — dormant/fail-soft until applied),
   `20260716150000_oauth.sql` (MCP OAuth for claude.ai connectors — the
   register/token endpoints 500 and the consent page shows "unknown client"
-  until applied; HMAC tokens keep working regardless). Optional env
-  `MCP_TOKEN_SECRET` (else falls back to `NEON_AUTH_COOKIE_SECRET`).
+  until applied; HMAC tokens keep working regardless), and
+  `20260716170000_byok_cap.sql` (spend cap column — getSettings selects it,
+  so cloud dashboards ERROR without it once this ships; apply before
+  promoting). Optional env `MCP_TOKEN_SECRET` (else falls back to
+  `NEON_AUTH_COOKIE_SECRET`).
 - Vercel env: `OPENROUTER_VISION_MODEL`, embeddings key, transcription key
   (`TRANSCRIPTION_API_KEY` or reuse `OPENAI_API_KEY`), `NEXT_PUBLIC_SITE_URL`
   (Preview + Production).

@@ -11,6 +11,10 @@ export interface UserSettings {
   computeMode: ComputeMode;
   aiProvider: AiProvider;
   byokKeySet: boolean;
+  /** Monthly ceiling (USD) on BYOK spend, measured against the llm_usage
+   *  ledger (estimates count — it's a safety rail, not an invoice). null =
+   *  no cap. */
+  byokMonthlyCapUsd: number | null;
   planStatus: string | null;
   currentPeriodEnd: string | null;
 }
@@ -20,6 +24,7 @@ const DEFAULTS: UserSettings = {
   computeMode: "byok",
   aiProvider: "anthropic",
   byokKeySet: false,
+  byokMonthlyCapUsd: null,
   planStatus: null,
   currentPeriodEnd: null,
 };
@@ -43,6 +48,7 @@ export async function getSettings(userId: string): Promise<UserSettings> {
       compute_mode: true,
       ai_provider: true,
       byok_key: true,
+      byok_monthly_cap_usd: true,
       plan_status: true,
       current_period_end: true,
     },
@@ -53,6 +59,7 @@ export async function getSettings(userId: string): Promise<UserSettings> {
     computeMode: (data.compute_mode as ComputeMode) ?? "byok",
     aiProvider: (data.ai_provider as AiProvider) ?? "anthropic",
     byokKeySet: !!data.byok_key,
+    byokMonthlyCapUsd: data.byok_monthly_cap_usd ?? null,
     planStatus: data.plan_status,
     currentPeriodEnd: data.current_period_end ? data.current_period_end.toISOString() : null,
   });
@@ -73,7 +80,7 @@ export async function getByokKey(userId: string): Promise<string | null> {
  */
 export async function updateComputeSettings(
   userId: string,
-  patch: { computeMode?: ComputeMode; aiProvider?: AiProvider; byokKey?: string | null },
+  patch: { computeMode?: ComputeMode; aiProvider?: AiProvider; byokKey?: string | null; byokMonthlyCapUsd?: number | null },
 ): Promise<void> {
   const current = await getSettings(userId);
   const limits = planLimits(current.plan);
@@ -89,6 +96,13 @@ export async function updateComputeSettings(
   }
   if (patch.aiProvider !== undefined) update.ai_provider = patch.aiProvider;
   if (patch.byokKey !== undefined) update.byok_key = patch.byokKey?.trim() || null;
+  if (patch.byokMonthlyCapUsd !== undefined) {
+    const cap = patch.byokMonthlyCapUsd;
+    if (cap !== null && (!Number.isFinite(cap) || cap < 0)) {
+      throw new Error("The monthly cap must be a positive amount (or empty for no cap).");
+    }
+    update.byok_monthly_cap_usd = cap;
+  }
 
   if (Object.keys(update).length === 0) return;
 

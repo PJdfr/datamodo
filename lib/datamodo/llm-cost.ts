@@ -67,3 +67,18 @@ export function estimateCostUsd(model: string, inputTokens: number, outputTokens
 export function isPriced(model: string): boolean {
   return priceFor(model) !== null;
 }
+
+/** What to do about a BYOK call given month-to-date spend vs the user's cap.
+ *  "ok" = under cap (or no cap) · "fallback" = over cap, a FREE local
+ *  provider exists (local edition → the machine's Ollama) · "block" = over
+ *  cap and every alternative costs someone money (cloud → fail the item with
+ *  a clear reason rather than silently billing anyone). Pure — unit-tested. */
+export function byokCapDecision(
+  spentUsd: number,
+  capUsd: number | null | undefined,
+  localMode: boolean,
+): "ok" | "fallback" | "block" {
+  if (capUsd == null || !Number.isFinite(capUsd) || capUsd <= 0) return "ok";
+  if (spentUsd < capUsd) return "ok";
+  return localMode ? "fallback" : "block";
+}

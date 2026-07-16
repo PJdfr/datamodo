@@ -40,7 +40,7 @@ export default async function DashboardPage() {
   let pendingChanges: ReviewItem[] = [];
   let pendingReviewCount = 0;
   let agentActivity: Record<string, AgentActivityEntry[]> = {};
-  let settings: UserSettings = { plan: "free", computeMode: "byok", aiProvider: "anthropic", byokKeySet: false, planStatus: null, currentPeriodEnd: null };
+  let settings: UserSettings = { plan: "free", computeMode: "byok", aiProvider: "anthropic", byokKeySet: false, byokMonthlyCapUsd: null, planStatus: null, currentPeriodEnd: null };
   let onboarding: OnboardingContext = { businessContext: null, answers: {} };
   let notice: string | null = null;
   const SCHEMA_NOTICE =
