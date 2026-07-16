@@ -20,6 +20,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { C, Hov, ghostBtn, relTime } from "./ui";
 import { ReviewCardBody, PAPER_SKIN } from "./review-card";
+import { ReviewGraphModal, previewInputFor } from "./review-graph-modal";
 import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, OffTemplateReview, CategoryProposalReview, OrphanPruneReview, FieldProposalReview } from "@/lib/datamodo/review-types";
 
 /* --------------------------- simulated fallback --------------------------- */
@@ -346,7 +347,7 @@ const GROUP_META: Record<ReviewItem["kind"], { title: string; hint: string }> = 
   field_proposal: { title: "Template growth", hint: "predicates your facts keep using that no template covers" },
 };
 
-function DiffRow({ it, expanded, onToggle, onResolve }: { it: ReviewItem; expanded: boolean; onToggle: () => void; onResolve: Resolve }) {
+function DiffRow({ it, expanded, onToggle, onResolve, onPreview }: { it: ReviewItem; expanded: boolean; onToggle: () => void; onResolve: Resolve; onPreview?: () => void }) {
   const m = rowMeta(it);
   const [hov, setHov] = useState(false);
   return (
@@ -366,6 +367,7 @@ function DiffRow({ it, expanded, onToggle, onResolve }: { it: ReviewItem; expand
         )}
         <span className="dm-mono" title={`touches ${it.impact} facts/edges`} style={{ fontSize: 10, color: "#A39B8B", flexShrink: 0 }}>×{it.impact}</span>
         <span style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          {onPreview && <PillBtn title="What this does to your graph" color={C.blue} onClick={onPreview}>◍</PillBtn>}
           <PillBtn title="Approve" color={C.green} onClick={() => onResolve(it.id, "accept")}>✓</PillBtn>
           <PillBtn title="Reject" color="#C7362C" onClick={() => onResolve(it.id, "reject")}>✕</PillBtn>
         </span>
@@ -384,6 +386,8 @@ export function ReviewStudio() {
   const [preview, setPreview] = useState(false); // showing simulated fallback
   const [expanded, setExpanded] = useState<string | null>(null);
   const [done, setDone] = useState({ accepted: 0, rejected: 0 });
+  // "◍" on a queue row: the per-row graph preview (accept vs refuse futures).
+  const [graphItem, setGraphItem] = useState<ReviewItem | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -484,10 +488,18 @@ export function ReviewStudio() {
               <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B" }}>{g.items.length} · {GROUP_META[g.kind].hint}</span>
             </div>
             {g.items.map((it) => (
-              <DiffRow key={it.id} it={it} expanded={expanded === it.id} onToggle={() => setExpanded((e) => (e === it.id ? null : it.id))} onResolve={resolve} />
+              <DiffRow
+                key={it.id}
+                it={it}
+                expanded={expanded === it.id}
+                onToggle={() => setExpanded((e) => (e === it.id ? null : it.id))}
+                onResolve={resolve}
+                onPreview={previewInputFor(it) ? () => setGraphItem(it) : undefined}
+              />
             ))}
           </div>
         ))}
+        {graphItem && <ReviewGraphModal item={graphItem} onClose={() => setGraphItem(null)} />}
 
         {/* merge bar */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 18px", background: "#FBF8F1", borderTop: "1px solid #EFE9DC" }}>

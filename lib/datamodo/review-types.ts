@@ -39,11 +39,16 @@ export interface MergeReview extends ReviewBase {
   parsed: ReviewEntitySide; // the newly-parsed name
   canonical: ReviewEntitySide; // the existing entity we'd merge into
   reason: string; // why the resolver thinks they match
+  /** Entity ids for the graph preview (absent on simulated/auto rows). */
+  sourceEntityId?: string | null;
+  targetEntityId?: string | null;
 }
 
 /** "A newer message disagrees with a value we had." */
 export interface ConflictReview extends ReviewBase {
   kind: "fact_conflict";
+  /** Subject entity id for the graph preview (absent on simulated rows). */
+  subjectEntityId?: string | null;
   subject: string;
   field: string;
   was: string;
@@ -93,8 +98,8 @@ export interface CategoryProposalReview extends ReviewBase {
 export interface OrphanPruneReview extends ReviewBase {
   kind: "orphan_prune";
   count: number;
-  /** Display sample (capped at filing time); ids live in the review detail. */
-  entities: { label: string; type: string }[];
+  /** Display sample (capped at filing time); ids ride for the graph preview. */
+  entities: { label: string; type: string; id?: string }[];
 }
 
 /** "Facts keep using a predicate the template doesn't have — add it?"

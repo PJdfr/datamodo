@@ -12,6 +12,29 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Per-row review graph preview (user ask: the PR should
+  show what accepting or refusing ONE row does to the graph)** — a "◍" pill
+  on every graph-shaped queue row (entity_merge / orphan_prune /
+  fact_conflict) opens a modal rendering THAT decision's two futures as
+  mini graph scenes with a "✓ if you accept / ✕ if you refuse" toggle:
+  merge = two stars vs one canonical node absorbing the loser (ghost
+  dashed-coral "merges into" edge; the loser's connections re-point as
+  coral "add" edges; shared neighbors collapse to one node); orphans =
+  kept vs fading dashed-red; conflict = the disputed value solid vs
+  struck-and-dropped. Scenes come from pure `review-preview.ts`
+  (1-hop neighborhoods from KnowledgeEntityView, capped 5/center;
+  label-only fallback so the Studio's simulated mode previews too);
+  layout is deterministic fixed-position SVG (no physics — Explorer
+  standing rule); each future carries one plain-sentence note including
+  the safety semantics ("deleted — but only the ones STILL unlinked at
+  accept time"). View-models gained sourceEntityId/targetEntityId/
+  subjectEntityId/orphan ids (reviews.ts). 6 new tests (re-pointing,
+  shared-neighbor collapse, label-only, fade/keep roles, value swap);
+  suite 336 pass / 3 pre-existing canvas failures; tsc/eslint clean.
+  Built under the datamodo-design rules (paper skin, one coral accent,
+  mono kickers, no second accent — drop/danger uses the studio's
+  existing #C7362C reject tone). NOT live-fired; the animated
+  absorb/settle motion is the deliberate design-pass follow-up.
 - **2026-07-16** — **Unbounded documents + chunk-importance selection (user
   call: "no limit on PDF size — but don't put everything in the LLM
   context; classify which chunks matter")** — the 20-page/20k-char read

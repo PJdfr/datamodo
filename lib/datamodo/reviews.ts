@@ -176,6 +176,8 @@ export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
       out.push({
         ...base,
         kind: "entity_merge",
+        sourceEntityId: r.source_entity_id,
+        targetEntityId: r.target_entity_id,
         parsed: entitySide(src, r.source_entity_id ? edges.get(r.source_entity_id) ?? 0 : 0, r.detail.parsedLabel as string),
         canonical: entitySide(tgt, edges.get(r.target_entity_id) ?? 0),
         reason: (r.detail.reason as string) || "Similar name and overlapping identifiers.",
@@ -186,6 +188,7 @@ export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
       out.push({
         ...base,
         kind: "fact_conflict",
+        subjectEntityId: newF?.subject_entity_id ?? null,
         subject: newF ? label(newF.subject_entity_id) : "?",
         field: (r.detail.predicate as string) || newF?.predicate || "value",
         was: oldF ? factValue(oldF, label).v : "?",
@@ -258,12 +261,12 @@ export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
     } else if (r.kind === "orphan_prune") {
       // Display list pre-rendered at filing time (consolidate.ts); ids stay
       // in detail.entityIds for the accept side-effect.
-      const sample = (r.detail.entities as { label: string; kind: string }[]) ?? [];
+      const sample = (r.detail.entities as { id?: string; label: string; kind: string }[]) ?? [];
       out.push({
         ...base,
         kind: "orphan_prune",
         count: Array.isArray(r.detail.entityIds) ? (r.detail.entityIds as string[]).length : sample.length,
-        entities: sample.map((e) => ({ label: e.label, type: e.kind })),
+        entities: sample.map((e) => ({ label: e.label, type: e.kind, id: e.id })),
       });
     }
   }
