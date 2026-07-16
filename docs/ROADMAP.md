@@ -162,9 +162,9 @@
   page, PKCE-S256 code flow, rotating refresh tokens, sha256-hashed storage
   → per-user revocation; `dmk_` HMAC tokens unchanged for Claude Code.
   Verified 19/19 OAuth E2E on the packed artifact (needs Neon migration
-  `20260716150000_oauth.sql` in cloud). STILL open: MCP `sampling` for the
-  escalation policy; a Settings "disconnect Claude" button over the
-  oauth_tokens rows.
+  `20260716150000_oauth.sql` in cloud). ~~Settings "disconnect Claude"~~ ✅
+  2026-07-16 — Connected-apps list + per-app revocation (verified: a live
+  refresh token dies). STILL open: MCP `sampling` for the escalation policy.
 - ~~**Per-entity blame** (Review track follow-up)~~ ✅ 2026-07-14 — the entity
   page's "◷ History" disclosure gained a **story ⇄ blame** toggle: blame is
   the commit log filtered to that entity (`?view=commits&entity=`;

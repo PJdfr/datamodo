@@ -2519,10 +2519,15 @@ function UsageCard() {
 }
 
 /* Connect Claude (MCP) — lazy: details fetch only when asked for (the token
- * is derived server-side; showing it writes nothing). */
+ * is derived server-side; showing it writes nothing). Once revealed, the card
+ * also lists the apps connected via OAuth, each with a Disconnect that
+ * revokes its tokens on the spot. */
+type McpGrant = { clientId: string; clientName: string; tokens: number; connectedAt: string };
+
 function McpConnectCard() {
-  const [conn, setConn] = useState<{ url: string; token: string | null } | null>(null);
+  const [conn, setConn] = useState<{ url: string; token: string | null; grants?: McpGrant[] } | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  const [revoking, setRevoking] = useState<string | null>(null);
   const reveal = async () => {
     setState("loading");
     try {
@@ -2532,6 +2537,18 @@ function McpConnectCard() {
       setState("idle");
     } catch {
       setState("error");
+    }
+  };
+  const disconnect = async (clientId: string) => {
+    setRevoking(clientId);
+    try {
+      const res = await fetch(`/api/mcp-token?client_id=${encodeURIComponent(clientId)}`, { method: "DELETE" });
+      if (res.ok) {
+        const j = await res.json();
+        setConn((c) => (c ? { ...c, grants: j.grants ?? [] } : c));
+      }
+    } catch { /* card keeps its state; retry is a click away */ } finally {
+      setRevoking(null);
     }
   };
   const mono: React.CSSProperties = { fontSize: 11, color: "#3A352C", background: "#fff", border: "1px solid #ECE5D8", borderRadius: 8, padding: "7px 10px", overflowWrap: "anywhere", userSelect: "all" };
@@ -2568,6 +2585,21 @@ function McpConnectCard() {
               <br />Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url}</span></>
             )}
           </div>
+          {(conn.grants?.length ?? 0) > 0 && (
+            <>
+              <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B", marginTop: 4 }}>Connected apps</div>
+              {conn.grants!.map((g) => (
+                <div key={g.clientId} style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
+                  <div className="dm-mono" style={{ fontSize: 11, color: "#3A352C", background: "#fff", border: "1px solid #ECE5D8", borderRadius: 8, padding: "7px 10px", minWidth: 0 }}>
+                    {g.clientName} · since {g.connectedAt.slice(0, 10)}
+                  </div>
+                  <Hov onClick={revoking ? undefined : () => void disconnect(g.clientId)} base={{ ...ghostBtn, flexShrink: 0, color: C.accent }} hover={{ background: "#FBF3EF" }}>
+                    {revoking === g.clientId ? "Disconnecting…" : "Disconnect"}
+                  </Hov>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       )}
     </div>
