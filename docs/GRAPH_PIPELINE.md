@@ -709,33 +709,45 @@ Next steps, in value order (not yet built):
 - **History compaction** (storage, far later): superseded facts older than N
   years → summarized tombstones. Only when a real vault shows bloat.
 
-### Adaptive classifiers (designed 2026-07-16, user discussion — NEXT BUILDS)
+### Adaptive classifiers (designed 2026-07-16; ①+② SHIPPED 2026-07-17)
 The pipeline's three "classifiers" are deterministic code, PARAMETERIZED by
 user context but not yet LEARNED from it: the agent router (lexical term
 overlap, agent-router.ts), the chunk-importance scorer (headings + density +
 lexical term overlap, chunk-select.ts), and the model-escalation gate (the
 extract model's self-reported confidence). The user's framing, agreed:
-1. **Agent routing = a decision WITH feedback → learn from acceptance**
-   (contextual-bandit shape, not deep RL). Labels already exist: the
-   composer suggestion chip's Tab-accept / ✕-dismiss (explicit), an
-   auto-routed item never corrected (implicit accept), a re-addressed
-   message (explicit reject). Build: log these events with the message
-   embedding; a nightly consolidation-tick pass maintains a PER-AGENT
-   CENTROID of accepted messages (+ per-term weight corrections); router
-   score becomes lexical overlap + cosine(message, centroid). Improves with
-   every routing decision; zero training infra.
-2. **Chunk ranking = context-CONDITIONED relevance, no feedback loop**:
-   "if a chunk calls close to the business context, a template, or an agent
-   description — highlight it." Today's lexical includes() misses paraphrase
-   ("risk-adjusted performance of 1.31" ≠ key `sharpe`). Build: embed the
-   org's CONTEXT ANCHORS once (business context, each agent purpose, each
-   kind template); embed chunks BEFORE selection instead of after (they get
-   embedded for doc_chunks anyway — reordering the pipeline makes semantic
-   selection FREE); chunk score = max cosine(chunk, anchor) blended with the
-   structural priors (headings/density/position stay).
-3. **Escalation gate**: later, learn per-sender/channel escalation priors
-   from outcome quality (spend the big model only where history says it's
-   needed).
+1. ~~**Agent routing = a decision WITH feedback → learn from acceptance**~~
+   ✅ SHIPPED 2026-07-17 (contextual-bandit shape, not deep RL). Labels
+   logged to `routing_events` (migration `20260717090000`): an explicitly
+   addressed send = ground-truth accept (`/api/chat`), the suggestion chip's
+   ✕ = explicit reject (`POST /api/chat/routing`), an auto-routed item
+   analyzed >24 h and never corrected = implicit accept (swept by the tick;
+   a true re-address flow doesn't exist yet — when it does, it logs the
+   reject here). Consolidation pass ⑤ (`learnRoutingProfiles`, routing.ts)
+   embeds accepted heads in ONE batch and folds a PER-AGENT CENTROID
+   (incremental mean, memory cap 200 so old traffic can't freeze it,
+   restarted on embedding-space change) + per-term weight corrections
+   (routing_terms jsonb: accepts +.25/term, rejects −.25, clamp ±1, top-24)
+   onto the agents row. Router score = lexical overlap (corrections folded
+   into the profile — negatives veto) + `centroidBoost(cosine)` (floor .3,
+   cap 2 ≈ two distinctive terms, only with ≥5 folds — MIN_CENTROID_N).
+   The message embedding is computed ONCE per item and shared with priming
+   (per-message plumbing budget unchanged). Ambiguity still never routes.
+   Pure rules in `routing-learn.ts` (tested); improves with every routing
+   decision; zero training infra. NOT yet fed by real traffic.
+2. ~~**Chunk ranking = context-CONDITIONED relevance, no feedback loop**~~
+   ✅ SHIPPED 2026-07-17: "if a chunk calls close to the business context, a
+   template, or an agent description — highlight it." Lexical includes()
+   misses paraphrase ("risk-adjusted performance of 1.31" ≠ key `sharpe`).
+   Built exactly as designed: `buildContextAnchors` (business context, each
+   agent purpose, each kind template — classified kind first) embedded once
+   per org shape (process cache in documents.ts); chunks embed BEFORE
+   selection (the vectors are handed to `storeDocChunks` — reordering made
+   the semantic leg free); chunk score += `semanticBoost(max cosine(chunk,
+   anchor))` (floor .25, cap 3 — the lexical key-term ceiling) with all
+   structural priors intact. No key → structural-only, as before.
+3. **Escalation gate** (still open): later, learn per-sender/channel
+   escalation priors from outcome quality (spend the big model only where
+   history says it's needed).
 True per-user gradient fine-tuning (LoRA) stays rejected for cloud
 (per-user tuning uneconomical; centroids capture most of the win); revisit
 only for the local/Ollama edition.

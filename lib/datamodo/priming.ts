@@ -48,10 +48,14 @@ async function lexicalLeg(orgId: string, text: string): Promise<PrimedCandidate[
 }
 
 /** Entities semantically near the message. Recall only — the support floor
- *  and the prompt's never-force wording keep this from deciding identity. */
-async function semanticLeg(orgId: string, text: string): Promise<PrimedCandidate[]> {
+ *  and the prompt's never-force wording keep this from deciding identity.
+ *  `vector` undefined = embed here; null = upstream already tried and failed
+ *  (skip); an array = the shared per-message embedding (extract.ts computes
+ *  ONE and routing + priming both ride it). */
+async function semanticLeg(orgId: string, text: string, vector?: number[] | null): Promise<PrimedCandidate[]> {
+  if (vector === null) return [];
   try {
-    const vectors = await embedTexts([text.slice(0, EMBED_CHARS)]);
+    const vectors = vector ? [vector] : await embedTexts([text.slice(0, EMBED_CHARS)]);
     if (!vectors) return [];
     const vec = toVectorLiteral(vectors[0]);
     const rows = await prisma.$queryRaw<Row[]>`
@@ -70,9 +74,14 @@ async function semanticLeg(orgId: string, text: string): Promise<PrimedCandidate
 }
 
 /** The primed candidate list for one message — [] on any failure, so
- *  extraction always proceeds (with the support-ranked concept fallback). */
-export async function primeKnownEntities(orgId: string, text: string): Promise<PrimedCandidate[]> {
+ *  extraction always proceeds (with the support-ranked concept fallback).
+ *  `vector`: optional pre-computed embedding of the text (see semanticLeg). */
+export async function primeKnownEntities(
+  orgId: string,
+  text: string,
+  vector?: number[] | null,
+): Promise<PrimedCandidate[]> {
   if (!text.trim()) return [];
-  const [lexical, semantic] = await Promise.all([lexicalLeg(orgId, text), semanticLeg(orgId, text)]);
+  const [lexical, semantic] = await Promise.all([lexicalLeg(orgId, text), semanticLeg(orgId, text, vector)]);
   return rankPrimedCandidates(lexical, semantic);
 }

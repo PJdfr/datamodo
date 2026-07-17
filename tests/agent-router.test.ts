@@ -67,3 +67,48 @@ test("deterministic: same input, same output", () => {
   assert.deepEqual(a, b);
   assert.equal(a?.agentId, "a-home");
 });
+
+// ---- adaptive routing (2026-07-17): learned terms + centroid boosts ----
+
+test("learned term weights correct the static profile", () => {
+  // "figma" appears in nobody's purpose — the feedback loop taught it.
+  const adaptive = buildAgentProfiles([
+    { ...AGENTS[0], learnedTerms: { figma: 1 } },
+    AGENTS[1],
+    AGENTS[2],
+  ]);
+  assert.equal(routeToAgent("The figma mockups are ready", profiles), null, "static profile can't see it");
+  assert.equal(routeToAgent("The figma mockups are ready", adaptive)?.agentId, "a-book");
+});
+
+test("negative learned weights veto a static term", () => {
+  // Rejections taught the router that "interview" messages are NOT for the
+  // recruiter (say the user podcast-interviews people).
+  const adaptive = buildAgentProfiles([
+    AGENTS[0],
+    { ...AGENTS[1], learnedTerms: { interview: -1 } },
+    AGENTS[2],
+  ]);
+  assert.equal(routeToAgent("Interview feedback for the backend candidate — moving to offer", profiles)?.agentId, "a-recruit");
+  const vetoed = routeToAgent("Interview scheduled for Thursday", adaptive);
+  assert.notEqual(vetoed?.agentId, "a-recruit");
+});
+
+test("centroid boosts route what the lexical leg alone leaves ambiguous", () => {
+  // No profile term matches this paraphrase at all…
+  const text = "Q2 statement reconciliation is done, ledger attached";
+  assert.equal(routeToAgent(text, profiles), null);
+  // …but the bookkeeper's accepted-message centroid sits right next to it.
+  const hit = routeToAgent(text, profiles, { boosts: new Map([["a-book", 2]]) });
+  assert.equal(hit?.agentId, "a-book");
+  // A boost below the floor changes nothing.
+  assert.equal(routeToAgent(text, profiles, { boosts: new Map([["a-book", 0.5]]) }), null);
+});
+
+test("boosts on two agents still respect the ambiguity guard", () => {
+  const text = "Q2 statement reconciliation is done, ledger attached";
+  const both = routeToAgent(text, profiles, {
+    boosts: new Map([["a-book", 2], ["a-recruit", 1.8]]),
+  });
+  assert.equal(both, null, "close boosts = ambiguity = never routes");
+});

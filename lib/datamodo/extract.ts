@@ -655,12 +655,25 @@ export async function runExtractionForItem(
         .then((a) => a?.purpose_text ?? null)
         .catch(() => null);
     }
+    // ONE message embedding per item (adaptive routing + priming share it —
+    // the per-message plumbing budget stays a single embeddings call, zero
+    // LLM). Fail-soft: no key / API error → null and both consumers degrade
+    // to their lexical legs.
+    const { embedTexts } = await import("@/lib/llm/embeddings");
+    const msgVec = trivial
+      ? null
+      : await embedTexts([`${row.subject ?? ""}\n${text}`.slice(0, 4000)])
+          .then((v) => v?.[0] ?? null)
+          .catch(() => null);
     // UNADDRESSED items: zero-cost auto-routing (user call 2026-07-16). A
     // deterministic lexical classifier (agent-router.ts — no LLM, no spend)
     // matches the item against the ACTIVE AUTO agents' purposes; a confident
     // winner's purpose steers extraction and the pick is stamped on the item
     // (routed_agent_*) for attribution. Ambiguity/no-match = the generic
     // datamodo agent, exactly as before. Best-effort: never fails the item.
+    // ADAPTIVE since 2026-07-17: the static profile is corrected by learned
+    // term weights and the score adds cosine(message, per-agent centroid of
+    // accepted messages) — both from the routing feedback loop (routing.ts).
     if (!trivial && agentPurpose == null && !addressedAgentId) {
       try {
         const autoAgents = await prisma.agents.findMany({
@@ -669,9 +682,22 @@ export async function runExtractionForItem(
         });
         if (autoAgents.length > 0) {
           const { buildAgentProfiles, routeToAgent } = await import("./agent-router");
+          const { agentLearnedTerms, agentRoutingBoosts } = await import("./routing");
+          const [learned, boosts] = await Promise.all([
+            agentLearnedTerms(row.org_id),
+            agentRoutingBoosts(row.org_id, msgVec),
+          ]);
           const routed = routeToAgent(
             `${row.subject ?? ""}\n${text}`,
-            buildAgentProfiles(autoAgents.map((a) => ({ id: a.id, name: a.name, purposeText: a.purpose_text ?? "" }))),
+            buildAgentProfiles(
+              autoAgents.map((a) => ({
+                id: a.id,
+                name: a.name,
+                purposeText: a.purpose_text ?? "",
+                learnedTerms: learned.get(a.id),
+              })),
+            ),
+            { boosts },
           );
           if (routed) {
             const a = autoAgents.find((x) => x.id === routed.agentId)!;
@@ -712,7 +738,7 @@ export async function runExtractionForItem(
     const { conceptsForPrompt } = await import("./priming-core");
     const known = trivial
       ? []
-      : await primeKnownEntities(row.org_id, `${row.subject ?? ""}\n${text}`).catch(() => []);
+      : await primeKnownEntities(row.org_id, `${row.subject ?? ""}\n${text}`, msgVec).catch(() => []);
     const conceptRows = trivial
       ? []
       : await prisma.entities
