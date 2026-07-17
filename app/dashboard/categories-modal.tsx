@@ -41,14 +41,25 @@ const toDraft = (k: KindDef): Draft => ({
   aliases: [...k.aliases], fields: k.fields.map((f) => ({ ...f })), relations: k.relations.map((r) => ({ ...r })), builtin: k.builtin,
 });
 
-/** One template chip — a field or relation the agent will fill. */
-function Chip({ glyph, label, hint, required, onRemove }: { glyph: string; label: string; hint?: string; required?: boolean; onRemove: () => void }) {
+/** One template chip — a field or relation the agent will fill. `flag` is the
+ *  chip's cardinality toggle (fields: single ↔ list; relations: many ↔ single). */
+function Chip({ glyph, label, hint, required, flag, onRemove }: {
+  glyph: string; label: string; hint?: string; required?: boolean;
+  flag?: { glyph: string; active: boolean; title: string; onToggle: () => void };
+  onRemove: () => void;
+}) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: "1px solid #E1D9C8", borderRadius: 999, padding: "5px 6px 5px 11px", fontSize: 12.5, color: C.ink }}>
       <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B" }}>{glyph}</span>
       <span style={{ fontWeight: 500 }}>{label}</span>
       {required && <span title="Required" style={{ color: C.accent, fontSize: 11, lineHeight: 1 }}>●</span>}
       {hint && <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B" }}>{hint}</span>}
+      {flag && (
+        <button type="button" onClick={flag.onToggle} title={flag.title} className="dm-mono"
+          style={{ border: "none", borderRadius: 999, padding: "2px 6px", fontSize: 9.5, lineHeight: 1, cursor: "pointer", letterSpacing: "0.04em", background: flag.active ? C.ink : "#F3EFE6", color: flag.active ? "#FBF7EE" : "#A39B8B" }}>
+          {flag.glyph}
+        </button>
+      )}
       <button type="button" onClick={onRemove} title="Remove" style={{ width: 17, height: 17, borderRadius: "50%", border: "none", background: "#F3EFE6", color: "#8A8477", cursor: "pointer", fontSize: 10, lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>✕</button>
     </span>
   );
@@ -222,7 +233,14 @@ export function CategoriesModal({ onClose, onChanged }: { onClose: () => void; o
             <div className="dm-mono" style={{ ...monoLabel, marginBottom: 8 }}>The agent captures</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
               {draft.fields.map((f, i) => (
-                <Chip key={i} glyph={TYPE_GLYPH[f.type] ?? "Aa"} label={f.label} hint={f.unit} required={f.required} onRemove={() => setDraft({ ...draft, fields: draft.fields.filter((_, j) => j !== i) })} />
+                <Chip key={i} glyph={TYPE_GLYPH[f.type] ?? "Aa"} label={f.label} hint={f.unit} required={f.required}
+                  flag={{
+                    glyph: "≡ list",
+                    active: f.cardinality === "many",
+                    title: f.cardinality === "many" ? "List — several values coexist (authors, tags). Click for single-valued." : "Single-valued. Click if several values should coexist (authors, tags).",
+                    onToggle: () => setDraft({ ...draft, fields: draft.fields.map((x, j) => (j === i ? { ...x, cardinality: x.cardinality === "many" ? undefined : "many" } : x)) }),
+                  }}
+                  onRemove={() => setDraft({ ...draft, fields: draft.fields.filter((_, j) => j !== i) })} />
               ))}
               {draft.fields.length === 0 && <span style={{ fontSize: 12.5, color: "#A39B8B" }}>Nothing yet — “✦ Draft it” or add below.</span>}
             </div>
@@ -240,7 +258,14 @@ export function CategoriesModal({ onClose, onChanged }: { onClose: () => void; o
             <div className="dm-mono" style={{ ...monoLabel, marginBottom: 8 }}>Linked to</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
               {draft.relations.map((r, i) => (
-                <Chip key={i} glyph="⇢" label={r.label} hint={r.targetKind ? `→ ${r.targetKind}` : undefined} onRemove={() => setDraft({ ...draft, relations: draft.relations.filter((_, j) => j !== i) })} />
+                <Chip key={i} glyph="⇢" label={r.label} hint={r.targetKind ? `→ ${r.targetKind}` : undefined}
+                  flag={{
+                    glyph: "1",
+                    active: r.cardinality === "one",
+                    title: r.cardinality === "one" ? "Single link — only one at a time (one issuer). Click to let links accumulate." : "Links accumulate (mentions, attendees). Click if only ONE should hold at a time.",
+                    onToggle: () => setDraft({ ...draft, relations: draft.relations.map((x, j) => (j === i ? { ...x, cardinality: x.cardinality === "one" ? undefined : "one" } : x)) }),
+                  }}
+                  onRemove={() => setDraft({ ...draft, relations: draft.relations.filter((_, j) => j !== i) })} />
               ))}
               {draft.relations.length === 0 && <span style={{ fontSize: 12.5, color: "#A39B8B" }}>No links yet.</span>}
             </div>

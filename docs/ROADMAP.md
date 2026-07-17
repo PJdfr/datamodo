@@ -662,9 +662,11 @@ real questions).
   ~~Batched ingest round-trips~~ ✅ (one claim-key query per ingest).
 - ~~Tables × list fields~~ ✅ 2026-07-17 — text columns join multi-fact values
   (", ", deduped); number/date columns keep the last fact (typed cells).
-  Still open: `categories-modal` could expose the field/relation
-  `cardinality` flag in the template editor (registry + reconciliation
-  already honor it end-to-end); decide richer number/date list rendering.
+  ~~Cardinality flag in the template editor~~ ✅ 2026-07-17 — chip badges
+  ("≡ list" on fields, "1" on relations) + AI drafter proposes the flag +
+  `ensureDefaultKinds` backfills the new builtin flags into already-seeded
+  orgs. Still open: richer number/date list rendering in table cells
+  (today: last value, typed).
 - Dossier: PDF rendering behind the same `buildDossier`.
 - Graph: persist collapsed-kind state if users ask for it (deliberately
   session-local today).

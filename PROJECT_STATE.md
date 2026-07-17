@@ -12,6 +12,18 @@
 > Last updated: 2026-07-17
 
 ## Recent changes
+- **2026-07-17** — **Cardinality close-out before PR (user: "finish all
+  features related to this").** ① Categories template editor: cardinality is
+  a toggle ON the chip — fields get "≡ list" (single ↔ list), relations "1"
+  (accumulate ↔ single); save path already carried the field through
+  sanitize. ② AI template drafter proposes `cardinality` in drafted
+  fields/relations. ③ CRITICAL backfill: orgs seeded before the flags hold
+  old builtin json — `ensureDefaultKinds` now patches the declared flags
+  (author/email/phone → many, issued_by/billed_to → one) onto matching keys
+  lacking the property (without it, existing orgs would read author as
+  declared-"one" and DROP co-authors — the exact bug this branch fixes).
+  Property-add only; user customizations untouched. VERIFIED: suite 379
+  pass / 0 fail, tsc + eslint clean.
 - **2026-07-17** — **Extraction hardening tier 3 (user: "keep going" — the
   rest of the free-ideas list, all zero-LLM).** ① Sender identity: after
   canonicalization, the person entity matching the envelope's display name

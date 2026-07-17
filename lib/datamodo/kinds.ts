@@ -42,8 +42,48 @@ function toDef(r: KindRow): KindDef {
  *  don't drift from fresh ones. Trade-off: a deliberately deleted builtin
  *  resurrects on next read — acceptable until deletions get tombstones. */
 export async function ensureDefaultKinds(orgId: string, ownerUserId: string | null): Promise<void> {
-  const existing = await prisma.kinds.findMany({ where: { org_id: orgId }, select: { kind: true } });
-  const have = new Set((existing as { kind: string }[]).map((r) => r.kind));
+  const existing = await prisma.kinds.findMany({
+    where: { org_id: orgId },
+    select: { id: true, kind: true, builtin: true, fields: true, relations: true },
+  });
+  // BACKFILL (2026-07-17): builtin templates gained DECLARED CARDINALITY
+  // (author/email/phone → many, issued_by/billed_to → one). Orgs seeded
+  // before that hold the old json — patch the flag onto matching keys that
+  // lack it (property-add only; user customizations untouched). In-memory
+  // compare on every read, an UPDATE only the one time something is missing.
+  for (const row of existing) {
+    if (!row.builtin) continue;
+    const def = DEFAULT_KINDS.find((k) => k.kind === row.kind);
+    if (!def) continue;
+    let changed = false;
+    const fields = (Array.isArray(row.fields) ? (row.fields as unknown as KindField[]) : []).map((f) => {
+      const d = def.fields.find((x) => x.key === f.key);
+      if (d?.cardinality && f.cardinality == null) {
+        changed = true;
+        return { ...f, cardinality: d.cardinality };
+      }
+      return f;
+    });
+    const relations = (Array.isArray(row.relations) ? (row.relations as unknown as KindRelation[]) : []).map((r) => {
+      const d = def.relations.find((x) => x.predicate === r.predicate);
+      if (d?.cardinality && r.cardinality == null) {
+        changed = true;
+        return { ...r, cardinality: d.cardinality };
+      }
+      return r;
+    });
+    if (changed) {
+      await prisma.kinds.update({
+        where: { id: row.id },
+        data: {
+          fields: fields as unknown as Prisma.InputJsonValue,
+          relations: relations as unknown as Prisma.InputJsonValue,
+          updated_at: new Date(),
+        },
+      });
+    }
+  }
+  const have = new Set(existing.map((r) => r.kind));
   const missing = DEFAULT_KINDS.filter((k) => !have.has(k.kind));
   if (missing.length === 0) return;
   await prisma.kinds.createMany({
@@ -161,13 +201,13 @@ export async function deleteKind(orgId: string, id: string): Promise<void> {
 const SUGGEST_SYSTEM = `You design a TEMPLATE for a knowledge category in a personal data assistant. The user names a category of thing they care about (e.g. "Property", "Candidate", "Shipment"); you propose what the assistant should capture about each one.
 
 Rules:
-- fields: 3-7 attributes worth tracking. snake_case keys, human labels, type one of text|number|date. Add unit for money/quantities (e.g. "USD"). Mark at most 2 as required — only what DEFINES the thing.
-- relations: 1-4 verbs linking it to other things (snake_case predicate, human label, optional targetKind like person/company/document).
+- fields: 3-7 attributes worth tracking. snake_case keys, human labels, type one of text|number|date. Add unit for money/quantities (e.g. "USD"). Mark at most 2 as required — only what DEFINES the thing. Mark list-like attributes (authors, tags, several emails) with "cardinality":"many"; omit cardinality for ordinary single-valued attributes.
+- relations: 1-4 verbs linking it to other things (snake_case predicate, human label, optional targetKind like person/company/document). Relations accumulate by default; mark a genuinely exclusive link (one issuer, one owner) with "cardinality":"one".
 - aliases: 2-5 other names the category might be called (lowercase).
 - icon: ONE fitting emoji. plural: the plural label. description: one plain sentence saying what belongs in this category.
 
 Respond with ONLY JSON:
-{"icon":"…","plural":"…","description":"…","aliases":["…"],"fields":[{"key":"…","label":"…","type":"text|number|date","unit":"…?","required":false,"aliases":["…"]}],"relations":[{"predicate":"…","label":"…","targetKind":"…?","aliases":["…"]}]}`;
+{"icon":"…","plural":"…","description":"…","aliases":["…"],"fields":[{"key":"…","label":"…","type":"text|number|date","unit":"…?","required":false,"cardinality":"many?","aliases":["…"]}],"relations":[{"predicate":"…","label":"…","targetKind":"…?","cardinality":"one?","aliases":["…"]}]}`;
 
 export interface SuggestedTemplate {
   icon?: string;
