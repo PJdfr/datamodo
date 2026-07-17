@@ -5,7 +5,7 @@
 > how we work, what we decided and why. Siblings: [STATE.md](STATE.md) ·
 > [FLOW.md](FLOW.md) · [ROADMAP.md](ROADMAP.md).
 >
-> Last updated: 2026-07-16
+> Last updated: 2026-07-17
 
 ## What datamodo is (the aim)
 Turn unstructured personal communications into **structured, reviewable,
@@ -260,7 +260,12 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
   unaddressed message in auto mode) must never call an LLM — auto mode
   becomes unaffordable otherwise. The agent router is a deterministic lexical
   classifier (`agent-router.ts`); LLM spend stays reserved for extraction
-  itself and on-demand user asks.
+  itself and on-demand user asks. **Refined 2026-07-17 (adaptive routing):**
+  the budget is "no LLM and no NEW api calls", not "no math" — the router may
+  ride the ONE message embedding the pipeline already computes for relevance
+  priming (`runExtractionForItem` embeds once, routing + priming share it),
+  and classifier LEARNING (centroid folds, term corrections) runs only in the
+  nightly consolidation tick, never on the hot path.
 - **`neon/schema.sql` must stay loadable into an EMPTY database** (fixed
   2026-07-15: FKs of hand-added tables live in the end-of-file FK section, no
   psql-only meta-commands). It is the ONE faithful schema source: cloud

@@ -2,7 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { readBlob } from "@/lib/ingest/store";
 import type { LlmProvider } from "@/lib/llm";
 import { classifyDocumentKind, extractFromDocument, extractFromImage } from "./extract";
-import { keyTermsFrom, selectChunksForPrompt, DOC_PROMPT_BUDGET_CHARS } from "./chunk-select";
+import { buildContextAnchors, keyTermsFrom, selectChunksForPrompt, DOC_PROMPT_BUDGET_CHARS } from "./chunk-select";
+import { embedTexts, embeddingsConfigured, embeddingsModel } from "@/lib/llm/embeddings";
 import { createOffTemplateReview, ingestExtraction } from "./knowledge";
 import { parseWorkbook } from "./spreadsheet";
 import { storeDocChunks } from "./chunks";
@@ -37,11 +38,41 @@ import {
 // Fails safe at every step — a missing blob bucket, a scanned PDF, or an LLM
 // error degrades that document to metadata-only; it never fails the item.
 
+/** Context-anchor embeddings, memoized per org shape + embedding space. The
+ *  anchors (business context, agent purposes, kind templates) change rarely,
+ *  so one warm process embeds them once. Fail-soft: null without a key. */
+const anchorCache = new Map<string, number[][]>();
+function anchorCacheKey(texts: string[]): string {
+  // djb2 over the joined texts — collisions are harmless (wrong anchors only
+  // reorder a selection, and the model+length guard makes them unlikely).
+  let h = 5381;
+  const joined = texts.join("");
+  for (let i = 0; i < joined.length; i++) h = ((h * 33) ^ joined.charCodeAt(i)) >>> 0;
+  return `${embeddingsModel()}:${joined.length}:${h.toString(36)}`;
+}
+async function contextAnchorVectors(texts: string[]): Promise<number[][] | null> {
+  if (texts.length === 0 || !embeddingsConfigured()) return null;
+  const key = anchorCacheKey(texts);
+  const hit = anchorCache.get(key);
+  if (hit) return hit;
+  const vectors = await embedTexts(texts);
+  if (!vectors) return null;
+  if (anchorCache.size > 50) anchorCache.clear(); // tiny process-local cache
+  anchorCache.set(key, vectors);
+  return vectors;
+}
+
 /** What the distill LLM should READ for one document. Short documents pass
  *  whole; long ones (no size limit — user call 2026-07-16) classify from the
  *  head, then the zero-LLM chunk scorer (chunk-select.ts) picks the
  *  passages worth the prompt budget, steered by the classified kind's
- *  template vocabulary and the agents' purposes. Fail-soft everywhere. */
+ *  template vocabulary and the agents' purposes — and, since 2026-07-17
+ *  (GRAPH_PIPELINE.md "Adaptive classifiers (2)"), by semantic closeness to
+ *  the org's context anchors: the chunks are embedded BEFORE selection (the
+ *  same vectors are then stored on doc_chunks — reordering made the semantic
+ *  leg free) and each chunk adds max cosine(chunk, anchor) to its score, so
+ *  paraphrase ("risk-adjusted performance" for a `sharpe` field) makes the
+ *  prompt even with zero lexical overlap. Fail-soft everywhere. */
 async function distillInput(
   doc: { text: string },
   chunks: import("./document-extraction").DocChunk[],
@@ -49,8 +80,9 @@ async function distillInput(
   kinds: import("./ontology").KindDef[] | undefined,
   agents: { name: string; purpose: string }[],
   llm: LlmProvider,
-): Promise<{ text: string; docKind: string | null }> {
-  if (doc.text.length <= DOC_PROMPT_BUDGET_CHARS) return { text: doc.text, docKind: null };
+  businessContext?: string | null,
+): Promise<{ text: string; docKind: string | null; chunkVectors: (number[] | null)[] | null }> {
+  if (doc.text.length <= DOC_PROMPT_BUDGET_CHARS) return { text: doc.text, docKind: null, chunkVectors: null };
   let docKind: string | null = null;
   if (kinds?.length) {
     try {
@@ -66,11 +98,22 @@ async function distillInput(
     ...(def?.relations.map((r) => `${r.predicate} ${r.label}`) ?? []),
     ...agents.map((a) => a.purpose),
   );
-  const sel = selectChunksForPrompt(chunks, { keyTerms });
+  // Semantic leg: chunk vectors (reused at store time) + cached anchors. The
+  // classified kind leads the anchor set; other templated kinds ride along.
+  let chunkVectors: (number[] | null)[] | null = null;
+  let anchorVectors: number[][] | null = null;
+  if (embeddingsConfigured()) {
+    const anchorKinds = [...(def ? [def] : []), ...(kinds ?? []).filter((k) => k !== def && k.fields.length > 0)];
+    [chunkVectors, anchorVectors] = await Promise.all([
+      embedTexts(chunks.map((c) => c.text)),
+      contextAnchorVectors(buildContextAnchors({ businessContext, agents, kinds: anchorKinds })),
+    ]);
+  }
+  const sel = selectChunksForPrompt(chunks, { keyTerms, chunkVectors, anchorVectors });
   console.log(
-    `[documents] chunk selection for "${filename}": ${sel.includedSeqs.length}/${chunks.length} chunks in prompt (${sel.droppedChunks} omitted — still stored + searchable)`,
+    `[documents] chunk selection for "${filename}": ${sel.includedSeqs.length}/${chunks.length} chunks in prompt (${sel.droppedChunks} omitted — still stored + searchable${anchorVectors && chunkVectors ? ", semantic leg on" : ""})`,
   );
-  return { text: sel.text, docKind };
+  return { text: sel.text, docKind, chunkVectors };
 }
 
 export interface AttachmentProcessResult {
@@ -148,6 +191,9 @@ export async function processItemAttachments(
       let docKind: string | null = null;
       let offTemplate: import("./ontology").OffTemplateReviewPayload | null = null;
       let doc: Awaited<ReturnType<typeof extractAttachmentText>> | null = null;
+      // Chunk embeddings computed BEFORE selection (semantic leg) — reused at
+      // store time so the document is never embedded twice.
+      let chunkVectors: (number[] | null)[] | null = null;
       const kind = attachmentTextKind(att.filename, att.content_type);
       const imageType = kind ? null : attachmentImageType(att.filename, att.content_type);
       const audioType = kind || imageType ? null : attachmentAudioType(att.filename, att.content_type);
@@ -176,7 +222,8 @@ export async function processItemAttachments(
             // No size limit: the WHOLE document is chunked; the prompt gets
             // the important chunks only (classify from the head, then the
             // zero-LLM scorer — chunk-select.ts).
-            const di = await distillInput(doc, chunkDocText(doc), att.filename, kinds, agents, llm);
+            const di = await distillInput(doc, chunkDocText(doc), att.filename, kinds, agents, llm, businessContext);
+            chunkVectors = di.chunkVectors;
             const res = await extractFromDocument(
               {
                 text: di.text,
@@ -279,7 +326,8 @@ export async function processItemAttachments(
             };
             // Long transcripts get the same chunk-importance selection as
             // long documents — the full transcript still lands in doc_chunks.
-            const di = await distillInput(doc, chunkDocText(doc), att.filename, kinds, agents, llm);
+            const di = await distillInput(doc, chunkDocText(doc), att.filename, kinds, agents, llm, businessContext);
+            chunkVectors = di.chunkVectors;
             const res = await extractFromDocument(
               {
                 text: di.text,
@@ -371,7 +419,7 @@ export async function processItemAttachments(
             select: { id: true },
           });
           if (ent) {
-            await storeDocChunks(item.org_id, ent.id, item.id, chunkDocText(doc));
+            await storeDocChunks(item.org_id, ent.id, item.id, chunkDocText(doc), chunkVectors);
             if (summary) {
               await prisma.entities.update({
                 where: { id: ent.id, org_id: item.org_id },

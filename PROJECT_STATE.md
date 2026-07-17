@@ -9,9 +9,56 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-16
+> Last updated: 2026-07-17
 
 ## Recent changes
+- **2026-07-17** — **README rewritten for the GitHub front page (user ask).**
+  The old README still described the Supabase era (pre-2026-07-09 stack,
+  shipped features listed as "remaining") — replaced wholesale: local install
+  from a clone (npm publish still pending — kept honest), what datamodo
+  does/aims to do, the pipeline (mermaid flowchart) and data model (mermaid
+  erDiagram), why the graph doesn't degenerate (resolution ladder,
+  consolidation, growth gate, template guarantee, append-only history), why
+  it stays cheap (zero-LLM plumbing, triviality gate, prompt caching, chunk
+  selection, on-demand generation, BYOK cap), why retrieval works (GraphRAG,
+  one embedding space, bitemporal), what it enables (tables/derive-a-table,
+  explorer, folder lenses, answers, timeline/commits, MCP; Insights flagged
+  honestly as early/rough — user is unhappy with its current state, redesign
+  queued), stack table (Neon/pglite + pgvector + pg_trgm, Prisma 7, Next 16),
+  repo map, dev commands, living-docs pointers. Both mermaid blocks parse-
+  verified with mermaid 11. Docs only — no behavior change. (GRAPH_PIPELINE.md
+  design → code).** ① ADAPTIVE AGENT ROUTING: new `routing_events` feedback
+  log (migration `20260717090000_routing_feedback.sql` + agents columns
+  `routing_centroid`/`_model`/`_n`/`routing_terms`) — an explicitly addressed
+  chat send logs a ground-truth accept (`/api/chat`), the composer chip's ✕
+  logs an explicit reject (new `POST /api/chat/routing`), and the
+  consolidation tick's new pass ⑤ sweeps auto-routed items analyzed >24 h
+  with no correction into implicit accepts, embeds accepted heads in one
+  batch, and folds per-agent centroids (incremental mean, memory cap 200,
+  space-change restart) + term-weight corrections (±.25/event, clamp ±1,
+  top-24) via pure `routing-learn.ts`. Router now scores lexical (learned
+  corrections folded into profiles, negatives veto) + centroid-cosine boost
+  (floor .3, cap 2, ≥5 folds required); the message embedding is computed
+  ONCE in `runExtractionForItem` and shared with relevance priming (no new
+  per-message cost — MEMORY refined). ② SEMANTIC CHUNK RANKING: long
+  documents embed chunks BEFORE selection and hand the vectors to
+  `storeDocChunks` (never embedded twice), context anchors (business context
+  + agent purposes + kind templates) embed once per org shape (process
+  cache); `selectChunksForPrompt` blends `semanticBoost(max cosine(chunk,
+  anchor))` (floor .25, cap 3) with the unchanged structural priors, so
+  paraphrase chunks make the prompt with zero lexical overlap. Everything
+  fail-soft: no embeddings key / pre-migration DB → exactly yesterday's
+  behavior. Verified: suite 361 pass (13 new tests: routing-learn fold/
+  learn/boost, router learned-terms/boosts/ambiguity, chunk-select semantic
+  lift + null-vector no-op), tsc clean, lint == baseline, boundary clean,
+  `next build` green, `neon/schema.sql` still loads into an EMPTY DB
+  (guarded pglite test), and the routing SQL live-fired against embedded
+  Postgres (migration idempotency ×2, implicit-accept insert + item dedupe,
+  centroid ::vector/::text round-trip, boost query sim=.994, consumed_at
+  filter). NOT verified live: real embeddings (no key in sandbox) and the
+  learning loop over real traffic — watch the first consolidation ticks
+  after `20260717090000` lands on dev+prod (owed, with the four earlier
+  pending migrations).
 - **2026-07-16** — **Adaptive-classifiers design recorded (user discussion)**
   — the router/chunk-scorer/escalation-gate learning plan written into
   GRAPH_PIPELINE.md ("Adaptive classifiers") + ROADMAP: routing learns from

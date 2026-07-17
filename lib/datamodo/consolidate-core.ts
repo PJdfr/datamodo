@@ -129,6 +129,10 @@ export interface ConsolidationStats {
   fieldsProposed: number;
   /** Null template slots added to nodes that predate their template. */
   slotsBackfilled: number;
+  /** Routing feedback events folded into agent centroids/term weights. */
+  routingEventsFolded: number;
+  /** Agents whose routing centroid moved this tick. */
+  routingCentroidsUpdated: number;
 }
 
 export function emptyStats(): ConsolidationStats {
@@ -142,5 +146,7 @@ export function emptyStats(): ConsolidationStats {
     orphansFlagged: 0,
     fieldsProposed: 0,
     slotsBackfilled: 0,
+    routingEventsFolded: 0,
+    routingCentroidsUpdated: 0,
   };
 }

@@ -4,7 +4,7 @@
 > inventory when they ship; add what the work surfaced. Ordered by value.
 > Siblings: [STATE.md](STATE.md) · [FLOW.md](FLOW.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-16
+> Last updated: 2026-07-17
 
 ## Now (unblocks everything else)
 1. **Set env** (the old "merge PR #35" step is long done): a REAL
@@ -189,12 +189,26 @@ real questions).
 
 ## Next build tracks (pick after the above)
 - **Adaptive classifiers (designed 2026-07-16 — see GRAPH_PIPELINE.md
-  "Adaptive classifiers")**: (1) routing feedback log + per-agent accepted-
-  message centroids (nightly consolidation pass; router = lexical + cosine);
-  (2) embed-before-select chunk ranking (semantic closeness to business
-  context / templates / agent descriptions — free, chunks embed anyway);
-  (3) later: learned per-sender escalation priors. Both (1) and (2) are
-  spec'd and ~a morning each.
+  "Adaptive classifiers")**: ~~(1) routing feedback log + per-agent accepted-
+  message centroids~~ ✅ 2026-07-17 — `routing_events` feedback log (addressed
+  send = accept, chip ✕ = reject, uncorrected auto-route >24 h = implicit
+  accept), consolidation pass ⑤ folds per-agent centroids + term-weight
+  corrections, router = lexical (learned corrections folded in) +
+  centroid-cosine boost; ONE message embedding shared with priming; all
+  fail-soft pre-migration (`20260717090000_routing_feedback.sql` owed on
+  dev+prod); SQL live-verified on embedded Postgres, never live-fired against
+  real traffic (needs the embeddings key + a few days of feedback).
+  ~~(2) embed-before-select chunk ranking~~ ✅ 2026-07-17 — long documents
+  embed chunks BEFORE selection (vectors reused at store time — free) +
+  cached context-anchor embeddings (business context / agent purposes / kind
+  templates); chunk score += max cosine(chunk, anchor), structural priors
+  unchanged; dormant without an embeddings key.
+  (3) later: learned per-sender escalation priors (needs live outcome data).
+- **Insights tab redesign** (user call 2026-07-17: "not happy with its
+  current state"): the measure×axis aggregation surface is functional but
+  rough — rethink what questions it should answer at a glance (the Ontology
+  health card is the only part earning its keep) and bring it up to the
+  design system's bar. Scope TBD with the user before building.
 - **MCP server / connectors — run datamodo on a Claude SUBSCRIPTION, no API
   key** (user ask 2026-07-14). **PHASE 1 ✅ SHIPPED 2026-07-14**: Streamable-
   HTTP endpoint `app/api/mcp/[transport]` (`mcp-handler` + `@modelcontext-
@@ -629,7 +643,10 @@ real questions).
   seam in `analytics.ts`).
 
 ## Owed by a human (ops, not code)
-- **Apply pending Neon migrations on dev + prod**: `20260716210000_entity_usage.sql`
+- **Apply pending Neon migrations on dev + prod**: `20260717090000_routing_feedback.sql`
+  (adaptive routing — the feedback log drops events, the learning pass and
+  centroid boosts stay dormant until applied; routing itself keeps working),
+  `20260716210000_entity_usage.sql`
   (usage-weighted retention — fail-soft until applied: retrieval stamps no-op
   and the orphan pass just lacks the read-side guard), plus the earlier
   `20260714120000_llm_usage.sql`

@@ -416,6 +416,20 @@ export function ChatView() {
     return hit ? agents.find((a) => a.id === hit.agentId) ?? null : null;
   }, [text, agentProfiles, recipient, agents]);
   const suggestionShown = suggestion && suggestionDismissed !== suggestion.id ? suggestion : null;
+  // ✕ = "not this agent" — an explicit routing REJECT the nightly learning
+  // pass turns into negative term weights (adaptive routing). Fire-and-forget;
+  // the chip disappears either way. (Accepts need no call here — an addressed
+  // send is logged server-side as the ground-truth accept.)
+  const dismissSuggestion = (agentId: string) => {
+    setSuggestionDismissed(agentId);
+    const draft = text.trim();
+    if (draft.length >= 12) {
+      fetch("/api/chat/routing", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentId, verdict: "reject", text: draft }),
+      }).catch(() => {});
+    }
+  };
 
   const addFiles = useCallback((list: FileList | File[] | null, kind: "file" | "voice" = "file") => {
     if (!list) return;
@@ -752,7 +766,7 @@ export function ChatView() {
                   <span style={{ color: C.accent }}>↪</span> {suggestionShown.name}?
                   <span className="dm-mono" style={{ fontSize: 9, color: "#B08A7A" }}>Tab</span>
                 </button>
-                <button type="button" onClick={() => setSuggestionDismissed(suggestionShown.id)} title="Not this one" aria-label="Dismiss suggestion"
+                <button type="button" onClick={() => dismissSuggestion(suggestionShown.id)} title="Not this one" aria-label="Dismiss suggestion"
                   style={{ background: "none", border: "none", color: "#A39B8B", cursor: "pointer", fontSize: 11, padding: 0, fontFamily: "inherit" }}>×</button>
               </span>
             ) : (
