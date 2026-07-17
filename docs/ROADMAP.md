@@ -654,21 +654,17 @@ real questions).
   `passage-rank.ts`). Fail-soft: keyword-only without a key. Wakes up the
   moment the real embeddings key lands. (GraphRAG step 3 later SCOPES this
   to linked entities.)
-- **Held-conflict card polish** (discovered 2026-07-17 with the supersession
-  guard): `review-card.tsx` strikes through the old value on every
-  fact_conflict — for `held` rows the old value is still CURRENT (only the
-  note explains). Render held rows as "current vs candidate" instead of
-  "was vs now". Also free extraction ideas not yet built: sender-identity
-  enrichment (attach `items.sender` email to the matching extracted person →
-  tier-0 hits, saves adjudication calls), unit/currency normalization
-  ($/US$/usd → USD), concept plural folding (reuse the router's), batched
-  ingest round-trips.
-- **Tables × list fields** (discovered 2026-07-17 with declared cardinality):
-  `projectEntitiesToDataset` fills a cell from "the" matching fact — for a
-  `"many"` predicate (authors, tags, emails) the last fact wins the cell.
-  Join list values (", ") for text columns; decide number/date list rendering.
-  UI: `categories-modal` could expose the new field/relation `cardinality`
-  flag (registry + reconciliation already honor it end-to-end).
+- ~~Held-conflict card polish~~ ✅ 2026-07-17 — held rows render "current ·
+  candidate", no strike-through. ~~Sender-identity enrichment~~ ✅ same day
+  (`enrichSenderIdentity`). ~~Unit/currency normalization~~ ✅ (`normalizeUnit`).
+  ~~Concept plural folding~~ ✅ (concept keys only; the router's own folding
+  untouched — its learned `routing_terms` are stored under the old rule).
+  ~~Batched ingest round-trips~~ ✅ (one claim-key query per ingest).
+- ~~Tables × list fields~~ ✅ 2026-07-17 — text columns join multi-fact values
+  (", ", deduped); number/date columns keep the last fact (typed cells).
+  Still open: `categories-modal` could expose the field/relation
+  `cardinality` flag in the template editor (registry + reconciliation
+  already honor it end-to-end); decide richer number/date list rendering.
 - Dossier: PDF rendering behind the same `buildDossier`.
 - Graph: persist collapsed-kind state if users ask for it (deliberately
   session-local today).

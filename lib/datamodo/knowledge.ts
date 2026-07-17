@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getLlmProvider, type LlmProvider } from "@/lib/llm";
 import { embedTexts, embeddingsModel, toVectorLiteral } from "@/lib/llm/embeddings";
-import { declaredCardinality, reconcileExtraction, valueSlot } from "./reconcile-core.ts";
+import { declaredCardinality, foldConceptKey, reconcileExtraction, valueSlot } from "./reconcile-core.ts";
 import type { KindDef } from "./ontology";
 import type { KnowledgeEntityView, FactSourceView } from "./types";
 
@@ -84,12 +84,15 @@ export function normalizeKey(e: Pick<ExtractedEntity, "kind" | "label" | "natura
     e.naturalKeys?.invoice_no ??
     e.naturalKeys?.id;
   if (strong) return `#${strong.trim().toLowerCase()}`;
-  return e.label
+  const key = e.label
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "") // strip accents (combining diacritics)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+  // Concepts fold singular/plural ("marketing strategies" ≡ "marketing
+  // strategy") — topics are where plural drift multiplies nodes the worst.
+  return e.kind === "concept" ? foldConceptKey(key) : key;
 }
 
 /** Slot identity: single-valued facts key on (subject, predicate); multi-valued
@@ -589,10 +592,31 @@ function dateOnly(v: Date | string | null): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
+/** The current-claim row upsertFact compares against (see prefetch note). */
+interface CurrentClaim {
+  id: string;
+  confidence: unknown;
+  value_text: string | null;
+  value_num: unknown;
+  value_date: Date | null;
+  object_entity_id: string | null;
+}
+
+const CURRENT_CLAIM_SELECT = {
+  id: true,
+  confidence: true,
+  value_text: true,
+  value_num: true,
+  value_date: true,
+  object_entity_id: true,
+} as const;
+
 /**
  * Upsert one fact into the canonical store. Single indexed lookup on claim_key —
  * no scan. Same slot+value → add provenance (dedup). Same slot, new value →
  * supersede (append-only). New slot → insert.
+ * `prefetched`: the current claim row when the caller batch-loaded it
+ * (null = known absent); undefined = look it up live.
  */
 async function upsertFact(
   orgId: string,
@@ -601,16 +625,20 @@ async function upsertFact(
   fact: ExtractedFact,
   sourceItemId: string | null,
   resolve: (localId: string) => string,
+  prefetched?: CurrentClaim | null,
 ): Promise<FactOutcome> {
   const slot = valueSlot(fact.value, resolve);
   const key = claimKey(fact, subjectId, slot);
   const cols = valueColumns(fact.value, resolve);
   const now = new Date();
 
-  const current = await prisma.facts.findFirst({
-    where: { org_id: orgId, claim_key: key, valid_to: null },
-    select: { id: true, confidence: true, value_text: true, value_num: true, value_date: true, object_entity_id: true },
-  });
+  const current =
+    prefetched !== undefined
+      ? prefetched
+      : ((await prisma.facts.findFirst({
+          where: { org_id: orgId, claim_key: key, valid_to: null },
+          select: CURRENT_CLAIM_SELECT,
+        })) as CurrentClaim | null);
 
   const addSource = async (factId: string) => {
     // NULLs are distinct in the (fact_id, source_item_id) unique index, so a
@@ -1011,9 +1039,28 @@ export async function ingestExtraction(
     console.error("[knowledge] slot-cardinality alignment failed", e);
   }
 
-  for (const f of extraction.facts) {
+  // Batch the current-claim lookups: ONE indexed query for every fact's claim
+  // key (post-alignment, so migrated keys are seen), instead of a round-trip
+  // per fact — on Neon that's the difference between 1 and N network hops.
+  const factKeys = extraction.facts.map((f) => {
     const subjectId = resolve(f.subjectLocalId);
-    const outcome = await upsertFact(orgId, ownerUserId, subjectId, f, sourceItemId, resolve);
+    return { f, subjectId, key: claimKey(f, subjectId, valueSlot(f.value, resolve)) };
+  });
+  const currentRows = factKeys.length
+    ? ((await prisma.facts.findMany({
+        where: { org_id: orgId, claim_key: { in: [...new Set(factKeys.map((x) => x.key))] }, valid_to: null },
+        select: { claim_key: true, ...CURRENT_CLAIM_SELECT },
+      })) as unknown as ({ claim_key: string } & CurrentClaim)[])
+    : [];
+  const currentByKey = new Map(currentRows.map((r) => [r.claim_key, r as CurrentClaim]));
+
+  // Keys this loop already wrote go back to live lookups: two facts CAN share
+  // a claim key when different localIds resolved to the same entity.
+  const written = new Set<string>();
+  for (const { f, subjectId, key } of factKeys) {
+    const prefetched = written.has(key) ? undefined : (currentByKey.get(key) ?? null);
+    const outcome = await upsertFact(orgId, ownerUserId, subjectId, f, sourceItemId, resolve, prefetched);
+    written.add(key);
     if (outcome === "new") res.factsNew++;
     else if (outcome === "deduped") res.factsDeduped++;
     else if (outcome === "held") res.factsHeld++;

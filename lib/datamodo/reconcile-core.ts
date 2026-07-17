@@ -148,6 +148,90 @@ export function canonicalDateValue(date: string): string | null {
   return parseLooseDate(date);
 }
 
+/** Unit spellings the models actually produce, mapped to one canonical form —
+ *  "$100" and "100 USD" must land in the same value slot, not dodge dedup. */
+const UNIT_SYNONYMS: Record<string, string> = {
+  $: "USD", "us$": "USD", usd: "USD", dollar: "USD", dollars: "USD",
+  "€": "EUR", eur: "EUR", euro: "EUR", euros: "EUR",
+  "£": "GBP", gbp: "GBP", pound: "GBP", pounds: "GBP",
+  "¥": "JPY", jpy: "JPY", yen: "JPY",
+  percent: "%", pct: "%", "%": "%",
+};
+
+/** Canonical unit: currency synonyms collapse, bare 3-letter codes uppercase
+ *  ("eur" → "EUR"), anything else (kg, bytes, pages…) passes through trimmed. */
+export function normalizeUnit(unit: string): string | undefined {
+  const t = unit.trim();
+  if (!t) return undefined;
+  const hit = UNIT_SYNONYMS[t.toLowerCase()];
+  if (hit) return hit;
+  return /^[a-z]{3}$/i.test(t) ? t.toUpperCase() : t;
+}
+
+/** Fold one word's simple English plural ("strategies" → "strategy",
+ *  "boxes" → "box", "notes" → "note") — never on -ss/-us/-is words. Shared
+ *  shape with the agent router's term folding. */
+export function foldPluralWord(t: string): string {
+  if (t.length > 4 && t.endsWith("ies")) return t.slice(0, -3) + "y";
+  if (t.length > 4 && /(?:s|x|z|ch|sh)es$/.test(t)) return t.slice(0, -2);
+  if (t.length > 3 && t.endsWith("s") && !/(?:ss|us|is)$/.test(t)) return t.slice(0, -1);
+  return t;
+}
+
+/** Fold a CONCEPT's normalized label key so singular/plural topics collapse
+ *  onto one node ("marketing strategies" ≡ "marketing strategy"). Last word
+ *  only — that's where English pluralizes noun phrases. */
+export function foldConceptKey(normalizedLabel: string): string {
+  const words = normalizedLabel.split(" ");
+  words[words.length - 1] = foldPluralWord(words[words.length - 1]);
+  return words.join(" ");
+}
+
+// --- Sender identity ---------------------------------------------------------
+
+/** Parse a channel sender handle: `Name <email>` / `"Name" <email>` / bare
+ *  email. Null fields when absent. */
+export function parseSender(sender: string): { name: string | null; email: string | null } {
+  const angled = sender.match(/^\s*"?([^"<]*?)"?\s*<([^\s@>]+@[^\s@>]+)>\s*$/);
+  if (angled) return { name: angled[1].trim() || null, email: angled[2].toLowerCase() };
+  const bare = sender.trim();
+  if (/^[^\s@]+@[^\s@]+$/.test(bare)) return { name: null, email: bare.toLowerCase() };
+  return { name: bare || null, email: null };
+}
+
+const normLabel = (s: string) =>
+  s
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+/**
+ * Attach the message sender's email to the person entity that IS the sender —
+ * the extraction says "Bob Smith" and the envelope says `Bob Smith
+ * <bob@acme.com>`; joining them gives resolution a free tier-0 key, so Bob's
+ * next message lands on the same record without trigram or adjudication.
+ * Conservative: exact normalized-name match, person kind only, never
+ * overwrites an existing email, and skips when another entity in the
+ * extraction already carries that email. Pure.
+ */
+export function enrichSenderIdentity(extraction: Extraction, sender: string | null | undefined): Extraction {
+  if (!sender) return extraction;
+  const { name, email } = parseSender(sender);
+  if (!email || !name) return extraction;
+  if (extraction.entities.some((e) => e.naturalKeys?.email?.toLowerCase() === email)) return extraction;
+  const target = normLabel(name);
+  if (!target) return extraction;
+  let applied = false;
+  const entities = extraction.entities.map((e) => {
+    if (applied || e.kind !== "person" || e.naturalKeys?.email || normLabel(e.label) !== target) return e;
+    applied = true;
+    return { ...e, naturalKeys: { ...(e.naturalKeys ?? {}), email } };
+  });
+  return applied ? { entities, facts: extraction.facts } : extraction;
+}
+
 // --- Evidence grounding ------------------------------------------------------
 
 /** Below this many digits a number is too common to test for presence. */
@@ -233,7 +317,7 @@ function normalizeFactValue(f: ExtractedFact): ExtractedFact["value"] | null {
   }
   if (v.kind === "number") {
     if (!Number.isFinite(v.num)) return null;
-    const unit = v.unit?.trim() || undefined;
+    const unit = v.unit ? normalizeUnit(v.unit) : undefined;
     return unit === v.unit ? v : { kind: "number", num: v.num, unit };
   }
   if (v.kind === "date") {

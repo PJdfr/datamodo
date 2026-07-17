@@ -12,6 +12,25 @@
 > Last updated: 2026-07-17
 
 ## Recent changes
+- **2026-07-17** — **Extraction hardening tier 3 (user: "keep going" — the
+  rest of the free-ideas list, all zero-LLM).** ① Sender identity: after
+  canonicalization, the person entity matching the envelope's display name
+  inherits the sender email as a natural key (`enrichSenderIdentity`;
+  conservative — exact normalized-name match, person only, never overwrites,
+  no duplicate keys) → the sender's next message resolves at tier 0, SAVING
+  adjudication LLM calls. ② `normalizeUnit`: $ /us$/dollars→USD, €→EUR etc.,
+  bare 3-letter codes uppercase — "$100" ≡ "100 USD" in one value slot.
+  ③ Concept plural folding in `normalizeKey` (concepts only; router folding
+  untouched — stored `routing_terms` use the old rule): "marketing
+  strategies" ≡ "marketing strategy". ④ Batched claim lookups: one indexed
+  findMany per ingest instead of a findFirst per fact (same-key repeats fall
+  back to live). ⑤ Tables × list fields: `projectEntitiesToDataset` joins
+  multi-fact TEXT cells (", ", deduped); typed columns keep last.
+  ⑥ Held-conflict card: "current · candidate", no strike-through (the old
+  value IS current; accept = switch). VERIFIED: 5 new test blocks (22 tests
+  in `tests/reconcile.test.ts`), full suite 379 pass / 0 fail, tsc clean,
+  eslint clean (one pre-existing warning). ROADMAP follow-ups closed;
+  remaining: cardinality flag in the categories-modal template editor.
 - **2026-07-17** — **Extraction hardening tier 2 (user: "go on" after the
   free-improvements list — all zero-LLM).** ① Value-equality normalization:
   `upsertFact` compares text case/whitespace-insensitively ("Paid" vs "paid"

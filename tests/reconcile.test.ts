@@ -8,11 +8,16 @@ import {
   canonicalDateValue,
   canonicalizeNaturalKeys,
   declaredCardinality,
+  enrichSenderIdentity,
+  foldConceptKey,
+  foldPluralWord,
   groundExtractionEvidence,
   normalizePhone,
+  normalizeUnit,
   normalizeUrl,
   parseLooseDate,
   parseLooseNumber,
+  parseSender,
   reconcileExtraction,
   UNGROUNDED_CONFIDENCE_CAP,
 } from "../lib/datamodo/reconcile-core.ts";
@@ -246,4 +251,73 @@ test("parseLooseDate: needs an explicit year; vague phrases stay out", () => {
   assert.equal(parseLooseDate("March 3, 2026"), "2026-03-03");
   assert.equal(parseLooseDate("next Tuesday"), null);
   assert.equal(parseLooseDate("soon"), null);
+});
+
+test("normalizeUnit: currency spellings collapse so $100 and 100 USD share a slot", () => {
+  assert.equal(normalizeUnit("$"), "USD");
+  assert.equal(normalizeUnit("dollars"), "USD");
+  assert.equal(normalizeUnit("usd "), "USD");
+  assert.equal(normalizeUnit("€"), "EUR");
+  assert.equal(normalizeUnit("eur"), "EUR");
+  assert.equal(normalizeUnit("chf"), "CHF"); // bare 3-letter code uppercases
+  assert.equal(normalizeUnit("kg"), "kg");
+  assert.equal(normalizeUnit("bytes"), "bytes");
+
+  const { extraction } = reconcileExtraction({
+    entities: [{ localId: "e1", kind: "invoice", label: "INV-9" }],
+    facts: [{ subjectLocalId: "e1", predicate: "amount", value: { kind: "number", num: 100, unit: "$" } }],
+  });
+  assert.equal(extraction.facts[0].value.kind === "number" && extraction.facts[0].value.unit, "USD");
+});
+
+test("plural folding: concepts collapse singular/plural, tricky endings survive", () => {
+  assert.equal(foldPluralWord("strategies"), "strategy");
+  assert.equal(foldPluralWord("boxes"), "box");
+  assert.equal(foldPluralWord("notes"), "note");
+  assert.equal(foldPluralWord("invoices"), "invoice");
+  assert.equal(foldPluralWord("analysis"), "analysis");
+  assert.equal(foldPluralWord("glass"), "glass");
+  assert.equal(foldPluralWord("campus"), "campus");
+  assert.equal(foldConceptKey("marketing strategies"), "marketing strategy");
+  assert.equal(foldConceptKey("machine learning"), "machine learning");
+});
+
+test("parseSender: display-name + email forms, bare email, plain name", () => {
+  assert.deepEqual(parseSender("Bob Smith <Bob@Acme.com>"), { name: "Bob Smith", email: "bob@acme.com" });
+  assert.deepEqual(parseSender('"Smith, Bob" <bob@acme.com>'), { name: "Smith, Bob", email: "bob@acme.com" });
+  assert.deepEqual(parseSender("bob@acme.com"), { name: null, email: "bob@acme.com" });
+  assert.deepEqual(parseSender("whatsapp:+15551234567"), { name: "whatsapp:+15551234567", email: null });
+});
+
+test("enrichSenderIdentity: the sender's person entity inherits the envelope email — conservatively", () => {
+  const x: Extraction = {
+    entities: [
+      { localId: "e1", kind: "person", label: "Bob Smith" },
+      { localId: "e2", kind: "company", label: "Acme" },
+    ],
+    facts: [],
+  };
+  const enriched = enrichSenderIdentity(x, "Bob Smith <bob@acme.com>");
+  assert.equal(enriched.entities[0].naturalKeys?.email, "bob@acme.com");
+  assert.equal(enriched.entities[1].naturalKeys?.email, undefined);
+
+  // name mismatch → untouched
+  assert.equal(enrichSenderIdentity(x, "Alice Jones <alice@x.com>").entities[0].naturalKeys?.email, undefined);
+  // existing email is never overwritten
+  const hasEmail: Extraction = {
+    entities: [{ localId: "e1", kind: "person", label: "Bob Smith", naturalKeys: { email: "bob@personal.io" } }],
+    facts: [],
+  };
+  assert.equal(enrichSenderIdentity(hasEmail, "Bob Smith <bob@acme.com>").entities[0].naturalKeys?.email, "bob@personal.io");
+  // bare email (no display name) → no guess
+  assert.equal(enrichSenderIdentity(x, "bob@acme.com").entities[0].naturalKeys?.email, undefined);
+  // another entity already carries that email → no duplicate key
+  const dup: Extraction = {
+    entities: [
+      { localId: "e1", kind: "person", label: "Bob Smith" },
+      { localId: "e2", kind: "person", label: "Robert Smith", naturalKeys: { email: "bob@acme.com" } },
+    ],
+    facts: [],
+  };
+  assert.equal(enrichSenderIdentity(dup, "Bob Smith <bob@acme.com>").entities[0].naturalKeys?.email, undefined);
 });

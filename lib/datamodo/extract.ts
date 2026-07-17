@@ -6,7 +6,7 @@ import { ingestExtraction, createExtractionReview, normalizeKey, type Extraction
 import { buildNoteExtraction, NOTE_KIND, type GeneratedNote } from "@/lib/datamodo/document-extraction";
 import { getOnboardingContext } from "@/lib/datamodo/settings";
 import { renderKnownBlock } from "./priming-core.ts";
-import { groundExtractionEvidence, parseLooseDate, parseLooseNumber } from "./reconcile-core.ts";
+import { enrichSenderIdentity, groundExtractionEvidence, parseLooseDate, parseLooseNumber } from "./reconcile-core.ts";
 import {
   buildClassifyPrompt,
   buildDocumentPrompt,
@@ -318,10 +318,13 @@ export async function extractFromMessage(
 
   // Canonicalize against the user's registry: kind synonyms collapse to the
   // canonical slug, predicate synonyms to template field keys — so the same
-  // real-world fact always produces the same claim key.
-  const extraction = input.kinds?.length
+  // real-world fact always produces the same claim key. Then join the
+  // envelope to the graph: the person entity that IS the sender inherits the
+  // sender's email as a natural key (free tier-0 resolution next time).
+  const canonical = input.kinds?.length
     ? canonicalizeExtraction(grounded.extraction, input.kinds)
     : grounded.extraction;
+  const extraction = enrichSenderIdentity(canonical, input.sender);
   const note =
     raw.note && typeof raw.note.title === "string" && typeof raw.note.body === "string" && raw.note.body.trim()
       ? { title: raw.note.title.trim() || "Note", body: raw.note.body.trim() }
