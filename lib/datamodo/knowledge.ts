@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { getLlmProvider, type LlmProvider } from "@/lib/llm";
 import { embedTexts, embeddingsModel, toVectorLiteral } from "@/lib/llm/embeddings";
+import { declaredCardinality, foldConceptKey, reconcileExtraction, valueSlot } from "./reconcile-core.ts";
+import type { KindDef } from "./ontology";
 import type { KnowledgeEntityView, FactSourceView } from "./types";
 
 // Knowledge layer: turn an extraction (entities + facts pulled from one message)
@@ -53,6 +55,8 @@ export interface IngestExtractionResult {
   factsNew: number;
   factsDeduped: number;
   factsSuperseded: number;
+  /** Weaker-than-current claims recorded but NOT applied (pending review). */
+  factsHeld: number;
 }
 
 // --- Tuning knobs ------------------------------------------------------------
@@ -80,27 +84,15 @@ export function normalizeKey(e: Pick<ExtractedEntity, "kind" | "label" | "natura
     e.naturalKeys?.invoice_no ??
     e.naturalKeys?.id;
   if (strong) return `#${strong.trim().toLowerCase()}`;
-  return e.label
+  const key = e.label
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "") // strip accents (combining diacritics)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
-}
-
-/** Normalized representation of a fact's value, used in claim keys for
- *  multi-valued facts and to compare single-valued facts for equality. */
-function valueSlot(v: ExtractedFact["value"], resolve: (localId: string) => string): string {
-  switch (v.kind) {
-    case "text":
-      return "t:" + v.text.trim().toLowerCase();
-    case "number":
-      return "n:" + v.num + (v.unit ? ":" + v.unit : "");
-    case "date":
-      return "d:" + v.date;
-    case "entity":
-      return "e:" + resolve(v.entityLocalId);
-  }
+  // Concepts fold singular/plural ("marketing strategies" ≡ "marketing
+  // strategy") — topics are where plural drift multiplies nodes the worst.
+  return e.kind === "concept" ? foldConceptKey(key) : key;
 }
 
 /** Slot identity: single-valued facts key on (subject, predicate); multi-valued
@@ -428,7 +420,7 @@ async function countEntityEdges(orgId: string, entityId: string): Promise<number
 async function createConflictReview(
   orgId: string,
   ownerUserId: string | null,
-  args: { oldId: string; newId: string; subjectId: string; predicate: string },
+  args: { oldId: string; newId: string; subjectId: string; predicate: string; held?: boolean },
 ): Promise<void> {
   const count = await prisma.fact_sources.count({ where: { fact_id: args.oldId } });
   await prisma.knowledge_reviews.create({
@@ -441,7 +433,9 @@ async function createConflictReview(
       impact: count + 1,
       old_fact_id: args.oldId,
       new_fact_id: args.newId,
-      detail: { predicate: args.predicate },
+      // held: the new value was NOT applied (it looked weaker than what it
+      // would replace) — accept applies it, reject leaves the store untouched.
+      detail: args.held ? { predicate: args.predicate, held: true } : { predicate: args.predicate },
     },
   });
 }
@@ -583,7 +577,12 @@ function valueColumns(v: ExtractedFact["value"], resolve: (id: string) => string
   return cols;
 }
 
-type FactOutcome = "new" | "deduped" | "superseded";
+type FactOutcome = "new" | "deduped" | "superseded" | "held";
+
+// Supersession guard: a new value only auto-replaces the current one when it
+// isn't CLEARLY weaker. Weaker = confidence more than this margin below the
+// current fact's, or below a multi-source (corroborated) current fact.
+const SUPERSEDE_GUARD_MARGIN = 0.2;
 
 /** Normalize a date-ish value (Prisma returns Date for @db.Date columns; the
  *  LLM hands us "YYYY-MM-DD" strings) to a comparable YYYY-MM-DD, or null. */
@@ -593,10 +592,31 @@ function dateOnly(v: Date | string | null): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
+/** The current-claim row upsertFact compares against (see prefetch note). */
+interface CurrentClaim {
+  id: string;
+  confidence: unknown;
+  value_text: string | null;
+  value_num: unknown;
+  value_date: Date | null;
+  object_entity_id: string | null;
+}
+
+const CURRENT_CLAIM_SELECT = {
+  id: true,
+  confidence: true,
+  value_text: true,
+  value_num: true,
+  value_date: true,
+  object_entity_id: true,
+} as const;
+
 /**
  * Upsert one fact into the canonical store. Single indexed lookup on claim_key —
  * no scan. Same slot+value → add provenance (dedup). Same slot, new value →
  * supersede (append-only). New slot → insert.
+ * `prefetched`: the current claim row when the caller batch-loaded it
+ * (null = known absent); undefined = look it up live.
  */
 async function upsertFact(
   orgId: string,
@@ -605,16 +625,20 @@ async function upsertFact(
   fact: ExtractedFact,
   sourceItemId: string | null,
   resolve: (localId: string) => string,
+  prefetched?: CurrentClaim | null,
 ): Promise<FactOutcome> {
   const slot = valueSlot(fact.value, resolve);
   const key = claimKey(fact, subjectId, slot);
   const cols = valueColumns(fact.value, resolve);
   const now = new Date();
 
-  const current = await prisma.facts.findFirst({
-    where: { org_id: orgId, claim_key: key, valid_to: null },
-    select: { id: true, value_text: true, value_num: true, value_date: true, object_entity_id: true },
-  });
+  const current =
+    prefetched !== undefined
+      ? prefetched
+      : ((await prisma.facts.findFirst({
+          where: { org_id: orgId, claim_key: key, valid_to: null },
+          select: CURRENT_CLAIM_SELECT,
+        })) as CurrentClaim | null);
 
   const addSource = async (factId: string) => {
     // NULLs are distinct in the (fact_id, source_item_id) unique index, so a
@@ -648,7 +672,7 @@ async function upsertFact(
     });
   };
 
-  const insertFact = async (): Promise<string> => {
+  const insertFact = async (opts: { retired?: boolean } = {}): Promise<string> => {
     const data = await prisma.facts.create({
       data: {
         org_id: orgId,
@@ -659,6 +683,9 @@ async function upsertFact(
         claim_key: key,
         confidence: fact.confidence ?? 1.0,
         valid_from: now,
+        // retired: recorded but not current (a held candidate awaiting review)
+        // — keeps it out of the valid_to IS NULL partial unique index too.
+        valid_to: opts.retired ? now : null,
         source_item_id: sourceItemId,
         ...cols,
         // Prisma's @db.Date needs a real Date — a bare "YYYY-MM-DD" string
@@ -676,8 +703,12 @@ async function upsertFact(
   }
 
   // A current fact exists for this slot. Same value → re-observation (dedup).
+  // Text compares case/whitespace-insensitively: "Paid" restating "paid" is a
+  // re-observation, not a contradiction (first-seen casing stays on display).
+  const textEq = (a: string | null, b: string | null) =>
+    (a == null ? null : a.trim().toLowerCase()) === (b == null ? null : b.trim().toLowerCase());
   const sameValue =
-    (current.value_text ?? null) === cols.value_text &&
+    textEq(current.value_text ?? null, cols.value_text) &&
     (current.value_num == null ? null : Number(current.value_num)) === cols.value_num &&
     dateOnly(current.value_date) === dateOnly(cols.value_date) &&
     (current.object_entity_id ?? null) === cols.object_entity_id;
@@ -696,6 +727,30 @@ async function upsertFact(
     dateOnly(current.value_date) == null &&
     current.object_entity_id == null;
 
+  // SUPERSESSION GUARD: a clearly weaker claim never silently overwrites what
+  // we already believe — a 0.3-confidence misread must not replace a
+  // corroborated 0.95 value with only a review as consolation. The candidate
+  // is recorded RETIRED (provenance kept) and the conflict files as a
+  // held/pending decision: accept applies it, reject leaves the store as-is.
+  if (!placeholder) {
+    const newConf = fact.confidence ?? 1;
+    const curConf = current.confidence == null ? 1 : Number(current.confidence);
+    const curSources = await prisma.fact_sources.count({ where: { fact_id: current.id } });
+    const weaker = newConf < curConf - SUPERSEDE_GUARD_MARGIN || (curSources >= 2 && newConf < curConf);
+    if (weaker) {
+      const heldId = await insertFact({ retired: true });
+      await addSource(heldId);
+      await createConflictReview(orgId, ownerUserId, {
+        oldId: current.id,
+        newId: heldId,
+        subjectId,
+        predicate: fact.predicate,
+        held: true,
+      });
+      return "held";
+    }
+  }
+
   // Different value on a single-valued slot → contradiction: supersede, don't
   // delete. (Multi-valued facts never reach here — their value is in the key.)
   // Retire the old fact FIRST so it leaves the `valid_to IS NULL` partial unique
@@ -713,6 +768,105 @@ async function upsertFact(
     predicate: fact.predicate,
   });
   return "superseded";
+}
+
+/**
+ * Align the incoming facts' cardinality with what the store already holds for
+ * each (subject, predicate) slot — the cross-message leg of reconciliation:
+ * - STICKINESS: a slot that already accumulates as a list ("many" facts exist)
+ *   turns new single values into list members, instead of letting a bare
+ *   `subject::predicate` fact appear next to the list.
+ * - MIGRATION: when a list is arriving but an old single-valued fact still
+ *   holds the bare claim key, that fact converts to list form (claim key gains
+ *   its value slot) so old and new values coexist — a template placeholder
+ *   (all-null) simply retires, since the arriving values fill the field.
+ * One indexed query; a handful of targeted updates only when shapes disagree.
+ */
+async function alignSlotCardinality(
+  orgId: string,
+  extraction: Extraction,
+  idMap: Map<string, string>,
+  kinds: KindDef[],
+): Promise<void> {
+  if (extraction.facts.length === 0) return;
+  const subjIds = [...new Set(extraction.facts.map((f) => idMap.get(f.subjectLocalId)).filter(Boolean))] as string[];
+  const preds = [...new Set(extraction.facts.map((f) => f.predicate))];
+  interface SlotFact {
+    id: string;
+    subject_entity_id: string;
+    predicate: string;
+    cardinality: string;
+    claim_key: string;
+    value_text: string | null;
+    value_num: unknown;
+    value_date: Date | null;
+    unit: string | null;
+    object_entity_id: string | null;
+  }
+  const existing = (await prisma.facts.findMany({
+    where: { org_id: orgId, valid_to: null, subject_entity_id: { in: subjIds }, predicate: { in: preds } },
+    select: {
+      id: true,
+      subject_entity_id: true,
+      predicate: true,
+      cardinality: true,
+      claim_key: true,
+      value_text: true,
+      value_num: true,
+      value_date: true,
+      unit: true,
+      object_entity_id: true,
+    },
+  })) as unknown as SlotFact[];
+  if (existing.length === 0) return;
+
+  interface PairState { hasMany: boolean; base: SlotFact | null; keys: Set<string> }
+  const byPair = new Map<string, PairState>();
+  for (const f of existing) {
+    const pk = `${f.subject_entity_id}::${f.predicate}`;
+    const p = byPair.get(pk) ?? { hasMany: false, base: null, keys: new Set<string>() };
+    if (f.cardinality === "many") p.hasMany = true;
+    if (f.claim_key === pk) p.base = f;
+    p.keys.add(f.claim_key);
+    byPair.set(pk, p);
+  }
+
+  const kindByLocal = new Map(extraction.entities.map((e) => [e.localId, e.kind]));
+  const now = new Date();
+  const migratedPairs = new Set<string>();
+  for (const f of extraction.facts) {
+    const subjId = idMap.get(f.subjectLocalId);
+    if (!subjId) continue;
+    const pk = `${subjId}::${f.predicate}`;
+    const pair = byPair.get(pk);
+    if (!pair) continue;
+    const declared = declaredCardinality(kinds, kindByLocal.get(f.subjectLocalId) ?? "thing", f.predicate);
+    if (f.cardinality !== "many" && pair.hasMany && declared !== "one") f.cardinality = "many";
+    if (f.cardinality !== "many" || !pair.base || migratedPairs.has(pk)) continue;
+    migratedPairs.add(pk);
+    const b = pair.base;
+    const placeholder = b.value_text == null && b.value_num == null && dateOnly(b.value_date) == null && b.object_entity_id == null;
+    if (placeholder) {
+      await prisma.facts.update({ where: { id: b.id }, data: { valid_to: now } });
+      continue;
+    }
+    // Must mirror valueSlot() exactly so the migrated key matches what the
+    // same value would produce arriving fresh.
+    const slot =
+      b.object_entity_id != null ? "e:" + b.object_entity_id
+      : b.value_num != null ? "n:" + Number(b.value_num) + (b.unit ? ":" + b.unit : "")
+      : dateOnly(b.value_date) != null ? "d:" + dateOnly(b.value_date)
+      : "t:" + (b.value_text ?? "").trim().toLowerCase();
+    const target = `${pk}::${slot}`;
+    if (pair.keys.has(target)) {
+      // A list fact with this very value already exists — the bare fact is
+      // pure redundancy; retire it.
+      await prisma.facts.update({ where: { id: b.id }, data: { valid_to: now } });
+    } else {
+      await prisma.facts.update({ where: { id: b.id }, data: { cardinality: "many", claim_key: target } });
+      pair.keys.add(target);
+    }
+  }
 }
 
 // --- Orchestration -----------------------------------------------------------
@@ -782,12 +936,19 @@ export async function ensureTemplateSlots(
     for (const key of fieldsByKind.get(e.kind) ?? []) wanted.push({ entityId: e.id, predicate: key });
   }
   if (wanted.length === 0) return 0;
-  const claimKeys = wanted.map((w) => `${w.entityId}::${w.predicate}`);
+  // A slot counts as filled when ANY current fact carries the predicate —
+  // including multi-valued ("many") facts, whose claim keys embed the value and
+  // so never match the bare `${entity}::${predicate}` placeholder key.
   const existing = await prisma.facts.findMany({
-    where: { org_id: orgId, claim_key: { in: claimKeys }, valid_to: null },
-    select: { claim_key: true },
+    where: {
+      org_id: orgId,
+      valid_to: null,
+      subject_entity_id: { in: [...new Set(wanted.map((w) => w.entityId))] },
+      predicate: { in: [...new Set(wanted.map((w) => w.predicate))] },
+    },
+    select: { subject_entity_id: true, predicate: true },
   });
-  const have = new Set(existing.map((f) => f.claim_key));
+  const have = new Set(existing.map((f) => `${f.subject_entity_id}::${f.predicate}`));
   const missing = wanted.filter((w) => !have.has(`${w.entityId}::${w.predicate}`));
   if (missing.length === 0) return 0;
   const now = new Date();
@@ -821,7 +982,30 @@ export async function ingestExtraction(
     factsNew: 0,
     factsDeduped: 0,
     factsSuperseded: 0,
+    factsHeld: 0,
   };
+
+  // The registry is loaded ONCE per ingest: reconciliation reads declared
+  // cardinality from it here, the template-slot fill reuses it at the end.
+  // Fail-soft — ingest works registry-less (heuristics only).
+  const kinds: KindDef[] = await import("./kinds")
+    .then(({ listKinds }) => listKinds(orgId, ownerUserId))
+    .catch(() => []);
+
+  // WITHIN-EXTRACTION RECONCILIATION (deterministic, zero LLM — see
+  // reconcile-core.ts): drop broken/self references instead of failing the
+  // item, collapse repeats, enforce declared cardinality, and promote
+  // same-message multi-values to "many" so "author: xxx, author: yyy" lands as
+  // two coexisting facts — never a last-one-wins supersession chain.
+  const reconciled = reconcileExtraction(extraction, kinds);
+  extraction = reconciled.extraction;
+  const st = reconciled.stats;
+  if (st.droppedUnknownRef || st.droppedSelfRef || st.droppedEmpty || st.mergedDuplicates || st.promotedToMany || st.conflictsResolved) {
+    console.log(
+      `[knowledge] reconcile: ${st.droppedUnknownRef} unknown-ref, ${st.droppedSelfRef} self-ref, ${st.droppedEmpty} empty-value dropped; ` +
+        `${st.mergedDuplicates} duplicates merged; ${st.promotedToMany} promoted to many; ${st.conflictsResolved} same-message conflicts resolved`,
+    );
+  }
 
   // Embed every extracted entity in ONE batch call (fail-soft: null → the
   // trigram-only path). The vector powers semantic blocking now and stays on
@@ -846,19 +1030,46 @@ export async function ingestExtraction(
     return id;
   };
 
-  for (const f of extraction.facts) {
+  // CROSS-MESSAGE CARDINALITY ALIGNMENT: reconcile settled cardinality within
+  // this extraction; the store may disagree from earlier messages. Best-effort
+  // — alignment failing must never fail the ingest.
+  try {
+    await alignSlotCardinality(orgId, extraction, idMap, kinds);
+  } catch (e) {
+    console.error("[knowledge] slot-cardinality alignment failed", e);
+  }
+
+  // Batch the current-claim lookups: ONE indexed query for every fact's claim
+  // key (post-alignment, so migrated keys are seen), instead of a round-trip
+  // per fact — on Neon that's the difference between 1 and N network hops.
+  const factKeys = extraction.facts.map((f) => {
     const subjectId = resolve(f.subjectLocalId);
-    const outcome = await upsertFact(orgId, ownerUserId, subjectId, f, sourceItemId, resolve);
+    return { f, subjectId, key: claimKey(f, subjectId, valueSlot(f.value, resolve)) };
+  });
+  const currentRows = factKeys.length
+    ? ((await prisma.facts.findMany({
+        where: { org_id: orgId, claim_key: { in: [...new Set(factKeys.map((x) => x.key))] }, valid_to: null },
+        select: { claim_key: true, ...CURRENT_CLAIM_SELECT },
+      })) as unknown as ({ claim_key: string } & CurrentClaim)[])
+    : [];
+  const currentByKey = new Map(currentRows.map((r) => [r.claim_key, r as CurrentClaim]));
+
+  // Keys this loop already wrote go back to live lookups: two facts CAN share
+  // a claim key when different localIds resolved to the same entity.
+  const written = new Set<string>();
+  for (const { f, subjectId, key } of factKeys) {
+    const prefetched = written.has(key) ? undefined : (currentByKey.get(key) ?? null);
+    const outcome = await upsertFact(orgId, ownerUserId, subjectId, f, sourceItemId, resolve, prefetched);
+    written.add(key);
     if (outcome === "new") res.factsNew++;
     else if (outcome === "deduped") res.factsDeduped++;
+    else if (outcome === "held") res.factsHeld++;
     else res.factsSuperseded++;
   }
 
   // TEMPLATE BLOCK: every templated node ends the ingest with AT LEAST its
   // template fields (null-filled). Best-effort — never fails the ingest.
   try {
-    const { listKinds } = await import("./kinds");
-    const kinds = await listKinds(orgId, ownerUserId);
     await ensureTemplateSlots(
       orgId,
       ownerUserId,

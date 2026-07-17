@@ -22,6 +22,9 @@ export interface KindField {
   type: "text" | "number" | "date" | "entity";
   unit?: string;
   required?: boolean;
+  /** Single-valued attribute vs list ("many": a paper's authors, a person's
+   *  emails). Fields default to "one" — see reconcile-core.declaredCardinality. */
+  cardinality?: "one" | "many";
   /** Synonyms the LLM tends to produce; canonicalized to `key`. */
   aliases?: string[];
 }
@@ -31,6 +34,9 @@ export interface KindRelation {
   label: string; // "issued by"
   /** Kind the edge usually points at ("company"); informative, not enforced. */
   targetKind?: string;
+  /** Relations default to "many" (edges accumulate); declare "one" for
+   *  genuinely exclusive links (an invoice's issued_by). */
+  cardinality?: "one" | "many";
   aliases?: string[];
 }
 
@@ -64,8 +70,8 @@ export const DEFAULT_KINDS: KindDef[] = [
     aliases: ["people", "contact", "individual", "human"],
     fields: [
       { key: "role", label: "Role", type: "text", aliases: ["title", "job_title", "position"] },
-      { key: "email", label: "Email", type: "text", aliases: ["email_address", "sender_email"] },
-      { key: "phone", label: "Phone", type: "text", aliases: ["phone_number", "tel"] },
+      { key: "email", label: "Email", type: "text", cardinality: "many", aliases: ["email_address", "sender_email"] },
+      { key: "phone", label: "Phone", type: "text", cardinality: "many", aliases: ["phone_number", "tel"] },
     ],
     relations: [
       { predicate: "works_for", label: "works for", targetKind: "company", aliases: ["employed_by", "works_at", "affiliation"] },
@@ -105,8 +111,8 @@ export const DEFAULT_KINDS: KindDef[] = [
       { key: "invoice_no", label: "Invoice no", type: "text", aliases: ["invoice_number", "number", "reference"] },
     ],
     relations: [
-      { predicate: "issued_by", label: "issued by", targetKind: "company", aliases: ["from", "issuer", "sender"] },
-      { predicate: "billed_to", label: "billed to", aliases: ["to", "recipient", "client"] },
+      { predicate: "issued_by", label: "issued by", targetKind: "company", cardinality: "one", aliases: ["from", "issuer", "sender"] },
+      { predicate: "billed_to", label: "billed to", cardinality: "one", aliases: ["to", "recipient", "client"] },
     ],
     builtin: true,
   },
@@ -120,7 +126,7 @@ export const DEFAULT_KINDS: KindDef[] = [
     aliases: ["file", "pdf", "paper", "article", "report", "attachment", "contract"],
     fields: [
       { key: "title", label: "Title", type: "text", aliases: ["name", "document_title"] },
-      { key: "author", label: "Author", type: "text", aliases: ["written_by", "authors"] },
+      { key: "author", label: "Author", type: "text", cardinality: "many", aliases: ["written_by", "authors"] },
       { key: "file_type", label: "File type", type: "text" },
       { key: "file_size", label: "File size", type: "number", unit: "bytes" },
       { key: "indexed", label: "Indexed", type: "text" },
@@ -452,9 +458,11 @@ export function promptCategories(kinds: KindDef[]): string {
   if (kinds.length === 0) return "";
   const lines = kinds.map((k) => {
     const fields = k.fields
-      .map((f) => `${f.key}(${f.type}${f.unit ? " " + f.unit : ""}${f.required ? ", required" : ""})`)
+      .map((f) => `${f.key}(${f.type}${f.unit ? " " + f.unit : ""}${f.required ? ", required" : ""}${f.cardinality === "many" ? ", list" : ""})`)
       .join(", ");
-    const rels = k.relations.map((r) => `${r.predicate}${r.targetKind ? "→" + r.targetKind : ""}`).join(", ");
+    const rels = k.relations
+      .map((r) => `${r.predicate}${r.targetKind ? "→" + r.targetKind : ""}${r.cardinality === "one" ? " (single)" : ""}`)
+      .join(", ");
     const parts = [k.description ? `${k.description}` : null, fields ? `fields: ${fields}` : null, rels ? `relations: ${rels}` : null]
       .filter(Boolean)
       .join(" · ");
@@ -578,10 +586,10 @@ export function buildImagePrompt(input: ImagePromptInput): string {
  *  document already classified into it. */
 export function promptKindTemplate(kind: KindDef): string {
   const fields = kind.fields
-    .map((f) => `${f.key} (${f.type}${f.unit ? ", " + f.unit : ""}${f.required ? ", required" : ""})`)
+    .map((f) => `${f.key} (${f.type}${f.unit ? ", " + f.unit : ""}${f.required ? ", required" : ""}${f.cardinality === "many" ? ", list — one fact per value" : ""})`)
     .join(", ");
   const rels = kind.relations
-    .map((r) => `${r.predicate}${r.targetKind ? " → a " + r.targetKind : ""}`)
+    .map((r) => `${r.predicate}${r.targetKind ? " → a " + r.targetKind : ""}${r.cardinality === "one" ? " (single)" : ""}`)
     .join(", ");
   return [
     `The document's PRIMARY SUBJECT is a ${kind.kind}${kind.description ? ` (${kind.description})` : ""}.`,

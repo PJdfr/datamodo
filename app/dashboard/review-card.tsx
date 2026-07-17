@@ -116,17 +116,20 @@ export function ReviewCardBody({ item, skin }: { item: ReviewItem; skin: ReviewS
   }
 
   if (item.kind === "fact_conflict") {
+    // held: the guard KEPT the old value current — the candidate was recorded
+    // but not applied, so nothing gets struck through; accept = switch.
+    const held = !!item.held;
     return (
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 11, flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 130 }}>
             <div className="dm-mono" style={{ ...kicker(skin), marginBottom: 3 }}>current · {item.wasSource}</div>
-            <div style={{ fontSize: 13.5, color: skin.strike, textDecoration: "line-through" }}>{item.was}</div>
+            <div style={held ? { fontSize: 13.5, color: skin.text, fontWeight: 700 } : { fontSize: 13.5, color: skin.strike, textDecoration: "line-through" }}>{item.was}</div>
           </div>
-          <span style={{ color: skin.faint, fontSize: 15 }}>→</span>
+          <span style={{ color: skin.faint, fontSize: 15 }}>{held ? "·" : "→"}</span>
           <div style={{ flex: 1, minWidth: 130 }}>
-            <div className="dm-mono" style={{ ...kicker(skin), color: skin.good, marginBottom: 3 }}>new · {item.nowSource}</div>
-            <div style={{ fontSize: 13.5, color: skin.text, fontWeight: 700 }}>{item.now}</div>
+            <div className="dm-mono" style={{ ...kicker(skin), color: skin.good, marginBottom: 3 }}>{held ? "candidate" : "new"} · {item.nowSource}</div>
+            <div style={{ fontSize: 13.5, color: skin.text, fontWeight: held ? 400 : 700 }}>{item.now}</div>
           </div>
         </div>
         {item.note && <div style={{ fontSize: 11.5, color: skin.faint, marginTop: 7, fontStyle: "italic" }}>{item.note}</div>}

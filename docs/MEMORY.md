@@ -111,6 +111,20 @@ reviewable, nothing is ever silently lost or merged.
   extra metadata beyond the template stays welcome. Tables then just read
   the metadata. Placeholder facts never count as links (orphan pass),
   telemetry usage, or adjudication context.
+- **Cardinality is registry semantics, not a per-message LLM guess**
+  (decided 2026-07-17). Template FIELDS are single-valued (`"one"`) unless
+  declared `"many"`; RELATIONS accumulate (`"many"`) unless declared `"one"`
+  (`KindField`/`KindRelation.cardinality`, defaults in
+  `reconcile-core.declaredCardinality`). Several distinct values for one
+  predicate IN THE SAME extraction are never a supersession — they're a list
+  (promote to `"many"`) or an extraction error (declared-`"one"`: keep the
+  most confident). Supersession + `fact_conflict` reviews are reserved for
+  genuine change ACROSS messages — and even then a clearly WEAKER claim
+  (confidence far below, or against a multi-source fact) is HELD pending
+  review instead of auto-applied (`detail.held`; accept = switch). Evidence
+  is verified for free: snippets/numbers absent from the source text cap the
+  fact's confidence (`groundExtractionEvidence`) — absence of evidence never
+  penalizes. The whole pass is deterministic — zero LLM.
 - **Entity resolution never trusts similarity alone** — cosine/trigram only
   RECALL candidates; merging needs deterministic keys, high trigram, or LLM
   adjudication with confidence policy; uncertain merges become proposals.
