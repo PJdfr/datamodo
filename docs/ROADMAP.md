@@ -661,20 +661,14 @@ real questions).
   seam in `analytics.ts`).
 
 ## Owed by a human (ops, not code)
-- **Apply pending Neon migrations on dev + prod**: `20260717090000_routing_feedback.sql`
-  (adaptive routing — the feedback log drops events, the learning pass and
-  centroid boosts stay dormant until applied; routing itself keeps working),
-  `20260716210000_entity_usage.sql`
-  (usage-weighted retention — fail-soft until applied: retrieval stamps no-op
-  and the orphan pass just lacks the read-side guard), plus the earlier
-  `20260714120000_llm_usage.sql`
-  (BYOK cost ledger — dormant/fail-soft until applied),
-  `20260716150000_oauth.sql` (MCP OAuth for claude.ai connectors — the
-  register/token endpoints 500 and the consent page shows "unknown client"
-  until applied; HMAC tokens keep working regardless), and
-  `20260716170000_byok_cap.sql` (spend cap column — getSettings selects it,
-  so cloud dashboards ERROR without it once this ships; apply before
-  promoting). Optional env `MCP_TOKEN_SECRET` (else falls back to
+- ~~**Apply pending Neon migrations on dev + prod**~~ ✅ 2026-07-17 — ALL
+  pending migrations are now applied on BOTH branches via Neon MCP
+  (verified column-by-column): `20260716210000_entity_usage`,
+  `20260716220000_fact_agent_lens`, `20260716230000_perf_indexes`,
+  `20260717090000_routing_feedback` applied this session;
+  `20260714120000_llm_usage`, `20260716150000_oauth`,
+  `20260716170000_byok_cap` found already applied. Nothing owed.
+  Optional env `MCP_TOKEN_SECRET` (else falls back to
   `NEON_AUTH_COOKIE_SECRET`).
 - Vercel env: `OPENROUTER_VISION_MODEL`, embeddings key, transcription key
   (`TRANSCRIPTION_API_KEY` or reuse `OPENAI_API_KEY`), `NEXT_PUBLIC_SITE_URL`
