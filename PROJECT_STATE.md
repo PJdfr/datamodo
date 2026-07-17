@@ -12,6 +12,52 @@
 > Last updated: 2026-07-17
 
 ## Recent changes
+- **2026-07-17** — **Connect-Claude card became a guided flow (user ask:
+  "adding the MCP to Claude isn't clear — feels like editing a JSON").**
+  `McpConnectCard` (Settings) redesigned: auto-loads the connection on
+  mount (the URL isn't a secret; the old "Show connection" click is gone),
+  leads with a one-click "⧉ Copy URL" and three numbered steps — cloud:
+  paste into claude.ai Settings → Connectors (direct link) → "Add custom
+  connector" → Approve in the browser (OAuth already shipped, so it IS a
+  paste-one-URL flow — the card now says so: "no JSON files, no tokens to
+  paste"); local: same flow via the Claude desktop app on this machine
+  (claude.ai web can't reach localhost). The `claude mcp add` one-liner and
+  the bearer token moved behind a "▸ Claude Code & API" disclosure — the
+  token never confronts a non-dev. New `CopyBtn` (Copied ✓ feedback).
+  Verified: tsc clean, lint == baseline, build green, suite 363, and 8/8
+  Playwright checks on a served local instance (auto-load, steps rendered,
+  "no JSON" copy, disclosure closed by default → reveals the one-liner,
+  copy feedback, zero page errors) + screenshot eyeballed on-brand. The
+  cloud variant's copy shares the same JSX path; its claude.ai link/OAuth
+  wording rides the token≠null branch (exercised in code, rendered variant
+  needs a cloud session to eyeball).
+- **2026-07-17** — **MCP datamodo mode: Claude chat AS datamodo chat (user
+  ask).** The MCP server now steers the client into behaving like the app:
+  ① `MCP_INSTRUCTIONS` (pure, in mcp-extraction.ts) ride the initialize
+  response — when to engage (keepable real-life info / questions about the
+  user's own world / remember-this asks), the filing loop
+  (extraction_briefing → extract → submit_extraction with sourceText, note
+  for write-ups, capture_message for raw dumps), the answering loop
+  (get_context/list_facts/search_documents/walk_graph, admit gaps), and
+  review etiquette (resolve only on explicit yes/no). ② New 15th tool
+  `extraction_briefing(text)`: ONE call returns `EXTRACTION_DOCTRINE` (the
+  MCP-contract twin of extract.ts's SYSTEM prompt — keep them in sync) plus
+  the user's categories/templates, relevance-PRIMED known entities (the
+  same primeKnownEntities legs the pipeline uses), concept leash, business
+  context, and agents — so a client extraction lands with pipeline-quality
+  steering. ③ `submit_extraction` gained `note{title,body}` — the chat
+  channel's substantive-write-up parity via the SAME buildNoteExtraction
+  (note node keyed `note:<itemId>`, mentions/about edges, body_md page);
+  a note without itemId/sourceText bounces BEFORE any write. serverInfo →
+  1.1.0. Verified: suite 363 (2 new tests pin doctrine↔contract and
+  instructions↔tool-name consistency), tsc clean, lint == baseline,
+  boundary clean, build green, and **18/18 live E2E** against a served
+  local instance (tokenless MCP at /api/mcp/mcp): instructions on
+  initialize, 15 tools listed, briefing shape, file → note authored + edged
+  + body readable, bounce files nothing, get_context/list_facts read-back,
+  refiled source converges (0 new entities). Not verified: claude.ai's
+  actual folding of instructions into its system context (needs a real
+  connector session — worth one manual conversation after deploy).
 - **2026-07-17** — **README rewritten for the GitHub front page (user ask).**
   The old README still described the Supabase era (pre-2026-07-09 stack,
   shipped features listed as "remaining") — replaced wholesale: local install

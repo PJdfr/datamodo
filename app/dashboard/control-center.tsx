@@ -2565,21 +2565,41 @@ function UsageCard() {
  * revokes its tokens on the spot. */
 type McpGrant = { clientId: string; clientName: string; tokens: number; connectedAt: string };
 
+/** One-click copy with feedback — the connect flow must never require
+ *  text-selection gymnastics. */
+function CopyBtn({ value, label }: { value: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Hov
+      onClick={() => { void navigator.clipboard?.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+      base={{ ...ghostBtn, flexShrink: 0, padding: "6px 12px", fontSize: 11.5, ...(copied ? { color: C.accent } : {}) }}
+      hover={{ background: "#FBF8F1" }}
+    >
+      {copied ? "Copied ✓" : label ?? "⧉ Copy"}
+    </Hov>
+  );
+}
+
 function McpConnectCard() {
   const [conn, setConn] = useState<{ url: string; token: string | null; grants?: McpGrant[] } | null>(null);
-  const [state, setState] = useState<"idle" | "loading" | "error">("idle");
+  const [state, setState] = useState<"loading" | "ready" | "unconfigured" | "error">("loading");
+  const [devOpen, setDevOpen] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
-  const reveal = async () => {
-    setState("loading");
-    try {
-      const res = await fetch("/api/mcp-token");
-      if (!res.ok) throw new Error();
-      setConn(await res.json());
-      setState("idle");
-    } catch {
-      setState("error");
-    }
-  };
+  // The URL isn't a secret — load it up front so the card IS the guide.
+  // (The bearer token stays folded behind the developer disclosure.)
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/mcp-token")
+      .then(async (res) => {
+        if (!alive) return;
+        if (res.status === 501) { setState("unconfigured"); return; }
+        if (!res.ok) throw new Error();
+        setConn(await res.json());
+        setState("ready");
+      })
+      .catch(() => { if (alive) setState("error"); });
+    return () => { alive = false; };
+  }, []);
   const disconnect = async (clientId: string) => {
     setRevoking(clientId);
     try {
@@ -2592,38 +2612,77 @@ function McpConnectCard() {
       setRevoking(null);
     }
   };
-  const mono: React.CSSProperties = { fontSize: 11, color: "#3A352C", background: "#fff", border: "1px solid #ECE5D8", borderRadius: 8, padding: "7px 10px", overflowWrap: "anywhere", userSelect: "all" };
+  const mono: React.CSSProperties = { fontSize: 11, color: "#3A352C", background: "#fff", border: "1px solid #ECE5D8", borderRadius: 8, padding: "7px 10px", overflowWrap: "anywhere", userSelect: "all", minWidth: 0, flex: 1 };
+  const stepNo: React.CSSProperties = { color: C.accent, fontWeight: 700, flexShrink: 0, width: 16 };
+  const step: React.CSSProperties = { display: "flex", gap: 8, alignItems: "baseline", fontSize: 12.5, color: "#3A352C", lineHeight: 1.55 };
+  const codeLine = conn
+    ? `claude mcp add --transport http datamodo ${conn.url}${conn.token ? ` --header "Authorization: Bearer ${conn.token}"` : ""}`
+    : "";
   return (
     <div style={{ marginTop: 18, padding: "14px 16px", border: "1px solid #E7E0D2", borderRadius: 12, background: "#fff" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: 15 }}><span style={{ color: C.accent }}>✦</span> Connect Claude</div>
-          <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Use your vault from Claude — it reads your graph, files extractions, and resolves reviews over MCP. Runs on your Claude subscription, no API key.</div>
-        </div>
-        {!conn && (
-          <Hov onClick={state === "loading" ? undefined : () => void reveal()} base={{ ...ghostBtn, flexShrink: 0 }} hover={{ background: "#FBF8F1" }}>
-            {state === "loading" ? "…" : "Show connection"}
-          </Hov>
-        )}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 15 }}><span style={{ color: C.accent }}>✦</span> Connect Claude</div>
+        <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>Talk to your vault from any Claude chat — Claude reads your graph, files what you tell it, and asks before merging. Runs on your Claude subscription; no API key, no config files.</div>
       </div>
-      {state === "error" && <div className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginTop: 10 }}>MCP isn&apos;t configured on this deployment yet.</div>}
-      {conn && (
-        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>Server URL</div>
-          <div className="dm-mono" style={mono}>{conn.url}</div>
-          {conn.token && (
-            <>
-              <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>Bearer token — treat it like a password</div>
-              <div className="dm-mono" style={mono}>{conn.token}</div>
-            </>
+      {state === "loading" && <div className="dm-mono" style={{ fontSize: 11, color: "#A39B8B", marginTop: 10 }}>…</div>}
+      {state === "unconfigured" && <div className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginTop: 10 }}>MCP isn&apos;t configured on this deployment yet.</div>}
+      {state === "error" && <div className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginTop: 10 }}>Couldn&apos;t load the connection — reload the page to retry.</div>}
+      {conn && state === "ready" && (
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div className="dm-mono" style={mono}>{conn.url}</div>
+            <CopyBtn value={conn.url} label="⧉ Copy URL" />
+          </div>
+          {conn.token ? (
+            // CLOUD: OAuth makes this a paste-one-URL flow — lead with it.
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={step}><span style={stepNo}>1</span><span>Copy the URL above.</span></div>
+              <div style={step}>
+                <span style={stepNo}>2</span>
+                <span>
+                  In Claude, open{" "}
+                  <a href="https://claude.ai/settings/connectors" target="_blank" rel="noreferrer" style={{ color: C.accent, textDecoration: "none", borderBottom: `1px solid ${C.accent}` }}>
+                    Settings → Connectors ↗
+                  </a>{" "}
+                  → <b>Add custom connector</b> → paste the URL. (Same path in the Claude desktop and mobile apps.)
+                </span>
+              </div>
+              <div style={step}><span style={stepNo}>3</span><span>Claude sends you here to approve — click <b>Approve</b> and you&apos;re connected. That&apos;s it: no JSON files, no tokens to paste.</span></div>
+            </div>
+          ) : (
+            // LOCAL: claude.ai (the website) can't reach this machine — the
+            // desktop app and Claude Code on THIS machine are the doors.
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={step}><span style={stepNo}>1</span><span>Copy the URL above. (No token needed — this vault lives on your machine, and only this machine can reach it.)</span></div>
+              <div style={step}><span style={stepNo}>2</span><span>In the <b>Claude desktop app</b> (on this machine): Settings → Connectors → <b>Add custom connector</b> → paste the URL.</span></div>
+              <div style={step}><span style={stepNo}>3</span><span>Done — no JSON files to edit. (claude.ai in the browser can&apos;t reach localhost; use the desktop app or Claude Code.)</span></div>
+            </div>
           )}
-          <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", lineHeight: 1.6 }}>
-            {conn.token ? (
-              <>claude.ai: Settings → Connectors → Add custom connector → paste the server URL — you&apos;ll approve the connection in your browser (no token to copy).
-              <br />Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url} --header &quot;Authorization: Bearer {conn.token}&quot;</span></>
-            ) : (
-              <>No token needed — this vault lives on your machine, and only this machine can reach it.
-              <br />Claude Code: <span style={{ userSelect: "all" }}>claude mcp add --transport http datamodo {conn.url}</span></>
+          <div>
+            <button
+              type="button"
+              onClick={() => setDevOpen((v) => !v)}
+              className="dm-mono"
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 10.5, color: "#A39B8B", letterSpacing: "0.04em" }}
+            >
+              {devOpen ? "▾" : "▸"} Claude Code &amp; API {conn.token ? "(shows your access token)" : ""}
+            </button>
+            {devOpen && (
+              <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <div className="dm-mono" style={mono}>{codeLine}</div>
+                  <CopyBtn value={codeLine} label="⧉ Copy" />
+                </div>
+                {conn.token && (
+                  <>
+                    <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.07em", color: "#A39B8B" }}>Access token — treat it like a password</div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <div className="dm-mono" style={mono}>{conn.token}</div>
+                      <CopyBtn value={conn.token} />
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
           {(conn.grants?.length ?? 0) > 0 && (
