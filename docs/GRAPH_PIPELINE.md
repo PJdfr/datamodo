@@ -709,6 +709,37 @@ Next steps, in value order (not yet built):
 - **History compaction** (storage, far later): superseded facts older than N
   years → summarized tombstones. Only when a real vault shows bloat.
 
+### Adaptive classifiers (designed 2026-07-16, user discussion — NEXT BUILDS)
+The pipeline's three "classifiers" are deterministic code, PARAMETERIZED by
+user context but not yet LEARNED from it: the agent router (lexical term
+overlap, agent-router.ts), the chunk-importance scorer (headings + density +
+lexical term overlap, chunk-select.ts), and the model-escalation gate (the
+extract model's self-reported confidence). The user's framing, agreed:
+1. **Agent routing = a decision WITH feedback → learn from acceptance**
+   (contextual-bandit shape, not deep RL). Labels already exist: the
+   composer suggestion chip's Tab-accept / ✕-dismiss (explicit), an
+   auto-routed item never corrected (implicit accept), a re-addressed
+   message (explicit reject). Build: log these events with the message
+   embedding; a nightly consolidation-tick pass maintains a PER-AGENT
+   CENTROID of accepted messages (+ per-term weight corrections); router
+   score becomes lexical overlap + cosine(message, centroid). Improves with
+   every routing decision; zero training infra.
+2. **Chunk ranking = context-CONDITIONED relevance, no feedback loop**:
+   "if a chunk calls close to the business context, a template, or an agent
+   description — highlight it." Today's lexical includes() misses paraphrase
+   ("risk-adjusted performance of 1.31" ≠ key `sharpe`). Build: embed the
+   org's CONTEXT ANCHORS once (business context, each agent purpose, each
+   kind template); embed chunks BEFORE selection instead of after (they get
+   embedded for doc_chunks anyway — reordering the pipeline makes semantic
+   selection FREE); chunk score = max cosine(chunk, anchor) blended with the
+   structural priors (headings/density/position stay).
+3. **Escalation gate**: later, learn per-sender/channel escalation priors
+   from outcome quality (spend the big model only where history says it's
+   needed).
+True per-user gradient fine-tuning (LoRA) stays rejected for cloud
+(per-user tuning uneconomical; centroids capture most of the win); revisit
+only for the local/Ollama edition.
+
 ### Explicitly NOT on the roadmap
 - **Graph database migration** (Neo4j etc.) — the access patterns are 1–2
   hops + similarity + temporal, all Postgres-shaped; a migration buys deep-

@@ -188,6 +188,13 @@ mismatch → keep linking/resolution thresholds separate, eval retrieval on
 real questions).
 
 ## Next build tracks (pick after the above)
+- **Adaptive classifiers (designed 2026-07-16 — see GRAPH_PIPELINE.md
+  "Adaptive classifiers")**: (1) routing feedback log + per-agent accepted-
+  message centroids (nightly consolidation pass; router = lexical + cosine);
+  (2) embed-before-select chunk ranking (semantic closeness to business
+  context / templates / agent descriptions — free, chunks embed anyway);
+  (3) later: learned per-sender escalation priors. Both (1) and (2) are
+  spec'd and ~a morning each.
 - **MCP server / connectors — run datamodo on a Claude SUBSCRIPTION, no API
   key** (user ask 2026-07-14). **PHASE 1 ✅ SHIPPED 2026-07-14**: Streamable-
   HTTP endpoint `app/api/mcp/[transport]` (`mcp-handler` + `@modelcontext-

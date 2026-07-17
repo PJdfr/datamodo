@@ -12,6 +12,15 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Adaptive-classifiers design recorded (user discussion)**
+  — the router/chunk-scorer/escalation-gate learning plan written into
+  GRAPH_PIPELINE.md ("Adaptive classifiers") + ROADMAP: routing learns from
+  acceptance signals (Tab-accept/✕-dismiss/re-address → per-agent centroids,
+  contextual-bandit shape), chunk ranking becomes embedding-closeness to the
+  user's context anchors (business context + templates + agent purposes;
+  embed-before-select makes it free), escalation priors per sender later.
+  Docs only. Also: feature branch merged to dev earlier today (suite 343/0
+  green after full dep install).
 - **2026-07-16** — **Obsidian import phase 1b: the folder picker + folder
   shapes become category proposals.** (1) New `ObsidianImportModal`
   (Build menu: "⇪ Obsidian vault → knowledge"): `webkitdirectory` picker,
