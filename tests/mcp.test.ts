@@ -63,3 +63,32 @@ test("parseExtraction: dangling localIds and bad dates bounce with a fixable mes
 
   assert.ok(!parseExtraction({ entities: "nope", facts: [] }).ok);
 });
+
+// ---- datamodo mode (2026-07-17): the steering strings --------------------
+import { EXTRACTION_DOCTRINE, MCP_INSTRUCTIONS } from "../lib/datamodo/mcp-extraction.ts";
+
+test("datamodo-mode strings: doctrine matches the submit_extraction contract", () => {
+  // The doctrine teaches the MCP value shape, not the internal LLM shape.
+  assert.match(EXTRACTION_DOCTRINE, /kind:"text"\|"number"\|"date"\|"entity"/);
+  assert.match(EXTRACTION_DOCTRINE, /YYYY-MM-DD/);
+  assert.match(EXTRACTION_DOCTRINE, /snake_case/);
+  assert.match(EXTRACTION_DOCTRINE, /knownEntities/, "names the briefing field it steers on");
+  assert.match(EXTRACTION_DOCTRINE, /AT MOST 3 "concept"/);
+  assert.match(EXTRACTION_DOCTRINE, /note:\{title/);
+  assert.match(EXTRACTION_DOCTRINE, /never invent/i);
+});
+
+test("datamodo-mode strings: instructions teach the three loops on real tool names", () => {
+  // Every tool the instructions reference must exist by that exact name —
+  // a rename that forgets this string would strand the client.
+  for (const tool of [
+    "extraction_briefing", "submit_extraction", "capture_message",
+    "get_context", "list_facts", "search_documents", "walk_graph",
+    "get_entity", "pending_reviews", "resolve_review",
+  ]) {
+    assert.ok(MCP_INSTRUCTIONS.includes(tool), `instructions mention ${tool}`);
+  }
+  assert.match(MCP_INSTRUCTIONS, /WHEN TO ENGAGE/);
+  assert.match(MCP_INSTRUCTIONS, /explicit yes\/no/i, "reviews stay user-decided");
+  assert.match(MCP_INSTRUCTIONS, /sourceText/, "provenance rule rides the filing loop");
+});
