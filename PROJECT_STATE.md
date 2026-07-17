@@ -12,6 +12,24 @@
 > Last updated: 2026-07-17
 
 ## Recent changes
+- **2026-07-17** — **All pending Neon migrations applied on dev + prod (via
+  Neon MCP; user hit "routing_centroid_model not found / column not found
+  on driver adapter").** Root cause was self-inflicted: adding
+  `routing_centroid_n`/`routing_terms` to the prisma `agents` model made
+  every full-row agents read select the new columns, so a pre-migration
+  cloud DB errored on ordinary screens — the "fail-soft" raw SQL never got
+  a chance (lesson recorded in MEMORY). Applied this session, both
+  branches (dev br-bitter-cell / prod br-spring-fire, one transaction
+  each): `20260716210000_entity_usage`, `20260716220000_fact_agent_lens`
+  (incl. the items.meta backfill — 0 rows matched, no routed/addressed
+  items yet), `20260716230000_perf_indexes`, `20260717090000_
+  routing_feedback`. Found ALREADY applied: `llm_usage`, `oauth`,
+  `byok_cap` (the ROADMAP owed-list was stale both ways — now cleared).
+  Verified per branch: routing_events table + agents routing columns +
+  entities.last_used_at + facts.agent_id + facts_subject_current_idx all
+  present, and a full-row `agents` read including the new columns returns
+  (7 agents dev / 6 prod) — the reported error is resolved without a
+  deploy.
 - **2026-07-17** — **Connect-Claude card became a guided flow (user ask:
   "adding the MCP to Claude isn't clear — feels like editing a JSON").**
   `McpConnectCard` (Settings) redesigned: auto-loads the connection on

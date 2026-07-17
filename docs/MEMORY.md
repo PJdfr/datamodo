@@ -38,6 +38,14 @@ reviewable, nothing is ever silently lost or merged.
 - **Neon branches don't git-merge DDL**: apply every migration SQL to each
   branch (dev, prod, previews) — via Neon MCP in agent sessions — and record
   it in PROJECT_STATE. Migrations must be idempotent (`if not exists`).
+  **Hard lesson (2026-07-17): adding a selectable column to
+  `prisma/schema.prisma` makes EVERY full-row read of that model depend on
+  the migration** — "fail-soft SQL" in your own code doesn't help when
+  Prisma's default `SELECT *` hits the missing column ("column not found"
+  driver-adapter errors on unrelated screens). Either apply the DDL to
+  dev+prod IN THE SAME SESSION the schema change ships, or keep the new
+  column out of the Prisma model (raw SQL / `to_jsonb` reads, like
+  `entities.last_used_at` did) until it's applied everywhere.
 - Demo account `user@example.com` must stay seeded (`neon/seed.sql`, run after
   signing the user up; idempotent). Update the seed when the schema changes.
 - Heavy demo account `demo@datamodo.dev` (`neon/seed-heavy.sql` — ~5 weeks of
