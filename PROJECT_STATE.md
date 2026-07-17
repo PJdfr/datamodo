@@ -12,6 +12,17 @@
 > Last updated: 2026-07-17
 
 ## Recent changes
+- **2026-07-17** — **v0.2.1: local vaults auto-upgrade their schema (user
+  hit the stale-schema trap after `git pull`).** The embedded DB re-syncs
+  schema only when `package.json` version changes (`.schema-version`
+  marker) — 0.2.0 never bumped through this week's schema changes, so
+  existing local vaults kept the old schema silently. Bumped to 0.2.1;
+  VERIFIED live: booting 0.2.1 over a 0.2.0-built vault prints "updating
+  your local database schema…" (prisma db push diff-sync, data preserved)
+  and re-stamps the marker 0.2.1. Discipline recorded in MEMORY: bump the
+  patch version in the same commit as any Prisma schema change; user
+  escape hatches are `rm ~/.datamodo/.schema-version` (force re-sync,
+  keep data) and `rm -rf ~/.datamodo` (factory reset).
 - **2026-07-17** — **All pending Neon migrations applied on dev + prod (via
   Neon MCP; user hit "routing_centroid_model not found / column not found
   on driver adapter").** Root cause was self-inflicted: adding
