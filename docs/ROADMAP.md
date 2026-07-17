@@ -204,6 +204,11 @@ real questions).
   templates); chunk score += max cosine(chunk, anchor), structural priors
   unchanged; dormant without an embeddings key.
   (3) later: learned per-sender escalation priors (needs live outcome data).
+- **Insights tab redesign** (user call 2026-07-17: "not happy with its
+  current state"): the measure×axis aggregation surface is functional but
+  rough — rethink what questions it should answer at a glance (the Ontology
+  health card is the only part earning its keep) and bring it up to the
+  design system's bar. Scope TBD with the user before building.
 - **MCP server / connectors — run datamodo on a Claude SUBSCRIPTION, no API
   key** (user ask 2026-07-14). **PHASE 1 ✅ SHIPPED 2026-07-14**: Streamable-
   HTTP endpoint `app/api/mcp/[transport]` (`mcp-handler` + `@modelcontext-

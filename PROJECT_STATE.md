@@ -12,7 +12,21 @@
 > Last updated: 2026-07-17
 
 ## Recent changes
-- **2026-07-17** — **Adaptive classifiers ①+② shipped (GRAPH_PIPELINE.md
+- **2026-07-17** — **README rewritten for the GitHub front page (user ask).**
+  The old README still described the Supabase era (pre-2026-07-09 stack,
+  shipped features listed as "remaining") — replaced wholesale: local install
+  from a clone (npm publish still pending — kept honest), what datamodo
+  does/aims to do, the pipeline (mermaid flowchart) and data model (mermaid
+  erDiagram), why the graph doesn't degenerate (resolution ladder,
+  consolidation, growth gate, template guarantee, append-only history), why
+  it stays cheap (zero-LLM plumbing, triviality gate, prompt caching, chunk
+  selection, on-demand generation, BYOK cap), why retrieval works (GraphRAG,
+  one embedding space, bitemporal), what it enables (tables/derive-a-table,
+  explorer, folder lenses, answers, timeline/commits, MCP; Insights flagged
+  honestly as early/rough — user is unhappy with its current state, redesign
+  queued), stack table (Neon/pglite + pgvector + pg_trgm, Prisma 7, Next 16),
+  repo map, dev commands, living-docs pointers. Both mermaid blocks parse-
+  verified with mermaid 11. Docs only — no behavior change. (GRAPH_PIPELINE.md
   design → code).** ① ADAPTIVE AGENT ROUTING: new `routing_events` feedback
   log (migration `20260717090000_routing_feedback.sql` + agents columns
   `routing_centroid`/`_model`/`_n`/`routing_terms`) — an explicitly addressed
