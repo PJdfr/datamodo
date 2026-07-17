@@ -12,6 +12,33 @@
 > Last updated: 2026-07-17
 
 ## Recent changes
+- **2026-07-17** — **MCP datamodo mode: Claude chat AS datamodo chat (user
+  ask).** The MCP server now steers the client into behaving like the app:
+  ① `MCP_INSTRUCTIONS` (pure, in mcp-extraction.ts) ride the initialize
+  response — when to engage (keepable real-life info / questions about the
+  user's own world / remember-this asks), the filing loop
+  (extraction_briefing → extract → submit_extraction with sourceText, note
+  for write-ups, capture_message for raw dumps), the answering loop
+  (get_context/list_facts/search_documents/walk_graph, admit gaps), and
+  review etiquette (resolve only on explicit yes/no). ② New 15th tool
+  `extraction_briefing(text)`: ONE call returns `EXTRACTION_DOCTRINE` (the
+  MCP-contract twin of extract.ts's SYSTEM prompt — keep them in sync) plus
+  the user's categories/templates, relevance-PRIMED known entities (the
+  same primeKnownEntities legs the pipeline uses), concept leash, business
+  context, and agents — so a client extraction lands with pipeline-quality
+  steering. ③ `submit_extraction` gained `note{title,body}` — the chat
+  channel's substantive-write-up parity via the SAME buildNoteExtraction
+  (note node keyed `note:<itemId>`, mentions/about edges, body_md page);
+  a note without itemId/sourceText bounces BEFORE any write. serverInfo →
+  1.1.0. Verified: suite 363 (2 new tests pin doctrine↔contract and
+  instructions↔tool-name consistency), tsc clean, lint == baseline,
+  boundary clean, build green, and **18/18 live E2E** against a served
+  local instance (tokenless MCP at /api/mcp/mcp): instructions on
+  initialize, 15 tools listed, briefing shape, file → note authored + edged
+  + body readable, bounce files nothing, get_context/list_facts read-back,
+  refiled source converges (0 new entities). Not verified: claude.ai's
+  actual folding of instructions into its system context (needs a real
+  connector session — worth one manual conversation after deploy).
 - **2026-07-17** — **README rewritten for the GitHub front page (user ask).**
   The old README still described the Supabase era (pre-2026-07-09 stack,
   shipped features listed as "remaining") — replaced wholesale: local install

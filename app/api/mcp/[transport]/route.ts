@@ -4,7 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { isLocalMode } from "@/lib/local/config";
-import { parseExtraction } from "@/lib/datamodo/mcp-extraction";
+import { parseExtraction, EXTRACTION_DOCTRINE, MCP_INSTRUCTIONS } from "@/lib/datamodo/mcp-extraction";
 import { listKnowledge } from "@/lib/datamodo/knowledge";
 import { searchKnowledge, tokenize } from "@/lib/datamodo/search";
 import { linkQueryEntities, expandFromSeeds } from "@/lib/datamodo/graphrag";
@@ -142,6 +142,53 @@ const handler = createMcpHandler(
           text: (await loadItemText(it).catch(() => it.body_preview ?? "")).slice(0, 12000),
         })));
         return json(out);
+      },
+    );
+
+    server.tool(
+      "extraction_briefing",
+      "Call this FIRST, before extracting anything into the vault: one call returns the extraction rules for submit_extraction plus this user's whole steering context — their categories with field templates, entities ALREADY in their graph related to this text (reuse those EXACT labels), their concept vocabulary, business context, and agents. With this briefing your extraction lands exactly like the app's own pipeline.",
+      { text: z.string().min(1).max(50_000).describe("The content you are about to extract from") },
+      async ({ text: input }, extra) => {
+        const { userId, orgId } = await caller(extra);
+        const { listKinds } = await import("@/lib/datamodo/kinds");
+        const { primeKnownEntities } = await import("@/lib/datamodo/priming");
+        const { conceptsForPrompt } = await import("@/lib/datamodo/priming-core");
+        const { getOnboardingContext } = await import("@/lib/datamodo/settings");
+        // Every leg fail-soft — a briefing must never block an extraction.
+        const [kinds, known, conceptRows, agents, onboarding] = await Promise.all([
+          listKinds(orgId, userId).catch(() => []),
+          primeKnownEntities(orgId, input).catch(() => []),
+          prisma.entities
+            .findMany({
+              where: { org_id: orgId, kind: "concept", merged_into: null },
+              select: { canonical_label: true },
+              orderBy: { support: "desc" },
+              take: 30,
+            })
+            .catch(() => []),
+          prisma.agents
+            .findMany({
+              where: { org_id: orgId, status: "active", NOT: { purpose_text: null } },
+              select: { name: true, purpose_text: true },
+              take: 6,
+            })
+            .catch(() => []),
+          getOnboardingContext(userId).catch(() => ({ businessContext: null })),
+        ]);
+        return json({
+          rules: EXTRACTION_DOCTRINE,
+          businessContext: onboarding.businessContext ?? null,
+          agents: agents.map((a) => ({ name: a.name, purpose: (a.purpose_text ?? "").slice(0, 200) })),
+          categories: kinds.map((k) => ({
+            kind: k.kind,
+            label: k.label,
+            fields: k.fields.map((f) => ({ key: f.key, label: f.label, type: f.type })),
+            relations: (k.relations ?? []).map((r) => ({ predicate: r.predicate, targetKind: r.targetKind ?? null })),
+          })),
+          knownEntities: known.map((k) => ({ kind: k.kind, label: k.label, ...(k.hint ? { hint: k.hint } : {}) })),
+          concepts: conceptsForPrompt(known, conceptRows.map((c) => c.canonical_label)),
+        });
       },
     );
 
@@ -334,11 +381,18 @@ const handler = createMcpHandler(
 
     server.tool(
       "submit_extraction",
-      "File what YOU extracted from a message/document into the vault. You are the extractor; the server stays deterministic (canonicalization, entity resolution, dedup, supersession, review routing). Reuse kinds from list_kinds and labels from search_entities. Include sourceText so provenance and the commit log work.",
+      "File what YOU extracted from a message/document into the vault. Call extraction_briefing first — it carries the rules and the user's context. You are the extractor; the server stays deterministic (canonicalization, entity resolution, dedup, supersession, review routing). Include sourceText so provenance and the commit log work; add note{} when the content is a substantive write-up worth keeping as a page.",
       {
         itemId: z.string().optional().describe("A queued item's id from process_inbox — attaches this extraction to it (provenance, commit log) and marks it processed"),
         sourceText: z.string().max(20000).optional().describe("The raw message/document text this was extracted from (ignored when itemId is given)"),
         subject: z.string().max(300).optional().describe("A short title for the source (email subject etc.)"),
+        note: z
+          .object({
+            title: z.string().min(1).max(120).describe("≤60 chars, names what it's about"),
+            body: z.string().min(1).max(20_000).describe("The user's points distilled into clean markdown — faithful, never padded"),
+          })
+          .optional()
+          .describe("For substantive write-ups (meeting notes, plans, braindumps): the note page datamodo authors — becomes a note node whose body renders as a markdown page, edged to the extracted entities"),
         extraction: z
           .object({
             entities: z.array(z.object({
@@ -363,12 +417,17 @@ const handler = createMcpHandler(
           })
           .describe("Entities + facts in the server's Extraction contract"),
       },
-      async ({ itemId: givenItemId, sourceText, subject, extraction }, extra) => {
+      async ({ itemId: givenItemId, sourceText, subject, note, extraction }, extra) => {
         const { userId, orgId } = await caller(extra);
         // Strict validation beyond the transport schema (dangling localIds,
         // caps, date format) — bounce fixable errors back to the model.
         const parsed = parseExtraction(extraction);
         if (!parsed.ok) return text(parsed.error);
+        // A note node's identity is its source item (natural key note:<itemId>)
+        // — validate BEFORE any write so a bounce can't half-file.
+        if (note && !givenItemId && !sourceText?.trim()) {
+          return text("A note needs provenance — include sourceText (or itemId) so the note page has a source.");
+        }
 
         // Pull model: the extraction attaches to an EXISTING queued item
         // (process_inbox) — validated against the org, then marked processed.
@@ -404,10 +463,36 @@ const handler = createMcpHandler(
         // The SAME deterministic pipeline every channel feeds. Adjudication
         // is fail-soft without a server LLM key — ambiguous matches become
         // review proposals instead of auto-merges.
-        const { ingestExtraction } = await import("@/lib/datamodo/knowledge");
+        const { ingestExtraction, normalizeKey } = await import("@/lib/datamodo/knowledge");
         const { llmForUser } = await import("@/lib/datamodo/llm-for-user");
         const llm = await llmForUser(userId);
         const result = await ingestExtraction(orgId, userId, itemId, parsed.extraction, llm);
+
+        // The note page — the SAME author path as the chat pipeline
+        // (buildNoteExtraction: note node keyed to the source item, mentions/
+        // about edges to the extracted entities, body_md = the markdown page).
+        // Best-effort: a note hiccup never un-files the extraction.
+        let notedTitle: string | null = null;
+        if (note && itemId) {
+          try {
+            const { buildNoteExtraction, NOTE_KIND } = await import("@/lib/datamodo/document-extraction");
+            const noteX = buildNoteExtraction(itemId, note, parsed.extraction);
+            await ingestExtraction(orgId, userId, itemId, noteX, llm);
+            const ent = await prisma.entities.findFirst({
+              where: { org_id: orgId, kind: NOTE_KIND, normalized_key: normalizeKey(noteX.entities[0]), merged_into: null },
+              select: { id: true },
+            });
+            if (ent) {
+              await prisma.entities.update({
+                where: { id: ent.id, org_id: orgId },
+                data: { body_md: note.body, updated_at: new Date() },
+              });
+              notedTitle = noteX.entities[0].label;
+            }
+          } catch (e) {
+            console.error("[mcp] note authoring failed (extraction already filed)", e);
+          }
+        }
 
         // The CLIENT extracted — mark the item done (either path) so the cron
         // tick never runs the server-side extractor over it again.
@@ -417,11 +502,18 @@ const handler = createMcpHandler(
             .update({ where: { id: itemId }, data: { status: "analyzed", error: null, extraction_version: EXTRACTION_VERSION } })
             .catch((e) => console.error("[mcp] item status update failed", e));
         }
-        return json({ filed: true, sourceItemId: itemId, ...result });
+        return json({ filed: true, sourceItemId: itemId, ...(notedTitle ? { note: notedTitle } : {}), ...result });
       },
     );
   },
-  { serverInfo: { name: "datamodo", version: "1.0.0" } },
+  {
+    serverInfo: { name: "datamodo", version: "1.1.0" },
+    // "Claude chat AS datamodo chat" (2026-07-17): the initialize response
+    // carries the datamodo-mode doctrine — clients fold it into the system
+    // context, so the model DECIDES when a turn belongs in the vault and
+    // runs the same loops the app does (file · answer · review).
+    instructions: MCP_INSTRUCTIONS,
+  },
   { basePath: "/api/mcp", maxDuration: 60, verboseLogs: false },
 );
 

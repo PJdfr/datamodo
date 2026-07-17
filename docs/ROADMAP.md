@@ -244,7 +244,25 @@ real questions).
   Verified 19/19 OAuth E2E on the packed artifact (needs Neon migration
   `20260716150000_oauth.sql` in cloud). ~~Settings "disconnect Claude"~~ ✅
   2026-07-16 — Connected-apps list + per-app revocation (verified: a live
-  refresh token dies). STILL open: MCP `sampling` for the escalation policy.
+  refresh token dies). ~~**DATAMODO MODE — Claude chat AS datamodo chat**~~
+  ✅ 2026-07-17 (user ask: "Claude decides when to go datamodo mode and can
+  do all datamodo features"): the server now STEERS the client — (1)
+  `MCP_INSTRUCTIONS` ride the initialize response (clients fold them into
+  the system context): WHEN to engage (user shares keepable real-life info /
+  asks about their own world / says remember-this), the FILING loop
+  (extraction_briefing → extract → submit_extraction with sourceText), the
+  ANSWERING loop (get_context → list_facts → search_documents, admit vault
+  gaps), review etiquette (surface, never decide); (2) new 15th tool
+  `extraction_briefing(text)` returns in ONE call the same steering the
+  internal pipeline gets — `EXTRACTION_DOCTRINE` (the MCP twin of the
+  extract.ts SYSTEM prompt, phrased against the submit_extraction contract),
+  categories+templates, relevance-PRIMED known entities (same
+  `primeKnownEntities` legs), concept leash, business context, agents; (3)
+  `submit_extraction` gained `note{title,body}` — the chat channel's
+  substantive-write-up path (same `buildNoteExtraction`: note node keyed to
+  the source item, mentions/about edges, body_md page); a note without
+  source bounces BEFORE any write. Verified 18/18 live E2E against a served
+  local instance. STILL open: MCP `sampling` for the escalation policy.
 - ~~**Per-entity blame** (Review track follow-up)~~ ✅ 2026-07-14 — the entity
   page's "◷ History" disclosure gained a **story ⇄ blame** toggle: blame is
   the commit log filtered to that entity (`?view=commits&entity=`;
