@@ -3,7 +3,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { searchDatasets, searchKnowledge } from "@/lib/datamodo/search";
 import { searchChunks } from "@/lib/datamodo/chunks";
-import { annLinkEntities, listKnowledge } from "@/lib/datamodo/knowledge";
+import { annLinkEntities, listKnowledge, touchEntities } from "@/lib/datamodo/knowledge";
 import { linkQueryEntities, expandFromSeeds, mergeKnowledgeHits } from "@/lib/datamodo/graphrag";
 import { embedTexts } from "@/lib/llm/embeddings";
 import { answerQuestion } from "@/lib/datamodo/answer";
@@ -27,11 +27,18 @@ export async function GET(req: Request) {
   const org = await getActiveOrg(user.id);
   if (!org) return NextResponse.json({ query: q, terms: [], total: 0, hits: [], entities: [], passages: [], answer: null });
 
+  // AGENT LENS (P5): ?agent=<id> scopes the KNOWLEDGE evidence (facts that
+  // agent wrote — entities, traversal, grounded answers) to that agent's
+  // view. Table-row keyword hits stay global: rows are their own surface.
+  const agentId = url.searchParams.get("agent");
+
   // Table rows + knowledge in parallel; knowledge + passages are best-effort
   // so a failure there never drops the table results.
   const [result, kviews] = await Promise.all([
     searchDatasets(org.id, q),
-    listKnowledge(org.id).catch(() => []),
+    // provenance:false — search evidence never renders per-fact sources, so
+    // skip the two heaviest queries (all fact_sources + their items).
+    listKnowledge(org.id, { agentId, provenance: false }).catch(() => []),
   ]);
   const entities = searchKnowledge(kviews, result.terms);
 
@@ -57,6 +64,14 @@ export async function GET(req: Request) {
     entityIds: graph.scopeIds.length ? graph.scopeIds : undefined,
   }).catch(() => []);
   const answer = await answerQuestion(user.id, q, result.hits, evidence, passages);
+  // Usage-weighted retention: the entities this retrieval actually SURFACED
+  // (graph seeds + whatever the answer cited) count as "read" — consolidation
+  // then never prunes them. Fail-soft, never blocks the response.
+  await touchEntities(org.id, [
+    ...textSeeds,
+    ...annSeeds,
+    ...(answer?.sources.map((s) => s.entityId).filter(Boolean) as string[] ?? []),
+  ]);
   // The UI's result lists keep the plain keyword hits; only the grounded
   // answer runs on the graph evidence.
   return NextResponse.json({ ...result, entities, passages, answer });

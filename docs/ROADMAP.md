@@ -128,7 +128,73 @@
   between cited nodes); re-derive/refresh action on derived tables when the
   graph grows; folder export straight to Drive/Dropbox.
 
+## Optimal-graph track (see [GRAPH_PIPELINE.md](GRAPH_PIPELINE.md) §11 — the full plan)
+The end-to-end pipeline reference + ordered roadmap toward the "optimal
+graph" bar (cheap-LLM append · fast retrieval · no degeneration · multimodal)
+lives in [`docs/GRAPH_PIPELINE.md`](GRAPH_PIPELINE.md) (2026-07-16). Phases,
+in value order — details, file seams, and acceptance criteria in that doc:
+1. ~~**P1 Background consolidation worker**~~ ✅ SHIPPED 2026-07-16 — daily
+   cron merge sweep (trigram+ANN candidates → adjudicate → auto-merge ≥.85 /
+   propose ≥.55 / auto-reject below so pairs never re-ask), batched
+   `orphan_prune` reviews (accept re-verifies still-unlinked before delete),
+   embedding backfill. Fail-soft without an LLM (propose-only). NOT
+   live-fired yet — watch the first cloud tick.
+2. ~~**P2 Vocabulary telemetry + predicate budget**~~ ✅ SHIPPED 2026-07-16 —
+   Ontology Conformance % + new-predicate rate per kind (pure
+   `ontology-health.ts`), "Ontology health" Insights card, and the growth
+   gate: hot off-template predicates (≥3 facts) → `field_proposal` reviews
+   filed by the consolidation tick; accept adds the field/relation to the
+   template, decline never re-asks. Prior-art research folded into
+   GRAPH_PIPELINE.md §10b. ~~P2.5 research adoptions~~ ✅ same day:
+   alias-aware gate (look-alike predicate → alias proposal, canonicalization
+   then collapses future writes) + usage-weighted retention
+   (`entities.last_used_at` stamped by retrieval; orphan pass + accept both
+   respect recent reads; **migration `20260716210000_entity_usage.sql` owed
+   on dev+prod** — fail-soft via to_jsonb until applied).
+2b. ~~**P2.6 Relevance-based entity priming**~~ ✅ 2026-07-16 (user call) —
+   the extraction prompt carries graph entities chosen BY the input (lexical
+   names-in-text + ANN over one message embedding) with the never-force
+   rule; concepts primed-first with support fallback. EXTRACTION_VERSION 4.
+   Follow-up: prime documents on their own extracted text.
+3. **P3 PDF → markdown** — PHASE 1 ✅ 2026-07-16: the converter seam
+   (`PDF_MARKDOWN_COMMAND` shells to any Docling/marker/MinerU-style CLI,
+   fail-soft to unpdf; scanned-PDF vision path intact) + section-aligned
+   markdown chunking (headings carried on every cited piece). PHASE 2 open:
+   package a real converter per deployment (cloud worker image, local-edition
+   optional dep) + live-fire on a structured PDF with tables.
+4. ~~**P4 Edge metadata via reification**~~ ✅ 2026-07-16 — shipped as a
+   PATTERN (simpler than planned): a relationship kind IS just a kind
+   (employment = fields role/start_date + relations to both ends); the
+   message SYSTEM prompt teaches it ("own kind, stable label naming both
+   ends, attributes on it"), the growth loop can propose such kinds from
+   observed edges, and the template block guarantees their slots. No
+   `reify` flag, no schema change. `facts.attributes` jsonb deliberately
+   not built.
+5. **P5 Agent lenses** — PHASE 1 ✅ 2026-07-16: `facts.agent_id` (migration
+   `20260716220000_fact_agent_lens.sql` **owed on dev+prod**, backfills from
+   items.meta), fail-soft stamp after every extraction,
+   `listKnowledge({agentId})` lens chokepoint, `?agent=` on
+   `/api/knowledge/entities` + `/api/search` (knowledge evidence + answers;
+   table rows stay global). PHASE 2 open: lens chips in the UI,
+   agent-addressed chat defaulting to its lens (+ "search everything"
+   widening), MCP params. Per-agent physical graphs stay rejected
+   (identity would fragment — GRAPH_PIPELINE.md §9).
+6. **P6 Shared multimodal embedding space** — only if caption-then-embed
+   demonstrably misses real queries.
+Also assessed there: arXiv 2607.13728 (CwA, Meta FAIR) = learned ANN
+partitioning — wrong scale for per-user vaults today; filed as the future
+index-service seam, one transferable idea (query vs database distribution
+mismatch → keep linking/resolution thresholds separate, eval retrieval on
+real questions).
+
 ## Next build tracks (pick after the above)
+- **Adaptive classifiers (designed 2026-07-16 — see GRAPH_PIPELINE.md
+  "Adaptive classifiers")**: (1) routing feedback log + per-agent accepted-
+  message centroids (nightly consolidation pass; router = lexical + cosine);
+  (2) embed-before-select chunk ranking (semantic closeness to business
+  context / templates / agent descriptions — free, chunks embed anyway);
+  (3) later: learned per-sender escalation priors. Both (1) and (2) are
+  spec'd and ~a morning each.
 - **MCP server / connectors — run datamodo on a Claude SUBSCRIPTION, no API
   key** (user ask 2026-07-14). **PHASE 1 ✅ SHIPPED 2026-07-14**: Streamable-
   HTTP endpoint `app/api/mcp/[transport]` (`mcp-handler` + `@modelcontext-
@@ -563,7 +629,10 @@
   seam in `analytics.ts`).
 
 ## Owed by a human (ops, not code)
-- **Apply pending Neon migrations on dev + prod**: `20260714120000_llm_usage.sql`
+- **Apply pending Neon migrations on dev + prod**: `20260716210000_entity_usage.sql`
+  (usage-weighted retention — fail-soft until applied: retrieval stamps no-op
+  and the orphan pass just lacks the read-side guard), plus the earlier
+  `20260714120000_llm_usage.sql`
   (BYOK cost ledger — dormant/fail-soft until applied),
   `20260716150000_oauth.sql` (MCP OAuth for claude.ai connectors — the
   register/token endpoints 500 and the consent page shows "unknown client"

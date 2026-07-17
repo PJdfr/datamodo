@@ -88,7 +88,13 @@ reviewable, nothing is ever silently lost or merged.
   lance-graph is the designated later sidecar for multi-hop/columnar.
 - **Ontology = vocabulary layer, not storage change.** One node shape
   (`entities`), verbs as facts; the `kinds` registry steers + canonicalizes.
-  Templates steer, never block.
+  Templates steer, never block — REVISED for fields 2026-07-16 (user call):
+  **template FIELDS are a guarantee** — every node of a templated kind
+  carries at least its template fields, null-filled when unknown
+  (`ensureTemplateSlots`; a filled null is completion, not a conflict), and
+  extra metadata beyond the template stays welcome. Tables then just read
+  the metadata. Placeholder facts never count as links (orphan pass),
+  telemetry usage, or adjudication context.
 - **Entity resolution never trusts similarity alone** — cosine/trigram only
   RECALL candidates; merging needs deterministic keys, high trigram, or LLM
   adjudication with confidence policy; uncertain merges become proposals.

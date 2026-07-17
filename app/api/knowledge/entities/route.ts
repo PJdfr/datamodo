@@ -11,13 +11,16 @@ import { prisma } from "@/lib/prisma";
 // Read-only, org-scoped.
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const org = await getActiveOrg(user.id);
   if (!org) return NextResponse.json({ entities: [], datasets: [] });
+  // AGENT LENS (P5): ?agent=<id> shows the vault as that agent sees it —
+  // same entities, only the facts that agent's pipeline wrote.
+  const agentId = new URL(req.url).searchParams.get("agent");
   const [entities, dsRows] = await Promise.all([
-    listKnowledge(org.id),
+    listKnowledge(org.id, { agentId }),
     prisma.datasets.findMany({
       where: { org_id: org.id },
       select: {

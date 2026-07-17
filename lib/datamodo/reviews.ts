@@ -16,7 +16,7 @@ export type { ReviewItem } from "./review-types";
 
 interface ReviewRow {
   id: string;
-  kind: "entity_merge" | "fact_conflict" | "extraction" | "off_template" | "category_proposal";
+  kind: "entity_merge" | "fact_conflict" | "extraction" | "off_template" | "category_proposal" | "orphan_prune" | "field_proposal";
   status: string;
   confidence: number | null;
   impact: number;
@@ -176,6 +176,8 @@ export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
       out.push({
         ...base,
         kind: "entity_merge",
+        sourceEntityId: r.source_entity_id,
+        targetEntityId: r.target_entity_id,
         parsed: entitySide(src, r.source_entity_id ? edges.get(r.source_entity_id) ?? 0 : 0, r.detail.parsedLabel as string),
         canonical: entitySide(tgt, edges.get(r.target_entity_id) ?? 0),
         reason: (r.detail.reason as string) || "Similar name and overlapping identifiers.",
@@ -186,6 +188,7 @@ export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
       out.push({
         ...base,
         kind: "fact_conflict",
+        subjectEntityId: newF?.subject_entity_id ?? null,
         subject: newF ? label(newF.subject_entity_id) : "?",
         field: (r.detail.predicate as string) || newF?.predicate || "value",
         was: oldF ? factValue(oldF, label).v : "?",
@@ -242,6 +245,28 @@ export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
         relations: t.relations ?? [],
         icon: t.icon,
         description: t.description,
+      });
+    } else if (r.kind === "field_proposal") {
+      out.push({
+        ...base,
+        kind: "field_proposal",
+        targetKind: (r.detail.kind as string) || "thing",
+        predicate: (r.detail.predicate as string) || "?",
+        count: Number(r.detail.count ?? 0),
+        valueType: (r.detail.valueType as "text" | "number" | "date" | "entity") || "text",
+        asRelation: Boolean(r.detail.asRelation),
+        unit: (r.detail.unit as string) || undefined,
+        aliasOf: (r.detail.aliasOf as string) || undefined,
+      });
+    } else if (r.kind === "orphan_prune") {
+      // Display list pre-rendered at filing time (consolidate.ts); ids stay
+      // in detail.entityIds for the accept side-effect.
+      const sample = (r.detail.entities as { id?: string; label: string; kind: string }[]) ?? [];
+      out.push({
+        ...base,
+        kind: "orphan_prune",
+        count: Array.isArray(r.detail.entityIds) ? (r.detail.entityIds as string[]).length : sample.length,
+        entities: sample.map((e) => ({ label: e.label, type: e.kind, id: e.id })),
       });
     }
   }
@@ -300,6 +325,82 @@ export async function acceptReview(orgId: string, id: string): Promise<void> {
       // Already created by hand since the proposal was filed → accept is a no-op.
       if ((e as { code?: string }).code !== "P2002") throw e;
     }
+  } else if (r.kind === "field_proposal") {
+    // Accepting GROWS the template: the off-template predicate becomes a real
+    // field (or relation, when entity-valued) on the kind — the facts already
+    // using it start conforming the moment it lands. Idempotent: if the user
+    // added it by hand since the proposal was filed, accept is a no-op.
+    const slug = (r.detail.kind as string) || "";
+    const predicate = (r.detail.predicate as string) || "";
+    if (slug && predicate) {
+      const { listKinds, updateKind } = await import("./kinds");
+      const { templateVocabulary } = await import("./ontology-health");
+      const def = (await listKinds(orgId, r.owner_user_id)).find((k) => k.kind === slug);
+      if (def?.id && !templateVocabulary(def).has(predicate)) {
+        const label = predicate.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+        const asRelation = Boolean(r.detail.asRelation);
+        const aliasOf = (r.detail.aliasOf as string) || null;
+        if (aliasOf) {
+          // A spelling of an existing key → alias, not a new field; every
+          // future extraction canonicalizes onto the canonical key. (Facts
+          // already written under the old spelling keep it — a predicate
+          // migration is a separate, later step.)
+          await updateKind(orgId, def.id, {
+            ...def,
+            fields: def.fields.map((f) =>
+              f.key === aliasOf ? { ...f, aliases: [...(f.aliases ?? []), predicate] } : f,
+            ),
+            relations: def.relations.map((rel) =>
+              rel.predicate === aliasOf ? { ...rel, aliases: [...(rel.aliases ?? []), predicate] } : rel,
+            ),
+          });
+        } else {
+          await updateKind(orgId, def.id, {
+            ...def,
+            fields: asRelation
+              ? def.fields
+              : [...def.fields, {
+                  key: predicate,
+                  label,
+                  type: ((r.detail.valueType as string) === "number" || (r.detail.valueType as string) === "date"
+                    ? (r.detail.valueType as "number" | "date")
+                    : "text"),
+                  unit: (r.detail.unit as string) || undefined,
+                }],
+            relations: asRelation
+              ? [...def.relations, { predicate, label: label.toLowerCase() }]
+              : def.relations,
+          });
+        }
+      }
+    }
+  } else if (r.kind === "orphan_prune") {
+    // Prune ONLY entities still unlinked right now — anything that gained a
+    // fact, a body, or a merge since the flag was filed survives. Deleting an
+    // entity with zero facts is safe: doc_chunks cascade, dataset_rows null
+    // their subject, and this review keeps only ids (no entity FK).
+    const ids = ((r.detail.entityIds as string[]) ?? []).filter(Boolean);
+    if (ids.length) {
+      // Usage guard rides via to_jsonb (fail-soft pre-migration): an entity
+      // retrieval touched in the last 30 days is in use — never delete it.
+      const still = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT e.id FROM entities e
+         WHERE e.org_id = ${orgId}::uuid AND e.id = ANY(${ids}::uuid[])
+           AND e.merged_into IS NULL AND e.body_md IS NULL
+           AND (to_jsonb(e) ->> 'last_used_at' IS NULL
+                OR (to_jsonb(e) ->> 'last_used_at')::timestamptz < now() - interval '30 days')
+           AND NOT EXISTS (
+             SELECT 1 FROM facts f
+              WHERE f.org_id = e.org_id
+                AND (f.subject_entity_id = e.id OR f.object_entity_id = e.id)
+                AND (f.object_entity_id IS NOT NULL OR f.value_text IS NOT NULL
+                     OR f.value_num IS NOT NULL OR f.value_date IS NOT NULL)
+           )`;
+      const prunable = still.map((s) => s.id);
+      if (prunable.length) {
+        await prisma.entities.deleteMany({ where: { org_id: orgId, id: { in: prunable } } });
+      }
+    }
   }
   // fact_conflict + extraction: already applied to the store — accept = confirm.
   await prisma.knowledge_reviews.update({
@@ -336,9 +437,13 @@ export async function rejectReview(orgId: string, id: string): Promise<void> {
       if (orphans.length) await prisma.facts.deleteMany({ where: { id: { in: orphans } } });
     }
   }
-  // entity_merge + off_template + category_proposal: nothing was applied
-  // (only proposed) — just mark rejected. A rejected category proposal is
-  // never re-filed (the filing check matches any status).
+  // entity_merge + off_template + category_proposal + orphan_prune +
+  // field_proposal: nothing was applied (only proposed) — just mark rejected.
+  // A rejected category proposal is never re-filed (the filing check matches
+  // any status); a rejected orphan batch is never re-asked (consolidate.ts
+  // excludes ids listed in ANY orphan_prune review); a rejected field
+  // proposal is never re-asked for the same kind+predicate (same any-status
+  // exclusion in consolidate.ts).
   await prisma.knowledge_reviews.update({
     where: { id },
     data: { status: "rejected", resolved_at: new Date() },

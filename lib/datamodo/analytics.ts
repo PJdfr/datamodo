@@ -172,3 +172,34 @@ export async function factMetrics(orgId: string): Promise<FactMetrics> {
     totalFacts: count,
   };
 }
+
+/** DB shell for the ontology-health telemetry (GRAPH_PIPELINE.md P2): load
+ *  every fact (superseded included — first-seen dates need them) projected to
+ *  the pure core's shape. Capped; at personal scale this is small. */
+export async function loadHealthFacts(orgId: string): Promise<import("./ontology-health").HealthFact[]> {
+  const rows = await prisma.$queryRaw<
+    { predicate: string; kind: string; created_at: Date; current: boolean; value_type: string; unit: string | null }[]
+  >`
+    SELECT f.predicate, e.kind, f.created_at, (f.valid_to IS NULL) AS current,
+           CASE WHEN f.object_entity_id IS NOT NULL THEN 'entity'
+                WHEN f.value_num IS NOT NULL THEN 'number'
+                WHEN f.value_date IS NOT NULL THEN 'date'
+                ELSE 'text' END AS value_type,
+           f.unit
+      FROM facts f
+      JOIN entities e ON e.id = f.subject_entity_id
+     WHERE f.org_id = ${orgId}::uuid
+       -- null-filled TEMPLATE SLOTS are guarantees, not observations — they
+       -- must not inflate conformance or count as predicate usage
+       AND (f.object_entity_id IS NOT NULL OR f.value_text IS NOT NULL
+            OR f.value_num IS NOT NULL OR f.value_date IS NOT NULL)
+     LIMIT 20000`;
+  return rows.map((r) => ({
+    predicate: r.predicate,
+    subjectKind: r.kind,
+    createdAt: r.created_at,
+    current: r.current,
+    valueType: r.value_type as import("./ontology-health").HealthFact["valueType"],
+    unit: r.unit,
+  }));
+}

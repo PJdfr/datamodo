@@ -185,3 +185,28 @@ test("buildDocumentPrompt: classified → focused template; unclassified → ful
   const generic = buildDocumentPrompt({ ...base, docKind: null });
   assert.match(generic, /The user's CATEGORIES/);
 });
+
+test("buildDocumentPrompt: agents, tables, and primed entities ride the prompt", () => {
+  const p = buildDocumentPrompt({
+    text: "doc text",
+    kinds: DEFAULT_KINDS,
+    docKind: "invoice",
+    agents: [{ name: "Bookkeeper", purpose: "track invoices and payments" }],
+    tables: [{ name: "Invoices", columns: ["amount", "due_date", "vendor"] }],
+    known: [
+      { kind: "company", label: "Acme Group", hint: "acme.com" },
+      { kind: "concept", label: "renewals" }, // concepts never in the known block
+    ],
+  });
+  assert.match(p, /AGENTS \(why documents get dropped here/);
+  assert.match(p, /- Bookkeeper: track invoices and payments/);
+  assert.match(p, /TABLES \(facts whose predicates match a column/);
+  assert.match(p, /- Invoices\(amount, due_date, vendor\)/);
+  assert.match(p, /ALREADY IN the user's graph and likely related to this document/);
+  assert.match(p, /- company: "Acme Group" \(acme\.com\)/);
+  assert.doesNotMatch(p, /- concept: "renewals"/);
+
+  // None provided → none of the blocks render.
+  const bare = buildDocumentPrompt({ text: "doc text", kinds: DEFAULT_KINDS, docKind: "invoice" });
+  assert.doesNotMatch(bare, /AGENTS|TABLES|ALREADY IN/);
+});

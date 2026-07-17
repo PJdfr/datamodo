@@ -21,10 +21,13 @@ export const DOCUMENT_KIND = "document";
 /** How much of the document's content made it into the graph. */
 export type DocumentIndexing = "full" | "partial" | "metadata_only";
 
-/** Guardrails for big documents: index the first N pages / M chars, mark the
- *  entity `partial`, never inline more into a prompt. */
-export const MAX_DOC_PAGES = 20;
-export const MAX_DOC_CHARS = 20_000;
+/** SAFETY CEILINGS, not product limits (user call 2026-07-16: "no limit on
+ *  PDF size"): the WHOLE document is read and chunked — these only stop a
+ *  pathological file from exhausting memory. What reaches the LLM is decided
+ *  separately by the chunk-importance selector (chunk-select.ts), never by
+ *  chopping at page 20. Beyond a ceiling the entity is marked `partial`. */
+export const MAX_DOC_PAGES = 500;
+export const MAX_DOC_CHARS = 600_000;
 
 export interface AttachmentMeta {
   filename: string | null;
@@ -211,15 +214,75 @@ export async function rasterizePdfFirstPage(bytes: Uint8Array): Promise<{ imageB
 
 // --- Chunks: the evidence layer -------------------------------------------------
 
+/* ---- interpretable filenames (user request 2026-07-16) --------------------
+ * Camera rolls, scanners and messengers name files for machines
+ * (IMG_20260716_123456.jpg, scan0001.pdf, a UUID). Once the pipeline has
+ * UNDERSTOOD the document, we can name it for humans instead — kind +
+ * primary subject — before it's saved anywhere the user will read it.
+ * Pure + conservative: renaming a name the user chose is worse than keeping
+ * a cryptic one, so anything that might be human-authored stays. */
+
+const CRYPTIC_PATTERNS: RegExp[] = [
+  // Camera / phone / scanner counters: IMG_1234, DSC0001, PXL_2026…, scan-12
+  /^(img|image|dsc|dscn|dscf|pxl|dcim|mvimg|gopr|vid|mov|scan|scanned|snap)[ _-]?\d{2,}/i,
+  // Generic no-name names, numbered or not: "document (3)", "file2", "untitled"
+  /^(image|img|photo|pic|picture|scan|document|doc|file|attachment|untitled|unnamed|new ?doc(ument)?|sans[ -]?titre|screenshot|capture|export|download|data|temp|tmp)[ _()-]*\d*[ _()-]*$/i,
+  // Messenger exports: "WhatsApp Image 2026-07-16 at …", "signal-2026-…"
+  /^(whatsapp|signal|telegram)[ _-]?(image|document|video|audio)?[ _-]?\d{4}/i,
+  // Screenshot timestamps: "Screenshot 2026-07-16 at 12.30.01"
+  /^(screen ?shot|screen ?capture|capture)[ _-]?\d{4}/i,
+  // Pure timestamps: 20260716_123456, 2026-07-16 12.30.01
+  /^\d{8}[ _-]?\d{4,6}$/,
+  /^\d{4}-\d{2}-\d{2}[ _.]?\d{0,2}[ _.:-]?\d{0,2}[ _.:-]?\d{0,2}$/,
+  // UUIDs / long hex / long digit runs
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  /^[0-9a-f]{12,}$/i,
+  /^\d{6,}$/,
+];
+
+/** Machine-named? (null/empty counts.) Judged on the stem, extension aside. */
+export function isCrypticFilename(filename: string | null | undefined): boolean {
+  const stem = (filename ?? "").replace(/\.[A-Za-z0-9]{1,8}$/, "").trim();
+  if (!stem) return true;
+  if (CRYPTIC_PATTERNS.some((re) => re.test(stem))) return true;
+  // A letterless stem ("12 34-56") says nothing either.
+  if (!/[a-z]/i.test(stem)) return true;
+  return false;
+}
+
+/** The human name for an understood document: `<kind>-<primary subject>.<ext>`
+ *  (slugified, deduped when the label already names the kind). Returns null
+ *  when the original deserves to stay: it's not cryptic, or the extraction
+ *  didn't produce a usable primary label. */
+export function interpretableFilename(
+  original: string | null | undefined,
+  primaryLabel: string | null | undefined,
+  docKind: string | null | undefined,
+): string | null {
+  if (!isCrypticFilename(original)) return null;
+  const slug = (s: string) =>
+    s.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const labelSlug = slug(primaryLabel?.trim() ?? "");
+  if (labelSlug.length < 3) return null; // nothing meaningful to name it after
+  const kindSlug = slug(docKind ?? "");
+  const base = kindSlug && !labelSlug.startsWith(kindSlug) ? `${kindSlug}-${labelSlug}` : labelSlug;
+  const ext = original?.match(/\.[A-Za-z0-9]{1,8}$/)?.[0]?.toLowerCase() ?? "";
+  const name = base.slice(0, 60).replace(/-+$/, "") + ext;
+  return name === original ? null : name;
+}
+
 export interface DocChunk {
   seq: number;
   page: number | null;
   text: string;
 }
 
-/** Target chunk size (chars) and a hard cap on chunks per document. */
+/** Target chunk size (chars) and a hard cap on chunks per document — sized
+ *  so the cap only bites at the MAX_DOC_CHARS safety ceiling, never on a
+ *  real document (the whole evidence layer holds the whole document). */
 export const CHUNK_SIZE = 1200;
-export const MAX_CHUNKS = 60;
+export const MAX_CHUNKS = 500;
 
 /** Split one block of text into ~CHUNK_SIZE pieces on paragraph, then
  *  sentence boundaries — never mid-word unless a single token exceeds it. */
@@ -249,8 +312,35 @@ function splitBlock(text: string): string[] {
   return out;
 }
 
+/** ≥2 markdown headings = structured text (a converter's output or authored
+ *  markdown) — chunking should follow sections, not blind paragraphs. */
+export function looksLikeMarkdown(text: string): boolean {
+  return (text.match(/^#{1,6}\s+\S/gm) ?? []).length >= 2;
+}
+
+/** Section-aligned chunking for markdown (GRAPH_PIPELINE.md P3): split on
+ *  heading lines, size-chunk within each section, and prefix every piece with
+ *  its heading so a cited passage always says which section it came from. */
+function chunkMarkdownSections(text: string): DocChunk[] {
+  const lines = text.split("\n");
+  const sections: { heading: string; body: string[] }[] = [{ heading: "", body: [] }];
+  for (const line of lines) {
+    if (/^#{1,6}\s+\S/.test(line)) sections.push({ heading: line.trim(), body: [] });
+    else sections[sections.length - 1].body.push(line);
+  }
+  const chunks: DocChunk[] = [];
+  for (const s of sections) {
+    for (const piece of splitBlock(s.body.join("\n"))) {
+      chunks.push({ seq: chunks.length, page: null, text: s.heading ? `${s.heading}\n\n${piece}` : piece });
+      if (chunks.length >= MAX_CHUNKS) return chunks;
+    }
+  }
+  return chunks;
+}
+
 /** Chunk a document's text for the evidence layer. PDFs chunk per page (page
- *  lineage survives into citations); plain text chunks by paragraphs. */
+ *  lineage survives into citations); markdown chunks per SECTION (heading
+ *  lineage instead); plain text chunks by paragraphs. */
 export function chunkDocText(doc: ExtractedDocText): DocChunk[] {
   const chunks: DocChunk[] = [];
   if (doc.pageTexts?.length) {
@@ -262,6 +352,7 @@ export function chunkDocText(doc: ExtractedDocText): DocChunk[] {
     }
     return chunks;
   }
+  if (looksLikeMarkdown(doc.text)) return chunkMarkdownSections(doc.text);
   for (const piece of splitBlock(doc.text)) {
     chunks.push({ seq: chunks.length, page: null, text: piece });
     if (chunks.length >= MAX_CHUNKS) break;

@@ -534,7 +534,8 @@ CREATE TABLE public.entities (
     body_md text,
     graph_pin jsonb,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_used_at timestamp with time zone
 );
 
 
@@ -576,7 +577,8 @@ CREATE TABLE public.facts (
     valid_to timestamp with time zone,
     superseded_by uuid,
     source_item_id uuid,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    agent_id uuid
 );
 
 
@@ -1280,6 +1282,30 @@ CREATE INDEX fact_sources_fact_idx ON public.fact_sources USING btree (fact_id);
 
 
 --
+-- Name: facts_agent_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX facts_agent_idx ON public.facts USING btree (agent_id) WHERE (agent_id IS NOT NULL);
+
+
+
+--
+-- Name: facts_org_current_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX facts_org_current_idx ON public.facts USING btree (org_id) WHERE (valid_to IS NULL);
+
+
+
+--
+-- Name: facts_subject_current_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX facts_subject_current_idx ON public.facts USING btree (subject_entity_id) WHERE (valid_to IS NULL);
+
+
+
+--
 -- Name: facts_current_claim_uq; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1670,6 +1696,15 @@ ALTER TABLE ONLY public.fact_sources
 
 ALTER TABLE ONLY public.fact_sources
     ADD CONSTRAINT fact_sources_source_item_id_fkey FOREIGN KEY (source_item_id) REFERENCES public.items(id) ON DELETE SET NULL;
+
+
+
+--
+-- Name: facts facts_agent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.facts
+    ADD CONSTRAINT facts_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES public.agents(id) ON DELETE SET NULL;
 
 
 

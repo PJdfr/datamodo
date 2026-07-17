@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
-import { aggregate, monthlySeries, factMetrics, listMeasures, type AggOp } from "@/lib/datamodo/analytics";
+import { aggregate, monthlySeries, factMetrics, listMeasures, loadHealthFacts, type AggOp } from "@/lib/datamodo/analytics";
+import { computeOntologyHealth } from "@/lib/datamodo/ontology-health";
+import { listKinds } from "@/lib/datamodo/kinds";
 
 // Analytics over the knowledge layer's facts. Read-only aggregation, so it runs
 // with the user's RLS client (their org's facts only).
@@ -14,9 +16,14 @@ export async function POST(req: Request) {
   if (!org) return NextResponse.json({ error: "no org" }, { status: 403 });
 
   const body = (await req.json().catch(() => ({}))) as {
-    op?: "aggregate" | "series" | "metrics" | "measures";
+    op?: "aggregate" | "series" | "metrics" | "measures" | "ontology_health";
     measure?: string; groupBy?: string; kind?: string; date?: string; agg?: AggOp;
   };
+
+  if (body.op === "ontology_health") {
+    const [facts, kinds] = await Promise.all([loadHealthFacts(org.id), listKinds(org.id, user.id)]);
+    return NextResponse.json(computeOntologyHealth(facts, kinds, new Date()));
+  }
 
   if (body.op === "metrics" || !body.op) {
     return NextResponse.json(await factMetrics(org.id));

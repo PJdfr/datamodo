@@ -241,7 +241,11 @@ const server = http.createServer(async (req, res) => {
       log("anthropic", model, "→ 400 thinking config rejected");
       return json(res, 400, { type: "error", error: { type: "invalid_request_error", message: `thinking cannot be configured for this model: ${model}` } });
     }
-    const system = String(body.system ?? "");
+    // system arrives as a plain string OR as cache_control blocks (the real
+    // API accepts both; the provider sends blocks for long stable prompts).
+    const system = Array.isArray(body.system)
+      ? body.system.map((b) => b?.text ?? "").join("\n")
+      : String(body.system ?? "");
     const userMsg = body.messages?.find((m) => m.role === "user");
     const parts = Array.isArray(userMsg?.content) ? userMsg.content : null;
     const user = parts ? parts.filter((p) => p.type === "text").map((p) => p.text).join("\n") : String(userMsg?.content ?? "");

@@ -159,6 +159,49 @@ export function ReviewCardBody({ item, skin }: { item: ReviewItem; skin: ReviewS
     );
   }
 
+  if (item.kind === "field_proposal") {
+    return (
+      <div>
+        <div style={{ fontSize: 12, color: skin.sub, lineHeight: 1.5, marginBottom: 8 }}>
+          {item.aliasOf ? (
+            <>&quot;{item.predicate.replace(/_/g, " ")}&quot; looks like another spelling of <b style={{ fontWeight: 600, color: skin.text }}>{item.aliasOf.replace(/_/g, " ")}</b> on your <b style={{ fontWeight: 600, color: skin.text }}>{item.targetKind}</b> template — accepting folds future mentions onto the one field.</>
+          ) : (
+            <>{item.count} fact{item.count === 1 ? "" : "s"} on your <b style={{ fontWeight: 600, color: skin.text }}>{item.targetKind}</b> entities use a predicate the template doesn&apos;t cover — adding it makes future extractions land there consistently.</>
+          )}
+        </div>
+        <div style={{ background: skin.surfaceAlt, border: `1px solid ${skin.border}`, borderRadius: 10, padding: "8px 11px", display: "flex", alignItems: "baseline", gap: 8 }}>
+          <span className="dm-mono" style={{ fontSize: 11.5, color: item.asRelation ? skin.accent : skin.sub, fontWeight: 600 }}>{item.predicate}{item.aliasOf ? ` → ${item.aliasOf}` : ""}</span>
+          <span className="dm-mono" style={{ marginLeft: "auto", fontSize: 9.5, color: skin.faint }}>
+            {item.aliasOf ? "alias" : item.asRelation ? "relation →" : item.valueType}{item.unit ? ` · ${item.unit}` : ""} · {item.count} in use
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (item.kind === "orphan_prune") {
+    return (
+      <div>
+        <div style={{ fontSize: 12, color: skin.sub, lineHeight: 1.5, marginBottom: item.entities.length ? 8 : 0 }}>
+          {item.count} entit{item.count === 1 ? "y is" : "ies are"} linked to <b style={{ fontWeight: 600, color: skin.text }}>nothing</b> — no facts point at them and they never earned a page. Pruning keeps the graph readable; anything that gains a link before you accept survives.
+        </div>
+        {item.entities.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {item.entities.map((e, i) => (
+              <span key={`${e.label}-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: skin.sub, background: skin.surfaceAlt, border: `1px solid ${skin.border}`, borderRadius: 999, padding: "2px 8px" }}>
+                <span style={{ width: 5, height: 5, borderRadius: "50%", background: skin.faint }} />{e.label}
+                <span className="dm-mono" style={{ fontSize: 9, color: skin.faint }}>{e.type}</span>
+              </span>
+            ))}
+            {item.count > item.entities.length && (
+              <span className="dm-mono" style={{ fontSize: 10.5, color: skin.faint, alignSelf: "center" }}>+{item.count - item.entities.length} more</span>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // category_proposal
   return (
     <div>

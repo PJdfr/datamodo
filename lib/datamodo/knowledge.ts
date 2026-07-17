@@ -66,8 +66,8 @@ const TRGM_HIGH = 0.92;
 //   ≥ PROPOSE    → keep as a new entity but PROPOSE a merge for the user to
 //                  validate (pending review, ranked by impact).
 //   below        → treat as a genuinely new entity.
-const AUTO_MERGE = 0.85;
-const PROPOSE = 0.55;
+export const AUTO_MERGE = 0.85;
+export const PROPOSE = 0.55;
 
 // --- Normalization -----------------------------------------------------------
 
@@ -128,6 +128,7 @@ export async function resolveEntity(
   ownerUserId: string | null,
   e: ExtractedEntity,
   llm?: LlmProvider,
+  opts: { adjudicate?: boolean } = {},
 ): Promise<{ id: string; created: boolean }> {
   const key = normalizeKey(e);
 
@@ -180,9 +181,21 @@ export async function resolveEntity(
   }
 
   // Tier 2/3 — ambiguous: ask the model whether it's the same real-world entity,
-  // with a confidence. (Only runs when blocking surfaced candidates.)
-  const verdict = candidates.length
-    ? await adjudicateMatch(e, candidates, llm)
+  // with a confidence. Candidates go in ENRICHED (keys, support, top facts) so
+  // doubt is judged on identity evidence, not label similarity alone.
+  // Efficiency: never spend the call on hopeless candidates — the blocking
+  // function's substring leg can surface sim≈0.1 matches; a floor drops them
+  // (they'd never clear PROPOSE anyway) and a cap keeps the judge prompt
+  // small. No candidate above the floor = new entity, zero LLM cost.
+  // opts.adjudicate === false (bulk imports): deterministic tiers only — a
+  // thousand-note migration must never fan out LLM calls; the consolidation
+  // worker proposes any fuzzy merges later on its own budget.
+  const worthJudging =
+    opts.adjudicate === false
+      ? []
+      : candidates.filter((c) => c.sim >= 0.25).sort((a, b) => b.sim - a.sim).slice(0, 3);
+  const verdict = worthJudging.length
+    ? await adjudicateMatch(e, await enrichMatchCandidates(orgId, worthJudging), llm)
     : { matchId: null as string | null, confidence: 0, reason: "" };
 
   // High confidence → resolve to the canonical entity now, logged for audit.
@@ -239,6 +252,82 @@ export interface MatchCandidate {
   id: string;
   canonical_label: string;
   sim: number;
+  /** Enrichment (topFactsForEntities / enrichMatchCandidates): identity
+   *  metadata the adjudicator judges WITH, not just labels. */
+  naturalKeys?: Record<string, string>;
+  support?: number;
+  facts?: string[];
+}
+
+/** Top current facts per entity, rendered "predicate: value" — the metadata
+ *  context for merge adjudication (user call 2026-07-16: doubt should be
+ *  judged with the entities' facts, not labels alone). One query, capped. */
+export async function topFactsForEntities(
+  orgId: string,
+  entityIds: string[],
+  perEntity = 4,
+): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (entityIds.length === 0) return out;
+  try {
+    const rows = await prisma.$queryRaw<
+      { subject_entity_id: string; predicate: string; value_text: string | null; value_num: number | null; value_date: Date | null; unit: string | null; object_label: string | null }[]
+    >`
+      SELECT f.subject_entity_id, f.predicate, f.value_text, f.value_num::float8 AS value_num,
+             f.value_date, f.unit, o.canonical_label AS object_label
+        FROM facts f
+        LEFT JOIN entities o ON o.id = f.object_entity_id
+       WHERE f.org_id = ${orgId}::uuid AND f.valid_to IS NULL
+         AND f.subject_entity_id = ANY(${entityIds}::uuid[])
+         AND (f.object_entity_id IS NOT NULL OR f.value_text IS NOT NULL
+              OR f.value_num IS NOT NULL OR f.value_date IS NOT NULL)
+       ORDER BY f.subject_entity_id, f.confidence DESC, f.created_at DESC`;
+    for (const r of rows) {
+      const list = out.get(r.subject_entity_id) ?? [];
+      if (list.length >= perEntity) continue;
+      const value =
+        r.object_label ?? (r.value_num != null ? `${r.value_num}${r.unit ? " " + r.unit : ""}` : null) ??
+        (r.value_date ? dateOnly(r.value_date) : null) ?? r.value_text ?? "—";
+      list.push(`${r.predicate}: ${value}`);
+      out.set(r.subject_entity_id, list);
+    }
+  } catch (e) {
+    console.error("[knowledge] topFactsForEntities failed", e);
+  }
+  return out;
+}
+
+/** Attach natural keys, support, and top facts to blocking candidates so the
+ *  adjudicator sees WHO each candidate is. Fail-soft: enrichment errors just
+ *  leave the plain labels. */
+export async function enrichMatchCandidates(
+  orgId: string,
+  candidates: MatchCandidate[],
+): Promise<MatchCandidate[]> {
+  if (candidates.length === 0) return candidates;
+  try {
+    const ids = candidates.map((c) => c.id);
+    const [ents, facts] = await Promise.all([
+      prisma.entities.findMany({
+        where: { org_id: orgId, id: { in: ids } },
+        select: { id: true, natural_keys: true, support: true },
+      }),
+      topFactsForEntities(orgId, ids),
+    ]);
+    const byId = new Map(ents.map((e) => [e.id, e]));
+    return candidates.map((c) => {
+      const e = byId.get(c.id);
+      return {
+        ...c,
+        naturalKeys: (e?.natural_keys as Record<string, string>) ?? {},
+        support: e?.support ?? undefined,
+        facts: facts.get(c.id) ?? [],
+      };
+    });
+  } catch (e) {
+    console.error("[knowledge] candidate enrichment failed", e);
+    return candidates;
+  }
 }
 
 /**
@@ -250,17 +339,30 @@ export async function adjudicateMatch(
   e: ExtractedEntity,
   candidates: MatchCandidate[],
   llm: LlmProvider = getLlmProvider(),
+  opts: { subjectFacts?: string[] } = {},
 ): Promise<{ matchId: string | null; confidence: number; reason: string }> {
-  const list = candidates.map((c) => `- id=${c.id} label="${c.canonical_label}"`).join("\n");
+  // Candidates carry their metadata when the caller enriched them
+  // (enrichMatchCandidates) — the judge sees WHO each one is, not just a name.
+  const list = candidates
+    .map((c) => {
+      const keys = c.naturalKeys && Object.keys(c.naturalKeys).length ? ` keys=${JSON.stringify(c.naturalKeys)}` : "";
+      const seen = c.support != null ? ` seen ${c.support}×` : "";
+      const facts = c.facts?.length ? ` · known facts: ${c.facts.join("; ")}` : "";
+      return `- id=${c.id} label="${c.canonical_label}"${keys}${seen}${facts}`;
+    })
+    .join("\n");
   const system =
     "You decide whether a newly-parsed entity refers to the SAME real-world thing " +
     "as one of several existing candidates. Account for abbreviations, legal suffixes " +
-    "(Inc/LLC/Group/Ltd), and common name variations, but do NOT merge genuinely " +
-    "different organizations that merely share a word. Respond with ONLY JSON: " +
+    "(Inc/LLC/Group/Ltd), and common name variations, and USE the candidates' known " +
+    "facts and identifiers as evidence — matching identifiers are near-proof, " +
+    "contradicting identifiers are near-disproof. Do NOT merge genuinely " +
+    "different things that merely share a word. Respond with ONLY JSON: " +
     '{"matchId": <candidate id string or null>, "confidence": <0..1>, "reason": "<one short sentence>"}.';
   const user =
     `New entity: kind="${e.kind}", label="${e.label}"` +
     (e.naturalKeys && Object.keys(e.naturalKeys).length ? `, keys=${JSON.stringify(e.naturalKeys)}` : "") +
+    (opts.subjectFacts?.length ? `\nIts known facts: ${opts.subjectFacts.join("; ")}` : "") +
     `\nExisting candidates:\n${list}\n\nWhich candidate id (if any) is the same real-world ${e.kind}, and why?`;
   try {
     const r = await llm.chatJSON<{ matchId: string | null; confidence: number; reason?: string }>({
@@ -285,12 +387,12 @@ interface MergeReviewArgs {
   sourceId: string | null; // the newly-parsed entity (null when auto-resolved)
   targetId: string; // the proposed canonical entity
   confidence: number;
-  status: "pending" | "accepted";
+  status: "pending" | "accepted" | "rejected";
   detail: Record<string, unknown>;
 }
 
 /** Log/propose an entity merge, ranked by how many edges the target already has. */
-async function createMergeReview(
+export async function createMergeReview(
   orgId: string,
   ownerUserId: string | null,
   args: MergeReviewArgs,
@@ -398,6 +500,22 @@ export async function createExtractionReview(
   });
 }
 
+/** Usage-weighted retention (GRAPH_PIPELINE.md §10b): stamp the entities a
+ *  retrieval actually SURFACED (answer citations, graph seeds, page opens) so
+ *  consolidation never prunes what the user still reads. Raw SQL + fail-soft:
+ *  a deployment that hasn't applied migration 20260716210000 yet just no-ops. */
+export async function touchEntities(orgId: string, entityIds: string[]): Promise<void> {
+  const ids = [...new Set(entityIds)].filter(Boolean);
+  if (ids.length === 0) return;
+  try {
+    await prisma.$executeRaw`
+      UPDATE entities SET last_used_at = now()
+       WHERE org_id = ${orgId}::uuid AND id = ANY(${ids}::uuid[])`;
+  } catch {
+    /* column not migrated yet / bad id — the read path never fails on this */
+  }
+}
+
 async function bumpSupport(id: string): Promise<void> {
   // Atomic in the database (support = support + 1) — safe under concurrent
   // per-entity extraction, and one round-trip instead of two.
@@ -502,13 +620,16 @@ async function upsertFact(
     // NULLs are distinct in the (fact_id, source_item_id) unique index, so a
     // null source can't participate in an ON CONFLICT upsert — always insert it
     // (matches the original onConflict semantics). Only dedupe when we have an id.
+    // Storage: snippets are QUOTES, not transcripts — cap them (an LLM can
+    // hand back a whole paragraph; ~280 chars carries any evidence quote).
+    const snippet = fact.snippet ? fact.snippet.slice(0, 280) : null;
     if (sourceItemId === null) {
       await prisma.fact_sources.create({
         data: {
           org_id: orgId,
           fact_id: factId,
           source_item_id: null,
-          snippet: fact.snippet ?? null,
+          snippet,
           extracted_at: now,
         },
       });
@@ -520,10 +641,10 @@ async function upsertFact(
         org_id: orgId,
         fact_id: factId,
         source_item_id: sourceItemId,
-        snippet: fact.snippet ?? null,
+        snippet,
         extracted_at: now,
       },
-      update: { snippet: fact.snippet ?? null, extracted_at: now },
+      update: { snippet, extracted_at: now },
     });
   };
 
@@ -566,6 +687,15 @@ async function upsertFact(
     return "deduped";
   }
 
+  // TEMPLATE BLOCK: an all-null current fact is a PLACEHOLDER slot
+  // (ensureTemplateSlots) — the first real value FILLS it silently. No
+  // conflict review: null → value is completion, not contradiction.
+  const placeholder =
+    current.value_text == null &&
+    current.value_num == null &&
+    dateOnly(current.value_date) == null &&
+    current.object_entity_id == null;
+
   // Different value on a single-valued slot → contradiction: supersede, don't
   // delete. (Multi-valued facts never reach here — their value is in the key.)
   // Retire the old fact FIRST so it leaves the `valid_to IS NULL` partial unique
@@ -574,6 +704,7 @@ async function upsertFact(
   const newId = await insertFact();
   await prisma.facts.update({ where: { id: current.id }, data: { superseded_by: newId } });
   await addSource(newId);
+  if (placeholder) return "new"; // a filled slot is new knowledge, not a change
   // Surface the conflict for the user to validate (auto-applied but reviewable).
   await createConflictReview(orgId, ownerUserId, {
     oldId: current.id,
@@ -631,12 +762,58 @@ export function embedTextForEntity(
   return `${kind}: ${label}${keys.length ? " (" + keys.join(", ") + ")" : ""}`;
 }
 
+/** TEMPLATE BLOCK (user decision 2026-07-16): a kind's template fields are a
+ *  GUARANTEE, not a suggestion — every node of a templated kind carries at
+ *  least those fields, null-filled when unknown (extra facts stay welcome).
+ *  Tables then just read the metadata. Placeholders are all-null-value facts
+ *  (confidence 0) occupying the claim slot; upsertFact fills them SILENTLY
+ *  on the first real value (no fact_conflict review), and orphan detection
+ *  ignores them (a null slot is not a link). Idempotent + race-safe
+ *  (skipDuplicates against the current-claim unique index). */
+export async function ensureTemplateSlots(
+  orgId: string,
+  ownerUserId: string | null,
+  entities: { id: string; kind: string }[],
+  kinds: { kind: string; fields: { key: string }[] }[],
+): Promise<number> {
+  const fieldsByKind = new Map(kinds.filter((k) => k.fields.length).map((k) => [k.kind, k.fields.map((f) => f.key)]));
+  const wanted: { entityId: string; predicate: string }[] = [];
+  for (const e of entities) {
+    for (const key of fieldsByKind.get(e.kind) ?? []) wanted.push({ entityId: e.id, predicate: key });
+  }
+  if (wanted.length === 0) return 0;
+  const claimKeys = wanted.map((w) => `${w.entityId}::${w.predicate}`);
+  const existing = await prisma.facts.findMany({
+    where: { org_id: orgId, claim_key: { in: claimKeys }, valid_to: null },
+    select: { claim_key: true },
+  });
+  const have = new Set(existing.map((f) => f.claim_key));
+  const missing = wanted.filter((w) => !have.has(`${w.entityId}::${w.predicate}`));
+  if (missing.length === 0) return 0;
+  const now = new Date();
+  const res = await prisma.facts.createMany({
+    data: missing.map((w) => ({
+      org_id: orgId,
+      owner_user_id: ownerUserId,
+      subject_entity_id: w.entityId,
+      predicate: w.predicate,
+      cardinality: "one",
+      claim_key: `${w.entityId}::${w.predicate}`,
+      confidence: 0,
+      valid_from: now,
+    })),
+    skipDuplicates: true,
+  });
+  return res.count;
+}
+
 export async function ingestExtraction(
   orgId: string,
   ownerUserId: string | null,
   sourceItemId: string | null,
   extraction: Extraction,
   llm?: LlmProvider,
+  opts: { adjudicate?: boolean } = {},
 ): Promise<IngestExtractionResult> {
   const res: IngestExtractionResult = {
     entitiesResolved: 0,
@@ -658,7 +835,7 @@ export async function ingestExtraction(
   // Resolve entities first so facts can reference canonical ids.
   const idMap = new Map<string, string>();
   for (const e of extraction.entities) {
-    const { id, created } = await resolveEntity(orgId, ownerUserId, e, llm);
+    const { id, created } = await resolveEntity(orgId, ownerUserId, e, llm, opts);
     idMap.set(e.localId, id);
     res.entitiesResolved++;
     if (created) res.entitiesCreated++;
@@ -675,6 +852,21 @@ export async function ingestExtraction(
     if (outcome === "new") res.factsNew++;
     else if (outcome === "deduped") res.factsDeduped++;
     else res.factsSuperseded++;
+  }
+
+  // TEMPLATE BLOCK: every templated node ends the ingest with AT LEAST its
+  // template fields (null-filled). Best-effort — never fails the ingest.
+  try {
+    const { listKinds } = await import("./kinds");
+    const kinds = await listKinds(orgId, ownerUserId);
+    await ensureTemplateSlots(
+      orgId,
+      ownerUserId,
+      extraction.entities.map((e) => ({ id: idMap.get(e.localId)!, kind: e.kind })).filter((e) => e.id),
+      kinds,
+    );
+  } catch (e) {
+    console.error("[knowledge] template-slot fill failed", e);
   }
 
   return res;
@@ -697,15 +889,21 @@ interface KFact {
 
 /** All of the user's entities + what we currently know about each, with a
  *  provenance count per fact. This is the canonical knowledge view the UI shows;
- *  tables are derived from it. */
-export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[]> {
+ *  tables are derived from it.
+ *  AGENT LENS (P5): pass opts.agentId to see the vault as ONE agent sees it —
+ *  facts filter to that agent's writes (identity stays global: entities are
+ *  never split, they just show fewer facts under a lens). */
+export async function listKnowledge(
+  orgId: string,
+  opts: { agentId?: string | null; provenance?: boolean } = {},
+): Promise<KnowledgeEntityView[]> {
   const [ents, facts] = await Promise.all([
     prisma.entities.findMany({
       where: { org_id: orgId, merged_into: null },
       select: { id: true, kind: true, canonical_label: true, natural_keys: true, body_md: true, graph_pin: true },
     }),
     prisma.facts.findMany({
-      where: { org_id: orgId, valid_to: null },
+      where: { org_id: orgId, valid_to: null, ...(opts.agentId ? { agent_id: opts.agentId } : {}) },
       select: {
         id: true,
         subject_entity_id: true,
@@ -730,7 +928,10 @@ export async function listKnowledge(orgId: string): Promise<KnowledgeEntityView[
   // PostgREST embed, so we don't depend on the FK relationship being named.
   const provByFact = new Map<string, FactSourceView[]>();
   const factIds = factList.map((f) => f.id);
-  if (factIds.length) {
+  // opts.provenance === false skips the two heaviest queries (every
+  // fact_source + its item) — the search/GraphRAG path never renders
+  // provenance, so it shouldn't pay for it. UI surfaces keep the default.
+  if (opts.provenance !== false && factIds.length) {
     const fs = await prisma.fact_sources.findMany({
       where: { fact_id: { in: factIds } },
       select: { fact_id: true, snippet: true, source_item_id: true },

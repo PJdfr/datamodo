@@ -1,4 +1,7 @@
 import type { Extraction, ExtractedEntity, ExtractedFact } from "./knowledge";
+// Explicit .ts extension: node --experimental-strip-types (the test runner)
+// resolves this file too — same pattern as lib/llm/index.ts.
+import { renderKnownBlock } from "./priming-core.ts";
 
 // Ontology layer (pure core, no DB): the user-editable kind registry that
 // keeps the graph navigable. The storage substrate stays universal — one node
@@ -495,6 +498,14 @@ export interface DocumentPromptInput {
   businessContext?: string | null;
   kinds?: KindDef[];
   concepts?: string[];
+  /** The user's agents (name + purpose) — a dropped PDF usually exists FOR
+   *  one of these; their purposes say what to pull out of it. */
+  agents?: { name: string; purpose: string }[];
+  /** The user's existing tables (name + column keys) — extraction fields
+   *  that line up with a table's columns land straight in it. */
+  tables?: { name: string; columns: string[] }[];
+  /** Relevance-primed entities already in the graph (see priming-core.ts). */
+  known?: { kind: string; label: string; hint?: string }[];
 }
 
 /** The user prompt for the focused document extraction call (②). */
@@ -503,6 +514,20 @@ export function buildDocumentPrompt(input: DocumentPromptInput): string {
   const kind = input.kinds?.find((k) => k.kind === input.docKind);
   if (kind) parts.push(promptKindTemplate(kind));
   else if (input.kinds?.length) parts.push(promptCategories(input.kinds));
+  const knownBlock = renderKnownBlock(input.known ?? []);
+  if (knownBlock) parts.push(knownBlock.replace(/this message/g, "this document"));
+  if (input.agents?.length) {
+    parts.push(
+      "The user's AGENTS (why documents get dropped here — extract what serves them):\n" +
+        input.agents.map((a) => `- ${a.name}: ${a.purpose}`).join("\n"),
+    );
+  }
+  if (input.tables?.length) {
+    parts.push(
+      "The user's existing TABLES (facts whose predicates match a column land straight in the table):\n" +
+        input.tables.map((t) => `- ${t.name}(${t.columns.join(", ")})`).join("\n"),
+    );
+  }
   if (input.concepts?.length) {
     parts.push(
       `The user's existing CONCEPTS (topics): ${input.concepts.join(", ")}.\n` +
@@ -562,6 +587,9 @@ export function promptKindTemplate(kind: KindDef): string {
     `The document's PRIMARY SUBJECT is a ${kind.kind}${kind.description ? ` (${kind.description})` : ""}.`,
     fields ? `Its template fields — the ONLY attribute predicates to use: ${fields}.` : null,
     rels ? `Its relation verbs — the ONLY relationship predicates to use: ${rels}.` : null,
+    // Template block (user decision 2026-07-16): fields are a guarantee —
+    // extraction should try to FILL each one, not cherry-pick.
+    fields ? `ATTEMPT EVERY template field — omit one only when the document truly does not state it.` : null,
   ]
     .filter(Boolean)
     .join("\n");

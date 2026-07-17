@@ -12,6 +12,346 @@
 > Last updated: 2026-07-16
 
 ## Recent changes
+- **2026-07-16** — **Adaptive-classifiers design recorded (user discussion)**
+  — the router/chunk-scorer/escalation-gate learning plan written into
+  GRAPH_PIPELINE.md ("Adaptive classifiers") + ROADMAP: routing learns from
+  acceptance signals (Tab-accept/✕-dismiss/re-address → per-agent centroids,
+  contextual-bandit shape), chunk ranking becomes embedding-closeness to the
+  user's context anchors (business context + templates + agent purposes;
+  embed-before-select makes it free), escalation priors per sender later.
+  Docs only. Also: feature branch merged to dev earlier today (suite 343/0
+  green after full dep install).
+- **2026-07-16** — **Obsidian import phase 1b: the folder picker + folder
+  shapes become category proposals.** (1) New `ObsidianImportModal`
+  (Build menu: "⇪ Obsidian vault → knowledge"): `webkitdirectory` picker,
+  .md files read client-side (nothing unparsed uploads), dry-run preview
+  (counts + folder shapes), batched confirm (100/request) with progress
+  and done counts; re-running safe (hash idempotency). (2) The import's
+  confirm now files each detected folder shape as a `category_proposal`
+  review — DETERMINISTIC template (no AI draft, keeping the zero-LLM
+  promise): field types read from the notes' actual values (number /
+  ISO-date / text), wikilink-valued keys become RELATIONS, kind =
+  singularized folder slug, sample labels from the folder, any-status
+  dedupe (a folder's kind is proposed once, ever). Accepting snaps the
+  imported notes' facts onto a real template + table. Suite 340 pass / 3
+  pre-existing canvas failures; tsc clean; new files lint-clean
+  (control-center's 9 warnings pre-exist). NOT live-fired — the modal is
+  a prime candidate for the browser session. Still open: local CLI,
+  attachment import.
+- **2026-07-16** — **Obsidian vault import, phase 1 (user ask: "give access
+  to the vault folder and we migrate it")** — the engine, zero-LLM by
+  design: pure `obsidian-import.ts` maps notes → `note` entities
+  (body_md = the note, label = basename so wikilink stubs and real notes
+  converge on one key), [[wikilinks]] → mentions edges, frontmatter →
+  typed facts (wikilink values → edges, lists → cardinality many),
+  tags → concepts (`about`), aliases → also_known_as; `planVault` also
+  detects folder SHAPES (≥3 notes sharing ≥2 keys — templates announcing
+  themselves, preview-only for now). `POST /api/import/obsidian`: dry-run
+  plan by default, `confirm:true` ingests via the new
+  `ingestExtraction(..., {adjudicate:false})` option (deterministic
+  resolution tiers only — no LLM fan-out on bulk imports; consolidation
+  embeds/merges later) with content-hash idempotency (items
+  external_id `obsidian:<path>`; unchanged no-op, edited supersede with
+  history). 4 unit tests (frontmatter/lists/wikilinks incl. embeds+self-
+  links excluded, typed mapping, localId integrity, folder shapes); suite
+  340 pass / 3 pre-existing canvas failures; tsc/eslint clean. STILL
+  OPEN (phase 1b/2): the folder-picker modal (webkitdirectory, batched
+  client → dry-run preview → confirm) + Build-menu entry, local CLI
+  `datamodo import obsidian`, folder-shape → category_proposal filing,
+  attachment import. NOT live-fired.
+- **2026-07-16** — **Per-row review graph preview (user ask: the PR should
+  show what accepting or refusing ONE row does to the graph)** — a "◍" pill
+  on every graph-shaped queue row (entity_merge / orphan_prune /
+  fact_conflict) opens a modal rendering THAT decision's two futures as
+  mini graph scenes with a "✓ if you accept / ✕ if you refuse" toggle:
+  merge = two stars vs one canonical node absorbing the loser (ghost
+  dashed-coral "merges into" edge; the loser's connections re-point as
+  coral "add" edges; shared neighbors collapse to one node); orphans =
+  kept vs fading dashed-red; conflict = the disputed value solid vs
+  struck-and-dropped. Scenes come from pure `review-preview.ts`
+  (1-hop neighborhoods from KnowledgeEntityView, capped 5/center;
+  label-only fallback so the Studio's simulated mode previews too);
+  layout is deterministic fixed-position SVG (no physics — Explorer
+  standing rule); each future carries one plain-sentence note including
+  the safety semantics ("deleted — but only the ones STILL unlinked at
+  accept time"). View-models gained sourceEntityId/targetEntityId/
+  subjectEntityId/orphan ids (reviews.ts). 6 new tests (re-pointing,
+  shared-neighbor collapse, label-only, fade/keep roles, value swap);
+  suite 336 pass / 3 pre-existing canvas failures; tsc/eslint clean.
+  Built under the datamodo-design rules (paper skin, one coral accent,
+  mono kickers, no second accent — drop/danger uses the studio's
+  existing #C7362C reject tone). NOT live-fired; the animated
+  absorb/settle motion is the deliberate design-pass follow-up.
+- **2026-07-16** — **Unbounded documents + chunk-importance selection (user
+  call: "no limit on PDF size — but don't put everything in the LLM
+  context; classify which chunks matter")** — the 20-page/20k-char read
+  caps became safety ceilings (500 pages / 600k chars / 500 chunks): the
+  WHOLE document is read, chunked, embedded, and passage-searchable. The
+  distill prompt now gets a SELECTION: above a 24k-char budget,
+  `distillInput` (documents.ts) classifies the kind from the document head,
+  then the pure zero-LLM scorer `chunk-select.ts` ranks every chunk —
+  boost results/summary/conclusion headings, demote
+  references/appendix/acknowledgments, reward digit/%/currency density and
+  overlap with the classified kind's template vocabulary + agent purposes,
+  keep openings always — and fills the budget, re-ordered by document
+  position with [p.N] markers and "[… less relevant passages omitted …]"
+  marks so the model knows it reads a selection. Same path for long audio
+  transcripts. The "25-page paper" gap (pages 21–25 invisible) is closed:
+  every page is stored and citable; only the prompt is selective. 5 new
+  tests (term extraction, scoring order, budget/openings/page markers);
+  suite 330 pass / 3 pre-existing canvas failures; tsc/eslint clean
+  (chunks.test now builds MAX_CHUNKS+50 paragraphs). NOT live-fired.
+- **2026-07-16** — **Efficiency track, step 1 (user ask: "reduce LLM bill,
+  avoid degeneration, faster queries, leaner storage — small steps")** —
+  six shippable steps, plan + backlog in GRAPH_PIPELINE.md "Efficiency
+  track": ① TRIVIALITY GATE (pure `extract-gate.ts`, 15 tests-worth of
+  cases): "ok/merci 🙏/👍" never reaches steering, priming (an embedding),
+  provider resolution (a BYOK cap can't fail an ack), or extraction —
+  conservative allowlist (en/fr ack tokens, ≤80 chars, no
+  digit/€$/URL/@/?), attachments + note-subjects always pass; item files
+  analyzed as `gate:trivial`, the chat ping still replies "Nothing to
+  file". ② STABLE-PREFIX PROMPTS + CACHING: categories moved from user →
+  SYSTEM prompt (per-org constant prefix), Anthropic sends ≥4000-char
+  systems as `cache_control` ephemeral blocks (short ones stay strings —
+  below the cacheable minimum), mock-ollama accepts both shapes; OpenAI
+  prefix-caching benefits automatically. ③ ADJUDICATION FLOOR/CAP: judge
+  only candidates sim ≥.25, top 3 — substring-blocking's sim≈.1 noise no
+  longer buys an LLM call (and can't win a bad merge). ④ SEARCH FAST PATH:
+  `listKnowledge({provenance:false})` on search/GraphRAG skips the
+  fact_sources+items joins (KnowledgeHit never renders provenance).
+  ⑤ PARTIAL INDEXES `20260716230000_perf_indexes.sql`
+  (facts org/current + subject/current — the hot set stays tight as
+  supersession history grows; **owed on dev+prod**). ⑥ SNIPPET CAP 280
+  chars on fact_sources. Suite 325 pass / 3 pre-existing canvas failures;
+  tsc/eslint clean on changed files. NOT live-fired.
+- **2026-07-16** — **Agent lenses, phase 1 (GRAPH_PIPELINE.md P5)** — the
+  last big graph-track phase: per-agent READ views over the ONE shared
+  graph. `facts.agent_id` lands via migration
+  `20260716220000_fact_agent_lens.sql` (FK SET NULL, partial index, one-time
+  backfill joining `items.meta` agent stamps through `source_item_id`);
+  `runExtractionForItem` stamps body+attachment facts in ONE fail-soft
+  UPDATE after ingest; `listKnowledge` gained `{agentId}` (the lens
+  chokepoint — identity never splits, a lens just filters facts) and
+  `?agent=` rides `/api/knowledge/entities` (Explorer feed) and
+  `/api/search` (entities/traversal/answers lens-scoped; table-row keyword
+  hits deliberately global). Also this commit: `npx prisma generate` now
+  runs against the hand-edited schema (typed `last_used_at`/`agent_id`;
+  incidentally cleared the stale-client `kind_id` tsc errors — 107→73
+  pre-existing). Suite 320 pass / 3 pre-existing canvas failures. Phase 2
+  open: lens chips in the UI, agent-addressed chat defaulting to its lens,
+  MCP tool params. **Migration owed on dev+prod** (fail-soft until then).
+- **2026-07-16** — **Template-slot backfill + reification pattern (P4)**.
+  ① The consolidation tick gained pass ②b: existing nodes that predate their
+  kind's template (ingest-time fill only touches entities an extraction
+  mentions) get their null slots backfilled — `ensureTemplateSlots` over the
+  org's templated nodes, capped 200/org/tick, idempotent; new
+  `slotsBackfilled` stat. ② P4 shipped as a PATTERN, simpler than the
+  planned `reify:true` flag: after the template block, a relationship kind
+  IS just a kind — the message SYSTEM prompt now teaches "a relationship
+  with its OWN attributes is ITSELF an entity: own kind, stable label naming
+  both ends ('James Porter — Acme Group'), entity-valued facts to each end";
+  the stable label makes repeat mentions converge on ONE node via tier-0/1
+  resolution, and the growth loop can propose relationship kinds from
+  observed edges. `facts.attributes` jsonb deliberately not built. Suite
+  320 pass / 3 pre-existing canvas failures. NOT live-fired.
+- **2026-07-16** — **Template block + self-creating templates (user
+  decisions)**. ① Templates' FIELDS became a guarantee (MEMORY.md decision
+  revised): `ensureTemplateSlots` runs at the end of every `ingestExtraction`
+  — each templated node gets placeholder facts (all-null value, confidence 0,
+  `skipDuplicates` race-safe) for missing template fields, so "each row in a
+  table is a node with AT LEAST the columns as metadata, possibly null"
+  holds by construction. `upsertFact` fills a placeholder SILENTLY (no
+  fact_conflict review — null→value is completion); `promptKindTemplate`
+  adds "ATTEMPT EVERY template field". Placeholders are schema, not
+  observations: excluded from orphan edge-counts (consolidate + accept-time
+  recheck), ontology-health telemetry, and adjudication fact context; they
+  render "—" (existing fmt fallback). ② The growth loop's drafts are now
+  grounded (user call "the LLM should take the initiative on templates"):
+  `maybeProposeCategories` feeds `suggestKindTemplate` the entities'
+  observed literal predicates, their observed EDGES grouped by target kind
+  (merged deterministically into the drafted relations — never droppable by
+  the model), the onboarding business context, and agent purposes — so
+  entities sharing metadata "by chance" become a proposed template whose
+  table-relationships are inferred from the graph. Suite 320 pass / 3
+  pre-existing canvas failures; tsc/eslint clean. NOT live-fired.
+- **2026-07-16** — **Context-rich documents + metadata-aware merging + PDF
+  vision opt-in (user calls, one commit)**. ① Merge adjudication now judges
+  with EVIDENCE: blocking candidates are enriched with natural keys, support,
+  and their top-4 current facts (`enrichMatchCandidates`/`topFactsForEntities`
+  in knowledge.ts — one query, fail-soft), the consolidation sweep passes
+  BOTH sides' facts, and the judge prompt says matching identifiers ≈ proof,
+  contradicting ≈ disproof. ② Scanned-PDF vision is now OPT-IN
+  (`PDF_SCAN_VISION=1`, default OFF per user call "avoid vision on PDFs for
+  now") — scans stay metadata_only with the blob archived; photos unchanged.
+  ③ Document extraction got the user's WORLD: `buildDocumentPrompt` renders
+  the doc-text-primed known-entities block, active agents (name+purpose),
+  and existing tables (name+columns) — "a dropped PDF usually means extract
+  to a template/table"; `DOC_SYSTEM`'s summary is now a markdown-page style
+  guide (sections, field/value table, bold figures, [[wikilinks]] the entity
+  page renders live); the ≤3-concept cap stays (tags, not content).
+  Audio transcripts get agents+tables too. tests: buildDocumentPrompt block
+  test added; suite 320 pass / 3 pre-existing canvas failures; tsc/eslint
+  clean (gotcha: pure modules imported by test-reachable files need explicit
+  .ts extensions — ontology.ts → priming-core.ts). NOT live-fired.
+- **2026-07-16** — **Relevance-based entity priming (GRAPH_PIPELINE.md
+  P2.6, user call: "give him the entities/concepts/names close to the
+  input")** — the extraction prompt's context is now chosen BY the message,
+  not by popularity: `priming.ts` runs a LEXICAL leg (entity labels
+  literally present in the text — strongest evidence, zero keys needed) and
+  a SEMANTIC leg (ANN over ONE embedding of the message head, current
+  space, sim ≥ .3), merged by pure `rankPrimedCandidates` (named-first, then
+  by sim; support ≥ 2 floor for semantic non-concepts so one-mention strays
+  can't attract force-fits; cap 15). Non-concepts render as a new "ALREADY
+  IN the user's graph" prompt block (`renderKnownBlock` — labels only, never
+  ids) whose NEVER-FORCE rule keeps uncertain identity in the message's own
+  words, flowing into the resolution ladder + review gate as before; the
+  silent-merge risk of priming + tier-0 exact match is thereby bounded.
+  Concepts keep their leash line, now primed-first with support-ranked fill
+  to 12 (`conceptsForPrompt` — never empty without embeddings).
+  `EXTRACTION_VERSION` → 4 (requeue optional — old items valid, just less
+  label-consistent). 6 unit tests on the pure core; suite 319 pass / 3
+  pre-existing canvas failures; tsc/eslint clean. Messages only; document
+  priming (on the doc's own text, inside processItemAttachments) is the
+  follow-up. NOT live-fired.
+- **2026-07-16** — **PDF → markdown, phase 1 (GRAPH_PIPELINE.md P3)** — the
+  structure-preserving document-reading seam: `pdf-markdown.ts` shells out
+  to whatever `PDF_MARKDOWN_COMMAND` names (Docling/marker/MinerU-style CLI;
+  PDF temp path appended, markdown on stdout, `PDF_MARKDOWN_TIMEOUT_MS` 45 s,
+  4 MB output cap, <40 non-ws chars = scan = null) — null/error falls back
+  to the unpdf text layer with the scanned-PDF vision path intact, so the
+  seam is pure upside. `chunkDocText` gained markdown awareness
+  (`looksLikeMarkdown` ≥2 headings): section-aligned chunks with the heading
+  prefixed on EVERY piece, so passage citations name their section (markdown
+  drops page lineage; headings replace it; page-lineage chunking unchanged
+  when pageTexts exist). Import uses the explicit `.ts` extension
+  (node strip-types resolution, lib/llm precedent). 6 new tests via fake
+  converter fixture scripts (happy path, fail-soft, seam-off, markdown
+  detection, section chunking, page-lineage precedence); suite 313 pass / 3
+  pre-existing canvas failures; tsc/eslint clean on changed files (the 2 tsc
+  hits are the sandbox's missing @napi-rs/canvas). Phase 2 open: package an
+  actual converter per deployment + live-fire on a real structured PDF.
+  Also this session: the user-requested graph schema infographic
+  (3 mermaid diagrams: ER structure, LLM prompt view, merge path) delivered
+  as a file, not committed.
+- **2026-07-16** — **P2.5 research adoptions (GRAPH_PIPELINE.md §10b)** —
+  the two open items from the degeneration-literature pass, built: ①
+  **alias-aware growth gate** (RELATE/KGGen-lite): `predicatesLookAlike`
+  (snake_case token subset / Jaccard ≥ .5 — "invoice_total_amount"→"amount",
+  "was_issued_by"→"issued_by"; no substring accidents) makes
+  `proposeFieldAdditions` emit `aliasOf` proposals; accept appends the alias
+  to the matching field/relation via `updateKind`, so canonicalization
+  collapses the spelling on every future write (existing facts keep the old
+  predicate — migration deferred). Card/ping/Studio wording adapts ("Add
+  alias"). ② **usage-weighted retention**: new `entities.last_used_at`
+  (migration `20260716210000_entity_usage.sql` + schema.sql + prisma model);
+  `touchEntities` (raw, fail-soft) stamps graph seeds + answer-cited
+  entities in `/api/search` and dossier downloads; `orphanEligible` skips
+  anything read inside its prune window and orphan-ACCEPT re-checks usage in
+  SQL. Every reader goes through `to_jsonb(e)->>'last_used_at'` so
+  un-migrated cloud DBs read NULL instead of erroring. CwA (2607.13728)
+  stays parked as the index-service seam (trigger: pgvector strain at ~1M+
+  vectors). 20 unit tests on the pure cores (4 new suites-worth: look-alike,
+  alias routing, usage windows); suite 309 pass / 3 pre-existing canvas
+  failures; tsc clean on changed files; the knowledge.ts unused-interface
+  lint warning pre-exists. NOT live-fired. **Migration owed on dev+prod.**
+  Follow-ups: page-open beacon, MCP-read stamping, embedding-level snap.
+- **2026-07-16** — **Ontology-health telemetry + template growth gate
+  (GRAPH_PIPELINE.md P2)** + **prior-art research folded into the doc
+  (§10b)**. Research first (user ask): the degeneration problem maps to four
+  literatures — canonicalization/ER (Galárraga'14 canopy blocking, CESI
+  WWW'18 joint NP+relation canonicalization), ontology-constrained
+  extraction (RELATE predicate-embedding mapping, KGGen relation clustering,
+  AdaKGC schema-constrained decoding, + the Ontology-Conformance/
+  Faithfulness metrics), temporal KGs (Zep/Graphiti 2501.13956 — bitemporal
+  invalidation, converges with our claim_key design), and refinement/
+  forgetting (Paulheim'16, CleanGraph, 2026 sleep-time-consolidation wave;
+  transferable idea we lack: usage-weighted retention). Admitted gap: no
+  GraphRAG system measures graph-level fidelity — P2 had no design to copy.
+  Then P2 shipped: pure `ontology-health.ts` — per-kind **conformance**
+  (aliases + universal predicates conform; unregistered kinds null),
+  **new-predicate windows** (first-seen over ALL rows incl. superseded),
+  off-template top-list; `proposeFieldAdditions` growth gate (≥3 current
+  facts, majority value type, entity→relation, unit, ≤2/kind). Wired:
+  `loadHealthFacts` shell (analytics.ts), `op:"ontology_health"` on the
+  analytics route, "Ontology health" Insights card (worst-first conformance
+  bars, off-template chips, new-this-week), consolidation pass ③ filing
+  `field_proposal` reviews (any-status kind+predicate exclusion), new review
+  kind end-to-end (accept = `updateKind` appends field/relation, idempotent;
+  decline never re-asks; ping question + card + Studio chrome). 16 unit
+  tests green (8 new); suite 304 pass / 3 pre-existing sandbox canvas
+  failures; tsc + eslint add nothing new (insights-view's one lint error
+  pre-exists). Not live-fired (sandbox — no DB/LLM).
+- **2026-07-16** — **Background consolidation worker (GRAPH_PIPELINE.md P1)**
+  — the graph's missing homeostasis, shipped as designed in the same-day
+  doc: a DAILY cron (`consolidate-cron.yml` → `POST /api/jobs/consolidate`,
+  CRON_SECRET) runs per-org ① embedding backfill (missing/stale-space
+  vectors), ② a merge sweep — same-kind candidate pairs from a trigram
+  self-join (sim ≥.55) UNION per-entity ANN twins (cos ≥.85, current space
+  only), minus pairs any entity_merge review already ruled on (either
+  direction, any status) and minus natural-key-conflicting pairs; survivors
+  LLM-adjudicated on the owner's provider (BYOK-aware; fail-soft → propose-
+  only, text similarity NEVER auto-merges): ≥.85 → `mergeEntities` with
+  winner = edges>support>age and natural-key accretion, logged as an
+  accepted review; ≥.55 → pending proposal; below → auto-rejected review so
+  the pair is settled forever — and ③ an orphan pass (support≤1, zero edges,
+  no body, >30d old, concepts >7d, document/note never) filing ONE batched
+  `orphan_prune` review; accept prunes only what is STILL unlinked at accept
+  time, decline never re-asks (ids excluded via all prior orphan reviews).
+  New review kind wired end-to-end (types, list, side-effects, ping
+  question, card body, Studio chrome). Pure core `consolidate-core.ts`
+  unit-tested (9 tests: pair dedup/veto, winner ordering, orphan windows);
+  suite 296 pass / 3 pre-existing sandbox canvas failures; tsc adds no new
+  errors (my files clean). NOT live-fired (no DB/LLM in sandbox) — watch the
+  first cloud tick; env knobs `CONSOLIDATE_{ADJUDICATIONS,EMBED_BATCH,ORGS}`.
+- **2026-07-16** — **New living doc: `docs/GRAPH_PIPELINE.md`** (user ask:
+  "make ULTRA CLEAR the pipeline") — the end-to-end graph reference: schema
+  (entities/facts/doc_chunks/reviews), the exact extraction prompts + the
+  context each LLM call gets, model-picking (BYOK → platform, extract/
+  escalate/vision slots), the multimodal paths (unpdf text layer, scan →
+  rasterize → vision, audio → transcript), GraphRAG query flow + grounded-
+  answer shape, claim-key versioning + the review PR loop, edge-fact vs
+  node-attribute semantics, and the ordered optimal-graph roadmap (P1
+  consolidation worker → P2 vocabulary telemetry → P3 PDF→markdown → P4
+  reification → P5 agent lenses → P6 multimodal embeddings). Decisions
+  recorded: ONE graph per user with agent lenses (per-agent physical graphs
+  rejected — identity fragmentation); graph-DB migration explicitly off the
+  roadmap; arXiv 2607.13728 (CwA — learned ANN partitioning, Meta FAIR)
+  assessed as wrong-scale for now, filed as the future index-service seam.
+  ROADMAP.md gained the track summary. Docs only — no behavior change.
+- **2026-07-16** — **Interpretable filenames** (user request): a document
+  arriving with a MACHINE name (scan0001.pdf, IMG_20260716_123456.jpg,
+  "document (3)", a UUID/hex/digit blob, WhatsApp/Screenshot exports) is
+  RENAMED once the pipeline has understood it — `<kind>-<primary subject>.<ext>`
+  (e.g. `invoice-initech-corp.txt`), applied before anything user-facing is
+  saved: the `attachments` row, the document entity's label + natural key,
+  off-template review labels, the parse reply. Conservative by design
+  (`isCrypticFilename` allowlist of machine patterns — anything possibly
+  human-authored is NEVER touched; no rename without a ≥3-char primary
+  label). Original kept as an `original_filename` fact on the document node.
+  Re-runs are stable: the renamed file is no longer cryptic so it keeps its
+  name/key on reprocessing. Pure + unit-tested (`isCrypticFilename`/
+  `interpretableFilename` in document-extraction.ts, 3 test blocks over ~22
+  names); rename hook in `processItemAttachments` (documents.ts). Verified
+  3/3 E2E on the packed artifact (scan0001.txt → invoice-initech-corp.txt;
+  reply uses the new name; brightwave-proposal.txt untouched).
+- **2026-07-16** — **Chat animations + parse-summary reply on direct pings**
+  (user request). (1) The chat thread feels alive: a three-dot TYPING bubble
+  (ink, `dm-typing` keyframes) while the pipeline reads a message, and the
+  agent's reply reveals line by line (`dm-line-in`, staggered). (2) When the
+  agent is PINGED DIRECTLY it answers with what it parsed: entities with up
+  to 3 inline facts, documents read, the note kept, concept tags — or a plain
+  "Nothing to file from this one". Ping = `items.capture_mode = 'active'`
+  (app chat, Slack DM, WhatsApp, direct email); passively watched IMAP
+  mailboxes (`auto`) stay silent — the bot never narrates an inbox. Reply
+  text is built by pure `buildParseReply` / gated by `shouldSendParseReply`
+  (`lib/datamodo/parse-reply.ts`, unit-tested ×7); app-thread delivery is
+  `meta.parse_reply` on the item (fresh-meta merge so routed_agent_* stamps
+  survive) rendered as a `datamodo` bubble via GET /api/chat `reply`; channel
+  delivery reuses `sendChannelText`. Review-question count rides along on
+  channel replies (the app shows its own review bubble). Verified 5/5 E2E on
+  the packed artifact (typing indicator seen mid-read; reply lists INV-777
+  (invoice) with facts; trivial "hey hello" → "Nothing to file"; replies on
+  the API). tsc clean, 288/290 tests, no new lint errors.
 - **2026-07-16** — **Anthropic path is now E2E-verifiable (mock /v1/messages
   + `ANTHROPIC_BASE_URL`)**. The two Claude-key bugs (temperature 400, empty
   response) reached the user because mock-ollama only spoke the

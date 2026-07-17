@@ -1,12 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { readBlob } from "@/lib/ingest/store";
 import type { LlmProvider } from "@/lib/llm";
-import { extractFromDocument, extractFromImage } from "./extract";
+import { classifyDocumentKind, extractFromDocument, extractFromImage } from "./extract";
+import { keyTermsFrom, selectChunksForPrompt, DOC_PROMPT_BUDGET_CHARS } from "./chunk-select";
 import { createOffTemplateReview, ingestExtraction } from "./knowledge";
 import { parseWorkbook } from "./spreadsheet";
 import { storeDocChunks } from "./chunks";
 import { normalizeKey } from "./knowledge";
 import { transcribeAudio } from "@/lib/llm/transcription";
+import { convertPdfToMarkdown } from "./pdf-markdown";
 import {
   attachmentAudioType,
   attachmentImageType,
@@ -20,6 +22,7 @@ import {
   MAX_DOC_CHARS,
   MAX_IMAGE_BYTES,
   extractAttachmentText,
+  interpretableFilename,
   sheetToText,
   type DocumentIndexing,
   DOCUMENT_KIND,
@@ -33,6 +36,42 @@ import {
 // becomes the node's body_md), and link the document to what it mentions.
 // Fails safe at every step — a missing blob bucket, a scanned PDF, or an LLM
 // error degrades that document to metadata-only; it never fails the item.
+
+/** What the distill LLM should READ for one document. Short documents pass
+ *  whole; long ones (no size limit — user call 2026-07-16) classify from the
+ *  head, then the zero-LLM chunk scorer (chunk-select.ts) picks the
+ *  passages worth the prompt budget, steered by the classified kind's
+ *  template vocabulary and the agents' purposes. Fail-soft everywhere. */
+async function distillInput(
+  doc: { text: string },
+  chunks: import("./document-extraction").DocChunk[],
+  filename: string | null,
+  kinds: import("./ontology").KindDef[] | undefined,
+  agents: { name: string; purpose: string }[],
+  llm: LlmProvider,
+): Promise<{ text: string; docKind: string | null }> {
+  if (doc.text.length <= DOC_PROMPT_BUDGET_CHARS) return { text: doc.text, docKind: null };
+  let docKind: string | null = null;
+  if (kinds?.length) {
+    try {
+      docKind = (await classifyDocumentKind({ filename, text: doc.text, kinds }, llm)).kind;
+    } catch (e) {
+      console.error(`[documents] pre-selection classify failed for "${filename}"`, e);
+    }
+  }
+  const def = kinds?.find((k) => k.kind === docKind);
+  const keyTerms = keyTermsFrom(
+    def?.description,
+    ...(def?.fields.map((f) => `${f.key} ${f.label}`) ?? []),
+    ...(def?.relations.map((r) => `${r.predicate} ${r.label}`) ?? []),
+    ...agents.map((a) => a.purpose),
+  );
+  const sel = selectChunksForPrompt(chunks, { keyTerms });
+  console.log(
+    `[documents] chunk selection for "${filename}": ${sel.includedSeqs.length}/${chunks.length} chunks in prompt (${sel.droppedChunks} omitted — still stored + searchable)`,
+  );
+  return { text: sel.text, docKind };
+}
 
 export interface AttachmentProcessResult {
   attachmentId: string;
@@ -61,6 +100,36 @@ export async function processItemAttachments(
     select: { id: true, filename: true, content_type: true, bytes: true, blob_hash: true },
   });
 
+  // Document context (user call 2026-07-16: "a dropped PDF usually means
+  // extract to a template/table"): the user's agents (why documents arrive)
+  // and tables (where fields should land) ride the distill prompt. Loaded
+  // once per item; best-effort — extraction works without either.
+  const agents = await prisma.agents
+    .findMany({
+      where: { org_id: item.org_id, status: "active", NOT: { purpose_text: null } },
+      select: { name: true, purpose_text: true },
+      take: 6,
+    })
+    .then((rows) => rows.map((a) => ({ name: a.name, purpose: (a.purpose_text ?? "").slice(0, 160) })))
+    .catch(() => []);
+  const tables = await prisma.datasets
+    .findMany({
+      where: { org_id: item.org_id },
+      select: { name: true, columns: true },
+      orderBy: { updated_at: "desc" },
+      take: 8,
+    })
+    .then((rows) =>
+      rows.map((d) => ({
+        name: d.name,
+        columns: (Array.isArray(d.columns) ? (d.columns as { key?: string }[]) : [])
+          .map((c) => c.key ?? "")
+          .filter(Boolean)
+          .slice(0, 10),
+      })),
+    )
+    .catch(() => []);
+
   const results: AttachmentProcessResult[] = [];
   for (const att of atts) {
     try {
@@ -85,22 +154,41 @@ export async function processItemAttachments(
       if (kind) {
         try {
           const bytes = await readBlob(item.org_id, att.blob_hash);
+          // PDFs try the structure-preserving converter seam first
+          // (PDF_MARKDOWN_COMMAND, GRAPH_PIPELINE.md P3) — markdown output
+          // gets section-aligned chunks and a structured prompt; null (seam
+          // off / converter failed / scan) falls back to the unpdf text
+          // layer, which also keeps the scanned-PDF vision detection intact.
+          const md = kind === "pdf" ? await convertPdfToMarkdown(bytes) : null;
           doc =
-            kind === "sheet"
+            md ??
+            (kind === "sheet"
               ? sheetToText(await parseWorkbook(bytes))
-              : await extractAttachmentText(bytes, kind);
+              : await extractAttachmentText(bytes, kind));
           if (doc.text) {
             // Classify-first + template-restrained: the document is distilled
             // to its category's template (+ ≤3 concepts + a markdown summary),
-            // never free-ranged like a message.
+            // never free-ranged like a message. Relevance priming runs on the
+            // DOCUMENT's own text (labels in it + one embedding) — fail-soft.
+            const known = await import("./priming")
+              .then(({ primeKnownEntities }) => primeKnownEntities(item.org_id, doc!.text))
+              .catch(() => []);
+            // No size limit: the WHOLE document is chunked; the prompt gets
+            // the important chunks only (classify from the head, then the
+            // zero-LLM scorer — chunk-select.ts).
+            const di = await distillInput(doc, chunkDocText(doc), att.filename, kinds, agents, llm);
             const res = await extractFromDocument(
               {
-                text: doc.text,
+                text: di.text,
+                docKind: di.docKind ?? undefined,
                 filename: att.filename,
                 channel: item.channel,
                 businessContext,
                 kinds,
                 concepts,
+                agents,
+                tables,
+                known,
               },
               llm,
             );
@@ -109,11 +197,15 @@ export async function processItemAttachments(
             docKind = res.docKind;
             offTemplate = res.offTemplateReview;
             indexing = doc.truncated ? "partial" : "full";
-          } else if (kind === "pdf" && isLikelyScannedPdf(doc) && meta.bytes <= MAX_IMAGE_BYTES) {
-            // SCANNED PDF: no text layer — the content is pixels. Rasterize its
-            // pages (up to MAX_SCAN_PAGES / the payload budget) and read them
-            // in ONE vision call, same tier as a photo. Fail-soft: no canvas /
-            // no vision key → stays metadata_only.
+          } else if (kind === "pdf" && isLikelyScannedPdf(doc) && meta.bytes <= MAX_IMAGE_BYTES && process.env.PDF_SCAN_VISION === "1") {
+            // SCANNED PDF: no text layer — the content is pixels. OPT-IN
+            // (user call 2026-07-16: no vision on PDFs for now): set
+            // PDF_SCAN_VISION=1 to rasterize the pages (up to MAX_SCAN_PAGES
+            // / the payload budget) and read them in ONE vision call, same
+            // tier as a photo. Off / no canvas / no vision key → the scan
+            // stays metadata_only (the blob is archived; a requeue after
+            // enabling the flag re-reads it). Photos/screenshots are NOT
+            // affected — only PDFs whose text layer is empty.
             const scan = await rasterizePdfPages(bytes, doc.pages ?? 1);
             if (scan && scan.pages.length > 0) {
               const [first, ...rest] = scan.pages;
@@ -185,14 +277,20 @@ export async function processItemAttachments(
               truncated: transcript.length > MAX_DOC_CHARS,
               pages: null,
             };
+            // Long transcripts get the same chunk-importance selection as
+            // long documents — the full transcript still lands in doc_chunks.
+            const di = await distillInput(doc, chunkDocText(doc), att.filename, kinds, agents, llm);
             const res = await extractFromDocument(
               {
-                text: doc.text,
+                text: di.text,
+                docKind: di.docKind ?? undefined,
                 filename: att.filename,
                 channel: item.channel,
                 businessContext,
                 kinds,
                 concepts,
+                agents,
+                tables,
               },
               llm,
             );
@@ -209,7 +307,34 @@ export async function processItemAttachments(
         }
       }
 
+      // NON-UNDERSTANDABLE NAME → an interpretable one (user request
+      // 2026-07-16): once the document is UNDERSTOOD, a machine name
+      // (scan0001.pdf, IMG_2043.jpg, a UUID) is replaced by what the document
+      // IS — kind + primary subject — BEFORE it's saved anywhere the user
+      // reads: the attachments row, the document entity's label/natural key,
+      // reviews, the parse reply. Human-looking names are never touched, and
+      // the original is kept as an original_filename fact. Re-runs are
+      // stable: the renamed file is no longer cryptic, so it keeps its name
+      // (and its natural key) on reprocessing.
+      const renamedFrom = att.filename;
+      const better = interpretableFilename(att.filename, inner?.entities[0]?.label, docKind);
+      if (better) {
+        meta.filename = better;
+        await prisma.attachments
+          .update({ where: { id: att.id }, data: { filename: better } })
+          .catch((e) => console.error(`[documents] filename update failed for ${att.id}`, e));
+        console.log(`[documents] renamed "${renamedFrom ?? "(unnamed)"}" → "${better}" (${docKind ?? "document"})`);
+      }
+
       const extraction = buildDocumentExtraction(meta, indexing, inner);
+      if (better && renamedFrom) {
+        extraction.facts.push({
+          subjectLocalId: extraction.entities[0].localId,
+          predicate: "original_filename",
+          cardinality: "one",
+          value: { kind: "text", text: renamedFrom },
+        });
+      }
       const folded = await ingestExtraction(item.org_id, item.owner_user_id, item.id, extraction, llm);
 
       // Template drops become a pending review instead of vanishing — the
@@ -219,7 +344,7 @@ export async function processItemAttachments(
         try {
           await createOffTemplateReview(item.org_id, item.owner_user_id, {
             itemId: item.id,
-            docLabel: att.filename ?? "attachment",
+            docLabel: meta.filename ?? "attachment",
             docKind,
             extraction: offTemplate.extraction,
             display: offTemplate.display,
@@ -260,7 +385,7 @@ export async function processItemAttachments(
       }
       results.push({
         attachmentId: att.id,
-        filename: att.filename,
+        filename: meta.filename, // the interpretable name when renamed
         indexing,
         factsNew: folded.factsNew,
       });

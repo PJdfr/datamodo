@@ -4,7 +4,7 @@
 // stays clean. Each kind carries exactly the structured fields its card needs;
 // the API returns this shape and the tab's simulated data conforms to it too.
 
-export type ReviewKind = "entity_merge" | "fact_conflict" | "extraction" | "off_template" | "category_proposal";
+export type ReviewKind = "entity_merge" | "fact_conflict" | "extraction" | "off_template" | "category_proposal" | "orphan_prune" | "field_proposal";
 
 export interface EntityAttr {
   k: string;
@@ -39,11 +39,16 @@ export interface MergeReview extends ReviewBase {
   parsed: ReviewEntitySide; // the newly-parsed name
   canonical: ReviewEntitySide; // the existing entity we'd merge into
   reason: string; // why the resolver thinks they match
+  /** Entity ids for the graph preview (absent on simulated/auto rows). */
+  sourceEntityId?: string | null;
+  targetEntityId?: string | null;
 }
 
 /** "A newer message disagrees with a value we had." */
 export interface ConflictReview extends ReviewBase {
   kind: "fact_conflict";
+  /** Subject entity id for the graph preview (absent on simulated rows). */
+  subjectEntityId?: string | null;
   subject: string;
   field: string;
   was: string;
@@ -87,4 +92,32 @@ export interface CategoryProposalReview extends ReviewBase {
   description?: string;
 }
 
-export type ReviewItem = MergeReview | ConflictReview | ExtractionReview | OffTemplateReview | CategoryProposalReview;
+/** "These strays are linked to nothing — prune them?" (consolidation pass)
+ *  Nothing is applied until accepted; declining never re-asks about the same
+ *  entities. Accept deletes only entities STILL unlinked at accept time. */
+export interface OrphanPruneReview extends ReviewBase {
+  kind: "orphan_prune";
+  count: number;
+  /** Display sample (capped at filing time); ids ride for the graph preview. */
+  entities: { label: string; type: string; id?: string }[];
+}
+
+/** "Facts keep using a predicate the template doesn't have — add it?"
+ *  (ontology growth gate, GRAPH_PIPELINE.md P2). Accept ADDS the field (or
+ *  relation, for entity-valued predicates) to the kind's template; the facts
+ *  already exist and start conforming the moment it lands. Decline never
+ *  re-asks about the same kind+predicate. */
+export interface FieldProposalReview extends ReviewBase {
+  kind: "field_proposal";
+  targetKind: string; // registry slug ("invoice")
+  predicate: string; // the off-template predicate in use ("payment_terms")
+  count: number; // current facts already using it
+  valueType: "text" | "number" | "date" | "entity";
+  asRelation: boolean;
+  unit?: string;
+  /** Set when the predicate is a SPELLING of this existing template key —
+   *  accept adds it as an alias there instead of creating a new field. */
+  aliasOf?: string;
+}
+
+export type ReviewItem = MergeReview | ConflictReview | ExtractionReview | OffTemplateReview | CategoryProposalReview | OrphanPruneReview | FieldProposalReview;

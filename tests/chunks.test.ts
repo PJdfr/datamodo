@@ -38,7 +38,7 @@ test("chunkDocText: long pages split at boundaries, never mid-word chaos", () =>
 });
 
 test("chunkDocText: plain text chunks by paragraphs, capped at MAX_CHUNKS", () => {
-  const paras = Array.from({ length: 200 }, (_, i) => `Paragraph ${i} ${"x".repeat(1100)}`).join("\n\n");
+  const paras = Array.from({ length: MAX_CHUNKS + 50 }, (_, i) => `Paragraph ${i} ${"x".repeat(1100)}`).join("\n\n");
   const chunks = chunkDocText({ text: paras, truncated: false, pages: null });
   assert.equal(chunks.length, MAX_CHUNKS);
   assert.equal(chunks[0].page, null);

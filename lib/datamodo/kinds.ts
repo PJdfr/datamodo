@@ -196,7 +196,26 @@ export async function maybeProposeCategories(
   extraction: Extraction,
   kinds: KindDef[],
 ): Promise<void> {
-  for (const cand of unregisteredKinds(extraction, kinds)) {
+  const candidates = unregisteredKinds(extraction, kinds);
+  if (candidates.length === 0) return;
+  // USER CONTEXT for the draft (user call 2026-07-16: the pipeline takes the
+  // initiative on templates — so the draft should reflect THIS user's world,
+  // not a generic guess). Loaded once; every leg fail-soft.
+  const businessContext = ownerUserId
+    ? await import("./settings")
+        .then(({ getOnboardingContext }) => getOnboardingContext(ownerUserId))
+        .then((c) => c.businessContext)
+        .catch(() => null)
+    : null;
+  const agents = await prisma.agents
+    .findMany({
+      where: { org_id: orgId, status: "active", NOT: { purpose_text: null } },
+      select: { name: true, purpose_text: true },
+      take: 6,
+    })
+    .then((rows) => rows.map((a) => `${a.name}: ${(a.purpose_text ?? "").slice(0, 120)}`))
+    .catch(() => [] as string[]);
+  for (const cand of candidates) {
     const count = await prisma.entities.count({
       where: { org_id: orgId, kind: cand.kind, merged_into: null },
     });
@@ -213,12 +232,59 @@ export async function maybeProposeCategories(
       take: 5,
     });
     const samples = sampleRows.map((r) => r.canonical_label);
+    // The strongest field signal: predicates ALREADY observed on these
+    // entities — the draft should formalize what extraction is finding, so
+    // template slots line up with real metadata (→ uniform tables).
+    const observed = await prisma.$queryRaw<{ predicate: string; n: bigint }[]>`
+      SELECT f.predicate, count(*) AS n
+        FROM facts f JOIN entities e ON e.id = f.subject_entity_id
+       WHERE e.org_id = ${orgId}::uuid AND e.kind = ${cand.kind} AND e.merged_into IS NULL
+         AND f.valid_to IS NULL AND f.object_entity_id IS NULL
+         AND (f.value_text IS NOT NULL OR f.value_num IS NOT NULL OR f.value_date IS NOT NULL)
+       GROUP BY f.predicate ORDER BY n DESC LIMIT 8`.catch(() => []);
+    // The relations the graph has ALREADY drawn from these entities: their
+    // edges, grouped by predicate + target kind (user call 2026-07-16:
+    // "its relationship to other templates should be inferred out of its
+    // edges"). These merge into the draft deterministically below — they are
+    // observations, not guesses.
+    const observedRels = await prisma.$queryRaw<{ predicate: string; target_kind: string; n: bigint }[]>`
+      SELECT f.predicate, o.kind AS target_kind, count(*) AS n
+        FROM facts f
+        JOIN entities e ON e.id = f.subject_entity_id
+        JOIN entities o ON o.id = f.object_entity_id
+       WHERE e.org_id = ${orgId}::uuid AND e.kind = ${cand.kind} AND e.merged_into IS NULL
+         AND f.valid_to IS NULL
+       GROUP BY f.predicate, o.kind ORDER BY n DESC LIMIT 6`.catch(() => []);
     const label = cand.kind.replace(/_/g, " ").replace(/(^|\s)\w/g, (m) => m.toUpperCase());
+    const hint = [
+      `Seen in the user's messages as: ${samples.join(", ")}.`,
+      observed.length
+        ? `Facts already observed on them (prefer fields matching these): ${observed.map((o) => `${o.predicate} (${o.n}×)`).join(", ")}.`
+        : null,
+      observedRels.length
+        ? `Edges already drawn from them (keep these relations): ${observedRels.map((r) => `${r.predicate}→${r.target_kind} (${r.n}×)`).join(", ")}.`
+        : null,
+      businessContext ? `About the user's work: ${businessContext}` : null,
+      agents.length ? `The user's agents (what they collect): ${agents.join(" · ")}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
     let template: SuggestedTemplate = { aliases: [], fields: [], relations: [] };
     try {
-      template = await suggestKindTemplate(ownerUserId, label, `Seen in the user's messages as: ${samples.join(", ")}`);
+      template = await suggestKindTemplate(ownerUserId, label, hint);
     } catch (e) {
       console.error(`[kinds] template draft failed for proposal "${cand.kind}"`, e);
+    }
+    // Graph-observed relations ALWAYS make the template (deterministic merge
+    // after the draft — the model may phrase them, never drop them).
+    for (const r of observedRels) {
+      if (template.relations.some((t) => t.predicate === r.predicate)) continue;
+      if (template.relations.length >= 6) break;
+      template.relations.push({
+        predicate: r.predicate,
+        label: r.predicate.replace(/_/g, " "),
+        targetKind: r.target_kind,
+      });
     }
     await prisma.knowledge_reviews.create({
       data: {

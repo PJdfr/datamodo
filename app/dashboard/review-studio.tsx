@@ -9,67 +9,19 @@
  *   • extraction   → "did we understand this?"      (message ↔ facts, editorial)
  *   • off_template → "keep what didn't fit the template?" (doc facts, opt-in)
  *   • category_proposal → "make a category for these?"    (growth loop ⑤, opt-in)
+ *   • orphan_prune → "prune what's linked to nothing?"     (consolidation pass, opt-in)
  * Flow: triage header → impact spotlight → calmer grouped sections, ranked by impact.
  *
  * Data comes from GET /api/knowledge/reviews (typed by lib/datamodo/review-types).
- * When there are no real reviews yet, we show a SIMULATED set (same shape) as a
- * labelled preview so the design is visible.
+ * Real reviews only (user call 2026-07-16): no review = the calm all-caught-up
+ * state, never simulated rows.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { C, Hov, ghostBtn, relTime } from "./ui";
 import { ReviewCardBody, PAPER_SKIN } from "./review-card";
-import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, OffTemplateReview, CategoryProposalReview } from "@/lib/datamodo/review-types";
-
-/* --------------------------- simulated fallback --------------------------- */
-
-const ago = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
-
-const SIMULATED: ReviewItem[] = [
-  {
-    id: "sim-m1", kind: "entity_merge", impact: 12, confidence: 0.9, createdAt: ago(2),
-    parsed: { label: "Acme", type: "company", source: "Email · “Q3 renewal”", attrs: [{ k: "email domain", v: "acme.com" }, { k: "connected", v: "1 fact" }] },
-    canonical: { label: "Acme Group", type: "company", attrs: [{ k: "domain", v: "acme.com" }, { k: "connected", v: "12 facts" }] },
-    reason: "Same email domain (acme.com); “Acme” is the common short form of the canonical name.",
-  },
-  {
-    id: "sim-m2", kind: "entity_merge", impact: 4, confidence: 0.74, createdAt: ago(5),
-    parsed: { label: "J. Porter", type: "person", source: "WhatsApp", attrs: [{ k: "at", v: "Brightwave" }, { k: "connected", v: "1 fact" }] },
-    canonical: { label: "James Porter", type: "person", attrs: [{ k: "email", v: "james.porter@brightwave.io" }, { k: "connected", v: "4 facts" }] },
-    reason: "Initial + surname match, both tied to Brightwave.",
-  },
-  {
-    id: "sim-c1", kind: "fact_conflict", impact: 3, confidence: 0.88, createdAt: ago(3),
-    subject: "Invoice INV-4417", field: "amount", was: "$18,500.00", now: "$17,650.00",
-    wasSource: "1 source", nowSource: "2 sources", note: "A later email restated the total after the multi-year discount.",
-  },
-  {
-    id: "sim-c2", kind: "fact_conflict", impact: 2, confidence: 0.95, createdAt: ago(6),
-    subject: "Brightwave", field: "account manager", was: "James Porter", now: "Elena Ruiz",
-    wasSource: "1 source", nowSource: "1 source", note: "“Our new account manager, Elena Ruiz, will be your main point of contact.”",
-  },
-  {
-    id: "sim-e1", kind: "extraction", impact: 2, confidence: 0.58, createdAt: ago(20), from: "+1 (415) 555-0142", channel: "whatsapp",
-    snippet: "Dinner with the Northwind team Thurs 7pm — they’ll send the SOW next week 👍",
-    entities: [{ label: "Northwind", type: "company" }],
-    facts: [{ s: "Northwind", p: "meeting", v: "Thu 7:00pm", c: 0.62 }, { s: "Northwind", p: "expected", v: "SOW next week", c: 0.55 }],
-  },
-  {
-    id: "sim-o1", kind: "off_template", impact: 2, confidence: null, createdAt: ago(8),
-    docLabel: "INV-4417.pdf", docKind: "invoice",
-    facts: [{ s: "INV-4417", p: "purchase_order", v: "PO-2211", c: 1 }, { s: "INV-4417", p: "payment_terms", v: "net 45", c: 1 }],
-  },
-  {
-    id: "sim-k1", kind: "category_proposal", impact: 4, confidence: null, createdAt: ago(12),
-    proposedKind: "subscription", label: "Subscription", count: 4,
-    sampleLabels: ["Figma Org plan", "Notion Team", "Vercel Pro", "Linear"],
-    fields: [{ key: "plan", label: "Plan", type: "text" }, { key: "monthly_cost", label: "Monthly cost", type: "number" }, { key: "renews_on", label: "Renews on", type: "date" }],
-    relations: [{ predicate: "billed_by", label: "Billed by", targetKind: "company" }],
-    icon: "🔁", description: "A recurring service the user pays for.",
-  },
-];
-
-export const SIMULATED_REVIEW_COUNT = SIMULATED.length;
+import { ReviewGraphPanel, previewInputFor } from "./review-graph-modal";
+import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, OffTemplateReview, CategoryProposalReview, OrphanPruneReview, FieldProposalReview } from "@/lib/datamodo/review-types";
 
 /* ------------------------------ small atoms ------------------------------- */
 
@@ -237,11 +189,48 @@ function CategoryProposalCard({ p, onResolve }: { p: CategoryProposalReview; onR
   );
 }
 
+function OrphanPruneCard({ o, onResolve }: { o: OrphanPruneReview; onResolve: Resolve }) {
+  return (
+    <CardShell
+      header={<>
+        <TypeChip label="Unlinked strays" tone={C.gold} />
+        <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginLeft: "auto" }}>{o.count} flagged · {relTime(o.createdAt)}</span>
+      </>}
+      footer={<>
+        <span style={{ fontSize: 12, color: "#8A8477" }}>Accept prunes only what is STILL unlinked; declining never asks about these again.</span>
+        <div style={{ marginLeft: "auto" }}><Actions id={o.id} onResolve={onResolve} acceptLabel="Prune them" rejectLabel="Keep them" /></div>
+      </>}
+    >
+      <ReviewCardBody item={o} skin={PAPER_SKIN} />
+    </CardShell>
+  );
+}
+
+function FieldProposalCard({ f, onResolve }: { f: FieldProposalReview; onResolve: Resolve }) {
+  return (
+    <CardShell
+      header={<>
+        <TypeChip label="Grow the template?" tone={C.green} />
+        <span style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{f.targetKind} · {f.predicate.replace(/_/g, " ")}</span>
+        <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginLeft: "auto" }}>{f.count} in use · {relTime(f.createdAt)}</span>
+      </>}
+      footer={<>
+        <span style={{ fontSize: 12, color: "#8A8477" }}>Accepting adds the {f.aliasOf ? "alias" : f.asRelation ? "relation" : "field"} to the category; declining never asks about this one again.</span>
+        <div style={{ marginLeft: "auto" }}><Actions id={f.id} onResolve={onResolve} acceptLabel={f.aliasOf ? "Add alias" : f.asRelation ? "Add relation" : "Add field"} rejectLabel="No thanks" /></div>
+      </>}
+    >
+      <ReviewCardBody item={f} skin={PAPER_SKIN} />
+    </CardShell>
+  );
+}
+
 function renderCard(it: ReviewItem, onResolve: Resolve) {
   if (it.kind === "entity_merge") return <MergeCard m={it} onResolve={onResolve} />;
   if (it.kind === "fact_conflict") return <ConflictCard c={it} onResolve={onResolve} />;
   if (it.kind === "off_template") return <OffTemplateCard o={it} onResolve={onResolve} />;
   if (it.kind === "category_proposal") return <CategoryProposalCard p={it} onResolve={onResolve} />;
+  if (it.kind === "orphan_prune") return <OrphanPruneCard o={it} onResolve={onResolve} />;
+  if (it.kind === "field_proposal") return <FieldProposalCard f={it} onResolve={onResolve} />;
   return <ExtractionCard e={it} onResolve={onResolve} />;
 }
 
@@ -292,6 +281,8 @@ function rowMeta(it: ReviewItem): { glyph: string; color: string; text: string }
   if (it.kind === "fact_conflict") return { glyph: "~", color: C.accent, text: `${it.subject} · ${it.field}  “${it.was}” → “${it.now}”` };
   if (it.kind === "off_template") return { glyph: "±", color: C.blue, text: `${it.facts.length} off-template fact${it.facts.length === 1 ? "" : "s"} from “${it.docLabel}”` };
   if (it.kind === "category_proposal") return { glyph: "▣", color: C.accent, text: `new category “${it.label}” — ${it.count} thing${it.count === 1 ? "" : "s"} already fit it` };
+  if (it.kind === "orphan_prune") return { glyph: "−", color: C.gold, text: `prune ${it.count} unlinked stray${it.count === 1 ? "" : "s"} (${it.entities.slice(0, 3).map((e) => e.label).join(", ")}${it.count > 3 ? "…" : ""})` };
+  if (it.kind === "field_proposal") return { glyph: "▤", color: C.green, text: `add “${it.predicate.replace(/_/g, " ")}” to the ${it.targetKind} template — ${it.count} fact${it.count === 1 ? "" : "s"} already use it` };
   const who = it.entities.map((e) => e.label).join(", ") || channelOf(it.channel).label;
   return { glyph: "+", color: C.green, text: `${it.facts.length} fact${it.facts.length === 1 ? "" : "s"} about ${who}` };
 }
@@ -302,6 +293,8 @@ const GROUP_META: Record<ReviewItem["kind"], { title: string; hint: string }> = 
   extraction: { title: "New from your messages", hint: "accept to file into your data" },
   off_template: { title: "Outside the template", hint: "a document said more than its category covers" },
   category_proposal: { title: "Proposed categories", hint: "things you keep capturing that no category covers" },
+  orphan_prune: { title: "Unlinked strays", hint: "entities nothing references — prune or keep" },
+  field_proposal: { title: "Template growth", hint: "predicates your facts keep using that no template covers" },
 };
 
 function DiffRow({ it, expanded, onToggle, onResolve }: { it: ReviewItem; expanded: boolean; onToggle: () => void; onResolve: Resolve }) {
@@ -329,7 +322,18 @@ function DiffRow({ it, expanded, onToggle, onResolve }: { it: ReviewItem; expand
         </span>
         <span style={{ color: "#B7AF9F", fontSize: 12, transform: expanded ? "rotate(90deg)" : "none", transition: "transform .12s", flexShrink: 0 }}>›</span>
       </div>
-      {expanded && <div style={{ padding: "4px 12px 14px" }}>{renderCard(it, onResolve)}</div>}
+      {/* Click a row → the evidence card with the GRAPH PREVIEW beside it
+          (user call 2026-07-16: next to the row, not a modal). */}
+      {expanded && (
+        <div style={{ display: "flex", gap: 12, padding: "4px 12px 14px", alignItems: "stretch", flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 340px", minWidth: 0 }}>{renderCard(it, onResolve)}</div>
+          {previewInputFor(it) && (
+            <div style={{ flex: "1 1 300px", minWidth: 280 }}>
+              <ReviewGraphPanel item={it} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -339,7 +343,6 @@ function DiffRow({ it, expanded, onToggle, onResolve }: { it: ReviewItem; expand
 export function ReviewStudio() {
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [preview, setPreview] = useState(false); // showing simulated fallback
   const [expanded, setExpanded] = useState<string | null>(null);
   const [done, setDone] = useState({ accepted: 0, rejected: 0 });
 
@@ -351,10 +354,9 @@ export function ReviewStudio() {
         const json = await res.json();
         const real: ReviewItem[] = json.reviews ?? [];
         if (!alive) return;
-        if (real.length > 0) { setItems(real); setPreview(false); }
-        else { setItems(SIMULATED); setPreview(true); }
+        setItems(real);
       } catch {
-        if (alive) { setItems(SIMULATED); setPreview(true); }
+        if (alive) setItems([]);
       } finally {
         if (alive) setLoading(false);
       }
@@ -366,16 +368,14 @@ export function ReviewStudio() {
     setItems((s) => s.filter((i) => i.id !== id));
     setDone((d) => (action === "accept" ? { ...d, accepted: d.accepted + 1 } : { ...d, rejected: d.rejected + 1 }));
     setExpanded((e) => (e === id ? null : e));
-    if (!preview) {
-      void fetch(`/api/knowledge/reviews/${id}`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }),
-      });
-    }
+    void fetch(`/api/knowledge/reviews/${id}`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }),
+    });
   };
 
   const live = useMemo(() => [...items].sort((a, b) => b.impact - a.impact), [items]);
   const groups = useMemo(() => {
-    const order: ReviewItem["kind"][] = ["extraction", "fact_conflict", "entity_merge", "off_template", "category_proposal"];
+    const order: ReviewItem["kind"][] = ["extraction", "fact_conflict", "entity_merge", "off_template", "category_proposal", "field_proposal", "orphan_prune"];
     return order
       .map((kind) => ({ kind, items: live.filter((i) => i.kind === kind) }))
       .filter((g) => g.items.length > 0);
@@ -405,11 +405,6 @@ export function ReviewStudio() {
 
   return (
     <div style={{ maxWidth: 880 }}>
-      {preview && (
-        <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: "#6B551F", background: "#FBEFD6", border: "1px solid #E6CF92", borderRadius: 10, padding: "8px 12px", marginBottom: 12 }}>
-          <span>◑</span> Preview — no real reviews yet, so this is simulated data showing how the queue looks.
-        </div>
-      )}
 
       <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, overflow: "hidden" }}>
         {/* PR header */}
@@ -442,7 +437,13 @@ export function ReviewStudio() {
               <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B" }}>{g.items.length} · {GROUP_META[g.kind].hint}</span>
             </div>
             {g.items.map((it) => (
-              <DiffRow key={it.id} it={it} expanded={expanded === it.id} onToggle={() => setExpanded((e) => (e === it.id ? null : it.id))} onResolve={resolve} />
+              <DiffRow
+                key={it.id}
+                it={it}
+                expanded={expanded === it.id}
+                onToggle={() => setExpanded((e) => (e === it.id ? null : it.id))}
+                onResolve={resolve}
+              />
             ))}
           </div>
         ))}
