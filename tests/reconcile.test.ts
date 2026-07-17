@@ -5,10 +5,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  canonicalDateValue,
+  canonicalizeNaturalKeys,
   declaredCardinality,
+  groundExtractionEvidence,
+  normalizePhone,
+  normalizeUrl,
   parseLooseDate,
   parseLooseNumber,
   reconcileExtraction,
+  UNGROUNDED_CONFIDENCE_CAP,
 } from "../lib/datamodo/reconcile-core.ts";
 import { DEFAULT_KINDS } from "../lib/datamodo/ontology.ts";
 import type { Extraction, ExtractedFact } from "../lib/datamodo/knowledge.ts";
@@ -171,6 +177,68 @@ test("parseLooseNumber: whole-string numbers only — never digs digits out of p
   assert.equal(parseLooseNumber("about 100 or so"), null);
   assert.equal(parseLooseNumber("between 100 and 200"), null);
   assert.equal(parseLooseNumber("n/a"), null);
+});
+
+test("natural keys canonicalize: same phone/email/url → same tier-0 key", () => {
+  assert.equal(normalizePhone("+1 (555) 123-4567"), "+15551234567");
+  assert.equal(normalizePhone("555.123.4567"), "5551234567");
+  assert.equal(normalizePhone("ext. 12"), "ext. 12"); // not a phone — untouched
+  assert.deepEqual(canonicalizeNaturalKeys({ email: " Bob@Acme.COM ", phone: "555-123-4567", invoice_no: " INV-9 " }), {
+    email: "bob@acme.com",
+    phone: "5551234567",
+    invoice_no: "INV-9",
+  });
+  assert.deepEqual(canonicalizeNaturalKeys({ email: "   " }), {}); // blanks drop
+});
+
+test("normalizeUrl: tracking params and trailing slash go, page identity stays", () => {
+  assert.equal(
+    normalizeUrl("https://Example.com/post/?utm_source=x&utm_campaign=y&fbclid=abc"),
+    "https://example.com/post",
+  );
+  assert.equal(normalizeUrl("https://example.com/a?id=7&utm_medium=m"), "https://example.com/a?id=7");
+  assert.equal(normalizeUrl("not a url"), "not a url");
+});
+
+test("date values canonicalize: unpadded pads, prose rescues, garbage drops the fact", () => {
+  assert.equal(canonicalDateValue("2026-1-2"), "2026-01-02");
+  assert.equal(canonicalDateValue("2026-01-02"), "2026-01-02");
+  assert.equal(canonicalDateValue("March 3, 2026"), "2026-03-03");
+  assert.equal(canonicalDateValue("someday"), null);
+
+  const { extraction, stats } = reconcileExtraction({
+    entities: [{ localId: "e1", kind: "event", label: "Offsite" }],
+    facts: [
+      { subjectLocalId: "e1", predicate: "date", value: { kind: "date", date: "2026-1-2" } },
+      { subjectLocalId: "e1", predicate: "location", value: text("   ") }, // blank → drops
+    ],
+  });
+  assert.equal(extraction.facts.length, 1);
+  assert.equal(extraction.facts[0].value.kind === "date" && extraction.facts[0].value.date, "2026-01-02");
+  assert.equal(stats.droppedEmpty, 1);
+});
+
+test("evidence grounding: missing snippet quote or absent number caps confidence; presence never penalizes", () => {
+  const source = "Invoice INV-9 from Acme for $1,234.56 due next month. Contact bob@acme.com.";
+  const x: Extraction = {
+    entities: [{ localId: "e1", kind: "invoice", label: "INV-9" }],
+    facts: [
+      // grounded: number appears (separators ignored), snippet is a real quote
+      { subjectLocalId: "e1", predicate: "amount", value: { kind: "number", num: 1234.56 }, confidence: 0.95, snippet: "for $1,234.56 due" },
+      // ungrounded: number nowhere in the text
+      { subjectLocalId: "e1", predicate: "tax", value: { kind: "number", num: 999 }, confidence: 0.9 },
+      // ungrounded: fabricated "quote"
+      { subjectLocalId: "e1", predicate: "status", value: text("paid"), confidence: 0.9, snippet: "payment was received in full" },
+      // no snippet + text value → never penalized
+      { subjectLocalId: "e1", predicate: "period", value: text("January"), confidence: 0.8 },
+    ],
+  };
+  const { extraction, ungrounded } = groundExtractionEvidence(x, source);
+  assert.equal(ungrounded, 2);
+  assert.equal(extraction.facts[0].confidence, 0.95);
+  assert.equal(extraction.facts[1].confidence, UNGROUNDED_CONFIDENCE_CAP);
+  assert.equal(extraction.facts[2].confidence, UNGROUNDED_CONFIDENCE_CAP);
+  assert.equal(extraction.facts[3].confidence, 0.8);
 });
 
 test("parseLooseDate: needs an explicit year; vague phrases stay out", () => {

@@ -654,6 +654,15 @@ real questions).
   `passage-rank.ts`). Fail-soft: keyword-only without a key. Wakes up the
   moment the real embeddings key lands. (GraphRAG step 3 later SCOPES this
   to linked entities.)
+- **Held-conflict card polish** (discovered 2026-07-17 with the supersession
+  guard): `review-card.tsx` strikes through the old value on every
+  fact_conflict — for `held` rows the old value is still CURRENT (only the
+  note explains). Render held rows as "current vs candidate" instead of
+  "was vs now". Also free extraction ideas not yet built: sender-identity
+  enrichment (attach `items.sender` email to the matching extracted person →
+  tier-0 hits, saves adjudication calls), unit/currency normalization
+  ($/US$/usd → USD), concept plural folding (reuse the router's), batched
+  ingest round-trips.
 - **Tables × list fields** (discovered 2026-07-17 with declared cardinality):
   `projectEntitiesToDataset` fills a cell from "the" matching fact — for a
   `"many"` predicate (authors, tags, emails) the last fact wins the cell.

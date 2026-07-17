@@ -55,6 +55,9 @@ export interface ConflictReview extends ReviewBase {
   now: string;
   wasSource: string;
   nowSource: string;
+  /** True when the new value was NOT auto-applied (supersession guard held it
+   *  as clearly weaker): the old value is still current; accept switches. */
+  held?: boolean;
   note: string;
 }
 

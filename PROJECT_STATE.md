@@ -12,6 +12,27 @@
 > Last updated: 2026-07-17
 
 ## Recent changes
+- **2026-07-17** — **Extraction hardening tier 2 (user: "go on" after the
+  free-improvements list — all zero-LLM).** ① Value-equality normalization:
+  `upsertFact` compares text case/whitespace-insensitively ("Paid" vs "paid"
+  = re-observation, not a supersession + junk conflict review); reconcile
+  canonicalizes date values to padded YYYY-MM-DD, trims text, drops
+  blank/NaN/garbage values (`droppedEmpty`). ② Natural keys canonicalize in
+  reconcile (emails lowercase, phones digits-only keeping +, URLs de-tracked
+  utm_*/fbclid/gclid + host lowercased; url/website/link fact values too) —
+  same real-world key → same tier-0 `normalized_key`. ③ Evidence grounding
+  (`groundExtractionEvidence`, message + document paths, after the
+  escalation decision): a quoted snippet nowhere in the source, or a ≥3-digit
+  number absent from its digit stream, caps the fact at 0.35 and overall at
+  0.7 → under the 0.75 extraction-review gate; absence of evidence never
+  penalizes. ④ Supersession guard: a claim >0.2 confidence below the current
+  fact (or below a ≥2-source one) is recorded RETIRED and files a `held`
+  fact_conflict — old value stays current; accept swaps old→new
+  (`reviews.ts` branches), reject changes nothing; ping asks "switch to
+  it?". VERIFIED: 7 new unit tests (17 total in `tests/reconcile.test.ts`),
+  full suite 375 pass / 0 fail, tsc clean. Follow-ups in ROADMAP: held-card
+  "current vs candidate" rendering; sender-identity enrichment, unit
+  normalization, concept plural folding, batched ingest round-trips.
 - **2026-07-17** — **Extraction reconciliation + declared cardinality (user
   call: "if the LLM outputs author: xxx, author: yyy, only the last wins" +
   "any free, zero-LLM-token pipeline improvement should be built").** New pure

@@ -119,7 +119,12 @@ reviewable, nothing is ever silently lost or merged.
   predicate IN THE SAME extraction are never a supersession — they're a list
   (promote to `"many"`) or an extraction error (declared-`"one"`: keep the
   most confident). Supersession + `fact_conflict` reviews are reserved for
-  genuine change ACROSS messages. The whole pass is deterministic — zero LLM.
+  genuine change ACROSS messages — and even then a clearly WEAKER claim
+  (confidence far below, or against a multi-source fact) is HELD pending
+  review instead of auto-applied (`detail.held`; accept = switch). Evidence
+  is verified for free: snippets/numbers absent from the source text cap the
+  fact's confidence (`groundExtractionEvidence`) — absence of evidence never
+  penalizes. The whole pass is deterministic — zero LLM.
 - **Entity resolution never trusts similarity alone** — cosine/trigram only
   RECALL candidates; merging needs deterministic keys, high trigram, or LLM
   adjudication with confidence policy; uncertain merges become proposals.

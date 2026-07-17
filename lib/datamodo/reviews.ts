@@ -185,6 +185,7 @@ export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
     } else if (r.kind === "fact_conflict" && r.old_fact_id && r.new_fact_id) {
       const oldF = factMap.get(r.old_fact_id);
       const newF = factMap.get(r.new_fact_id);
+      const held = r.detail.held === true;
       out.push({
         ...base,
         kind: "fact_conflict",
@@ -195,7 +196,10 @@ export async function listPendingReviews(orgId: string): Promise<ReviewItem[]> {
         now: newF ? factValue(newF, label).v : "?",
         wasSource: `${srcCount.get(r.old_fact_id) ?? 1} source${(srcCount.get(r.old_fact_id) ?? 1) === 1 ? "" : "s"}`,
         nowSource: `${srcCount.get(r.new_fact_id) ?? 1} source${(srcCount.get(r.new_fact_id) ?? 1) === 1 ? "" : "s"}`,
-        note: srcSnippet.get(r.new_fact_id) || "A newer message restated this value.",
+        held,
+        note: held
+          ? "The new claim looked weaker than what we had, so we KEPT the old value — accept to switch."
+          : srcSnippet.get(r.new_fact_id) || "A newer message restated this value.",
       });
     } else if (r.kind === "extraction" && r.item_id) {
       const it = itemMap.get(r.item_id);
@@ -402,7 +406,16 @@ export async function acceptReview(orgId: string, id: string): Promise<void> {
       }
     }
   }
-  // fact_conflict + extraction: already applied to the store — accept = confirm.
+  if (r.kind === "fact_conflict" && r.detail.held === true && r.old_fact_id && r.new_fact_id) {
+    // HELD conflict (supersession guard): the weaker new value was recorded
+    // retired, never applied — accept applies it NOW. Old retires first so the
+    // claim key leaves the current-claim partial unique index before the
+    // candidate re-enters it.
+    const now = new Date();
+    await prisma.facts.update({ where: { id: r.old_fact_id }, data: { valid_to: now, superseded_by: r.new_fact_id } });
+    await prisma.facts.update({ where: { id: r.new_fact_id }, data: { valid_to: null } });
+  }
+  // non-held fact_conflict + extraction: already applied — accept = confirm.
   await prisma.knowledge_reviews.update({
     where: { id },
     data: { status: "accepted", resolved_at: new Date() },
@@ -414,7 +427,10 @@ export async function rejectReview(orgId: string, id: string): Promise<void> {
   const r = await loadPending(orgId, id);
   if (!r) return;
 
-  if (r.kind === "fact_conflict" && r.old_fact_id && r.new_fact_id) {
+  if (r.kind === "fact_conflict" && r.detail.held === true) {
+    // HELD conflict: nothing was applied — the old value is still current and
+    // the candidate is already retired. Reject just closes the question.
+  } else if (r.kind === "fact_conflict" && r.old_fact_id && r.new_fact_id) {
     const now = new Date();
     await prisma.facts.update({ where: { id: r.new_fact_id }, data: { valid_to: now } });
     await prisma.facts.update({ where: { id: r.old_fact_id }, data: { valid_to: null, superseded_by: null } });

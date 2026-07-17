@@ -6,7 +6,7 @@ import { ingestExtraction, createExtractionReview, normalizeKey, type Extraction
 import { buildNoteExtraction, NOTE_KIND, type GeneratedNote } from "@/lib/datamodo/document-extraction";
 import { getOnboardingContext } from "@/lib/datamodo/settings";
 import { renderKnownBlock } from "./priming-core.ts";
-import { parseLooseDate, parseLooseNumber } from "./reconcile-core.ts";
+import { groundExtractionEvidence, parseLooseDate, parseLooseNumber } from "./reconcile-core.ts";
 import {
   buildClassifyPrompt,
   buildDocumentPrompt,
@@ -175,6 +175,11 @@ const ESCALATE_BELOW = 0.55;
 const overallConf = (raw: LlmExtraction, fallback: number): number =>
   typeof raw.overallConfidence === "number" ? Math.min(1, Math.max(0, raw.overallConfidence)) : fallback;
 
+// An extraction with ungrounded evidence caps its overall confidence here —
+// under the 0.75 review gate, so "we couldn't find your evidence in the text"
+// surfaces as an extraction review instead of filing silently.
+const GROUNDING_OVERALL_CAP = 0.7;
+
 /** Bump when the prompt/pipeline changes enough that old extractions are
  *  stale — items with a lower stamp can then be requeued selectively
  *  (delta reprocessing) via POST /api/jobs/extract-requeue.
@@ -301,12 +306,22 @@ export async function extractFromMessage(
     escalated = true;
   }
 
+  // EVIDENCE GROUNDING (zero-LLM, after the escalation decision so it never
+  // spends a second model call): facts whose quoted snippet or number is
+  // nowhere in the message get their confidence capped, and the extraction
+  // drops under the review gate — the cheapest hallucination guard there is.
+  const grounded = groundExtractionEvidence(toExtraction(raw), input.text);
+  if (grounded.ungrounded > 0) {
+    confidence = Math.min(confidence, GROUNDING_OVERALL_CAP);
+    console.log(`[extract] evidence grounding: ${grounded.ungrounded} fact(s) lack visible evidence — confidence capped`);
+  }
+
   // Canonicalize against the user's registry: kind synonyms collapse to the
   // canonical slug, predicate synonyms to template field keys — so the same
   // real-world fact always produces the same claim key.
   const extraction = input.kinds?.length
-    ? canonicalizeExtraction(toExtraction(raw), input.kinds)
-    : toExtraction(raw);
+    ? canonicalizeExtraction(grounded.extraction, input.kinds)
+    : grounded.extraction;
   const note =
     raw.note && typeof raw.note.title === "string" && typeof raw.note.body === "string" && raw.note.body.trim()
       ? { title: raw.note.title.trim() || "Note", body: raw.note.body.trim() }
@@ -439,7 +454,15 @@ export async function extractFromDocument(
     escalated = true;
   }
 
-  const { extraction, offTemplateReview } = restrainForKinds(toExtraction(raw), input.kinds, "document");
+  // Same zero-LLM evidence grounding as messages, against the text the
+  // distill call actually read.
+  const grounded = groundExtractionEvidence(toExtraction(raw), input.text);
+  if (grounded.ungrounded > 0) {
+    confidence = Math.min(confidence, GROUNDING_OVERALL_CAP);
+    console.log(`[extract] evidence grounding (document): ${grounded.ungrounded} fact(s) lack visible evidence — confidence capped`);
+  }
+
+  const { extraction, offTemplateReview } = restrainForKinds(grounded.extraction, input.kinds, "document");
   const summary = typeof raw.summary === "string" && raw.summary.trim() ? raw.summary.trim() : null;
   return { extraction, summary, docKind, note: null, model: `${llm.name}:${model}`, overallConfidence: confidence, escalated, offTemplateReview };
 }

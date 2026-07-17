@@ -55,6 +55,8 @@ export interface IngestExtractionResult {
   factsNew: number;
   factsDeduped: number;
   factsSuperseded: number;
+  /** Weaker-than-current claims recorded but NOT applied (pending review). */
+  factsHeld: number;
 }
 
 // --- Tuning knobs ------------------------------------------------------------
@@ -415,7 +417,7 @@ async function countEntityEdges(orgId: string, entityId: string): Promise<number
 async function createConflictReview(
   orgId: string,
   ownerUserId: string | null,
-  args: { oldId: string; newId: string; subjectId: string; predicate: string },
+  args: { oldId: string; newId: string; subjectId: string; predicate: string; held?: boolean },
 ): Promise<void> {
   const count = await prisma.fact_sources.count({ where: { fact_id: args.oldId } });
   await prisma.knowledge_reviews.create({
@@ -428,7 +430,9 @@ async function createConflictReview(
       impact: count + 1,
       old_fact_id: args.oldId,
       new_fact_id: args.newId,
-      detail: { predicate: args.predicate },
+      // held: the new value was NOT applied (it looked weaker than what it
+      // would replace) — accept applies it, reject leaves the store untouched.
+      detail: args.held ? { predicate: args.predicate, held: true } : { predicate: args.predicate },
     },
   });
 }
@@ -570,7 +574,12 @@ function valueColumns(v: ExtractedFact["value"], resolve: (id: string) => string
   return cols;
 }
 
-type FactOutcome = "new" | "deduped" | "superseded";
+type FactOutcome = "new" | "deduped" | "superseded" | "held";
+
+// Supersession guard: a new value only auto-replaces the current one when it
+// isn't CLEARLY weaker. Weaker = confidence more than this margin below the
+// current fact's, or below a multi-source (corroborated) current fact.
+const SUPERSEDE_GUARD_MARGIN = 0.2;
 
 /** Normalize a date-ish value (Prisma returns Date for @db.Date columns; the
  *  LLM hands us "YYYY-MM-DD" strings) to a comparable YYYY-MM-DD, or null. */
@@ -600,7 +609,7 @@ async function upsertFact(
 
   const current = await prisma.facts.findFirst({
     where: { org_id: orgId, claim_key: key, valid_to: null },
-    select: { id: true, value_text: true, value_num: true, value_date: true, object_entity_id: true },
+    select: { id: true, confidence: true, value_text: true, value_num: true, value_date: true, object_entity_id: true },
   });
 
   const addSource = async (factId: string) => {
@@ -635,7 +644,7 @@ async function upsertFact(
     });
   };
 
-  const insertFact = async (): Promise<string> => {
+  const insertFact = async (opts: { retired?: boolean } = {}): Promise<string> => {
     const data = await prisma.facts.create({
       data: {
         org_id: orgId,
@@ -646,6 +655,9 @@ async function upsertFact(
         claim_key: key,
         confidence: fact.confidence ?? 1.0,
         valid_from: now,
+        // retired: recorded but not current (a held candidate awaiting review)
+        // — keeps it out of the valid_to IS NULL partial unique index too.
+        valid_to: opts.retired ? now : null,
         source_item_id: sourceItemId,
         ...cols,
         // Prisma's @db.Date needs a real Date — a bare "YYYY-MM-DD" string
@@ -663,8 +675,12 @@ async function upsertFact(
   }
 
   // A current fact exists for this slot. Same value → re-observation (dedup).
+  // Text compares case/whitespace-insensitively: "Paid" restating "paid" is a
+  // re-observation, not a contradiction (first-seen casing stays on display).
+  const textEq = (a: string | null, b: string | null) =>
+    (a == null ? null : a.trim().toLowerCase()) === (b == null ? null : b.trim().toLowerCase());
   const sameValue =
-    (current.value_text ?? null) === cols.value_text &&
+    textEq(current.value_text ?? null, cols.value_text) &&
     (current.value_num == null ? null : Number(current.value_num)) === cols.value_num &&
     dateOnly(current.value_date) === dateOnly(cols.value_date) &&
     (current.object_entity_id ?? null) === cols.object_entity_id;
@@ -682,6 +698,30 @@ async function upsertFact(
     current.value_num == null &&
     dateOnly(current.value_date) == null &&
     current.object_entity_id == null;
+
+  // SUPERSESSION GUARD: a clearly weaker claim never silently overwrites what
+  // we already believe — a 0.3-confidence misread must not replace a
+  // corroborated 0.95 value with only a review as consolation. The candidate
+  // is recorded RETIRED (provenance kept) and the conflict files as a
+  // held/pending decision: accept applies it, reject leaves the store as-is.
+  if (!placeholder) {
+    const newConf = fact.confidence ?? 1;
+    const curConf = current.confidence == null ? 1 : Number(current.confidence);
+    const curSources = await prisma.fact_sources.count({ where: { fact_id: current.id } });
+    const weaker = newConf < curConf - SUPERSEDE_GUARD_MARGIN || (curSources >= 2 && newConf < curConf);
+    if (weaker) {
+      const heldId = await insertFact({ retired: true });
+      await addSource(heldId);
+      await createConflictReview(orgId, ownerUserId, {
+        oldId: current.id,
+        newId: heldId,
+        subjectId,
+        predicate: fact.predicate,
+        held: true,
+      });
+      return "held";
+    }
+  }
 
   // Different value on a single-valued slot → contradiction: supersede, don't
   // delete. (Multi-valued facts never reach here — their value is in the key.)
@@ -914,6 +954,7 @@ export async function ingestExtraction(
     factsNew: 0,
     factsDeduped: 0,
     factsSuperseded: 0,
+    factsHeld: 0,
   };
 
   // The registry is loaded ONCE per ingest: reconciliation reads declared
@@ -931,9 +972,9 @@ export async function ingestExtraction(
   const reconciled = reconcileExtraction(extraction, kinds);
   extraction = reconciled.extraction;
   const st = reconciled.stats;
-  if (st.droppedUnknownRef || st.droppedSelfRef || st.mergedDuplicates || st.promotedToMany || st.conflictsResolved) {
+  if (st.droppedUnknownRef || st.droppedSelfRef || st.droppedEmpty || st.mergedDuplicates || st.promotedToMany || st.conflictsResolved) {
     console.log(
-      `[knowledge] reconcile: ${st.droppedUnknownRef} unknown-ref, ${st.droppedSelfRef} self-ref dropped; ` +
+      `[knowledge] reconcile: ${st.droppedUnknownRef} unknown-ref, ${st.droppedSelfRef} self-ref, ${st.droppedEmpty} empty-value dropped; ` +
         `${st.mergedDuplicates} duplicates merged; ${st.promotedToMany} promoted to many; ${st.conflictsResolved} same-message conflicts resolved`,
     );
   }
@@ -975,6 +1016,7 @@ export async function ingestExtraction(
     const outcome = await upsertFact(orgId, ownerUserId, subjectId, f, sourceItemId, resolve);
     if (outcome === "new") res.factsNew++;
     else if (outcome === "deduped") res.factsDeduped++;
+    else if (outcome === "held") res.factsHeld++;
     else res.factsSuperseded++;
   }
 
