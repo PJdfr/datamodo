@@ -134,6 +134,19 @@ export async function POST(req: Request) {
       attachments: attachments.length ? attachments : undefined,
       meta: agent ? { via: "app", agent_id: agent.id, agent_name: agent.name } : { via: "app" },
     });
+    // ADAPTIVE ROUTING feedback: an explicitly addressed send is ground truth
+    // — "this text belongs to this agent". Logged for the nightly centroid
+    // fold (routing-learn.ts); best-effort, never fails the send.
+    if (agent && text && !result.deduped) {
+      const { logRoutingEvent } = await import("@/lib/datamodo/routing");
+      await logRoutingEvent(org.id, {
+        agentId: agent.id,
+        verdict: "accept",
+        source: "addressed",
+        text,
+        itemId: result.itemId,
+      });
+    }
     // Same post-response extraction kick as /api/ingest — chat should feel
     // live, not wait for the cron sweep.
     if (!result.deduped) {

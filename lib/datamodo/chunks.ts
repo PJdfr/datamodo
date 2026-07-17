@@ -12,12 +12,16 @@ export type { ChunkHit } from "./passage-rank";
 // extraction chose to keep.
 
 /** Replace a document entity's chunks (idempotent — a re-forwarded file
- *  rewrites the same evidence, never duplicates it). */
+ *  rewrites the same evidence, never duplicates it). `precomputedVectors`
+ *  (indexed by chunk seq): the selection pass may have embedded the chunks
+ *  already (embed-before-select, documents.ts) — reuse instead of paying the
+ *  embeddings call twice. */
 export async function storeDocChunks(
   orgId: string,
   entityId: string,
   itemId: string | null,
   chunks: DocChunk[],
+  precomputedVectors?: (number[] | null)[] | null,
 ): Promise<number> {
   await prisma.doc_chunks.deleteMany({ where: { org_id: orgId, entity_id: entityId } });
   if (chunks.length === 0) return 0;
@@ -35,12 +39,17 @@ export async function storeDocChunks(
 
   // Embeddings are best-effort garnish on top of keyword search — one batch
   // call, attached raw (vector is Unsupported in Prisma), skipped silently
-  // when no embeddings key is configured.
-  const vectors = await embedTexts(chunks.map((c) => c.text));
+  // when no embeddings key is configured. Vectors handed in by the selection
+  // pass are reused as-is (same process, same embedding space).
+  const vectors = precomputedVectors?.some(Boolean)
+    ? precomputedVectors
+    : await embedTexts(chunks.map((c) => c.text));
   if (vectors) {
     for (const c of chunks) {
+      const v = vectors[c.seq];
+      if (!v) continue;
       await prisma.$executeRaw`
-        UPDATE doc_chunks SET embedding = ${toVectorLiteral(vectors[c.seq])}::vector,
+        UPDATE doc_chunks SET embedding = ${toVectorLiteral(v)}::vector,
                               embedding_model = ${embeddingsModel()}
          WHERE org_id = ${orgId}::uuid AND entity_id = ${entityId}::uuid AND seq = ${c.seq}`
         .catch((e) => console.error("[chunks] embedding store failed", e));

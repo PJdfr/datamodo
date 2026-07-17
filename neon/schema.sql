@@ -375,7 +375,11 @@ CREATE TABLE public.agents (
     freestyle boolean DEFAULT false NOT NULL,
     avatar_bg text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    routing_centroid public.vector(1536),
+    routing_centroid_model text,
+    routing_centroid_n integer DEFAULT 0 NOT NULL,
+    routing_terms jsonb DEFAULT '{}'::jsonb NOT NULL
 );
 
 
@@ -1935,3 +1939,31 @@ CREATE TABLE IF NOT EXISTS public.oauth_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS oauth_tokens_user_idx ON public.oauth_tokens (user_id);
+
+--
+-- Name: routing_events; Type: TABLE; Schema: public; Owner: -
+--
+-- Adaptive-routing feedback log (migration 20260717090000): each row ties a
+-- message head to an agent (accept) or away from one (reject). The nightly
+-- consolidation tick embeds accepted heads, folds them into the agent's
+-- routing_centroid (+ routing_terms weight corrections), then stamps
+-- consumed_at. The zero-cost router scores lexical + cosine(msg, centroid).
+
+CREATE TABLE IF NOT EXISTS public.routing_events (
+    id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id          uuid        NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    agent_id        uuid        NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+    item_id         uuid        REFERENCES public.items(id) ON DELETE SET NULL,
+    verdict         text        NOT NULL CHECK (verdict IN ('accept', 'reject')),
+    source          text        NOT NULL,
+    text_head       text        NOT NULL,
+    embedding       public.vector(1536),
+    embedding_model text,
+    consumed_at     timestamptz,
+    created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS routing_events_org_pending_idx
+  ON public.routing_events (org_id, created_at) WHERE consumed_at IS NULL;
+CREATE INDEX IF NOT EXISTS routing_events_item_idx
+  ON public.routing_events (item_id) WHERE item_id IS NOT NULL;

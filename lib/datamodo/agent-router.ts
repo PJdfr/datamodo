@@ -15,6 +15,10 @@ export interface AgentSeed {
   id: string;
   name: string;
   purposeText: string;
+  /** Learned term-weight corrections (adaptive routing, routing-learn.ts):
+   *  accepted messages nudged these terms up, rejected ones down. Folded on
+   *  top of the static profile; negative weights count AGAINST the agent. */
+  learnedTerms?: Record<string, number>;
 }
 
 export interface AgentProfile {
@@ -84,11 +88,18 @@ export function buildAgentProfiles(agents: AgentSeed[]): AgentProfile[] {
   }));
   const df = new Map<string, number>();
   for (const p of perAgent) for (const t of p.all) df.set(t, (df.get(t) ?? 0) + 1);
-  return perAgent.map((p) => {
+  return perAgent.map((p, i) => {
     const terms = new Map<string, number>();
     for (const t of p.all) {
       const idf = 1 / (df.get(t) ?? 1);
       terms.set(t, p.nameTerms.has(t) ? idf * 2 : idf);
+    }
+    // Learned corrections ride on top of the static profile: a term the
+    // feedback loop endorsed scores higher, one it vetoed can go negative
+    // (and a strong-enough veto removes/outweighs a static term).
+    for (const [t, w] of Object.entries(agents[i].learnedTerms ?? {})) {
+      if (!Number.isFinite(w) || w === 0) continue;
+      terms.set(t, (terms.get(t) ?? 0) + w);
     }
     return { id: p.id, name: p.name, terms };
   });
@@ -101,6 +112,11 @@ export interface RouteOptions {
   minLead?: number;
   /** ...and by this ratio (both guard different shapes of ambiguity). */
   minRatio?: number;
+  /** Per-agent additive score boosts — the adaptive-routing centroid leg
+   *  (cosine(message, agent centroid) → centroidBoost in routing-learn.ts).
+   *  Purely additive: a strong centroid can route a message the lexical
+   *  profile alone would leave ambiguous. */
+  boosts?: Map<string, number>;
 }
 
 /**
@@ -127,9 +143,10 @@ export function routeToAgent(
       for (const [t, w] of p.terms) {
         if (messageTerms.has(t)) {
           score += w;
-          matched.push([t, w]);
+          if (w > 0) matched.push([t, w]); // negative (vetoed) terms aren't a "why"
         }
       }
+      score += opts.boosts?.get(p.id) ?? 0;
       matched.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
       return { p, score, matched: matched.map(([t]) => t) };
     })

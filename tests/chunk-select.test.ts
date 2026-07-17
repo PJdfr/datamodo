@@ -68,3 +68,84 @@ test("selectChunksForPrompt: default budget engages only above it", () => {
   const one = chunk(0, "x".repeat(DOC_PROMPT_BUDGET_CHARS - 10));
   assert.equal(selectChunksForPrompt([one], { keyTerms: [] }).droppedChunks, 0);
 });
+
+// ---- semantic leg (2026-07-17): embed-before-select chunk ranking ----
+
+import { buildContextAnchors, cosineSim, semanticBoost } from "../lib/datamodo/chunk-select.ts";
+
+test("cosineSim: basics + degenerate inputs", () => {
+  assert.equal(cosineSim([1, 0], [1, 0]), 1);
+  assert.equal(cosineSim([1, 0], [0, 1]), 0);
+  assert.equal(cosineSim([1, 0], [-1, 0]), -1);
+  assert.equal(cosineSim([], []), 0);
+  assert.equal(cosineSim([1, 0], [1, 0, 0]), 0, "dim mismatch is 0, never throws");
+  assert.equal(cosineSim([0, 0], [1, 0]), 0, "zero vector");
+});
+
+test("semanticBoost: 0 at/below the floor, capped at 3", () => {
+  assert.equal(semanticBoost(null), 0);
+  assert.equal(semanticBoost(0.25), 0);
+  assert.equal(semanticBoost(0.9), 3);
+  assert.ok(semanticBoost(0.45) > 0 && semanticBoost(0.45) < 3);
+  assert.ok(semanticBoost(0.6) > semanticBoost(0.4));
+});
+
+test("buildContextAnchors: business context + agents + kind templates, capped", () => {
+  const anchors = buildContextAnchors({
+    businessContext: "Freelance quant consultant tracking fund performance",
+    agents: [{ name: "Bookkeeper", purpose: "invoices and payments" }],
+    kinds: [
+      {
+        kind: "strategy",
+        description: "A trading strategy",
+        fields: [{ key: "sharpe", label: "Sharpe ratio" }],
+        relations: [{ predicate: "managed_by", label: "Managed by" }],
+      },
+      { kind: "bare", description: null, fields: [], relations: [] },
+    ],
+  });
+  assert.equal(anchors.length, 3, "empty kind contributes nothing");
+  assert.match(anchors[0], /quant consultant/);
+  assert.match(anchors[1], /Bookkeeper — invoices/);
+  assert.match(anchors[2], /strategy: A trading strategy.*Sharpe ratio.*Managed by/);
+  assert.deepEqual(buildContextAnchors({}), []);
+});
+
+test("selectChunksForPrompt: a paraphrase chunk with zero lexical overlap wins via the semantic leg", () => {
+  const filler = "the committee discussed general matters at some length today. ".repeat(20);
+  const chunks: DocChunk[] = [
+    chunk(0, `Title page. ${filler}`),
+    chunk(1, `Abstract. ${filler}`),
+    ...Array.from({ length: 20 }, (_, i) => chunk(2 + i, filler)),
+    // The payoff chunk, phrased so no key term appears literally.
+    chunk(22, `Risk-adjusted outperformance was substantial across the sample. ${filler}`),
+  ];
+  const base = { keyTerms: ["sharpe"], budgetChars: 4_000 };
+  const without = selectChunksForPrompt(chunks, base);
+  assert.ok(!without.includedSeqs.includes(22), "lexically invisible");
+
+  // Chunk 22 sits near the anchor; everything else far from it.
+  const chunkVectors = chunks.map((c) => (c.seq === 22 ? [1, 0] : [0, 1]));
+  const withSem = selectChunksForPrompt(chunks, {
+    ...base,
+    chunkVectors,
+    anchorVectors: [[0.9, 0.1]],
+  });
+  assert.ok(withSem.includedSeqs.includes(22), "semantic closeness carries it into the prompt");
+  assert.ok(withSem.includedSeqs.includes(0) && withSem.includedSeqs.includes(1), "openings still guaranteed");
+});
+
+test("selectChunksForPrompt: missing/null vectors leave the structural selection unchanged", () => {
+  const filler = "x".repeat(1000);
+  const chunks: DocChunk[] = Array.from({ length: 10 }, (_, i) => chunk(i, filler));
+  const a = selectChunksForPrompt(chunks, { keyTerms: [], budgetChars: 5_000 });
+  const b = selectChunksForPrompt(chunks, { keyTerms: [], budgetChars: 5_000, chunkVectors: null, anchorVectors: null });
+  const c = selectChunksForPrompt(chunks, {
+    keyTerms: [],
+    budgetChars: 5_000,
+    chunkVectors: chunks.map(() => null),
+    anchorVectors: [[1, 0]],
+  });
+  assert.deepEqual(b.includedSeqs, a.includedSeqs);
+  assert.deepEqual(c.includedSeqs, a.includedSeqs);
+});

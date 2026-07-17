@@ -412,6 +412,19 @@ export async function consolidateOrg(orgId: string, llm?: LlmProvider | null): P
     stats.orphansFlagged = orphans.length;
   }
 
+  // ⑤ Adaptive routing (GRAPH_PIPELINE.md "Adaptive classifiers (1)"): sweep
+  // uncorrected auto-routed items into implicit accepts, embed the accepted
+  // feedback heads (one batch), fold per-agent centroids + term-weight
+  // corrections. Fail-soft: pre-migration DB / no embeddings key → dormant.
+  try {
+    const { learnRoutingProfiles } = await import("./routing");
+    const routing = await learnRoutingProfiles(orgId);
+    stats.routingEventsFolded = routing.eventsFolded;
+    stats.routingCentroidsUpdated = routing.centroidsUpdated;
+  } catch (e) {
+    console.error("[consolidate] routing learning pass failed", e);
+  }
+
   return stats;
 }
 
