@@ -12,6 +12,25 @@
 > Last updated: 2026-07-17
 
 ## Recent changes
+- **2026-07-17** — **Connect-Claude card became a guided flow (user ask:
+  "adding the MCP to Claude isn't clear — feels like editing a JSON").**
+  `McpConnectCard` (Settings) redesigned: auto-loads the connection on
+  mount (the URL isn't a secret; the old "Show connection" click is gone),
+  leads with a one-click "⧉ Copy URL" and three numbered steps — cloud:
+  paste into claude.ai Settings → Connectors (direct link) → "Add custom
+  connector" → Approve in the browser (OAuth already shipped, so it IS a
+  paste-one-URL flow — the card now says so: "no JSON files, no tokens to
+  paste"); local: same flow via the Claude desktop app on this machine
+  (claude.ai web can't reach localhost). The `claude mcp add` one-liner and
+  the bearer token moved behind a "▸ Claude Code & API" disclosure — the
+  token never confronts a non-dev. New `CopyBtn` (Copied ✓ feedback).
+  Verified: tsc clean, lint == baseline, build green, suite 363, and 8/8
+  Playwright checks on a served local instance (auto-load, steps rendered,
+  "no JSON" copy, disclosure closed by default → reveals the one-liner,
+  copy feedback, zero page errors) + screenshot eyeballed on-brand. The
+  cloud variant's copy shares the same JSX path; its claude.ai link/OAuth
+  wording rides the token≠null branch (exercised in code, rendered variant
+  needs a cloud session to eyeball).
 - **2026-07-17** — **MCP datamodo mode: Claude chat AS datamodo chat (user
   ask).** The MCP server now steers the client into behaving like the app:
   ① `MCP_INSTRUCTIONS` (pure, in mcp-extraction.ts) ride the initialize
