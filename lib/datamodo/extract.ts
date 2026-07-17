@@ -6,6 +6,7 @@ import { ingestExtraction, createExtractionReview, normalizeKey, type Extraction
 import { buildNoteExtraction, NOTE_KIND, type GeneratedNote } from "@/lib/datamodo/document-extraction";
 import { getOnboardingContext } from "@/lib/datamodo/settings";
 import { renderKnownBlock } from "./priming-core.ts";
+import { parseLooseDate, parseLooseNumber } from "./reconcile-core.ts";
 import {
   buildClassifyPrompt,
   buildDocumentPrompt,
@@ -122,7 +123,7 @@ Rules:
 - Model real-world things as ENTITIES (person, org, invoice, project, product, event...). Give each a stable localId ("e1", "e2"...) used to reference it from facts.
 - Each FACT links a subject entity to a predicate and a value. Use snake_case predicates (e.g. invoice_amount, due_date, sender_email, mentions).
 - A relationship that carries its OWN attributes (an employment with a role and start date, a contract with a value and term, an enrollment) is ITSELF an entity: give it its own kind ("employment") and a stable label naming both ends ("James Porter — Acme Group"), link it to each end with entity-valued facts, and put the relationship's attributes on it. Simple attribute-less links stay plain facts.
-- cardinality "one" = single-valued attribute (an invoice's amount); "many" = list-like (a person's several emails).
+- cardinality "one" = single-valued attribute (an invoice's amount); "many" = list-like (a person's several emails, a paper's authors, tags). When several values legitimately coexist, return ONE fact PER value, each with cardinality "many" — never pick just one, and never mark two different values "one" for the same predicate.
 - valueType: "number" (put digits in valueNumber, plus unit like "USD"), "date" (valueDate as YYYY-MM-DD), "entity" (valueEntityLocalId referencing another entity), else "text" (valueText).
 - Put strong identifiers on the entity (email/phone/invoiceNo) so duplicates can be resolved.
 - confidence 0..1 per fact; overallConfidence 0..1 for the whole extraction.
@@ -169,6 +170,11 @@ export interface ExtractResult {
 // Below this overall confidence we re-run on the escalation model.
 const ESCALATE_BELOW = 0.55;
 
+/** Overall confidence, clamped to [0,1] — it gates escalation and review, so a
+ *  model answering "95" must not read as ultra-confident nonsense. */
+const overallConf = (raw: LlmExtraction, fallback: number): number =>
+  typeof raw.overallConfidence === "number" ? Math.min(1, Math.max(0, raw.overallConfidence)) : fallback;
+
 /** Bump when the prompt/pipeline changes enough that old extractions are
  *  stale — items with a lower stamp can then be requeued selectively
  *  (delta reprocessing) via POST /api/jobs/extract-requeue.
@@ -213,13 +219,13 @@ export function buildUserPrompt(input: ExtractInput): string {
 /** Map the flat LLM output to the internal Extraction contract, defensively. */
 function toExtraction(raw: LlmExtraction): Extraction {
   const entities = (raw.entities ?? [])
-    .filter((e) => e?.localId && e?.label)
+    .filter((e) => e?.localId && e?.label?.trim())
     .map((e) => {
       const naturalKeys: Record<string, string> = {};
       if (e.email) naturalKeys.email = e.email;
       if (e.phone) naturalKeys.phone = e.phone;
       if (e.invoiceNo) naturalKeys.invoice_no = e.invoiceNo;
-      return { localId: e.localId, kind: e.kind || "thing", label: e.label, naturalKeys };
+      return { localId: e.localId, kind: e.kind || "thing", label: e.label.trim(), naturalKeys };
     });
 
   const facts: ExtractedFact[] = [];
@@ -233,7 +239,16 @@ function toExtraction(raw: LlmExtraction): Extraction {
     } else if (f.valueType === "entity" && f.valueEntityLocalId) {
       value = { kind: "entity", entityLocalId: f.valueEntityLocalId };
     } else if (f.valueText) {
-      value = { kind: "text", text: f.valueText };
+      // Typed-value rescue (zero-LLM): models regularly declare a number/date
+      // valueType but leave the value in valueText ("$1,234.56", "March 3,
+      // 2026"). Recover the typed value when the text unambiguously is one, so
+      // it lands in the right column instead of polluting the slot as text.
+      const num = f.valueType === "number" ? parseLooseNumber(f.valueText) : null;
+      const date = f.valueType === "date" ? parseLooseDate(f.valueText) : null;
+      value =
+        num != null ? { kind: "number", num, unit: f.unit }
+        : date != null ? { kind: "date", date }
+        : { kind: "text", text: f.valueText };
     }
     if (!value) continue;
     facts.push({
@@ -241,7 +256,8 @@ function toExtraction(raw: LlmExtraction): Extraction {
       predicate: f.predicate,
       cardinality: f.cardinality === "many" ? "many" : "one",
       value,
-      confidence: typeof f.confidence === "number" ? f.confidence : undefined,
+      // Out-of-range confidences clamp instead of skewing escalation/review math.
+      confidence: typeof f.confidence === "number" ? Math.min(1, Math.max(0, f.confidence)) : undefined,
       snippet: f.snippet,
     });
   }
@@ -275,13 +291,13 @@ export async function extractFromMessage(
 
   let model = llm.models.extract;
   let raw = await run(model);
-  let confidence = typeof raw.overallConfidence === "number" ? raw.overallConfidence : 1;
+  let confidence = overallConf(raw, 1);
   let escalated = false;
 
   if (confidence < ESCALATE_BELOW && llm.models.escalate !== llm.models.extract) {
     model = llm.models.escalate;
     raw = await run(model);
-    confidence = typeof raw.overallConfidence === "number" ? raw.overallConfidence : confidence;
+    confidence = overallConf(raw, confidence);
     escalated = true;
   }
 
@@ -363,6 +379,7 @@ Return:
 - Tag with AT MOST 3 "concept" entities for what the document is about (research area, topic, technique). STRONGLY prefer the user's existing concepts when given.
 - NEVER extract incidental entities, passing mentions, boilerplate, or facts outside the template. Fewer, correct facts beat many.
 - Fact values: valueType "number" (digits in valueNumber, plus unit like "USD"), "date" (valueDate as YYYY-MM-DD), "entity" (valueEntityLocalId), else "text" (valueText). Use snake_case predicates. Put strong identifiers (email/phone/invoiceNo) on entities.
+- cardinality "one" = single-valued (an invoice's amount); "many" = list-like (a paper's AUTHORS, tags, participants). List-like values get ONE fact PER value, each with cardinality "many" — a document with three authors yields three author facts.
 - confidence 0..1 per fact; overallConfidence 0..1 overall.
 
 Respond with ONLY a JSON object (no prose, no markdown fences).
@@ -413,12 +430,12 @@ export async function extractFromDocument(
 
   let model = llm.models.extract;
   let raw = await run(model);
-  let confidence = typeof raw.overallConfidence === "number" ? raw.overallConfidence : 1;
+  let confidence = overallConf(raw, 1);
   let escalated = false;
   if (confidence < ESCALATE_BELOW && llm.models.escalate !== llm.models.extract) {
     model = llm.models.escalate;
     raw = await run(model);
-    confidence = typeof raw.overallConfidence === "number" ? raw.overallConfidence : confidence;
+    confidence = overallConf(raw, confidence);
     escalated = true;
   }
 
@@ -460,6 +477,7 @@ Return:
 - Tag with AT MOST 3 "concept" entities for what the image is about. STRONGLY prefer the user's existing concepts when given.
 - NEVER extract incidental entities, decorative text, or facts outside the template. Fewer, correct facts beat many.
 - Fact values: valueType "number" (digits in valueNumber, plus unit like "USD"), "date" (valueDate as YYYY-MM-DD), "entity" (valueEntityLocalId), else "text" (valueText). Use snake_case predicates. Put strong identifiers (email/phone/invoiceNo) on entities.
+- cardinality "one" = single-valued; "many" = list-like (authors, tags, participants): ONE fact PER value, each marked "many".
 - If the image is unreadable or purely decorative, return empty entities/facts and say so in the summary.
 - confidence 0..1 per fact; overallConfidence 0..1 overall.
 
@@ -505,7 +523,7 @@ export async function extractFromImage(
     schemaName: "image_extraction",
     maxTokens: 8000,
   });
-  const confidence = typeof raw.overallConfidence === "number" ? raw.overallConfidence : 1;
+  const confidence = overallConf(raw, 1);
   const { extraction, offTemplateReview } = restrainForKinds(toExtraction(raw), input.kinds, "image");
   const summary = typeof raw.summary === "string" && raw.summary.trim() ? raw.summary.trim() : null;
   // The classification IS the primary entity's kind (single-call design).

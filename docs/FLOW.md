@@ -5,7 +5,7 @@
 > the always-current infographic: stages × features × stack in one picture.
 > Siblings: [STATE.md](STATE.md) · [ROADMAP.md](ROADMAP.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-15
+> Last updated: 2026-07-17
 
 ## The one-picture version
 
@@ -49,7 +49,7 @@ subgraph PROCESS["4 · WE PROCESS<br/>LLM extraction, steered by the user's onto
   IMG["Image → vision call<br/>(classify+extract in one)"]
   AUD["Audio → transcribe (fail-soft),<br/>then the document pipeline;<br/>body = summary + transcript"]
   NOTE["Substantive dump →<br/>generated note (we author)"]
-  CANON["Canonicalize + restrain<br/>kind/predicate synonyms collapse ·<br/>off-template facts → Review, not lost"]
+  CANON["Canonicalize + reconcile + restrain<br/>kind/predicate synonyms collapse ·<br/>same-message multi-values → list facts,<br/>never last-one-wins ·<br/>off-template facts → Review, not lost"]
   TICK --> MSG & DOC & IMG & AUD & NOTE
   KINDS -.steers.-> MSG & DOC & IMG & AUD
   MSG & DOC & IMG & AUD & NOTE --> CANON
@@ -92,7 +92,7 @@ XL -.infer graph → same ingest.-> CANON
 | **Send** | "Forward it to datamodo" — email address, bot DM, upload, or the in-app Chat (text · files · voice notes · dictation) | Gesture-based capture; identify-once link codes bind a sender handle to the user; the Chat route attributes by session, no codes needed | `forwarding_addresses`, `ingest_sources`, `channel_link_codes`, `app/api/chat` |
 | **Listen** | Instant "got it" | Channel adapters normalize to `IngestEnvelope`; signature-verified; idempotent by `external_id` | `workers/email-ingest`, `app/api/webhooks/*`, `app/api/ingest` |
 | **Store raw** | "The original is always kept" | sha256+gzip blob dedup (same file re-forwarded = one blob), items at `stored` | `lib/ingest/store.ts`, `lib/storage/blob.ts`, R2 |
-| **Process** | Facts appear minutes later; unclear things ask for review | Cron + self-kick drain; claim/recover/retry; classify → extract → canonicalize → restrain; audio transcribes first (fail-soft) then follows the document path; low confidence escalates models, then to Review | `lib/datamodo/extract.ts`, `ontology.ts`, `documents.ts`, `lib/llm/*` (incl. `transcription.ts`) |
+| **Process** | Facts appear minutes later; unclear things ask for review | Cron + self-kick drain; claim/recover/retry; classify → extract → canonicalize → reconcile (zero-LLM: broken refs drop, repeats collapse, declared/heuristic cardinality settles multi-values as coexisting list facts) → restrain; audio transcribes first (fail-soft) then follows the document path; low confidence escalates models, then to Review | `lib/datamodo/extract.ts`, `ontology.ts`, `reconcile-core.ts`, `documents.ts`, `lib/llm/*` (incl. `transcription.ts`) |
 | **Vault** | One clean version of every fact, with receipts | Tiered entity resolution (never a silent bad merge), bitemporal facts (contradictions supersede, never delete), provenance per claim | `lib/datamodo/knowledge.ts`, Neon (pgvector + pg_trgm) |
 | **Derive** | Tables, graph, timeline, answers — all just *there*; on demand: describe a table or a folder tree and it builds itself out of the graph, and any answer can be shown IN the graph | Pure projections over the vault, computed live or auto-materialized; accept in Review = commit to the graph; prompt-shaped projections (derive-table, folder export) preview before anything is written | `lib/datamodo/{project,analytics,search,answer,timeline,concept-map,dossier,derive-table,folder-export,zip}.ts`, `app/dashboard/*` |
 

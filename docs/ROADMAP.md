@@ -654,6 +654,12 @@ real questions).
   `passage-rank.ts`). Fail-soft: keyword-only without a key. Wakes up the
   moment the real embeddings key lands. (GraphRAG step 3 later SCOPES this
   to linked entities.)
+- **Tables × list fields** (discovered 2026-07-17 with declared cardinality):
+  `projectEntitiesToDataset` fills a cell from "the" matching fact — for a
+  `"many"` predicate (authors, tags, emails) the last fact wins the cell.
+  Join list values (", ") for text columns; decide number/date list rendering.
+  UI: `categories-modal` could expose the new field/relation `cardinality`
+  flag (registry + reconciliation already honor it end-to-end).
 - Dossier: PDF rendering behind the same `buildDossier`.
 - Graph: persist collapsed-kind state if users ask for it (deliberately
   session-local today).

@@ -12,6 +12,29 @@
 > Last updated: 2026-07-17
 
 ## Recent changes
+- **2026-07-17** — **Extraction reconciliation + declared cardinality (user
+  call: "if the LLM outputs author: xxx, author: yyy, only the last wins" +
+  "any free, zero-LLM-token pipeline improvement should be built").** New pure
+  pass `lib/datamodo/reconcile-core.ts` runs inside `ingestExtraction` for
+  every ingest path: broken/self entity references drop (used to THROW and
+  fail the whole item into LLM-burning retries), exact repeats collapse (max
+  confidence), and several distinct same-message values for one predicate
+  become coexisting `"many"` facts instead of a last-one-wins supersession
+  chain + junk `fact_conflict` reviews. Cardinality became REGISTRY semantics:
+  `KindField`/`KindRelation.cardinality` (fields default one, relations
+  default many; author/email/phone declared many, issued_by/billed_to one),
+  declared-one slots keep only the most confident same-message value, prompts
+  render `, list`/`(single)` hints, and DOC/IMG system prompts finally teach
+  cardinality. Cross-message: `alignSlotCardinality` (one indexed query)
+  makes list slots sticky and migrates old bare-key one-facts (or retires
+  placeholders) when a list arrives; `ensureTemplateSlots` now counts
+  many-form facts as filled. Bonus zero-LLM rescues in `toExtraction`:
+  number/date values left in `valueText` recover their type (whole-string
+  matches only), per-fact + overall confidences clamp to [0,1]. VERIFIED:
+  10 new unit tests (`tests/reconcile.test.ts`, incl. a TZ-shift re-run),
+  full suite 371 pass / 0 fail; tsc clean (pre-existing routing.ts prisma
+  errors only); eslint clean (one pre-existing warning). Discovered
+  follow-up in ROADMAP: table cells render one value for many-fields.
 - **2026-07-17** — **v0.2.1: local vaults auto-upgrade their schema (user
   hit the stale-schema trap after `git pull`).** The embedded DB re-syncs
   schema only when `package.json` version changes (`.schema-version`

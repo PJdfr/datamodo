@@ -93,6 +93,7 @@ const sanitizeFields = (fields: KindField[] | undefined): KindField[] =>
       type: (["text", "number", "date", "entity"] as const).includes(f.type) ? f.type : "text",
       unit: f.unit?.trim() || undefined,
       required: !!f.required,
+      cardinality: f.cardinality === "many" ? "many" : f.cardinality === "one" ? "one" : undefined,
       aliases: (f.aliases ?? []).map(slugify).filter(Boolean),
     }));
 
@@ -103,6 +104,7 @@ const sanitizeRelations = (rels: KindRelation[] | undefined): KindRelation[] =>
       predicate: slugify(r.predicate),
       label: r.label.trim(),
       targetKind: r.targetKind ? slugify(r.targetKind) : undefined,
+      cardinality: r.cardinality === "many" ? "many" : r.cardinality === "one" ? "one" : undefined,
       aliases: (r.aliases ?? []).map(slugify).filter(Boolean),
     }));
 
