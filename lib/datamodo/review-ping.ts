@@ -27,7 +27,10 @@ export function reviewQuestion(
     case "entity_merge":
       return `Merge "${(detail.parsedLabel as string) || sourceLabel || "the new one"}" into "${targetLabel ?? "the existing one"}"?`;
     case "fact_conflict":
-      return `"${String(detail.predicate ?? "a fact").replace(/_/g, " ")}" changed${targetLabel ? ` on ${targetLabel}` : ""} — keep the new value?`;
+      // held: the guard kept the OLD value current — yes = switch to the new one.
+      return detail.held === true
+        ? `A new (less certain) value arrived for "${String(detail.predicate ?? "a fact").replace(/_/g, " ")}"${targetLabel ? ` on ${targetLabel}` : ""} — switch to it?`
+        : `"${String(detail.predicate ?? "a fact").replace(/_/g, " ")}" changed${targetLabel ? ` on ${targetLabel}` : ""} — keep the new value?`;
     case "extraction":
       return `Keep what we read${sourceLabel ? ` about "${sourceLabel}"` : " from that message"}? (low confidence)`;
     case "off_template":

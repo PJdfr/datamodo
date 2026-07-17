@@ -130,9 +130,26 @@ export async function projectEntitiesToDataset(
     if (pendingEntities.has(e.id)) { unchanged++; continue; } // leave any legacy pending row alone
     const data: Record<string, unknown> = {};
     if (labelKey) data[labelKey] = e.canonical_label;
+    // Group facts per column: a multi-valued predicate (authors, tags) fills a
+    // TEXT cell with every value joined — not whichever fact iterated last.
+    // Number/date columns keep the last fact (a joined string would break the
+    // column's type).
+    const factsByKey = new Map<string, FactLite[]>();
     for (const f of bySubject.get(e.id) ?? []) {
       const key = slug(f.predicate);
-      if (colKeys.has(key) && key !== labelKey) data[key] = cellValue(f, colType.get(key) ?? "text", labelOf);
+      if (!colKeys.has(key) || key === labelKey) continue;
+      const list = factsByKey.get(key);
+      if (list) list.push(f);
+      else factsByKey.set(key, [f]);
+    }
+    for (const [key, fs] of factsByKey) {
+      const type = colType.get(key) ?? "text";
+      if (fs.length > 1 && type === "text") {
+        const vals = [...new Set(fs.map((f) => String(cellValue(f, type, labelOf) ?? "")).filter(Boolean))];
+        data[key] = vals.join(", ");
+      } else {
+        data[key] = cellValue(fs[fs.length - 1], type, labelOf);
+      }
     }
     const ex = acceptedByEntity.get(e.id);
     if (!ex) adds.push({ data, entityId: e.id });

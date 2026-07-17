@@ -12,6 +12,81 @@
 > Last updated: 2026-07-17
 
 ## Recent changes
+- **2026-07-17** — **Cardinality close-out before PR (user: "finish all
+  features related to this").** ① Categories template editor: cardinality is
+  a toggle ON the chip — fields get "≡ list" (single ↔ list), relations "1"
+  (accumulate ↔ single); save path already carried the field through
+  sanitize. ② AI template drafter proposes `cardinality` in drafted
+  fields/relations. ③ CRITICAL backfill: orgs seeded before the flags hold
+  old builtin json — `ensureDefaultKinds` now patches the declared flags
+  (author/email/phone → many, issued_by/billed_to → one) onto matching keys
+  lacking the property (without it, existing orgs would read author as
+  declared-"one" and DROP co-authors — the exact bug this branch fixes).
+  Property-add only; user customizations untouched. VERIFIED: suite 379
+  pass / 0 fail, tsc + eslint clean.
+- **2026-07-17** — **Extraction hardening tier 3 (user: "keep going" — the
+  rest of the free-ideas list, all zero-LLM).** ① Sender identity: after
+  canonicalization, the person entity matching the envelope's display name
+  inherits the sender email as a natural key (`enrichSenderIdentity`;
+  conservative — exact normalized-name match, person only, never overwrites,
+  no duplicate keys) → the sender's next message resolves at tier 0, SAVING
+  adjudication LLM calls. ② `normalizeUnit`: $ /us$/dollars→USD, €→EUR etc.,
+  bare 3-letter codes uppercase — "$100" ≡ "100 USD" in one value slot.
+  ③ Concept plural folding in `normalizeKey` (concepts only; router folding
+  untouched — stored `routing_terms` use the old rule): "marketing
+  strategies" ≡ "marketing strategy". ④ Batched claim lookups: one indexed
+  findMany per ingest instead of a findFirst per fact (same-key repeats fall
+  back to live). ⑤ Tables × list fields: `projectEntitiesToDataset` joins
+  multi-fact TEXT cells (", ", deduped); typed columns keep last.
+  ⑥ Held-conflict card: "current · candidate", no strike-through (the old
+  value IS current; accept = switch). VERIFIED: 5 new test blocks (22 tests
+  in `tests/reconcile.test.ts`), full suite 379 pass / 0 fail, tsc clean,
+  eslint clean (one pre-existing warning). ROADMAP follow-ups closed;
+  remaining: cardinality flag in the categories-modal template editor.
+- **2026-07-17** — **Extraction hardening tier 2 (user: "go on" after the
+  free-improvements list — all zero-LLM).** ① Value-equality normalization:
+  `upsertFact` compares text case/whitespace-insensitively ("Paid" vs "paid"
+  = re-observation, not a supersession + junk conflict review); reconcile
+  canonicalizes date values to padded YYYY-MM-DD, trims text, drops
+  blank/NaN/garbage values (`droppedEmpty`). ② Natural keys canonicalize in
+  reconcile (emails lowercase, phones digits-only keeping +, URLs de-tracked
+  utm_*/fbclid/gclid + host lowercased; url/website/link fact values too) —
+  same real-world key → same tier-0 `normalized_key`. ③ Evidence grounding
+  (`groundExtractionEvidence`, message + document paths, after the
+  escalation decision): a quoted snippet nowhere in the source, or a ≥3-digit
+  number absent from its digit stream, caps the fact at 0.35 and overall at
+  0.7 → under the 0.75 extraction-review gate; absence of evidence never
+  penalizes. ④ Supersession guard: a claim >0.2 confidence below the current
+  fact (or below a ≥2-source one) is recorded RETIRED and files a `held`
+  fact_conflict — old value stays current; accept swaps old→new
+  (`reviews.ts` branches), reject changes nothing; ping asks "switch to
+  it?". VERIFIED: 7 new unit tests (17 total in `tests/reconcile.test.ts`),
+  full suite 375 pass / 0 fail, tsc clean. Follow-ups in ROADMAP: held-card
+  "current vs candidate" rendering; sender-identity enrichment, unit
+  normalization, concept plural folding, batched ingest round-trips.
+- **2026-07-17** — **Extraction reconciliation + declared cardinality (user
+  call: "if the LLM outputs author: xxx, author: yyy, only the last wins" +
+  "any free, zero-LLM-token pipeline improvement should be built").** New pure
+  pass `lib/datamodo/reconcile-core.ts` runs inside `ingestExtraction` for
+  every ingest path: broken/self entity references drop (used to THROW and
+  fail the whole item into LLM-burning retries), exact repeats collapse (max
+  confidence), and several distinct same-message values for one predicate
+  become coexisting `"many"` facts instead of a last-one-wins supersession
+  chain + junk `fact_conflict` reviews. Cardinality became REGISTRY semantics:
+  `KindField`/`KindRelation.cardinality` (fields default one, relations
+  default many; author/email/phone declared many, issued_by/billed_to one),
+  declared-one slots keep only the most confident same-message value, prompts
+  render `, list`/`(single)` hints, and DOC/IMG system prompts finally teach
+  cardinality. Cross-message: `alignSlotCardinality` (one indexed query)
+  makes list slots sticky and migrates old bare-key one-facts (or retires
+  placeholders) when a list arrives; `ensureTemplateSlots` now counts
+  many-form facts as filled. Bonus zero-LLM rescues in `toExtraction`:
+  number/date values left in `valueText` recover their type (whole-string
+  matches only), per-fact + overall confidences clamp to [0,1]. VERIFIED:
+  10 new unit tests (`tests/reconcile.test.ts`, incl. a TZ-shift re-run),
+  full suite 371 pass / 0 fail; tsc clean (pre-existing routing.ts prisma
+  errors only); eslint clean (one pre-existing warning). Discovered
+  follow-up in ROADMAP: table cells render one value for many-fields.
 - **2026-07-17** — **v0.2.1: local vaults auto-upgrade their schema (user
   hit the stale-schema trap after `git pull`).** The embedded DB re-syncs
   schema only when `package.json` version changes (`.schema-version`

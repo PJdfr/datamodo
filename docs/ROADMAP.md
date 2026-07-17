@@ -654,6 +654,19 @@ real questions).
   `passage-rank.ts`). Fail-soft: keyword-only without a key. Wakes up the
   moment the real embeddings key lands. (GraphRAG step 3 later SCOPES this
   to linked entities.)
+- ~~Held-conflict card polish~~ ✅ 2026-07-17 — held rows render "current ·
+  candidate", no strike-through. ~~Sender-identity enrichment~~ ✅ same day
+  (`enrichSenderIdentity`). ~~Unit/currency normalization~~ ✅ (`normalizeUnit`).
+  ~~Concept plural folding~~ ✅ (concept keys only; the router's own folding
+  untouched — its learned `routing_terms` are stored under the old rule).
+  ~~Batched ingest round-trips~~ ✅ (one claim-key query per ingest).
+- ~~Tables × list fields~~ ✅ 2026-07-17 — text columns join multi-fact values
+  (", ", deduped); number/date columns keep the last fact (typed cells).
+  ~~Cardinality flag in the template editor~~ ✅ 2026-07-17 — chip badges
+  ("≡ list" on fields, "1" on relations) + AI drafter proposes the flag +
+  `ensureDefaultKinds` backfills the new builtin flags into already-seeded
+  orgs. Still open: richer number/date list rendering in table cells
+  (today: last value, typed).
 - Dossier: PDF rendering behind the same `buildDossier`.
 - Graph: persist collapsed-kind state if users ask for it (deliberately
   session-local today).
