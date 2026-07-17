@@ -46,6 +46,14 @@ reviewable, nothing is ever silently lost or merged.
   dev+prod IN THE SAME SESSION the schema change ships, or keep the new
   column out of the Prisma model (raw SQL / `to_jsonb` reads, like
   `entities.last_used_at` did) until it's applied everywhere.
+  **The LOCAL edition's schema upgrades key off `package.json` version**
+  (embedded-db marker `.schema-version` = `version:embeddingDim`; a stale
+  marker triggers `prisma db push` on the next `serve`, data preserved) —
+  so **bump the patch version in the same commit as any Prisma schema
+  change**, or existing local vaults keep the old schema silently after
+  `git pull`. Escape hatch for users: delete `~/.datamodo/.schema-version`
+  to force the re-sync without touching data; `rm -rf ~/.datamodo` is the
+  full factory reset (vault + files + config, all of it).
 - Demo account `user@example.com` must stay seeded (`neon/seed.sql`, run after
   signing the user up; idempotent). Update the seed when the schema changes.
 - Heavy demo account `demo@datamodo.dev` (`neon/seed-heavy.sql` — ~5 weeks of
