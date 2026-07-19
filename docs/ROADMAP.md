@@ -4,7 +4,7 @@
 > inventory when they ship; add what the work surfaced. Ordered by value.
 > Siblings: [STATE.md](STATE.md) · [FLOW.md](FLOW.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-17
+> Last updated: 2026-07-19
 
 ## Now (unblocks everything else)
 1. **Set env** (the old "merge PR #35" step is long done): a REAL
@@ -621,6 +621,13 @@ real questions).
   severable from the closed cloud layer.
 
 ## Smaller follow-ups (grab when nearby)
+- **Dev-trace follow-ups** (core ✅ 2026-07-19 — chat "⌁ trace" pill + per-item
+  trace of the whole pipe; see STATE): surface the same pill on non-chat items
+  (an inbox/items list view, entity-page provenance drill-down "how was this
+  read?"); trace the SEARCH/answer pipeline the same way (GraphRAG seeds →
+  scope → prompt → citations — the read side of the transparency story);
+  optional token/cost per LLM step (needs the `onUsage` hook plumbed into the
+  trace decorator).
 - ~~**BYOK provider cost tracking**~~ ✅ 2026-07-14 (user ask) — track what the
   user's OWN LLM key (Anthropic/OpenAI/OpenRouter) cost while datamodo ran it,
   separate from the datamodo subscription. Providers report token usage via an
