@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getSessionUser } from "@/lib/auth/session";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
-import { createAgent, deleteAgent, setAgentStatus, updateAgent } from "@/lib/datamodo/agents";
+import { createAgentGuarded, deleteAgent, setAgentStatus, updateAgent } from "@/lib/datamodo/agents";
 import {
   acceptBatch,
   acceptProposal,
@@ -29,8 +29,8 @@ import { createRelation, deleteRelation } from "@/lib/datamodo/relations";
 import { regenerateInbox } from "@/lib/datamodo/inbox";
 import { createChannelLinkCode } from "@/lib/datamodo/channels";
 import type { IngestChannel } from "@/lib/ingest/types";
-import { getSettings, updateComputeSettings, countAgents } from "@/lib/datamodo/settings";
-import { planLimits, type AiProvider, type ComputeMode } from "@/lib/datamodo/plans";
+import { updateComputeSettings } from "@/lib/datamodo/settings";
+import type { AiProvider, ComputeMode } from "@/lib/datamodo/plans";
 import type { DatasetColumn, DatasetRowRecord, NewAgentInput, SnapshotFull } from "@/lib/datamodo/types";
 
 // Server Actions are reachable via direct POST, so every one re-checks auth and
@@ -54,20 +54,8 @@ export async function createAgentAction(
     if (!org) return { ok: false, error: "No organization found." };
     if (!input.name?.trim()) return { ok: false, error: "Give the agent a name." };
 
-    // Plan entitlements.
-    const settings = await getSettings(user.id);
-    const limits = planLimits(settings.plan);
-    if (limits.maxAgents !== null) {
-      const count = await countAgents(user.id);
-      if (count >= limits.maxAgents) {
-        return { ok: false, error: `Your ${limits.label} plan allows ${limits.maxAgents} agents. Upgrade to add more.` };
-      }
-    }
-    if (input.mode === "auto" && !limits.autoMode) {
-      return { ok: false, error: `Auto mode is a Pro feature. On ${limits.label}, agents run on-ping.` };
-    }
-
-    await createAgent(org.id, user.id, input);
+    // Plan entitlements enforced in one place (shared with the MCP server).
+    await createAgentGuarded(org.id, user.id, input);
     revalidatePath("/dashboard");
     return { ok: true };
   } catch (e) {

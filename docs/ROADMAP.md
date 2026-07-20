@@ -4,9 +4,19 @@
 > inventory when they ship; add what the work surfaced. Ordered by value.
 > Siblings: [STATE.md](STATE.md) · [FLOW.md](FLOW.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-19
+> Last updated: 2026-07-20
 
 ## Now (unblocks everything else)
+0. ~~Model unification, phase 3 — the PHYSICAL merge~~ ✅ 2026-07-20 (user
+   decision "aren't kinds/tables/templates one object?" → full merge). The
+   `datasets` table is GONE: `kinds` carries the table facet, children
+   re-point to `kinds(id)`, table-only imports auto-promote to categories,
+   every category materializes columns. Migration
+   `20260720120000_one_object.sql` **applied + verified on the dev Neon
+   branch** (idempotent; counts hold, zero orphans). **⚠️ still owed on
+   `prod` — apply when this PR reaches prod** (until then the deployed
+   dev app runs old code against the migrated dev DB; merge promptly).
+   See STATE.md row + MEMORY "ONE feature and ONE object".
 1. **Set env** (the old "merge PR #35" step is long done): a REAL
    `OPENROUTER_API_KEY` (+ ~$10 credit for a reliable paid extract model) and
    `OPENROUTER_VISION_MODEL`, `OPENAI_API_KEY` (or `EMBEDDINGS_API_KEY`) to
@@ -20,6 +30,31 @@
    pipeline, click through every view.
 3. **Promote dev → prod** (also activates the both-envs cron tick fix, which
    only takes effect from the default branch).
+
+## Product direction — UX overhaul (user, 2026-07-20)
+Big-rock UX work queued after the model merge (Phase 3). Ordered by user emphasis.
+- **Explorer: one continuous view, no modes.** Merge the base walk view and the
+  layered/zoom-out view into a SINGLE view — today the walk↔layered boundary is
+  a swap (3D perspective ↔ 2D wheel) and the transition reads as "weird". One
+  representation from fully-zoomed-in to fully-out. And **improve the overall
+  zoom/dezoom feel on the cards** (the motion + how cards scale/settle).
+  (`app/dashboard/explorer-view.tsx`, `buildLayeredEgo`/`explorer.ts`.)
+- **Remove the separate "⊛ Graph" (sigma) view.** The whole-vault sigma canvas
+  (`graph-view.tsx`) is redundant once the Explorer is the one graph surface —
+  plan to drop it. (Confirm nothing else depends on it first.)
+- **Tables tab UI — a real spreadsheet, not a card wall.** Clicking a table
+  currently just shows a collection of cards → little added value. Redesign: a
+  table opens into an **Excel-like grid** (fast, editable, keyboard-navigable),
+  and fix **open/load speed** (rows lazy-load today; profile + tighten).
+  (`app/dashboard/control-center.tsx` table editor + `datasets.ts` reads.)
+- **Review / Pull Requests — make it intuitive for non-technical users.** The
+  accept/reject/merge/conflict loop still feels technical. Rework the language,
+  visuals, and flow so a non-dev understands "what is datamodo asking me and
+  why" at a glance. (`review-studio.tsx`, `review-card.tsx`, the chat PR bubble,
+  and the MCP `list_pull_requests` framing.)
+- **Overall UI redesign using the datamodo-design skill(s).** A cohesive pass
+  over the whole app surface with the locally-installed design skills as the
+  source of truth (brand, tokens, components).
 
 ## Explorer track (the north star — phase 1 ✅ shipped 2026-07-10)
 - ~~Ego-graph Explorer~~ ✅ — walk edge to edge, natural-shape panel, edge
@@ -46,9 +81,9 @@
   on the walk → concentric BFS rings unfold around the same center to any
   depth + a dashed unlinked outer ring; permanent bearings (pure wedge
   layout, `buildLayeredEgo`), "+N more" folding per parent, click-to-walk,
-  scroll-in returns to the walk. The `constellation.ts` cluster/LOD core is
-  DORMANT — it is the COSMOS seam (resurrect there or delete after a quiet
-  month). Left for the design pass: layered-view typography at small card
+  scroll-in returns to the walk. The `constellation.ts` cluster/LOD core was
+  the COSMOS seam — DELETED 2026-07-20 (dead-code cleanup; recover from git
+  if revived). Left for the design pass: layered-view typography at small card
   scales, ring-label collisions, maybe a mini-map dial. Fixed 2026-07-14:
   "+N more" chips at any depth in the zoom-out now expand their members (were
   inert past the primary ring — only the walk expanded them). Enhanced
@@ -418,8 +453,9 @@ real questions).
   ring grouping (already shipped in the walk) and the continuous-scroll Explorer
   zoom (below) — the Explorer walk/zoom stays the graph surface; there is no
   separate WebGL showpiece. `lib/datamodo/constellation.ts` (the old cluster/LOD
-  core kept "for the Cosmos seam") is now fully dormant with no consumer —
-  delete after a quiet month. `design/briefs/wow-graph-engine-brief.md` is
+  core kept "for the Cosmos seam") had no consumer — DELETED 2026-07-20 in a
+  dead-code cleanup (recover from git if the Cosmos seam is revived).
+  `design/briefs/wow-graph-engine-brief.md` is
   retired.
 - **Landing page rework** (with **Claude Design**, not hand-rolled): fold in
   the exec summary (capture → understand → vault → views → trust story) and
@@ -649,8 +685,9 @@ real questions).
   only as a fallback for pre-migration rows).
 - ~~Schema view: dataset_relations~~ ✅ 2026-07-11 — table↔table links draw as
   dashed lines between the schema canvas's cards.
-- Concept-map pure core (`lib/datamodo/concept-map.ts`) is dormant (view
-  removed) — resurrect as an Explore lens or delete after a quiet month.
+- ~~Concept-map pure core~~ DELETED 2026-07-20 — `concept-map.ts` (view removed
+  2026-07-11) had no consumer; dropped in a dead-code cleanup. Recover from git
+  if a concept/Explore lens ever wants it.
 - ~~Category proposals via Review~~ ✅ 2026-07-11 — growth loop ⑤: ≥3 entities
   of an unregistered kind → ONE `category_proposal` review with an AI-drafted
   template; accept creates the category, decline never re-asks.

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getActiveOrg } from "@/lib/datamodo/orgs";
 import { isLocalMode } from "@/lib/local/config";
 import { parseExtraction, EXTRACTION_DOCTRINE, MCP_INSTRUCTIONS } from "@/lib/datamodo/mcp-extraction";
+import type { KindField, KindRelation } from "@/lib/datamodo/ontology";
 import { listKnowledge } from "@/lib/datamodo/knowledge";
 import { searchKnowledge, tokenize } from "@/lib/datamodo/search";
 import { linkQueryEntities, expandFromSeeds } from "@/lib/datamodo/graphrag";
@@ -42,19 +43,44 @@ async function caller(extra: { authInfo?: AuthInfo }): Promise<Caller> {
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
 const json = (v: unknown) => text(JSON.stringify(v, null, 1));
 
+// A category's template = its fields + relations (the schema; also the table's
+// columns). Shared by create_category / update_category. `key`/`predicate`
+// slug-normalize server-side (kinds.ts sanitize), so a label alone is enough.
+const fieldShape = z.object({
+  label: z.string().min(1).max(80),
+  key: z.string().max(60).optional().describe("snake_case; defaults from the label"),
+  type: z.enum(["text", "number", "date", "entity"]).optional().describe("default text"),
+  unit: z.string().max(20).optional().describe("for numbers, e.g. USD"),
+  required: z.boolean().optional(),
+  cardinality: z.enum(["one", "many"]).optional().describe("many = list-like (tags, emails)"),
+});
+const relationShape = z.object({
+  predicate: z.string().min(1).max(80).describe("snake_case verb, e.g. works_for"),
+  label: z.string().min(1).max(80),
+  targetKind: z.string().max(60).optional().describe("the kind it points at, e.g. company"),
+  cardinality: z.enum(["one", "many"]).optional(),
+});
+type FieldIn = z.infer<typeof fieldShape>;
+type RelationIn = z.infer<typeof relationShape>;
+const toFields = (fs: FieldIn[]): KindField[] =>
+  fs.map((f) => ({ ...f, key: f.key || f.label, type: f.type ?? "text" })) as unknown as KindField[];
+const toRelations = (rs: RelationIn[]): KindRelation[] => rs as unknown as KindRelation[];
+
 const handler = createMcpHandler(
   (server) => {
     server.tool(
       "list_kinds",
-      "The user's category registry: every kind of thing their vault tracks, with its field template and relations. Read this before extracting — reuse these kinds and field keys wherever they fit.",
+      "The user's category registry: every kind of thing their vault tracks, with its field template and relations. A category IS a table IS its template. Read this before extracting — reuse these kinds and field keys wherever they fit. The `id` is what update_category / delete_category take.",
       {},
       async (_args, extra) => {
         const { userId, orgId } = await caller(extra);
         const { listKinds } = await import("@/lib/datamodo/kinds");
         const kinds = await listKinds(orgId, userId);
         return json(kinds.map((k) => ({
+          id: k.id,
           kind: k.kind,
           label: k.label,
+          builtin: k.builtin,
           fields: k.fields.map((f) => ({ key: f.key, label: f.label, type: f.type, required: f.required ?? false })),
           relations: (k.relations ?? []).map((r) => ({ predicate: r.predicate, targetKind: r.targetKind ?? null })),
         })));
@@ -342,40 +368,72 @@ const handler = createMcpHandler(
       },
       async ({ tableId, limit, offset }, extra) => {
         const { orgId } = await caller(extra);
-        // Org scoping: the table must belong to the caller's workspace.
-        const ds = await prisma.datasets.findFirst({ where: { id: tableId, org_id: orgId }, select: { id: true, name: true } });
+        // Org scoping: the table (a kind — one object) must belong to the caller's workspace.
+        const ds = await prisma.kinds.findFirst({ where: { id: tableId, org_id: orgId }, select: { id: true, label: true, plural: true } });
         if (!ds) return text("No table with that id — call list_tables for current ids.");
         const { listDatasetRows } = await import("@/lib/datamodo/datasets");
         const { rows, total } = await listDatasetRows(ds.id, { limit: limit ?? 50, offset: offset ?? 0 });
-        return json({ table: ds.name, total, offset: offset ?? 0, rows: rows.map((r) => r.data) });
+        return json({ table: ds.plural?.trim() || `${ds.label}s`, total, offset: offset ?? 0, rows: rows.map((r) => r.data) });
       },
     );
 
     server.tool(
-      "pending_reviews",
-      "Decisions waiting on the user (merges, conflicts, proposals), newest first. Surface them when relevant; resolve one ONLY when the user explicitly decides.",
+      "list_pull_requests",
+      "The user's open pull requests — the vault's review loop: entity merges, fact conflicts, and proposed categories waiting on a decision, newest first, each WITH its evidence (the diff, the two sides, the proposed template). Surface them conversationally when relevant; resolve one ONLY when the user explicitly decides.",
       {},
       async (_args, extra) => {
         const { orgId } = await caller(extra);
-        const { pendingQuestions } = await import("@/lib/datamodo/review-inbox");
-        return json(await pendingQuestions(orgId));
+        const { listPendingReviews } = await import("@/lib/datamodo/reviews");
+        const reviews = await listPendingReviews(orgId);
+        if (reviews.length === 0) return text("No open pull requests — nothing waiting on a decision.");
+        return json(reviews);
       },
     );
 
     server.tool(
-      "resolve_review",
-      "Apply the user's decision on a pending review — the same real side-effects as the app's Review tab. Requires the user's explicit yes/no; never decide for them.",
-      { reviewId: z.string().min(1), accept: z.boolean() },
-      async ({ reviewId, accept }, extra) => {
+      "resolve_pull_request",
+      "Apply the user's decision on a pull request — the SAME real side-effects as the app's Review tab: accept dispatches by kind (merge two entities, add held facts, create a proposed category, grow a template). Requires the user's explicit yes/no; never decide for them.",
+      { pullRequestId: z.string().min(1).describe("The review id from list_pull_requests"), accept: z.boolean() },
+      async ({ pullRequestId, accept }, extra) => {
         const { orgId } = await caller(extra);
         const { acceptReview, rejectReview } = await import("@/lib/datamodo/reviews");
         try {
-          if (accept) await acceptReview(orgId, reviewId);
-          else await rejectReview(orgId, reviewId);
+          if (accept) await acceptReview(orgId, pullRequestId);
+          else await rejectReview(orgId, pullRequestId);
           return text(`${accept ? "✓ approved" : "✗ declined"} — applied for real.`);
         } catch {
-          return text("Could not apply — the review may already be resolved. Check the app's Review tab.");
+          return text("Could not apply — the pull request may already be resolved. Call list_pull_requests for current ones.");
         }
+      },
+    );
+
+    server.tool(
+      "list_commits",
+      "The vault's commit log — what datamodo has filed and MERGED: each captured message is a commit, the facts it wrote are the diff (a correction shows `~ was → now`, the rest `+ added`), newest first. Use it to show the user what just landed after filing, or `entityId` for one entity's history.",
+      {
+        entityId: z.string().optional().describe("Narrow to commits touching this entity (from search_entities)"),
+        limit: z.number().int().min(1).max(100).optional(),
+      },
+      async ({ entityId, limit }, extra) => {
+        const { orgId } = await caller(extra);
+        const { loadCommitLog } = await import("@/lib/datamodo/timeline-load");
+        const commits = await loadCommitLog(orgId, { entityId: entityId ?? null, limit: limit ?? 25 });
+        if (commits.length === 0) return text("No commits yet — nothing has been filed.");
+        return json(commits.map((c) => ({
+          itemId: c.itemId,
+          at: c.ts,
+          channel: c.channel,
+          title: c.title,
+          added: c.added,
+          changed: c.changed,
+          changes: c.lines.map((l) => ({
+            op: l.op,
+            subject: l.subject?.label ?? null,
+            predicate: l.predicate,
+            value: l.value,
+            ...(l.was !== undefined ? { was: l.was } : {}),
+          })),
+        })));
       },
     );
 
@@ -505,9 +563,262 @@ const handler = createMcpHandler(
         return json({ filed: true, sourceItemId: itemId, ...(notedTitle ? { note: notedTitle } : {}), ...result });
       },
     );
+
+    server.tool(
+      "run_extraction",
+      "Run the FULL datamodo extraction on text for the user: the server captures it and runs its own pipeline (extract → resolve → dedup → supersede → route reviews) synchronously, then returns what landed. The 'just file this' path — unlike submit_extraction YOU don't extract; unlike capture_message it runs now and reports. Follow with list_commits to show what merged.",
+      {
+        text: z.string().min(1).max(50_000).describe("The message/document text to file"),
+        subject: z.string().max(300).optional().describe("A short title (email-subject style)"),
+      },
+      async ({ text: bodyText, subject }, extra) => {
+        const { userId, orgId } = await caller(extra);
+        const { ingest, IngestError } = await import("@/lib/ingest/store");
+        let itemId: string;
+        try {
+          const r = await ingest({
+            channel: "upload",
+            captureMode: "active",
+            orgId,
+            ownerUserId: userId,
+            sender: "claude (mcp)",
+            subject: subject?.trim() || undefined,
+            bodyText,
+            meta: { via: "mcp" },
+          });
+          if (r.deduped) return json({ filed: true, deduped: true, itemId: r.itemId, note: "Already filed earlier — nothing new." });
+          itemId = r.itemId;
+        } catch (e) {
+          if (e instanceof IngestError) return text(`Could not capture: ${e.message}`);
+          throw e;
+        }
+        // The SAME server extractor every channel's cron tick runs — but inline,
+        // so the result comes back in this call. Fail-soft: on error the item
+        // stays queued for the next tick rather than losing the capture.
+        try {
+          const { runExtractionForItem } = await import("@/lib/datamodo/extract");
+          const result = await runExtractionForItem(itemId);
+          return json({ filed: true, itemId, ...result.knowledge });
+        } catch (e) {
+          console.error("[mcp] run_extraction pipeline failed (item queued)", e);
+          return json({ filed: true, itemId, extraction: "queued", note: "Captured; the server will finish extraction on the next tick." });
+        }
+      },
+    );
+
+    server.tool(
+      "list_agents",
+      "The user's agents — who files each kind of thing. Returns the id (for update_agent / set_agent_status / delete_agent), name, purpose, channels, mode, status.",
+      {},
+      async (_args, extra) => {
+        const { orgId } = await caller(extra);
+        const { listAgents } = await import("@/lib/datamodo/agents");
+        const agents = await listAgents(orgId);
+        if (agents.length === 0) return text("No agents yet.");
+        return json(agents.map((a) => ({
+          id: a.id,
+          name: a.name,
+          purpose: a.purpose_text ?? null,
+          channels: a.channels ?? [],
+          mode: a.mode,
+          status: a.status,
+        })));
+      },
+    );
+
+    server.tool(
+      "suggest_category_template",
+      "Draft a category's fields + relations from just its name (AI, no write). Propose the template to the user, then create_category with what they approve.",
+      { name: z.string().min(1).max(80), hint: z.string().max(500).optional().describe("How the user uses it, for a better draft") },
+      async ({ name, hint }, extra) => {
+        const { userId } = await caller(extra);
+        const { suggestKindTemplate } = await import("@/lib/datamodo/kinds");
+        return json(await suggestKindTemplate(userId, name, hint ?? null));
+      },
+    );
+
+    server.tool(
+      "create_category",
+      "Create a category — which IS its table and its template, one object. Give it a label (optionally fields + relations; draft them first with suggest_category_template). Creates the category AND materializes its table so its rows show up in the app immediately.",
+      {
+        label: z.string().min(1).max(80),
+        plural: z.string().max(80).optional(),
+        icon: z.string().max(8).optional().describe("one emoji"),
+        color: z.string().max(16).optional(),
+        description: z.string().max(300).optional(),
+        fields: z.array(fieldShape).max(20).optional(),
+        relations: z.array(relationShape).max(10).optional(),
+      },
+      async ({ label, plural, icon, color, description, fields, relations }, extra) => {
+        const { userId, orgId } = await caller(extra);
+        const { createKind } = await import("@/lib/datamodo/kinds");
+        const { materializeKindTable } = await import("@/lib/datamodo/datasets");
+        try {
+          const kind = await createKind(orgId, userId, {
+            label, plural, icon, color, description,
+            fields: toFields(fields ?? []),
+            relations: toRelations(relations ?? []),
+          });
+          let table: { datasetId: string; name: string } | null = null;
+          try {
+            table = await materializeKindTable(orgId, userId, kind.id!);
+          } catch (e) {
+            console.error("[mcp] table materialize failed (category created)", e);
+          }
+          return json({ created: true, category: { id: kind.id, kind: kind.kind, label: kind.label }, table });
+        } catch (e) {
+          const msg = String((e as Error)?.message ?? e);
+          return text(msg.includes("Unique") ? "A category with that name already exists." : `Could not create: ${msg}`);
+        }
+      },
+    );
+
+    server.tool(
+      "update_category",
+      "Edit a category's template — label, fields, relations, description, icon, color. Get the id from list_kinds. Only the fields you pass change; omit a field to keep it. The slug (kind) is identity and cannot change.",
+      {
+        categoryId: z.string().min(1),
+        label: z.string().max(80).optional(),
+        plural: z.string().max(80).optional(),
+        icon: z.string().max(8).optional(),
+        color: z.string().max(16).optional(),
+        description: z.string().max(300).optional(),
+        fields: z.array(fieldShape).max(20).optional(),
+        relations: z.array(relationShape).max(10).optional(),
+      },
+      async ({ categoryId, label, plural, icon, color, description, fields, relations }, extra) => {
+        const { userId, orgId } = await caller(extra);
+        const { listKinds, updateKind } = await import("@/lib/datamodo/kinds");
+        // updateKind REPLACES the whole template, so default every unspecified
+        // field to the current value — a partial call must never wipe the rest.
+        const cur = (await listKinds(orgId, userId)).find((k) => k.id === categoryId);
+        if (!cur) return text("No category with that id — call list_kinds for current ids.");
+        try {
+          const kind = await updateKind(orgId, categoryId, {
+            label: label ?? cur.label,
+            plural: plural ?? cur.plural,
+            icon: icon ?? cur.icon,
+            color: color ?? cur.color,
+            description: description ?? cur.description,
+            fields: fields === undefined ? cur.fields : toFields(fields),
+            relations: relations === undefined ? cur.relations : toRelations(relations),
+          });
+          return json({ updated: true, category: { id: kind.id, kind: kind.kind, label: kind.label } });
+        } catch (e) {
+          return text(`Could not update — ${String((e as Error)?.message ?? e)}.`);
+        }
+      },
+    );
+
+    server.tool(
+      "delete_category",
+      "Delete a category and its template. GUARDED — pass confirm:true. Entities of this kind keep their kind label; only the registry/template entry goes away (the table is not deleted here). Get the id from list_kinds.",
+      { categoryId: z.string().min(1), confirm: z.boolean().describe("Must be true — deletion is real") },
+      async ({ categoryId, confirm }, extra) => {
+        const { orgId } = await caller(extra);
+        if (!confirm) return text("Not deleted — pass confirm:true to remove this category.");
+        const { deleteKind } = await import("@/lib/datamodo/kinds");
+        try {
+          await deleteKind(orgId, categoryId);
+          return text("✓ category deleted.");
+        } catch (e) {
+          return text(`Could not delete — ${String((e as Error)?.message ?? e)}. Call list_kinds for current ids.`);
+        }
+      },
+    );
+
+    server.tool(
+      "set_context",
+      "Save the user's business context — a plain-language 'what I do / what to track' that steers EVERY future extraction (the strongest steer there is). Overwrites the stored context; pass answers for structured onboarding fields.",
+      {
+        businessContext: z.string().max(4000).optional().describe("What the user does / what their vault should focus on"),
+        answers: z.record(z.string(), z.unknown()).optional().describe("Optional structured onboarding answers"),
+      },
+      async ({ businessContext, answers }, extra) => {
+        const { userId } = await caller(extra);
+        if (businessContext === undefined && answers === undefined) {
+          return text("Nothing to save — pass businessContext and/or answers.");
+        }
+        const { saveOnboarding } = await import("@/lib/datamodo/settings");
+        await saveOnboarding(userId, { businessContext, answers: answers as Record<string, unknown> | undefined });
+        return text("✓ context saved — it will steer future extractions.");
+      },
+    );
+
+    server.tool(
+      "create_agent",
+      "Create an agent that files a kind of thing from the user's messages. Plan-gated exactly like the app (agent count; auto-mode is a Pro feature).",
+      {
+        name: z.string().min(1).max(80),
+        purposeText: z.string().max(500).optional().describe("What this agent collects — steers its extraction"),
+        channels: z.array(z.string()).max(8).optional().describe("e.g. gmail, whatsapp"),
+        mode: z.enum(["auto", "ping"]).optional(),
+        freestyle: z.boolean().optional(),
+      },
+      async ({ name, purposeText, channels, mode, freestyle }, extra) => {
+        const { userId, orgId } = await caller(extra);
+        const { createAgentGuarded } = await import("@/lib/datamodo/agents");
+        try {
+          const a = await createAgentGuarded(orgId, userId, { name, purposeText, channels, mode, freestyle });
+          return json({ created: true, agent: { id: a.id, name: a.name } });
+        } catch (e) {
+          return text(`Could not create agent — ${String((e as Error)?.message ?? e)}`);
+        }
+      },
+    );
+
+    server.tool(
+      "update_agent",
+      "Edit an agent — name, purpose, channels, mode, or activate/pause. Only the fields you pass change. Get the id from list_agents.",
+      {
+        agentId: z.string().min(1),
+        name: z.string().max(80).optional(),
+        purposeText: z.string().max(500).optional(),
+        channels: z.array(z.string()).max(8).optional(),
+        mode: z.enum(["auto", "ping"]).optional(),
+        status: z.enum(["active", "paused"]).optional(),
+      },
+      async ({ agentId, ...patch }, extra) => {
+        const { orgId } = await caller(extra);
+        const owned = await prisma.agents.findFirst({ where: { id: agentId, org_id: orgId }, select: { id: true } });
+        if (!owned) return text("No agent with that id — call list_agents for current ids.");
+        const { updateAgent } = await import("@/lib/datamodo/agents");
+        await updateAgent(agentId, patch);
+        return text("✓ agent updated.");
+      },
+    );
+
+    server.tool(
+      "set_agent_status",
+      "Pause or activate an agent (a paused agent stops filing new mail). Get the id from list_agents.",
+      { agentId: z.string().min(1), status: z.enum(["active", "paused"]) },
+      async ({ agentId, status }, extra) => {
+        const { orgId } = await caller(extra);
+        const owned = await prisma.agents.findFirst({ where: { id: agentId, org_id: orgId }, select: { id: true } });
+        if (!owned) return text("No agent with that id — call list_agents for current ids.");
+        const { setAgentStatus } = await import("@/lib/datamodo/agents");
+        await setAgentStatus(agentId, status);
+        return text(`✓ agent ${status}.`);
+      },
+    );
+
+    server.tool(
+      "delete_agent",
+      "Delete an agent. GUARDED — pass confirm:true. The tables it filled are not deleted. Get the id from list_agents.",
+      { agentId: z.string().min(1), confirm: z.boolean().describe("Must be true — deletion is real") },
+      async ({ agentId, confirm }, extra) => {
+        const { orgId } = await caller(extra);
+        if (!confirm) return text("Not deleted — pass confirm:true to remove this agent.");
+        const owned = await prisma.agents.findFirst({ where: { id: agentId, org_id: orgId }, select: { id: true } });
+        if (!owned) return text("No agent with that id — call list_agents for current ids.");
+        const { deleteAgent } = await import("@/lib/datamodo/agents");
+        await deleteAgent(agentId);
+        return text("✓ agent deleted.");
+      },
+    );
   },
   {
-    serverInfo: { name: "datamodo", version: "1.1.0" },
+    serverInfo: { name: "datamodo", version: "1.2.0" },
     // "Claude chat AS datamodo chat" (2026-07-17): the initialize response
     // carries the datamodo-mode doctrine — clients fold it into the system
     // context, so the model DECIDES when a turn belongs in the vault and

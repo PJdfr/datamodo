@@ -5,7 +5,7 @@
 > the always-current infographic: stages × features × stack in one picture.
 > Siblings: [STATE.md](STATE.md) · [ROADMAP.md](ROADMAP.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-17
+> Last updated: 2026-07-20
 
 ## The one-picture version
 
@@ -66,7 +66,7 @@ end
 
 subgraph DERIVE["6 · WE DERIVE<br/>every view is a projection; nothing is a second store"]
   direction TB
-  TAB["▦ Tables = categories<br/><i>draggable schema canvas;<br/>kind_id-bound datasets;<br/>dashed table↔table links</i>"]
+  TAB["▦ Tables = categories<br/><i>draggable schema canvas;<br/>one object: kinds ARE the tables;<br/>dashed table↔table links</i>"]
   EXP["◍ Explorer (the walk)<br/><i>edge to edge; edges show<br/>confidence · time · sources;<br/>nodes in their natural shape<br/>(record · page · image · player)</i>"]
   TL["◷ Timeline<br/><i>messages · due dates ·<br/>corrections · first seen</i>"]
   EP["▤ Entity pages + dossier ↓<br/><i>cited markdown export</i>"]
@@ -94,7 +94,7 @@ XL -.infer graph → same ingest.-> CANON
 | **Store raw** | "The original is always kept" | sha256+gzip blob dedup (same file re-forwarded = one blob), items at `stored` | `lib/ingest/store.ts`, `lib/storage/blob.ts`, R2 |
 | **Process** | Facts appear minutes later; unclear things ask for review | Cron + self-kick drain; claim/recover/retry; classify → extract → ground (zero-LLM evidence check: fabricated snippets / absent numbers cap confidence into the review gate) → canonicalize → reconcile (zero-LLM: broken refs drop, repeats collapse, values/keys normalize, declared/heuristic cardinality settles multi-values as coexisting list facts) → restrain; audio transcribes first (fail-soft) then follows the document path; low confidence escalates models, then to Review; a clearly weaker new value is HELD for review instead of silently overwriting a corroborated one | `lib/datamodo/extract.ts`, `ontology.ts`, `reconcile-core.ts`, `documents.ts`, `lib/llm/*` (incl. `transcription.ts`) |
 | **Vault** | One clean version of every fact, with receipts | Tiered entity resolution (never a silent bad merge), bitemporal facts (contradictions supersede, never delete), provenance per claim | `lib/datamodo/knowledge.ts`, Neon (pgvector + pg_trgm) |
-| **Derive** | Tables, graph, timeline, answers — all just *there*; on demand: describe a table or a folder tree and it builds itself out of the graph, and any answer can be shown IN the graph | Pure projections over the vault, computed live or auto-materialized; accept in Review = commit to the graph; prompt-shaped projections (derive-table, folder export) preview before anything is written | `lib/datamodo/{project,analytics,search,answer,timeline,concept-map,dossier,derive-table,folder-export,zip}.ts`, `app/dashboard/*` |
+| **Derive** | Tables, graph, timeline, answers — all just *there*; on demand: describe a table or a folder tree and it builds itself out of the graph, and any answer can be shown IN the graph | Pure projections over the vault, computed live or auto-materialized; accept in Review = commit to the graph; prompt-shaped projections (derive-table, folder export) preview before anything is written | `lib/datamodo/{project,analytics,search,answer,timeline,dossier,derive-table,folder-export,zip}.ts`, `app/dashboard/*` |
 
 ## Invariants (the flow's laws)
 1. **Originals are immutable** — blobs are content-addressed; merge moves identity, never rewrites content.

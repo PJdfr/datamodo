@@ -90,27 +90,35 @@ begin
   values (v_org, v_uid, 'Fieldnotes', 'Braindumps and voice memos become structured notes.', 'auto', array['whatsapp'], 'ping', 'active', now() - interval '28 days')
   returning id into v_field;
 
-  -- 4. Tables (bound to kinds by the trailing update).
-  insert into public.datasets (org_id, agent_id, name, description, columns, created_by, created_at) values
-    (v_org, v_ledger, 'Invoices', 'Everything Ledger captured from billing mail.',
-     '[{"key":"client","label":"Client","type":"text"},{"key":"invoice","label":"Invoice","type":"text"},{"key":"amount","label":"Amount","type":"number"},{"key":"due","label":"Due","type":"date"},{"key":"status","label":"Status","type":"status"}]'::jsonb,
-     v_uid, now() - interval '34 days') returning id into v_ds_inv;
-  insert into public.datasets (org_id, agent_id, name, description, columns, created_by, created_at) values
-    (v_org, v_rolodex, 'Clients', 'Companies you work with.',
-     '[{"key":"name","label":"Name","type":"text"},{"key":"industry","label":"Industry","type":"text"},{"key":"domain","label":"Domain","type":"text"}]'::jsonb,
-     v_uid, now() - interval '34 days') returning id into v_ds_cli;
-  insert into public.datasets (org_id, agent_id, name, description, columns, created_by, created_at) values
-    (v_org, v_rolodex, 'Contacts', 'People, filed from intros and threads.',
-     '[{"key":"name","label":"Name","type":"text"},{"key":"email","label":"Email","type":"text"},{"key":"company","label":"Company","type":"text"},{"key":"role","label":"Role","type":"text"}]'::jsonb,
-     v_uid, now() - interval '33 days') returning id into v_ds_con;
-  insert into public.datasets (org_id, agent_id, name, description, columns, created_by, created_at) values
-    (v_org, v_paper, 'Projects', 'Engagements per client.',
-     '[{"key":"name","label":"Name","type":"text"},{"key":"client","label":"Client","type":"text"},{"key":"status","label":"Status","type":"status"},{"key":"deadline","label":"Deadline","type":"date"}]'::jsonb,
-     v_uid, now() - interval '30 days') returning id into v_ds_proj;
-  insert into public.datasets (org_id, agent_id, name, description, columns, created_by, created_at) values
-    (v_org, v_ledger, 'Receipts', 'Small purchases, snapped or forwarded.',
-     '[{"key":"vendor","label":"Vendor","type":"text"},{"key":"amount","label":"Amount","type":"number"},{"key":"date","label":"Date","type":"date"}]'::jsonb,
-     v_uid, now() - interval '29 days') returning id into v_ds_rec;
+  -- 4. Tables — one object: the kinds from step 2 ARE the tables. Resolve
+  --    their ids and write the table facet (agent, columns, description, and
+  --    the demo's display plurals in case builtins pre-existed step 2).
+  select id into v_ds_inv  from public.kinds where org_id = v_org and kind = 'invoice';
+  select id into v_ds_cli  from public.kinds where org_id = v_org and kind = 'company';
+  select id into v_ds_con  from public.kinds where org_id = v_org and kind = 'person';
+  select id into v_ds_proj from public.kinds where org_id = v_org and kind = 'project';
+  select id into v_ds_rec  from public.kinds where org_id = v_org and kind = 'receipt';
+
+  update public.kinds set agent_id = v_ledger, plural = 'Invoices',
+    description = coalesce(description, 'Everything Ledger captured from billing mail.'),
+    columns = '[{"key":"client","label":"Client","type":"text"},{"key":"invoice","label":"Invoice","type":"text"},{"key":"amount","label":"Amount","type":"number"},{"key":"due","label":"Due","type":"date"},{"key":"status","label":"Status","type":"status"}]'::jsonb
+  where id = v_ds_inv;
+  update public.kinds set agent_id = v_rolodex, plural = 'Clients',
+    description = coalesce(description, 'Companies you work with.'),
+    columns = '[{"key":"name","label":"Name","type":"text"},{"key":"industry","label":"Industry","type":"text"},{"key":"domain","label":"Domain","type":"text"}]'::jsonb
+  where id = v_ds_cli;
+  update public.kinds set agent_id = v_rolodex, plural = 'Contacts',
+    description = coalesce(description, 'People, filed from intros and threads.'),
+    columns = '[{"key":"name","label":"Name","type":"text"},{"key":"email","label":"Email","type":"text"},{"key":"company","label":"Company","type":"text"},{"key":"role","label":"Role","type":"text"}]'::jsonb
+  where id = v_ds_con;
+  update public.kinds set agent_id = v_paper, plural = 'Projects',
+    description = coalesce(description, 'Engagements per client.'),
+    columns = '[{"key":"name","label":"Name","type":"text"},{"key":"client","label":"Client","type":"text"},{"key":"status","label":"Status","type":"status"},{"key":"deadline","label":"Deadline","type":"date"}]'::jsonb
+  where id = v_ds_proj;
+  update public.kinds set agent_id = v_ledger, plural = 'Receipts',
+    description = coalesce(description, 'Small purchases, snapped or forwarded.'),
+    columns = '[{"key":"vendor","label":"Vendor","type":"text"},{"key":"amount","label":"Amount","type":"number"},{"key":"date","label":"Date","type":"date"}]'::jsonb
+  where id = v_ds_rec;
 
   -- 5. Companies (clients arrive over the weeks, not all at once).
   for i in 1..array_length(c_names, 1) loop
@@ -389,11 +397,5 @@ update public.user_settings s
   from public.profiles p
  where p.id = s.user_id and p.email = 'demo@datamodo.dev';
 
--- Bind seeded datasets to their kinds ("category = table" is structural).
-update public.datasets d
-   set kind_id = k.id
-  from public.kinds k, public.organizations o, public.profiles p
- where d.kind_id is null
-   and o.created_by = p.id and p.email = 'demo@datamodo.dev'
-   and d.org_id = o.id and k.org_id = d.org_id
-   and lower(d.name) = lower(coalesce(nullif(trim(k.plural), ''), k.label || 's'));
+-- (No kind-binding pass anymore: a table IS a category — the kinds carry
+--  their table facet directly, one-object model, 2026-07-20.)

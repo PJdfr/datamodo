@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { columnsFromTemplate, fieldsFromColumns, slugify, syncFieldsToColumns } from "./ontology";
+import type { KindField, KindRelation } from "./ontology";
 import type {
   DatasetColumn,
   DatasetRecord,
@@ -9,8 +11,44 @@ import type {
   SnapshotMeta,
 } from "./types";
 
-// Data access for datasets + their rows. Like agents.ts, all reads/writes go
-// through the caller's authenticated client and are gated by RLS.
+// The TABLE FACET of the one object (model unification phase 3, 2026-07-20):
+// a category IS a table IS its template. There is no `datasets` table anymore —
+// every function here reads/writes `kinds` (the "datasetId" params ARE kind
+// ids; dataset_rows/snapshots/relations keep their column names but reference
+// kinds). kinds.columns is the presentation cache of the template; column
+// edits sync back into fields (syncFieldsToColumns) so the two can't drift.
+
+type KindTableRow = {
+  id: string;
+  org_id: string;
+  agent_id: string | null;
+  kind: string;
+  label: string;
+  plural: string | null;
+  description: string | null;
+  columns: unknown;
+  owner_user_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+};
+
+/** The table's display name — the category's plural (the historic dataset
+ *  naming convention, now structural). */
+export const tableName = (k: Pick<KindTableRow, "label" | "plural">): string =>
+  k.plural?.trim() || `${k.label}s`;
+
+const toRecord = (k: KindTableRow): DatasetRecord => ({
+  id: k.id,
+  org_id: k.org_id,
+  agent_id: k.agent_id,
+  kind_id: k.id, // one object: the table IS the category
+  name: tableName(k),
+  description: k.description,
+  columns: Array.isArray(k.columns) ? (k.columns as unknown as DatasetColumn[]) : [],
+  created_by: k.owner_user_id,
+  created_at: k.created_at.toISOString(),
+  updated_at: k.updated_at.toISOString(),
+});
 
 type RawRow = {
   id: string;
@@ -26,9 +64,10 @@ type RawRow = {
   source_item_id: string | null;
 };
 
-/** List datasets in an org, enriched with rows, version history, + proposals. */
+/** List the org's tables — every category IS a table — enriched with row
+ *  counts, version history, + proposals. */
 export async function listDatasets(orgId: string): Promise<DatasetView[]> {
-  const datasets = await prisma.datasets.findMany({
+  const datasets = await prisma.kinds.findMany({
     where: { org_id: orgId },
     orderBy: { created_at: "asc" },
     include: { agents: { select: { name: true } } },
@@ -130,16 +169,7 @@ export async function listDatasets(orgId: string): Promise<DatasetView[]> {
       };
     });
     return {
-      id: d.id,
-      org_id: d.org_id,
-      agent_id: d.agent_id,
-      kind_id: d.kind_id,
-      name: d.name,
-      description: d.description,
-      columns: Array.isArray(d.columns) ? (d.columns as unknown as DatasetColumn[]) : [],
-      created_by: d.created_by,
-      created_at: d.created_at.toISOString(),
-      updated_at: d.updated_at.toISOString(),
+      ...toRecord(d as unknown as KindTableRow),
       agentName: d.agents?.name ?? null,
       rowCount: countByDataset.get(d.id) ?? 0,
       // Rows load lazily when a table is opened — the cards only need the count.
@@ -248,7 +278,7 @@ export async function restoreSnapshot(snapshotId: string): Promise<void> {
   if (!data) throw new Error("Version not found");
   const snap = data as unknown as { dataset_id: string; org_id: string; columns: DatasetColumn[]; rows: { data: Record<string, unknown> }[]; created_at: Date };
 
-  await prisma.datasets.update({ where: { id: snap.dataset_id }, data: { columns: snap.columns as object } });
+  await setColumns(snap.dataset_id, snap.columns);
   await prisma.dataset_rows.deleteMany({ where: { dataset_id: snap.dataset_id, status: "accepted" } });
   if (snap.rows.length) {
     const insert = snap.rows.map((r) => ({
@@ -424,16 +454,11 @@ export async function rejectProposals(ids: string[]): Promise<void> {
   await prisma.dataset_rows.deleteMany({ where: { id: { in: ids }, status: "proposed" } });
 }
 
-/** Fetch a single dataset by id (RLS returns null when not visible). */
+/** Fetch a single table (kind) by id. */
 export async function getDataset(datasetId: string): Promise<DatasetRecord | null> {
-  const d = await prisma.datasets.findUnique({ where: { id: datasetId } });
+  const d = await prisma.kinds.findUnique({ where: { id: datasetId } });
   if (!d) return null;
-  return {
-    ...(d as unknown as DatasetRecord),
-    columns: Array.isArray(d.columns) ? (d.columns as unknown as DatasetColumn[]) : [],
-    created_at: d.created_at.toISOString(),
-    updated_at: d.updated_at.toISOString(),
-  };
+  return toRecord(d as unknown as KindTableRow);
 }
 
 /** Accepted rows for a dataset, oldest first — the exportable/live rows. */
@@ -446,6 +471,11 @@ export async function listAcceptedRows(datasetId: string): Promise<{ data: Recor
   return data as { data: Record<string, unknown> }[];
 }
 
+/** Create a table — which IS creating a category: one kind row carrying both
+ *  the template (fields derived from the columns) and the presentation
+ *  (columns). `kindId` is accepted for source-compat but ignored — a table
+ *  can't bind to a kind, it IS one. Throws on a slug collision (a category
+ *  with that name already exists). */
 export async function createDataset(
   orgId: string,
   createdBy: string,
@@ -454,45 +484,97 @@ export async function createDataset(
     description?: string | null;
     columns?: DatasetColumn[];
     agentId?: string | null;
-    /** Structural "category = table" binding (the kind this materializes). */
     kindId?: string | null;
   },
 ): Promise<DatasetRecord> {
   const name = input.name?.trim();
   if (!name) throw new Error("Dataset name is required");
+  const slug = slugify(name);
+  if (!slug) throw new Error("Dataset name is required");
+  const columns = input.columns ?? [];
 
-  const data = await prisma.datasets.create({
+  const data = await prisma.kinds.create({
     data: {
       org_id: orgId,
-      created_by: createdBy,
-      agent_id: input.agentId ?? null,
-      kind_id: input.kindId ?? null,
-      name,
+      owner_user_id: createdBy,
+      kind: slug,
+      label: name,
+      plural: name,
       description: input.description?.trim() || null,
-      columns: (input.columns ?? []) as object,
+      builtin: false,
+      fields: fieldsFromColumns(columns) as unknown as object,
+      columns: columns as unknown as object,
+      agent_id: input.agentId ?? null,
     },
   });
-  return {
-    ...(data as unknown as DatasetRecord),
-    columns: Array.isArray(data.columns) ? (data.columns as unknown as DatasetColumn[]) : [],
-    created_at: data.created_at.toISOString(),
-    updated_at: data.updated_at.toISOString(),
-  };
+  return toRecord(data as unknown as KindTableRow);
 }
 
+/**
+ * "Category → table" — with the one object this no longer creates anything: it
+ * makes sure the kind's columns exist (regenerated from the template when
+ * empty), then projects every entity of that kind into its rows. The MCP
+ * `create_category`, the dashboard's "+ new table" and `POST
+ * /api/kinds/[id]/table` all land here.
+ */
+export async function materializeKindTable(
+  orgId: string,
+  userId: string,
+  kindId: string,
+): Promise<{ datasetId: string; name: string; entities: number; added: number; updated: number; unchanged: number }> {
+  void userId; // kept for call-site compat; the kind already carries its owner
+  const row = await prisma.kinds.findFirst({ where: { id: kindId, org_id: orgId } });
+  if (!row) throw new Error("category not found");
+  const fields = (Array.isArray(row.fields) ? row.fields : []) as unknown as KindField[];
+  const relations = (Array.isArray(row.relations) ? row.relations : []) as unknown as KindRelation[];
+
+  const columns = Array.isArray(row.columns) && (row.columns as unknown[]).length > 0
+    ? (row.columns as unknown as DatasetColumn[])
+    : (columnsFromTemplate({ label: row.label, fields, relations }) as DatasetColumn[]);
+  if (!Array.isArray(row.columns) || (row.columns as unknown[]).length === 0) {
+    await prisma.kinds.update({ where: { id: row.id }, data: { columns: columns as unknown as object, updated_at: new Date() } });
+  }
+
+  const { projectEntitiesToDataset } = await import("./project");
+  const result = await projectEntitiesToDataset(orgId, {
+    kind: row.kind,
+    datasetId: row.id,
+    agentName: "Categories",
+    labelColumn: "name",
+  });
+  return { datasetId: row.id, name: tableName(row as unknown as KindTableRow), ...result };
+}
+
+/** Rename a table = rename the category's plural display name (the slug is
+ *  identity and never changes). */
 export async function renameDataset(datasetId: string, name: string): Promise<void> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Dataset name is required");
-  await prisma.datasets.update({ where: { id: datasetId }, data: { name: trimmed } });
+  await prisma.kinds.update({ where: { id: datasetId }, data: { plural: trimmed, updated_at: new Date() } });
 }
 
+/** Delete the table — the one object: this deletes the CATEGORY too, and its
+ *  rows/snapshots/relations cascade. Entities keep their kind string. */
 export async function deleteDataset(datasetId: string): Promise<void> {
-  await prisma.datasets.delete({ where: { id: datasetId } });
+  await prisma.kinds.delete({ where: { id: datasetId } });
 }
 
-/** Replace a dataset's whole column set (used for retype/relabel/reorder). */
+/** Replace a table's whole column set (retype/relabel/reorder). Columns and
+ *  template stay in lockstep: fields sync from the new columns (enriched field
+ *  metadata — unit/cardinality/aliases — survives for kept keys). */
 export async function setColumns(datasetId: string, columns: DatasetColumn[]): Promise<void> {
-  await prisma.datasets.update({ where: { id: datasetId }, data: { columns: columns as object } });
+  const k = await prisma.kinds.findUnique({ where: { id: datasetId }, select: { fields: true, relations: true } });
+  if (!k) throw new Error("Table not found");
+  const fields = Array.isArray(k.fields) ? (k.fields as unknown as KindField[]) : [];
+  const relations = Array.isArray(k.relations) ? (k.relations as unknown as KindRelation[]) : [];
+  await prisma.kinds.update({
+    where: { id: datasetId },
+    data: {
+      columns: columns as unknown as object,
+      fields: syncFieldsToColumns(fields, relations, columns) as unknown as object,
+      updated_at: new Date(),
+    },
+  });
 }
 
 /**

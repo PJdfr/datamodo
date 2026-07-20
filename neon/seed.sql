@@ -92,34 +92,51 @@ begin
           'curate', array['gmail'], 'auto', 'paused')
   returning id into v_nomad;
 
-  -- Datasets -------------------------------------------------------------
-  insert into public.datasets (org_id, agent_id, name, description, columns, created_by)
-  values (v_org, v_ledger, 'Invoices', 'Invoices captured by Ledger.',
-    '[{"key":"client","label":"Client","type":"text"},
-      {"key":"invoice","label":"Invoice","type":"text"},
-      {"key":"amount","label":"Amount","type":"number"},
-      {"key":"due","label":"Due","type":"date"},
-      {"key":"status","label":"Status","type":"status"}]'::jsonb,
-    v_uid)
-  returning id into v_ds_invoices;
+  -- Tables (one object: a table IS a category — kinds carry the columns) ---
+  -- Invoices ride the builtin `invoice` kind when the registry is already
+  -- seeded (dashboard opened once); Contacts/Trips are user kinds.
+  select id into v_ds_invoices from public.kinds where org_id = v_org and kind = 'invoice';
+  if v_ds_invoices is null then
+    insert into public.kinds (org_id, owner_user_id, kind, label, plural, builtin, fields)
+    values (v_org, v_uid, 'invoice', 'Invoice', 'Invoices', true, '[]'::jsonb)
+    returning id into v_ds_invoices;
+  end if;
+  update public.kinds
+     set agent_id = v_ledger,
+         description = coalesce(description, 'Invoices captured by Ledger.'),
+         columns = '[{"key":"client","label":"Client","type":"text"},
+                     {"key":"invoice","label":"Invoice","type":"text"},
+                     {"key":"amount","label":"Amount","type":"number"},
+                     {"key":"due","label":"Due","type":"date"},
+                     {"key":"status","label":"Status","type":"status"}]'::jsonb,
+         updated_at = now()
+   where id = v_ds_invoices;
 
-  insert into public.datasets (org_id, agent_id, name, description, columns, created_by)
-  values (v_org, v_rolodex, 'Contacts', 'People filed by Rolodex.',
+  insert into public.kinds (org_id, owner_user_id, kind, label, plural, description, builtin, agent_id, fields, columns)
+  values (v_org, v_uid, 'contact', 'Contact', 'Contacts', 'People filed by Rolodex.', false, v_rolodex,
+    '[{"key":"email","label":"Email","type":"text"},
+      {"key":"company","label":"Company","type":"text"},
+      {"key":"role","label":"Role","type":"text"}]'::jsonb,
     '[{"key":"name","label":"Name","type":"text"},
       {"key":"email","label":"Email","type":"text"},
       {"key":"company","label":"Company","type":"text"},
-      {"key":"role","label":"Role","type":"text"}]'::jsonb,
-    v_uid)
+      {"key":"role","label":"Role","type":"text"}]'::jsonb)
+  on conflict (org_id, kind) do update set agent_id = excluded.agent_id, columns = excluded.columns
   returning id into v_ds_contacts;
 
-  insert into public.datasets (org_id, agent_id, name, description, columns, created_by)
-  values (v_org, v_nomad, 'Trips', 'Travel timeline from Nomad.',
+  insert into public.kinds (org_id, owner_user_id, kind, label, plural, description, builtin, agent_id, fields, columns)
+  values (v_org, v_uid, 'trip', 'Trip', 'Trips', 'Travel timeline from Nomad.', false, v_nomad,
     '[{"key":"destination","label":"Destination","type":"text"},
       {"key":"traveler","label":"Traveler","type":"text"},
       {"key":"dates","label":"Dates","type":"text"},
       {"key":"booking","label":"Booking","type":"text"},
       {"key":"cost","label":"Cost","type":"number"}]'::jsonb,
-    v_uid)
+    '[{"key":"destination","label":"Destination","type":"text"},
+      {"key":"traveler","label":"Traveler","type":"text"},
+      {"key":"dates","label":"Dates","type":"text"},
+      {"key":"booking","label":"Booking","type":"text"},
+      {"key":"cost","label":"Cost","type":"number"}]'::jsonb)
+  on conflict (org_id, kind) do update set agent_id = excluded.agent_id, columns = excluded.columns
   returning id into v_ds_trips;
 
   -- Dataset rows ---------------------------------------------------------
@@ -285,13 +302,5 @@ update public.user_settings s
   from public.profiles p
  where p.id = s.user_id and p.email = 'user@example.com';
 
--- Bind seeded datasets to their kinds where the registry already exists
--- ("category = table" is structural via datasets.kind_id; the kind registry
--- seeds lazily on first dashboard load, so this may no-op on a brand-new org —
--- the UI's name fallback covers that until the seed is re-run).
-update public.datasets d
-   set kind_id = k.id
-  from public.kinds k
- where d.kind_id is null
-   and k.org_id = d.org_id
-   and lower(d.name) = lower(coalesce(nullif(trim(k.plural), ''), k.label || 's'));
+-- (No trailing kind-binding pass anymore: a table IS a category — the seed
+--  writes the kinds directly, one-object model, 2026-07-20.)

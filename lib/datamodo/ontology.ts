@@ -207,6 +207,74 @@ export const DEFAULT_KINDS: KindDef[] = [
 // --- Normalization helpers ----------------------------------------------------
 
 /** snake_case a kind or predicate name the LLM produced. */
+// ---- one object: the category IS the table --------------------------------
+// A kind's `columns` are a PRESENTATION CACHE of its template: name + fields
+// (bookkeeping keys skipped) + relation verbs. Template edits regenerate the
+// columns; column edits sync back into fields (datasets.ts). Pure + shared so
+// the app, the migration, and the seeds all derive the same shape.
+
+/** Table column shape (kept structurally identical to types.DatasetColumn —
+ *  redeclared here so this module stays import-free for node:test). */
+export interface TemplateColumn {
+  key: string;
+  label: string;
+  type: string;
+}
+
+/** Fields whose values are internal bookkeeping, not worth a table column. */
+export const NON_COLUMN_FIELDS = new Set(["file_type", "file_size", "indexed"]);
+
+/** Derive a kind's table columns from its template. */
+export function columnsFromTemplate(def: Pick<KindDef, "label" | "fields" | "relations">): TemplateColumn[] {
+  return [
+    { key: "name", label: def.label, type: "text" },
+    ...def.fields
+      .filter((f) => !NON_COLUMN_FIELDS.has(f.key))
+      .map((f) => ({ key: f.key, label: f.label, type: f.type === "entity" ? "text" : f.type })),
+    ...def.relations.map((r) => ({ key: r.predicate, label: r.label, type: "text" })),
+  ];
+}
+
+/** Derive template fields from imported/manual table columns (the reverse
+ *  direction: a spreadsheet import auto-promotes to a category). Unknown
+ *  column types collapse to text; the label column ('name') stays a column
+ *  but never a template field. */
+export function fieldsFromColumns(columns: TemplateColumn[]): KindField[] {
+  return columns
+    .filter((c) => c.key && c.key !== "name")
+    .map((c) => ({
+      key: c.key,
+      label: c.label || c.key,
+      type: (["number", "date"] as const).includes(c.type as "number" | "date") ? (c.type as "number" | "date") : "text",
+    }));
+}
+
+/** Reconcile a kind's fields after a column edit: keep enriched existing
+ *  fields (unit/cardinality/aliases survive) in the columns' order, add new
+ *  keys, drop removed ones. Relation predicates stay untouched — they live in
+ *  `relations`, their columns are derived. */
+export function syncFieldsToColumns(
+  fields: KindField[],
+  relations: KindRelation[],
+  columns: TemplateColumn[],
+): KindField[] {
+  const byKey = new Map(fields.map((f) => [f.key, f]));
+  const relationKeys = new Set(relations.map((r) => r.predicate));
+  const synced: KindField[] = [];
+  for (const c of columns) {
+    if (!c.key || c.key === "name" || relationKeys.has(c.key)) continue;
+    const prior = byKey.get(c.key);
+    if (prior) {
+      synced.push({ ...prior, label: c.label || prior.label, type: c.type === "number" || c.type === "date" ? c.type : prior.type });
+    } else {
+      synced.push(...fieldsFromColumns([c]));
+    }
+  }
+  // Bookkeeping fields never render as columns but must survive column edits.
+  for (const f of fields) if (NON_COLUMN_FIELDS.has(f.key)) synced.push(f);
+  return synced;
+}
+
 export function slugify(name: string): string {
   return name
     .normalize("NFKD")

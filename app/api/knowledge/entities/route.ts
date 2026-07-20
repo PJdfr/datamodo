@@ -21,11 +21,12 @@ export async function GET(req: Request) {
   const agentId = new URL(req.url).searchParams.get("agent");
   const [entities, dsRows] = await Promise.all([
     listKnowledge(org.id, { agentId }),
-    prisma.datasets.findMany({
+    prisma.kinds.findMany({
       where: { org_id: org.id },
       select: {
         id: true,
-        name: true,
+        label: true,
+        plural: true,
         columns: true,
         dataset_rows: {
           where: { status: "accepted", subject_entity_id: { not: null } },
@@ -36,9 +37,9 @@ export async function GET(req: Request) {
   ]);
   const datasets: DatasetNodeSource[] = dsRows.map((d) => ({
     id: d.id,
-    name: d.name,
+    name: d.plural?.trim() || `${d.label}s`,
     columns: Array.isArray(d.columns) ? d.columns.length : 0,
-    rowEntityIds: d.dataset_rows.map((r) => r.subject_entity_id!).filter(Boolean),
+    rowEntityIds: d.dataset_rows.map((r: { subject_entity_id: string | null }) => r.subject_entity_id!).filter(Boolean),
   }));
   return NextResponse.json({ entities, datasets });
 }
