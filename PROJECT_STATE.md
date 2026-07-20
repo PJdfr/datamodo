@@ -13,6 +13,26 @@
 
 ## Recent changes
 
+- **2026-07-20** — **Review Studio: the SIMPLE decision layer (user call:
+  "source of the uncertainty first, then what accept/refuse would do —
+  super simple, we have too much info"):** expanding a review row now leads
+  with THREE beats instead of the dense evidence card — ① the decision as
+  one plain QUESTION ("Are 'Acme Incorporated' and 'Acme Inc' the same
+  company?"); ② "why you're being asked" — the SOURCE of the uncertainty
+  (the message/document/pattern that triggered it, with the exact snippet
+  or resolver reason QUOTED when we have it); ③ two big CLICKABLE choice
+  cards, each stating in one breath what that future does ("They become ONE
+  company… nothing is lost." / "They stay two separate things, and we never
+  ask about this pair again.") — clicking the card resolves. The full
+  evidence card + the ◍ graph preview moved behind one "See the evidence &
+  what it does to your graph" disclosure (depth on demand). All copy comes
+  from a NEW pure core `lib/datamodo/review-explain.ts` (`explainReview`:
+  per-kind question/source/accept/refuse/labels incl. the held-conflict and
+  alias-field variants; +6 tests, 390/390 total). The collapsed rows' quick
+  ✓/✕ pills are unchanged. Verified: tsc, lint == baseline, `next build`,
+  review shoot shows the new layout | `lib/datamodo/review-explain.ts`
+  (+`tests/review-explain.test.ts`), `ExpandedDecision`/`ChoiceCard` in
+  `review-studio.tsx`.
 - **2026-07-20** — **Review Studio: full width + graph-preview fixes (user
   report: "the review element does not take full width so the graph explorer
   view is cropped"):** ① the queue's `maxWidth: 880` cap is GONE — the
