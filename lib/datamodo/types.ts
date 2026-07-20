@@ -91,6 +91,10 @@ export interface DatasetRowRecord {
   data: Record<string, unknown>;
   /** True once a human has edited this row — protects it from silent overwrite. */
   humanEdited: boolean;
+  /** The entity this row materializes (row = page) — null for hand-added rows. */
+  subjectEntityId: string | null;
+  /** The user who hand-added the row — null for extracted/projected rows. */
+  createdBy: string | null;
 }
 
 /** A version-history entry (metadata only; full rows loaded on restore). */

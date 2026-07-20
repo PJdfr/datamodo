@@ -11,7 +11,8 @@
  * its header and the relation lines follow live (measured from the DOM every
  * frame while dragging). Positions persist locally (localStorage) so the
  * diagram stays the way you arranged it; auto-layout seeds first visit.
- * Click a header (without dragging) to browse that table's rows below.
+ * Click a header (without dragging) to OPEN that kind's table page (redesign
+ * 2026-07-20 — the card-wall drill-down below the canvas is gone).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
@@ -90,16 +91,17 @@ function loadSaved(): Record<string, Pos> {
 
 interface Line { x1: number; y1: number; x2: number; y2: number; label: string; from: string; to: string; dashed?: boolean }
 
-export function SchemaView({ kinds, countByKind, tables, tableLinks = [], selectedKind, onSelectKind, onOpenTable, onMaterialized }: {
+export function SchemaView({ kinds, countByKind, tables, tableLinks = [], onOpenKind, onOpenTable, onMaterialized }: {
   kinds: KindDef[];
   countByKind: Map<string, number>;
   tables: SchemaTableRef[];
   /** Explicit table↔table relationships (dataset_relations) — dashed lines. */
   tableLinks?: SchemaTableLink[];
-  /** The kind whose rows are being browsed below (cards grid). */
-  selectedKind: string | null;
-  onSelectKind: (kind: string | null) => void;
-  /** Open a materialized dataset (the table modal). */
+  /** Click a card header (without dragging) → open that kind's TABLE PAGE
+   *  (redesign 2026-07-20: the card-wall drill-down is gone; a kind IS a
+   *  table, so clicking it opens the table). */
+  onOpenKind?: (def: KindDef) => void;
+  /** Open a materialized dataset (the table page). */
   onOpenTable?: (datasetId: string) => void;
   /** A table was just created from a category — parent refreshes its list. */
   onMaterialized?: () => void;
@@ -247,7 +249,8 @@ export function SchemaView({ kinds, countByKind, tables, tableLinks = [], select
         window.localStorage.setItem(POS_KEY, JSON.stringify({ ...saved, ...positions, [kind]: p }));
       } catch { /* private mode etc. — layout just re-seeds next visit */ }
     } else {
-      onSelectKind(selectedKind === kind ? null : kind);
+      const def = kinds.find((k) => k.kind === kind);
+      if (def) onOpenKind?.(def);
     }
   };
 
@@ -299,7 +302,7 @@ export function SchemaView({ kinds, countByKind, tables, tableLinks = [], select
     <div>
       {/* toolbar: hint + the one-object creation flow */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-        <span className="dm-mono" style={{ ...micro }}>drag a table to arrange · click one to browse its rows</span>
+        <span className="dm-mono" style={{ ...micro }}>drag a table to arrange · click one to open it</span>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 7 }}>
           <input
             value={newName}
@@ -322,11 +325,11 @@ export function SchemaView({ kinds, countByKind, tables, tableLinks = [], select
         <div ref={wrapRef} style={{ position: "relative", height: canvasH, minWidth: "100%" }}>
           <svg width="100%" height="100%" style={{ position: "absolute", inset: 0, overflow: "visible", pointerEvents: "none", zIndex: 0 }}>
             {lines.map((l, i) => {
-              const lit = selectedKind === l.from || selectedKind === l.to || dragging === l.from || dragging === l.to;
+              const lit = dragging === l.from || dragging === l.to;
               const mx = (l.x1 + l.x2) / 2;
               const d = `M ${l.x1} ${l.y1} C ${mx} ${l.y1}, ${mx} ${l.y2}, ${l.x2} ${l.y2}`;
               return (
-                <g key={i} style={{ opacity: (selectedKind || dragging) && !lit ? 0.25 : 1, transition: dragging ? "none" : "opacity .15s" }}>
+                <g key={i} style={{ opacity: dragging && !lit ? 0.25 : 1, transition: dragging ? "none" : "opacity .15s" }}>
                   <path d={d} fill="none" stroke={lit ? C.accent : "#D3C9B5"} strokeWidth={lit ? 1.8 : 1.2} strokeDasharray={l.dashed ? "5 4" : undefined} />
                   <circle cx={l.x2} cy={l.y2} r={2.5} fill={lit ? C.accent : "#D3C9B5"} />
                   {lit && (
@@ -343,7 +346,6 @@ export function SchemaView({ kinds, countByKind, tables, tableLinks = [], select
           {kinds.map((def) => {
             const count = countByKind.get(def.kind) ?? 0;
             const ds = datasetForKind(def, tables);
-            const selected = selectedKind === def.kind;
             const isDragged = dragging === def.kind;
             const empty = count === 0;
             const p = laidOut[def.kind];
@@ -355,14 +357,12 @@ export function SchemaView({ kinds, countByKind, tables, tableLinks = [], select
                 style={{
                   position: "absolute", left: p.x + 14, top: p.y + 14, width: CARD_W,
                   background: "#FFFDF8", borderRadius: 13, overflow: "hidden",
-                  border: `1px solid ${selected || isDragged ? C.accent : "#E1D9C8"}`,
+                  border: `1px solid ${isDragged ? C.accent : "#E1D9C8"}`,
                   boxShadow: isDragged
                     ? "0 24px 50px -20px rgba(33,30,24,.4)"
-                    : selected
-                    ? "0 14px 34px -22px rgba(228,89,59,.4)"
                     : "0 10px 26px -22px rgba(33,30,24,.4)",
-                  opacity: empty && !selected && !isDragged ? 0.78 : 1,
-                  zIndex: isDragged ? 1000 : (zOrder[def.kind] ?? 0) + (selected ? 100 : 0) + 1,
+                  opacity: empty && !isDragged ? 0.78 : 1,
+                  zIndex: isDragged ? 1000 : (zOrder[def.kind] ?? 0) + 1,
                   transition: isDragged ? "none" : "border-color .15s, box-shadow .15s, opacity .15s",
                 }}
               >
@@ -373,8 +373,8 @@ export function SchemaView({ kinds, countByKind, tables, tableLinks = [], select
                   onPointerUp={onCardPointerUp(def.kind)}
                   role="button"
                   tabIndex={0}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectKind(selected ? null : def.kind); } }}
-                  title={`${def.plural ?? def.label} — drag to move · click to browse`}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenKind?.(def); } }}
+                  title={`${def.plural ?? def.label} — drag to move · click to open its table`}
                   style={{ display: "flex", alignItems: "center", gap: 8, background: `color-mix(in srgb, ${def.color ?? "#A39B8B"} 10%, #FFFDF8)`, borderBottom: "1px solid #EFE9DC", padding: "8px 12px", cursor: isDragged ? "grabbing" : "grab", userSelect: "none", touchAction: "none", outline: "none" }}
                 >
                   <span aria-hidden style={{ width: 8, height: 8, borderRadius: 2.5, background: def.color ?? "#A39B8B", flexShrink: 0 }} />
@@ -423,7 +423,6 @@ export function SchemaView({ kinds, countByKind, tables, tableLinks = [], select
                       {busyKind === def.kind ? "▦ building…" : "▦ make table"}
                     </button>
                   ) : null}
-                  {selected && <span className="dm-mono" style={{ ...micro, marginLeft: "auto", color: C.accent }}>browsing ↓</span>}
                 </div>
               </div>
             );

@@ -13,6 +13,45 @@
 
 ## Recent changes
 
+- **2026-07-20** — **Tables redesign SHIPPED (Notion's grammar on the fact
+  spine, phase 1 of the brief) + Notion-sync brief:** a table now opens into
+  a full-width PAGE inside Data › Tables (no modal): NEW
+  `app/dashboard/table-page.tsx` — virtualized keyboard-navigable typed grid
+  (fixed 34px rows over a windowed slice; progressive `{limit:200}` fetches
+  so the first page is the first paint and counts stay honest; ↑↓←→/Tab
+  move, Enter edits — on the title column it opens the row, Esc
+  cancels/closes, type-over starts a seeded edit), row-level provenance dots
+  (ink = human-made/edited, coral = extracted), quick filter, column
+  show/hide/reorder popover, and a SIDE PEEK rendering the selected row's
+  entity via `EntityPageBody` (row = page: record + connections + ◍ Walk
+  hand-off into the Explorer + Full page + dossier; hand-added rows get a
+  plain field editor). Cards became a view-switcher option (row cards).
+  Per-table view config persists in localStorage `dm-table-view-v1:<kindId>`
+  (no schema change). `TableDetailModal` DELETED — snapshots/history/
+  ↑ Sync out/⇅ sheet-sync/export/rename/delete absorbed into the page (moved
+  components live in table-page.tsx); dead `ChangeChunkCard`/`ProposalCard`/
+  `chunkProposals` dropped with it (~600 lines out of control-center). The
+  schema canvas card wall is GONE: clicking a kind card opens its table page
+  ("+ new table" and Derive land in the new grid — `createDatasetAction` now
+  returns the id). Pure core `lib/datamodo/table-view.ts` (view config
+  sanitize, column ordering, window math, typed coerce/format/compare,
+  filter, provenance, snapshot diff, keyboard `moveCell`) + 12 tests; NEW
+  `GET /api/knowledge/entities/[id]` (one projected entity for the peek);
+  `listDatasetRows` rows now carry `subjectEntityId`/`createdBy`. Verified:
+  384/384 tests, tsc, lint 7/12 (baseline lowered 7/15→7/12 — dead code
+  gone), `next build`, NEW shoot harness `table-grid` (grid + peek
+  screenshot; run.mjs gained a server-action stub seam
+  `scripts/shoot/stubs/actions.ts`) + a Playwright keyboard drive
+  (esc-peek → arrows → enter-edit → esc-cancel → type-over →
+  title-enter-peek → tab-wrap → cards view; it caught and we fixed a real
+  blur-after-cancel bug that committed cancelled drafts). Not verifiable
+  in-sandbox: live DB rows/peek against real data (no login). ALSO:
+  **Notion link/sync DESIGNED** (user ask) —
+  `design/briefs/notion-sync-brief.md`: phase 1 outbound push as the second
+  `OutboundWriter` (idempotent by a `dm_id` property, per-request token),
+  phase 2 review-gated inbound import; Sheets follows the same seam after
+  the OAuth-app ops. Docs: STATE/ROADMAP/MEMORY updated; tables brief marked
+  executed.
 - **2026-07-20** — **Tables redesign DESIGNED (docs only, no behavior):** new
   pickup brief `design/briefs/tables-notion-redesign-brief.md` from the
   user discussion "do it like Notion handles datasets" — Notion's grammar

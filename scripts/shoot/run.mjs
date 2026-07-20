@@ -73,6 +73,21 @@ for (const name of targets) {
     loader: { ".css": "empty" },
     define: { "process.env.NODE_ENV": '"production"' },
     logLevel: "silent",
+    plugins: [
+      {
+        // Server Actions can't ride into a browser-only bundle (they pull
+        // Prisma/pg). Swap app/dashboard/actions for the fixture-backed stub
+        // so components like TablePage are harness-able.
+        name: "server-action-stub",
+        setup(b) {
+          b.onResolve({ filter: /^(\.\/)?actions$/ }, (args) =>
+            args.importer.replaceAll(path.sep, "/").includes("app/dashboard")
+              ? { path: path.join(here, "stubs", "actions.ts") }
+              : null,
+          );
+        },
+      },
+    ],
   });
   fs.writeFileSync(path.join(outDir, `${name}.html`), HTML.replace("__NAME__", name));
 
