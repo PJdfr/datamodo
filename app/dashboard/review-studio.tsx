@@ -21,6 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 import { C, Hov, ghostBtn, relTime } from "./ui";
 import { ReviewCardBody, PAPER_SKIN } from "./review-card";
 import { ReviewGraphPanel, previewInputFor } from "./review-graph-modal";
+import { explainReview } from "@/lib/datamodo/review-explain";
 import type { ReviewItem, MergeReview, ConflictReview, ExtractionReview, OffTemplateReview, CategoryProposalReview, OrphanPruneReview, FieldProposalReview } from "@/lib/datamodo/review-types";
 
 /* ------------------------------ small atoms ------------------------------- */
@@ -322,14 +323,82 @@ function DiffRow({ it, expanded, onToggle, onResolve }: { it: ReviewItem; expand
         </span>
         <span style={{ color: "#B7AF9F", fontSize: 12, transform: expanded ? "rotate(90deg)" : "none", transition: "transform .12s", flexShrink: 0 }}>›</span>
       </div>
-      {/* Click a row → the evidence card with the GRAPH PREVIEW beside it
-          (user call 2026-07-16: next to the row, not a modal). */}
-      {expanded && (
-        <div style={{ display: "flex", gap: 12, padding: "4px 12px 14px", alignItems: "stretch", flexWrap: "wrap" }}>
+      {/* Click a row → the SIMPLE decision (user call 2026-07-20: source of
+          the uncertainty first, then what accept/refuse each do, minimal
+          words); the full evidence card + graph live behind "details". */}
+      {expanded && <ExpandedDecision it={it} onResolve={onResolve} />}
+    </div>
+  );
+}
+
+/** One big clickable choice: what this future does, in one breath. */
+function ChoiceCard({ glyph, tone, bg, border, label, body, onClick }: {
+  glyph: string; tone: string; bg: string; border: string; label: string; body: string; onClick: () => void;
+}) {
+  const [h, setH] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setH(true)}
+      onMouseLeave={() => setH(false)}
+      style={{
+        flex: "1 1 260px", minWidth: 240, textAlign: "left", cursor: "pointer", fontFamily: "inherit",
+        background: bg, border: `1px solid ${h ? tone : border}`, borderRadius: 13, padding: "13px 15px",
+        boxShadow: h ? `0 10px 24px -14px ${tone}66` : "none",
+        transform: h ? "translateY(-1px)" : "none", transition: "all .15s ease",
+      }}
+    >
+      <span style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <span style={{ width: 21, height: 21, borderRadius: "50%", background: tone, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{glyph}</span>
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{label}</span>
+      </span>
+      <span style={{ display: "block", fontSize: 12.5, color: "#57534A", lineHeight: 1.5 }}>{body}</span>
+    </button>
+  );
+}
+
+/** The expanded row: question → where it comes from → two futures to click.
+ *  Everything else (the dense evidence card, the graph walk) is one
+ *  disclosure away — depth on demand, never in the way of the choice. */
+function ExpandedDecision({ it, onResolve }: { it: ReviewItem; onResolve: Resolve }) {
+  const [details, setDetails] = useState(false);
+  const ex = explainReview(it);
+  const hasGraph = previewInputFor(it) !== null;
+  return (
+    <div style={{ padding: "2px 14px 16px" }}>
+      <div className="dm-display" style={{ fontWeight: 700, fontSize: 16.5, letterSpacing: "-0.02em", color: C.ink, margin: "6px 2px 10px" }}>{ex.question}</div>
+
+      {/* WHY: the source of the uncertainty, quoted when we have the text. */}
+      <div style={{ background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11, padding: "10px 13px", marginBottom: 12 }}>
+        <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: "#A39B8B", marginBottom: 4 }}>why you&apos;re being asked</div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+          <span style={{ color: C.accent, fontSize: 13, flexShrink: 0 }}>{ex.source.icon}</span>
+          <span style={{ fontSize: 13, color: "#3A352C", lineHeight: 1.5 }}>{ex.source.label}</span>
+        </div>
+        {ex.source.quote && (
+          <div className="dm-mono" style={{ marginTop: 7, fontSize: 11.5, color: "#57534A", background: "#fff", border: "1px solid #EFE9DC", borderLeft: `3px solid ${C.accent}`, borderRadius: 7, padding: "7px 11px", lineHeight: 1.5 }}>
+            “{ex.source.quote}”
+          </div>
+        )}
+      </div>
+
+      {/* THE CHOICE: two futures, each one click. */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "stretch" }}>
+        <ChoiceCard glyph="✓" tone={C.green} bg="#F5FAF6" border="#CBE4D2" label={ex.acceptLabel} body={ex.accept} onClick={() => onResolve(it.id, "accept")} />
+        <ChoiceCard glyph="✕" tone="#C7362C" bg="#fff" border="#E7E0D2" label={ex.refuseLabel} body={ex.refuse} onClick={() => onResolve(it.id, "reject")} />
+      </div>
+
+      {/* DEPTH ON DEMAND: the full evidence card + the graph walk. */}
+      <button type="button" onClick={() => setDetails((d) => !d)} className="dm-mono"
+        style={{ marginTop: 10, background: "none", border: "none", padding: "4px 2px", cursor: "pointer", fontSize: 11, color: details ? C.accent : "#8A8477", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span style={{ display: "inline-block", transform: details ? "rotate(90deg)" : "none", transition: "transform .12s" }}>▸</span>
+        {details ? "Hide the evidence & graph" : hasGraph ? "See the evidence & what it does to your graph" : "See the full evidence"}
+      </button>
+      {details && (
+        <div style={{ display: "flex", gap: 12, marginTop: 8, alignItems: "stretch", flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 340px", minWidth: 0 }}>{renderCard(it, onResolve)}</div>
-          {previewInputFor(it) && (
-            /* The graph gets the LARGER share — the Explorer scene needs
-               width to breathe (it was the cropped half at 880px). */
+          {hasGraph && (
             <div style={{ flex: "2 1 420px", minWidth: 320 }}>
               <ReviewGraphPanel item={it} />
             </div>
