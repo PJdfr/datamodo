@@ -13,6 +13,23 @@
 
 ## Recent changes
 
+- **2026-07-20** — **Review Studio: full width + graph-preview fixes (user
+  report: "the review element does not take full width so the graph explorer
+  view is cropped"):** ① the queue's `maxWidth: 880` cap is GONE — the
+  expanded evidence card + per-row graph preview now use the whole main
+  column, and the graph panel takes the larger flex share
+  (`flex: 2 1 420px`); ② found while verifying: the preview's Explorer was
+  STUCK on "That node isn't in your knowledge yet" — it mounts before the
+  panel's vault fetch resolves (centered on a label-only `sim:*` id) and,
+  keyed only by accept/refuse, kept that stale center when the real entities
+  landed. Now keyed `${future}:${centerId}` so it remounts when the real
+  world arrives; ③ the `review` shoot harness was stale (its "simulated
+  reviews" mode no longer exists — it screenshotted the empty state);
+  rewritten with real-shaped merge+conflict fixtures and an auto-expanded
+  row so the evidence + graph panel are actually in the screenshot.
+  Verified: 384/384 tests, tsc, lint == baseline (7/12), `next build`,
+  review shoot shows the full-width walk; Playwright toggle drive confirmed
+  accept/refuse both render the transformed graph.
 - **2026-07-20** — **Tables redesign SHIPPED (Notion's grammar on the fact
   spine, phase 1 of the brief) + Notion-sync brief:** a table now opens into
   a full-width PAGE inside Data › Tables (no modal): NEW

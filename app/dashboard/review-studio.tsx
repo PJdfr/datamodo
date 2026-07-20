@@ -328,7 +328,9 @@ function DiffRow({ it, expanded, onToggle, onResolve }: { it: ReviewItem; expand
         <div style={{ display: "flex", gap: 12, padding: "4px 12px 14px", alignItems: "stretch", flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 340px", minWidth: 0 }}>{renderCard(it, onResolve)}</div>
           {previewInputFor(it) && (
-            <div style={{ flex: "1 1 300px", minWidth: 280 }}>
+            /* The graph gets the LARGER share — the Explorer scene needs
+               width to breathe (it was the cropped half at 880px). */
+            <div style={{ flex: "2 1 420px", minWidth: 320 }}>
               <ReviewGraphPanel item={it} />
             </div>
           )}
@@ -404,7 +406,10 @@ export function ReviewStudio() {
   }
 
   return (
-    <div style={{ maxWidth: 880 }}>
+    // Full-bleed (user call 2026-07-20): the queue was capped at 880px, which
+    // squeezed the per-row graph preview until the Explorer scene cropped —
+    // the expanded evidence + graph want every pixel the main column gives.
+    <div>
 
       <div style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 16, overflow: "hidden" }}>
         {/* PR header */}

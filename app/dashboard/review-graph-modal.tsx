@@ -102,11 +102,15 @@ export function ReviewGraphPanel({ item }: { item: ReviewItem }) {
         </span>
       </div>
       {/* THE REAL EXPLORER (same component, same code — user call): walking
-          the TRANSFORMED graph of this future. Keyed so the walk re-enters
-          cleanly when the future toggles. */}
+          the TRANSFORMED graph of this future. Keyed by the future AND the
+          center id: before the vault views load, the panel renders the
+          label-only simulated world (sim:* ids) — when the real entities
+          land, the center id changes and the walk must REMOUNT, or it stays
+          centered on a node that no longer exists (fixed 2026-07-20: the
+          panel was stuck on "that node isn't in your knowledge yet"). */}
       <div style={{ position: "relative", height: 420, background: "#FBF8F1" }}>
         {fg.centerId ? (
-          <ExplorerView key={future} entities={fg.views} initialId={fg.centerId} kindByName={kindByName} highlightIds={fg.highlightIds} />
+          <ExplorerView key={`${future}:${fg.centerId}`} entities={fg.views} initialId={fg.centerId} kindByName={kindByName} highlightIds={fg.highlightIds} />
         ) : (
           <div className="dm-mono" style={{ padding: 20, fontSize: 12, color: "#A39B8B" }}>Nothing left to walk — these nodes are gone in this future.</div>
         )}
