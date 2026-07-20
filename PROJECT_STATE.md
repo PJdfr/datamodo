@@ -13,6 +13,22 @@
 
 ## Recent changes
 
+- **2026-07-20** — **Dead-code cleanup (user: "maybe we should do some cleaning
+  before the next feature — do we really need 390 tests? do we have code we
+  don't use anymore?").** Assessment: the test suite is healthy, not bloated —
+  390 tests / ~5.9k LOC vs ~34.6k source LOC (~1:6), ~4s runtime; live tests
+  kept. Dead code found with `dependency-cruiser` (follows this repo's dynamic
+  `await import()` style — `ts-prune` gave false positives, flagging live
+  dynamically-imported code like `reconcileExtraction`). Exactly three modules
+  had ZERO importers and were DELETED (all recoverable from git): dormant graph
+  seams `lib/datamodo/constellation.ts` (the COSMOS cluster/LOD core) and
+  `lib/datamodo/concept-map.ts` (view removed 2026-07-11), plus the leftover
+  `app/dashboard/versioning.tsx` (its version-history job was long ago folded
+  into `control-center.tsx`'s `HistoryPanel`). Their two test files went with
+  them (`constellation.test.ts` 11 tests + `concept-map.test.ts` 5 → 390→374).
+  ~1,000 LOC removed. Docs updated (MEMORY/ROADMAP/STATE/FLOW references marked
+  deleted). Verified: tsc + `next build` clean, 374/374 tests pass, boundary +
+  lint baseline hold.
 - **2026-07-20** — **MCP full write surface — "make Claude chat = datamodo's
   internal chat" (user ask: "give the MCP a lot more power — let the user do
   everything the dashboard does without opening it: create context, templates/

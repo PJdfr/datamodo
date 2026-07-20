@@ -87,9 +87,10 @@ reviewable, nothing is ever silently lost or merged.
   (user call: remove the Cosmos/WOW feature). There is NO separate canvas/WebGL
   showpiece — the Explorer walk + its continuous zoom-out IS the graph surface,
   and the landing hero uses that live Explorer over demo data. The old
-  `constellation.ts` LOD/cluster core (kept "for the Cosmos seam") now has no
-  consumer → dormant, delete after a quiet month;
-  `design/briefs/wow-graph-engine-brief.md` is retired. (Ring grouping, which
+  `constellation.ts` LOD/cluster core (kept "for the Cosmos seam") had no
+  consumer → DELETED 2026-07-20 in a dead-code cleanup (with `concept-map.ts`
+  and the leftover `versioning.tsx`); recover from git if the Cosmos seam is
+  ever revived. `design/briefs/wow-graph-engine-brief.md` is retired. (Ring grouping, which
   had shipped as build-order step 1, stays — it earns its keep in the walk.)
 
 ## Architecture decisions (and why)

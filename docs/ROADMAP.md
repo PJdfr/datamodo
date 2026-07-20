@@ -59,9 +59,9 @@
   on the walk → concentric BFS rings unfold around the same center to any
   depth + a dashed unlinked outer ring; permanent bearings (pure wedge
   layout, `buildLayeredEgo`), "+N more" folding per parent, click-to-walk,
-  scroll-in returns to the walk. The `constellation.ts` cluster/LOD core is
-  DORMANT — it is the COSMOS seam (resurrect there or delete after a quiet
-  month). Left for the design pass: layered-view typography at small card
+  scroll-in returns to the walk. The `constellation.ts` cluster/LOD core was
+  the COSMOS seam — DELETED 2026-07-20 (dead-code cleanup; recover from git
+  if revived). Left for the design pass: layered-view typography at small card
   scales, ring-label collisions, maybe a mini-map dial. Fixed 2026-07-14:
   "+N more" chips at any depth in the zoom-out now expand their members (were
   inert past the primary ring — only the walk expanded them). Enhanced
@@ -431,8 +431,9 @@ real questions).
   ring grouping (already shipped in the walk) and the continuous-scroll Explorer
   zoom (below) — the Explorer walk/zoom stays the graph surface; there is no
   separate WebGL showpiece. `lib/datamodo/constellation.ts` (the old cluster/LOD
-  core kept "for the Cosmos seam") is now fully dormant with no consumer —
-  delete after a quiet month. `design/briefs/wow-graph-engine-brief.md` is
+  core kept "for the Cosmos seam") had no consumer — DELETED 2026-07-20 in a
+  dead-code cleanup (recover from git if the Cosmos seam is revived).
+  `design/briefs/wow-graph-engine-brief.md` is
   retired.
 - **Landing page rework** (with **Claude Design**, not hand-rolled): fold in
   the exec summary (capture → understand → vault → views → trust story) and
@@ -662,8 +663,9 @@ real questions).
   only as a fallback for pre-migration rows).
 - ~~Schema view: dataset_relations~~ ✅ 2026-07-11 — table↔table links draw as
   dashed lines between the schema canvas's cards.
-- Concept-map pure core (`lib/datamodo/concept-map.ts`) is dormant (view
-  removed) — resurrect as an Explore lens or delete after a quiet month.
+- ~~Concept-map pure core~~ DELETED 2026-07-20 — `concept-map.ts` (view removed
+  2026-07-11) had no consumer; dropped in a dead-code cleanup. Recover from git
+  if a concept/Explore lens ever wants it.
 - ~~Category proposals via Review~~ ✅ 2026-07-11 — growth loop ⑤: ≥3 entities
   of an unregistered kind → ONE `category_proposal` review with an AI-drafted
   template; accept creates the category, decline never re-asks.
