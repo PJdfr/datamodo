@@ -162,6 +162,18 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
     deleting a category deletes its rows (cascade). The lib module
     `datasets.ts` remains as the table-facet API; its `datasetId` params are
     kind ids.
+    **Presentation (decided + shipped 2026-07-20): tables speak NOTION'S
+    GRAMMAR — row = page, one table many views, typed grid, side peek —
+    WITHOUT its storage model** (cells stay facts with provenance;
+    presentation-only, brief `design/briefs/tables-notion-redesign-brief.md`).
+    A table opens into a full-width PAGE, not a modal; clicking a kind on the
+    schema canvas opens that page (the EntityCard "card wall" drill-down is
+    gone — Cards is a view INSIDE the table, per-row detail lives in the side
+    peek); per-table view config is localStorage, promoted to the DB only if
+    cross-device demand appears. Standing non-goals: no per-table
+    calendar/timeline (Timeline lives under Review), no formula language
+    (aggregation is Insights' job), no linked/embedded views, no true
+    spreadsheet semantics (cell ranges/drag-fill).
   - **The Map is REMOVED, not merged** (user decision: useless next to the
     walk). `entities.graph_pin` and its PATCH endpoint remain dormant.
     **Revised 2026-07-13: the walk gained a ZOOM-OUT, but as LAYERS, not a

@@ -85,16 +85,17 @@ export async function createDatasetAction(input: {
   description?: string | null;
   columns?: DatasetColumn[];
   agentId?: string | null;
-}): Promise<ActionResult> {
+}): Promise<ActionResult & { id?: string }> {
   try {
     const { user, org } = await ctx();
     if (!user) return { ok: false, error: "Not signed in." };
     if (!org) return { ok: false, error: "No organization found." };
     if (!input.name?.trim()) return { ok: false, error: "Give the dataset a name." };
 
-    await createDataset(org.id, user.id, input);
+    const created = await createDataset(org.id, user.id, input);
     revalidatePath("/dashboard");
-    return { ok: true };
+    // The id lets "+ new table" land the user straight in the empty grid.
+    return { ok: true, id: created.id };
   } catch (e) {
     return { ok: false, error: (e as Error).message ?? "Failed to create dataset." };
   }

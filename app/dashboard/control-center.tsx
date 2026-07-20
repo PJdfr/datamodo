@@ -21,14 +21,6 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  flexRender,
-  type ColumnDef,
-  type SortingState,
-} from "@tanstack/react-table";
 import { signout } from "@/app/auth/actions";
 import { QueuePill } from "./queue-pill";
 import {
@@ -36,35 +28,21 @@ import {
   updateAgentAction,
   deleteAgentAction,
   createDatasetAction,
-  renameDatasetAction,
-  deleteDatasetAction,
-  addColumnAction,
-  removeColumnAction,
-  addRowAction,
-  updateRowAction,
-  deleteRowAction,
-  restoreSnapshotAction,
-  getSnapshotsAction,
-  getDatasetRowsAction,
-  acceptProposalAction,
-  rejectProposalAction,
-  acceptBatchAction,
-  rejectBatchAction,
   updateComputeSettingsAction,
 } from "./actions";
-import type { AgentActivityEntry, AgentRecord, ChangeChunk, DatasetColumn, DatasetRelation, DatasetRowRecord, DatasetView, Proposal, ReviewItem, SnapshotFull } from "@/lib/datamodo/types";
+import type { AgentActivityEntry, AgentRecord, DatasetColumn, DatasetRelation, DatasetView, ReviewItem } from "@/lib/datamodo/types";
 import type { UserSettings, OnboardingContext } from "@/lib/datamodo/settings";
 import type { SearchResult, SearchHit, KnowledgeHit } from "@/lib/datamodo/search";
 import type { GroundedAnswer } from "@/lib/datamodo/answer";
 import type { ChunkHit } from "@/lib/datamodo/chunks";
-import { safeTableName } from "@/lib/datamodo/sync-postgres";
 import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
 import {
   Hov, C, LOGO, CH_NAMES, navStyle, modeCard, radioDot, bar, toggleTrack, toggleKnob,
   channelTile, targetChip, monoLabel, fieldInput, fieldLabel, primaryBtn, ghostBtn,
-  pickColor, relTime, showVal, coerceByType, slugify, COLUMN_TYPES, Segmented, ModalShell,
-  Panel, DiffBadge, useAction, type Agent, type TableInfo,
+  pickColor, relTime, slugify, COLUMN_TYPES, Segmented, ModalShell,
+  useAction, type Agent, type TableInfo,
 } from "./ui";
+import { ImportSheetButton, TablePage } from "./table-page";
 import { ReviewStudio } from "./review-studio";
 import { ConnectionsModal } from "./connections";
 import { OnboardingModal } from "./onboarding-modal";
@@ -206,6 +184,21 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
   const manageAgent = agents.find((a) => a.id === manageAgentId) ?? null;
   const openTable = datasets.find((d) => d.id === openTableId) ?? null;
+
+  // Open a table as its full-width PAGE (redesign 2026-07-20) from anywhere —
+  // search hits, derive-table, "+ new table" — landing on Data › Tables.
+  const openTablePage = (id: string) => {
+    setOpenTableId(id);
+    setTab("data");
+    setDataView("tables");
+  };
+  // Hand a row's entity to the Explorer walk ("◍ Walk" in the side peek).
+  const [exploreReq, setExploreReq] = useState<{ id: string; seed: number } | null>(null);
+  const exploreEntity = (entityId: string) => {
+    setExploreReq((p) => ({ id: entityId, seed: (p?.seed ?? 0) + 1 }));
+    setTab("data");
+    setDataView("explore");
+  };
 
   const cloud = settings.computeMode === "cloud";
 
@@ -466,21 +459,36 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                   )}
                 </div>
               </div>
-              {/* ONE KnowledgeView instance across Tables/Explore/Graph — same
-                  slot, so the walk's breadcrumb trail survives pill switches. */}
-              {(dataView === "tables" || dataView === "explore" || dataView === "graph") && (
-                <KnowledgeView
-                  view={dataView === "tables" ? "schema" : dataView}
-                  onSwitch={() => setDataView("explore")}
-                  tables={datasets.map((d) => ({ id: d.id, name: d.name, kindId: d.kind_id }))}
-                  tableLinks={relations}
-                  onOpenTable={setOpenTableId}
-                  onTablesChanged={() => router.refresh()}
+              {/* A table opens IN PLACE of the Tables surface (Notion-grammar
+                  redesign 2026-07-20): full-width page, not a modal. */}
+              {dataView === "tables" && openTable && (
+                <TablePage
+                  table={openTable}
+                  onClose={() => setOpenTableId(null)}
+                  onChanged={() => router.refresh()}
+                  onExplore={exploreEntity}
+                  onReview={() => setTab("review")}
                 />
+              )}
+              {/* ONE KnowledgeView instance across Tables/Explore/Graph — same
+                  slot, so the walk's breadcrumb trail survives pill switches
+                  (kept mounted but hidden while a table page is open). */}
+              {(dataView === "tables" || dataView === "explore" || dataView === "graph") && (
+                <div style={dataView === "tables" && openTable ? { display: "none" } : undefined}>
+                  <KnowledgeView
+                    view={dataView === "tables" ? "schema" : dataView}
+                    onSwitch={() => setDataView("explore")}
+                    tables={datasets.map((d) => ({ id: d.id, name: d.name, kindId: d.kind_id }))}
+                    tableLinks={relations}
+                    onOpenTable={setOpenTableId}
+                    onTablesChanged={() => router.refresh()}
+                    exploreRequest={exploreReq}
+                  />
+                </div>
               )}
               {dataView === "files" && <FilesView />}
               {dataView === "insights" && <InsightsView />}
-              {dataView === "tables" && (uiTables.length || createTableOpen ? (
+              {dataView === "tables" && !openTable && (uiTables.length || createTableOpen ? (
                 <div style={{ marginTop: 24 }}>
                   <DataFull tables={uiTables} onOpen={setOpenTableId} onCreate={() => setCreateTableOpen(true)} onImported={() => router.refresh()} selected={selectedTables} toggleSelect={(id) => setSelectedTables((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])} />
                 </div>
@@ -504,7 +512,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
               {reviewView === "timeline" && <TimelineView />}
             </>
           )}
-          {tab === "search" && <SearchTab onOpenTable={setOpenTableId} />}
+          {tab === "search" && <SearchTab onOpenTable={openTablePage} />}
           {tab === "chat" && <ChatView />}
         </div>
       </main>
@@ -560,17 +568,15 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           onSaved={() => { setManageAgentId(null); router.refresh(); }}
         />
       )}
-      {openTable && (
-        <TableDetailModal
-          table={openTable}
-          onClose={() => setOpenTableId(null)}
-          onChanged={() => router.refresh()}
-        />
-      )}
       {createTableOpen && (
         <CreateTableModal
           onClose={() => setCreateTableOpen(false)}
-          onCreated={() => { setCreateTableOpen(false); router.refresh(); }}
+          onCreated={(id) => {
+            setCreateTableOpen(false);
+            // "+ new table" lands you straight in the (empty) grid.
+            if (id) openTablePage(id);
+            router.refresh();
+          }}
         />
       )}
       {settingsOpen && (
@@ -596,7 +602,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
       {deriveOpen && (
         <DeriveTableModal
           onClose={() => setDeriveOpen(false)}
-          onCreated={(id) => { setOpenTableId(id); router.refresh(); }}
+          onCreated={(id) => { openTablePage(id); router.refresh(); }}
         />
       )}
     </div>
@@ -755,55 +761,6 @@ function AgentsEmpty({ openModal, inbox }: { openModal: () => void; inbox: strin
 /* ================================================================== */
 /* DATA TAB                                                            */
 /* ================================================================== */
-type ImportDone = { mode: string; datasetId?: string; added?: number; changed?: number; rows?: number };
-
-/**
- * Upload a spreadsheet to seed a new table, or to sync one (incoming rows land
- * as reviewable proposals). v1 stand-in for the live Google Sheets pull.
- */
-function ImportSheetButton({ datasetId, label, style, hoverStyle, onDone }: {
-  datasetId?: string;
-  label: ReactNode;
-  style: CSSProperties;
-  hoverStyle?: CSSProperties;
-  onDone: (r: ImportDone) => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-picking the same file
-    if (!file) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      if (datasetId) fd.append("datasetId", datasetId);
-      const res = await fetch("/api/datasets/import", { method: "POST", body: fd });
-      const data = (await res.json()) as ImportDone & { ok?: boolean; error?: string };
-      if (!res.ok || !data.ok) { setErr(data.error ?? "Import failed."); return; }
-      onDone(data);
-    } catch {
-      setErr("Import failed.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <input ref={inputRef} type="file" accept=".xlsx" onChange={onFile} style={{ display: "none" }} />
-      <Hov onClick={busy ? undefined : () => inputRef.current?.click()} base={style} hover={hoverStyle}>
-        {busy ? "Importing…" : label}
-      </Hov>
-      {err && <span className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{err}</span>}
-    </>
-  );
-}
-
 function DataFull({ tables, onOpen, onCreate, onImported, selected, toggleSelect }: {
   tables: TableInfo[];
   onOpen: (id: string) => void;
@@ -1360,7 +1317,7 @@ function AgentEditModal({ agent, onClose, onSaved }: { agent: AgentRecord; onClo
   );
 }
 
-function CreateTableModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateTableModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string | null) => void }) {
   const [name, setName] = useState("");
   const [cols, setCols] = useState<{ label: string; type: string }[]>([{ label: "", type: "text" }]);
   const { pending, error, setError, run } = useAction();
@@ -1376,7 +1333,13 @@ function CreateTableModal({ onClose, onCreated }: { onClose: () => void; onCreat
       seen.add(key);
       return { key, label: c.label.trim(), type: c.type };
     });
-    run(() => createDatasetAction({ name: name.trim(), columns }), onCreated);
+    // Capture the created id so the caller can land straight in the new grid.
+    let createdId: string | null = null;
+    run(async () => {
+      const res = await createDatasetAction({ name: name.trim(), columns });
+      if (res.ok) createdId = res.id ?? null;
+      return res;
+    }, () => onCreated(createdId));
   };
 
   return (
@@ -1408,558 +1371,6 @@ function CreateTableModal({ onClose, onCreated }: { onClose: () => void; onCreat
         ))}
       </div>
       <Hov onClick={() => setCols((cs) => [...cs, { label: "", type: "text" }])} base={{ ...ghostBtn, marginTop: 10 }} hover={{ background: "#FBF8F1" }}>+ Add column</Hov>
-    </ModalShell>
-  );
-}
-
-function TableCell({ row, col, onSave }: { row: DatasetRowRecord; col: DatasetColumn; onSave: (data: Record<string, unknown>) => void }) {
-  const initial = row.data?.[col.key];
-  const [val, setVal] = useState(initial === null || initial === undefined ? "" : String(initial));
-  const commit = () => {
-    const next = coerceByType(col.type, val);
-    if (JSON.stringify(next) !== JSON.stringify(initial ?? null)) onSave({ ...row.data, [col.key]: next });
-  };
-  const type = col.type === "number" ? "number" : col.type === "date" ? "date" : "text";
-  return (
-    <input
-      type={type}
-      value={val}
-      onChange={(e) => setVal(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-      style={{ width: "100%", boxSizing: "border-box", border: "none", background: "transparent", fontFamily: "inherit", fontSize: 13, color: "#3A352C", padding: "9px 10px", outline: "none" }}
-    />
-  );
-}
-
-
-// --- Version diffing: compare two snapshots by their first-column identity. ---
-function rowIdentity(data: Record<string, unknown>, keyCol: string | undefined): string | null {
-  const v = keyCol ? data?.[keyCol] : undefined;
-  return v === null || v === undefined || String(v).trim() === "" ? null : String(v).trim().toLowerCase();
-}
-type SnapDiff = { added: Set<number>; changed: Set<number>; removed: number };
-function diffSnapshots(
-  prev: { data: Record<string, unknown> }[],
-  cur: { data: Record<string, unknown> }[],
-  keyCol: string | undefined,
-): SnapDiff {
-  const prevByKey = new Map<string, string>();
-  const prevJson = new Set<string>();
-  for (const r of prev) {
-    const j = JSON.stringify(r.data);
-    prevJson.add(j);
-    const k = rowIdentity(r.data, keyCol);
-    if (k) prevByKey.set(k, j);
-  }
-  const curJson = new Set<string>();
-  const curKeys = new Set<string>();
-  const added = new Set<number>();
-  const changed = new Set<number>();
-  cur.forEach((r, idx) => {
-    const j = JSON.stringify(r.data);
-    curJson.add(j);
-    const k = rowIdentity(r.data, keyCol);
-    if (k) {
-      curKeys.add(k);
-      if (!prevByKey.has(k)) added.add(idx);
-      else if (prevByKey.get(k) !== j) changed.add(idx);
-    } else if (!prevJson.has(j)) {
-      added.add(idx);
-    }
-  });
-  let removed = 0;
-  for (const r of prev) {
-    const k = rowIdentity(r.data, keyCol);
-    if (k) { if (!curKeys.has(k)) removed++; }
-    else if (!curJson.has(JSON.stringify(r.data))) removed++;
-  }
-  return { added, changed, removed };
-}
-
-/** Rich version-history panel: a timeline with per-version change counts, an
- *  inline preview of what the table looked like, and one-click restore. */
-/* Outbound sync (phase 1): push this table's rows into the user's OWN
- * Postgres — idempotent upsert by the datamodo row id. Every view is a
- * projection; an external DB is just another projection target. The
- * connection string is used for the request only, never stored. */
-function SyncOutPanel({ datasetId, tableName }: { datasetId: string; tableName: string }) {
-  const [conn, setConn] = useState("");
-  const [target, setTarget] = useState(() => safeTableName(tableName));
-  const [state, setState] = useState<"idle" | "syncing">("idle");
-  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
-
-  const sync = async () => {
-    setState("syncing"); setResult(null);
-    try {
-      const res = await fetch("/api/sync/postgres", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ datasetId, connectionString: conn.trim(), table: target.trim() || undefined }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (res.ok) setResult({ ok: true, msg: `Synced ${json.synced} row${json.synced === 1 ? "" : "s"} into "${json.table}".` });
-      else setResult({ ok: false, msg: json.error ?? "Sync failed." });
-    } catch {
-      setResult({ ok: false, msg: "Couldn't reach the sync endpoint." });
-    } finally {
-      setState("idle");
-    }
-  };
-
-  return (
-    <div style={{ marginBottom: 14, padding: "14px 16px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Push to your own Postgres</div>
-      <div style={{ fontSize: 12, color: "#8A8477", marginTop: 2, marginBottom: 12, lineHeight: 1.5 }}>
-        One-way, idempotent — re-syncing upserts by each row&apos;s datamodo id, never duplicates. The connection string is used once and never stored.
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div>
-          <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 6 }}>Connection string</div>
-          <input type="password" value={conn} onChange={(e) => setConn(e.target.value)} placeholder="postgres://user:pass@host:5432/dbname" style={fieldInput} />
-        </div>
-        <div>
-          <div className="dm-mono" style={{ ...fieldLabel, marginBottom: 6 }}>Target table</div>
-          <input type="text" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="datamodo_table" style={fieldInput} />
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 2 }}>
-          <Hov onClick={state === "syncing" || !conn.trim() ? undefined : () => void sync()} base={{ ...primaryBtn(state === "syncing" || !conn.trim()), padding: "9px 16px", fontSize: 13 }} hover={{ background: C.accentPress }}>
-            {state === "syncing" ? "Syncing…" : "↑ Sync now"}
-          </Hov>
-          {result && <span className="dm-mono" style={{ fontSize: 11.5, color: result.ok ? C.green : C.accent }}>{result.msg}</span>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function HistoryPanel({ datasetId, onRestore, pending }: { datasetId: string; onRestore: (id: string) => void; pending: boolean }) {
-  const [snaps, setSnaps] = useState<SnapshotFull[] | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    getSnapshotsAction(datasetId).then((r) => {
-      if (!live) return;
-      if (r.ok) setSnaps(r.snapshots); else setErr(r.error);
-    });
-    return () => { live = false; };
-  }, [datasetId]);
-
-  return (
-    <div style={{ marginBottom: 14, border: "1px solid #E7E0D2", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
-      <div className="dm-mono" style={{ ...monoLabel, padding: "10px 14px", borderBottom: "1px solid #F1EDE4", margin: 0 }}>Version history — preview, compare & rewind</div>
-      {err && <div className="dm-mono" style={{ fontSize: 12, color: C.accent, padding: "14px" }}>{err}</div>}
-      {!snaps && !err && <div className="dm-mono" style={{ fontSize: 12, color: "#A39B8B", padding: "14px" }}>Loading history…</div>}
-      {snaps && snaps.length === 0 && <div className="dm-mono" style={{ fontSize: 12, color: "#A39B8B", padding: "14px" }}>No versions yet. Every change you or an agent makes is saved here.</div>}
-      {snaps && snaps.length > 0 && (
-        <div style={{ maxHeight: 340, overflow: "auto" }}>
-          {snaps.map((s, i) => {
-            const you = s.actor === "You";
-            const prev = snaps[i + 1];                       // the older version
-            const keyCol = s.columns[0]?.key;
-            const d = prev ? diffSnapshots(prev.rows, s.rows, keyCol) : null;
-            const isOpen = openId === s.id;
-            const dot = you ? C.ink : C.accent;
-            return (
-              <div key={s.id} style={{ borderTop: i === 0 ? "none" : "1px solid #F5F1E8" }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "11px 14px" }}>
-                  {/* timeline rail */}
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", flexShrink: 0 }}>
-                    <span style={{ width: 22, height: 22, borderRadius: "50%", background: dot, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{you ? "Y" : s.actor.charAt(0).toUpperCase()}</span>
-                    {i !== snaps.length - 1 && <span style={{ flex: 1, width: 2, background: "#EDE7DA", marginTop: 2 }} />}
-                  </div>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 13, color: "#3A352C", fontWeight: 500 }}>{s.summary}</span>
-                      {i === 0 && <span className="dm-mono" style={{ fontSize: 9.5, color: C.green, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Current</span>}
-                    </div>
-                    <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 2 }}>{you ? "You" : s.actor} · {relTime(s.createdAt)} · {s.rows.length} {s.rows.length === 1 ? "row" : "rows"}</div>
-                    {d && (d.added.size || d.changed.size || d.removed) ? (
-                      <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
-                        {d.added.size > 0 && <DiffBadge color={C.green} bg="#EAF4EC" text={`+${d.added.size} added`} />}
-                        {d.changed.size > 0 && <DiffBadge color={C.gold} bg="#F6F0E0" text={`${d.changed.size} changed`} />}
-                        {d.removed > 0 && <DiffBadge color={C.accent} bg="#FBE9E3" text={`−${d.removed} removed`} />}
-                      </div>
-                    ) : null}
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                      <Hov onClick={() => setOpenId(isOpen ? null : s.id)} base={{ ...ghostBtn, padding: "4px 10px", fontSize: 11.5 }} hover={{ background: "#FBF8F1" }}>{isOpen ? "Hide" : "Preview"}</Hov>
-                      {i !== 0 && <Hov onClick={pending ? undefined : () => { if (confirm("Rewind the table to this version? Your current rows are saved to history first.")) onRestore(s.id); }} base={{ ...ghostBtn, padding: "4px 10px", fontSize: 11.5 }} hover={{ background: "#FBF8F1" }}>Restore</Hov>}
-                    </div>
-                    {isOpen && <SnapshotPreview snap={s} diff={d} />}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-
-/** Inline table showing exactly what a version contained; rows that were added
- *  or changed since the previous version are tinted so the diff is visible. */
-function SnapshotPreview({ snap, diff }: { snap: SnapshotFull; diff: SnapDiff | null }) {
-  const cols = snap.columns;
-  if (cols.length === 0) return <div className="dm-mono" style={{ fontSize: 11.5, color: "#A39B8B", marginTop: 8 }}>No columns in this version.</div>;
-  const cellBorder = "1px solid #F1EDE4";
-  return (
-    <div style={{ marginTop: 10, border: "1px solid #EFE9DC", borderRadius: 9, overflow: "auto", maxHeight: 220 }}>
-      <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
-        <thead>
-          <tr style={{ background: "#FAF6EE" }}>
-            {cols.map((c) => <th key={c.key} style={{ textAlign: "left", padding: "6px 9px", borderRight: cellBorder, borderBottom: cellBorder, color: "#7A7367", fontWeight: 600, whiteSpace: "nowrap" }}>{c.label}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {snap.rows.length === 0 && <tr><td colSpan={cols.length} className="dm-mono" style={{ padding: "10px", color: "#A39B8B", textAlign: "center" }}>Empty in this version.</td></tr>}
-          {snap.rows.map((r, idx) => {
-            const added = diff?.added.has(idx);
-            const changed = diff?.changed.has(idx);
-            const bg = added ? "#EAF4EC" : changed ? "#F9F4E7" : idx % 2 ? "#FCFAF4" : "#fff";
-            return (
-              <tr key={idx} style={{ background: bg }}>
-                {cols.map((c) => (
-                  <td key={c.key} style={{ padding: "6px 9px", borderRight: cellBorder, borderTop: cellBorder, color: "#3A352C", whiteSpace: "nowrap" }}>{showVal(r.data?.[c.key])}</td>
-                ))}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// Group pending proposals into reviewable chunks — everything produced in one
-// run (one email parsed, one sheet sync) shares a batch and is accepted/rejected
-// together. Proposals without a batch (older ones) stand alone.
-function chunkProposals(proposals: Proposal[]): ChangeChunk[] {
-  const order: string[] = [];
-  const byKey = new Map<string, Proposal[]>();
-  for (const p of proposals) {
-    const key = p.batchId ?? `solo-${p.id}`;
-    if (!byKey.has(key)) { byKey.set(key, []); order.push(key); }
-    byKey.get(key)!.push(p);
-  }
-  return order.map((key) => {
-    const ps = byKey.get(key)!;
-    return {
-      batchId: ps[0].batchId ?? key,
-      proposedBy: ps[0].proposedBy,
-      createdAt: ps.reduce((min, p) => (p.createdAt < min ? p.createdAt : min), ps[0].createdAt),
-      sourceLabel: ps.find((p) => p.sourceLabel)?.sourceLabel ?? null,
-      proposals: ps,
-      adds: ps.filter((p) => p.kind === "add").length,
-      updates: ps.filter((p) => p.kind === "update").length,
-      conflicts: ps.filter((p) => p.conflict).length,
-    };
-  });
-}
-
-/** One reviewable chunk: a header describing the batch (who / from what / how
- *  many changes) with Accept-all / Reject-all, and the individual changes below. */
-function ChangeChunkCard({ chunk, columns, onAcceptAll, onRejectAll, onAcceptOne, onRejectOne, pending }: {
-  chunk: ChangeChunk;
-  columns: DatasetColumn[];
-  onAcceptAll: () => void;
-  onRejectAll: () => void;
-  onAcceptOne: (id: string) => void;
-  onRejectOne: (id: string) => void;
-  pending: boolean;
-}) {
-  const [open, setOpen] = useState(chunk.conflicts > 0); // auto-expand conflicts
-  const parts: string[] = [];
-  if (chunk.adds) parts.push(`${chunk.adds} new ${chunk.adds === 1 ? "row" : "rows"}`);
-  if (chunk.updates) parts.push(`${chunk.updates} ${chunk.updates === 1 ? "update" : "updates"}`);
-  const from = chunk.sourceLabel ? `from “${chunk.sourceLabel}”` : "";
-  return (
-    <div style={{ border: `1px solid ${chunk.conflicts ? "#F3D6CB" : "#E7E0D2"}`, borderRadius: 13, background: chunk.conflicts ? "#FDF4F0" : "#FBF8F1", padding: "12px 14px", marginBottom: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <span style={{ width: 24, height: 24, borderRadius: "50%", background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{chunk.proposedBy.charAt(0).toUpperCase()}</span>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 13.5, color: C.ink, fontWeight: 600 }}>{chunk.proposedBy} <span style={{ fontWeight: 400, color: "#6B655B" }}>{from}</span></div>
-          <div className="dm-mono" style={{ fontSize: 10.5, color: "#A39B8B", marginTop: 1 }}>{parts.join(" · ") || "no changes"} · {relTime(chunk.createdAt)}{chunk.conflicts ? ` · ${chunk.conflicts} conflict${chunk.conflicts === 1 ? "" : "s"}` : ""}</div>
-        </div>
-        {chunk.conflicts > 0 && <span className="dm-mono" style={{ fontSize: 10, color: "#fff", background: C.accent, borderRadius: 999, padding: "2px 8px" }}>needs a decision</span>}
-      </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 11, alignItems: "center", flexWrap: "wrap" }}>
-        <Hov onClick={pending ? undefined : onAcceptAll} base={{ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 9, padding: "7px 15px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} hover={{ background: C.accentPress }}>Accept all</Hov>
-        <Hov onClick={pending ? undefined : onRejectAll} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Reject all</Hov>
-        <Hov onClick={() => setOpen((v) => !v)} base={{ ...ghostBtn, marginLeft: "auto", border: "none", background: "none", color: "#8A8477" }} hover={{ color: C.ink }}>{open ? "Hide changes" : `Review ${chunk.proposals.length} ${chunk.proposals.length === 1 ? "change" : "changes"}`}</Hov>
-      </div>
-      {open && (
-        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-          {chunk.proposals.map((p) => (
-            <ProposalCard key={p.id} p={p} columns={columns} pending={pending}
-              onAccept={() => onAcceptOne(p.id)} onReject={() => onRejectOne(p.id)} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ProposalCard({ p, columns, onAccept, onReject, pending }: { p: Proposal; columns: DatasetColumn[]; onAccept: () => void; onReject: () => void; pending: boolean }) {
-  const label = showVal((p.currentData ?? p.data)[columns[0]?.key ?? ""]);
-  const changed = p.kind === "update" && p.currentData
-    ? columns.filter((c) => JSON.stringify(p.data[c.key] ?? null) !== JSON.stringify(p.currentData?.[c.key] ?? null))
-    : columns;
-  return (
-    <div style={{ border: `1px solid ${p.conflict ? "#F3D6CB" : "#E7E0D2"}`, borderRadius: 12, background: p.conflict ? "#FDF4F0" : "#fff", padding: "12px 14px", marginBottom: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-        <span style={{ width: 20, height: 20, borderRadius: "50%", background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700 }}>{p.proposedBy.charAt(0).toUpperCase()}</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>
-          {p.kind === "add" ? `${p.proposedBy} wants to add a row` : `${p.proposedBy} wants to update “${label}”`}
-        </span>
-        {p.conflict && <span className="dm-mono" style={{ fontSize: 10, color: "#fff", background: C.accent, borderRadius: 999, padding: "1px 7px" }}>you edited this</span>}
-      </div>
-      {p.conflict && <div style={{ fontSize: 12, color: "#8f5a3c", marginBottom: 8 }}>You changed this row by hand. {p.proposedBy} has different values — pick which to keep.</div>}
-      <div style={{ display: "grid", gridTemplateColumns: p.kind === "update" && p.currentData ? "1fr 1fr 1fr" : "1fr 2fr", gap: 4, fontSize: 12, marginBottom: 10 }}>
-        {p.kind === "update" && p.currentData && <><span /><span className="dm-mono" style={{ fontSize: 9.5, color: "#A39B8B", textTransform: "uppercase" }}>Yours</span><span className="dm-mono" style={{ fontSize: 9.5, color: C.accent, textTransform: "uppercase" }}>{p.proposedBy}</span></>}
-        {changed.map((c) => (
-          <Fragment key={c.key}>
-            <span style={{ color: "#8A8477" }}>{c.label}</span>
-            {p.kind === "update" && p.currentData && <span style={{ color: "#B44536", textDecoration: "line-through" }}>{showVal(p.currentData[c.key])}</span>}
-            <span style={{ color: p.conflict ? C.accent : C.green, fontWeight: 600 }}>{showVal(p.data[c.key])}</span>
-          </Fragment>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <Hov onClick={pending ? undefined : onAccept} base={{ background: C.accent, color: "#fff8f4", border: "none", borderRadius: 9, padding: "7px 14px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} hover={{ background: C.accentPress }}>
-          {p.kind === "add" ? "Add row" : p.conflict ? `Use ${p.proposedBy}’s` : "Apply"}
-        </Hov>
-        <Hov onClick={pending ? undefined : onReject} base={ghostBtn} hover={{ background: "#FBF8F1" }}>{p.conflict ? "Keep mine" : "Ignore"}</Hov>
-      </div>
-    </div>
-  );
-}
-
-function TableDetailModal({ table, onClose, onChanged }: { table: DatasetView; onClose: () => void; onChanged: () => void }) {
-  const { pending, error, run } = useAction();
-  const [addingCol, setAddingCol] = useState(false);
-  const [colLabel, setColLabel] = useState("");
-  const [colType, setColType] = useState("text");
-  const [colDefault, setColDefault] = useState("");
-  // Tables are edited + synced here; review happens at the FACT level (Review tab).
-  const [panel, setPanel] = useState<"none" | "history" | "syncout">("none");
-  const cols = table.columns;
-
-  // Version selector: "latest" (live, editable) or a past snapshot (read-only).
-  const [snaps, setSnaps] = useState<SnapshotFull[] | null>(null);
-  const [versionId, setVersionId] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    getSnapshotsAction(table.id).then((r) => { if (alive && r.ok) setSnaps(r.snapshots); });
-    return () => { alive = false; };
-  }, [table.id]);
-  const viewingPast = versionId !== null;
-  const pastSnap = viewingPast ? snaps?.find((s) => s.id === versionId) ?? null : null;
-
-  // Rows load lazily (the dashboard no longer ships them). `rows === null` = still
-  // loading. `refresh` reloads the rows locally AND asks the page to revalidate.
-  const [rows, setRows] = useState<DatasetRowRecord[] | null>(null);
-  const [total, setTotal] = useState(table.rowCount);
-  const reloadRows = () => getDatasetRowsAction(table.id).then((r) => { if (r.ok) { setRows(r.rows); setTotal(r.total); } });
-  useEffect(() => {
-    let alive = true;
-    setRows(null);
-    getDatasetRowsAction(table.id).then((r) => { if (alive && r.ok) { setRows(r.rows); setTotal(r.total); } });
-    return () => { alive = false; };
-  }, [table.id]);
-  const refresh = () => { void reloadRows(); onChanged(); };
-
-  const addRow = () => run(() => addRowAction(table.id, Object.fromEntries(cols.map((c) => [c.key, null]))), refresh);
-  const submitCol = () => run(
-    () => addColumnAction(table.id, { label: colLabel, type: colType, defaultValue: coerceByType(colType, colDefault) }),
-    () => { setAddingCol(false); setColLabel(""); setColDefault(""); setColType("text"); refresh(); },
-  );
-  const removeCol = (key: string, label: string) => { if (confirm(`Remove column “${label}”? Its values are deleted from every row.`)) run(() => removeColumnAction(table.id, key), refresh); };
-  const delRow = (id: string) => run(() => deleteRowAction(table.id, id), refresh);
-  const delTable = () => { if (confirm(`Delete table “${table.name}” and all ${total} rows?`)) run(() => deleteDatasetAction(table.id), () => { onClose(); onChanged(); }); };
-  const rename = () => { const n = prompt("Rename table", table.name); if (n && n.trim() && n.trim() !== table.name) run(() => renameDatasetAction(table.id, n.trim()), onChanged); };
-
-  const rowSep = "1px solid #F3EEE3";
-
-  // --- Grid state via TanStack Table (headless): it owns sorting/row model,
-  //     we keep our own markup, inline styling, editable cells, humanEdited
-  //     flag, and Server-Action save path. ---
-  const [sorting, setSorting] = useState<SortingState>([]);
-  const gridColumns: ColumnDef<DatasetRowRecord>[] = [
-    {
-      id: "__flag",
-      enableSorting: false,
-      header: () => null,
-      cell: ({ row }) =>
-        row.original.humanEdited ? (
-          <span title="You edited this row — agents can’t overwrite it" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: C.ink }} />
-        ) : null,
-    },
-    ...cols.map<ColumnDef<DatasetRowRecord>>((c) => ({
-      id: c.key,
-      accessorFn: (r) => r.data?.[c.key],
-      enableSorting: true,
-      sortUndefined: "last",
-      header: ({ column }) => {
-        const dir = column.getIsSorted();
-        return (
-          <>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-              <button type="button" onClick={column.getToggleSortingHandler()} title="Sort by this column" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: "#3A352C", whiteSpace: "nowrap" }}>{c.label}</span>
-                <span className="dm-mono" style={{ fontSize: 9, color: dir ? C.accent : "#C9C1B0" }}>{dir === "asc" ? "▲" : dir === "desc" ? "▼" : "↕"}</span>
-              </button>
-              <button type="button" onClick={() => removeCol(c.key, c.label)} title="Remove column" style={{ border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
-            </div>
-            <span className="dm-mono" style={{ fontSize: 9.5, color: "#A39B8B", textTransform: "uppercase", letterSpacing: "0.04em" }}>{c.type}</span>
-          </>
-        );
-      },
-      cell: ({ row }) => (
-        <TableCell row={row.original} col={c} onSave={(data) => run(() => updateRowAction(table.id, row.original.id, data), refresh)} />
-      ),
-    })),
-    {
-      id: "__actions",
-      enableSorting: false,
-      header: () => null,
-      cell: ({ row }) => (
-        <button type="button" onClick={() => delRow(row.original.id)} title="Delete row" style={{ border: "none", background: "none", color: "#B7AF9F", cursor: "pointer", fontSize: 14, padding: "6px 8px" }}>🗑</button>
-      ),
-    },
-  ];
-  const grid = useReactTable({
-    data: rows ?? [],
-    columns: gridColumns,
-    state: { sorting },
-    onSortingChange: setSorting,
-    getRowId: (r) => r.id,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-  });
-
-  return (
-    <ModalShell maxWidth={920} onClose={onClose}
-      badge={{ initial: table.name.slice(0, 1).toUpperCase() || "T", bg: pickColor(table.name) }}
-      title={table.name}
-      subtitle={`${total} ${total === 1 ? "row" : "rows"} · ${cols.length} ${cols.length === 1 ? "column" : "columns"}${table.agentName ? ` · fed by ${table.agentName}` : ""}`}
-      footer={(
-        <>
-          <Hov onClick={delTable} base={{ background: "none", border: "none", color: "#B44536", fontFamily: "inherit", fontSize: 13.5, fontWeight: 500, cursor: "pointer", padding: "8px 4px" }} hover={{ color: "#8f2f23" }}>Delete table</Hov>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {error && <span className="dm-mono" style={{ fontSize: 11, color: C.accent }}>{error}</span>}
-            {pending && <span className="dm-mono" style={{ fontSize: 11, color: "#A39B8B" }}>Saving…</span>}
-            <Hov tag="a" href={`/api/datasets/${table.id}/export`} base={{ ...ghostBtn, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }} hover={{ background: "#FBF8F1" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1E8E4E" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 9v12" /></svg>
-              Export Excel
-            </Hov>
-          </div>
-        </>
-      )}
-    >
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-        {/* Version selector — defaults to the latest (live) rows. */}
-        <select value={versionId ?? "latest"} onChange={(e) => setVersionId(e.target.value === "latest" ? null : e.target.value)}
-          title="View a saved version" style={{ ...ghostBtn, cursor: "pointer", paddingRight: 8 }}>
-          <option value="latest">🕑 Latest (live)</option>
-          {(snaps ?? []).map((s) => <option key={s.id} value={s.id}>{s.summary} · {relTime(s.createdAt)}</option>)}
-        </select>
-        {!viewingPast && <>
-          <Hov onClick={addRow} base={ghostBtn} hover={{ background: "#FBF8F1" }}>+ Add row</Hov>
-          <Hov onClick={() => setAddingCol((v) => !v)} base={ghostBtn} hover={{ background: "#FBF8F1" }}>+ Add column</Hov>
-          <Hov onClick={rename} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Rename</Hov>
-        </>}
-        <Hov onClick={() => setPanel((p) => p === "history" ? "none" : "history")} base={panel === "history" ? { ...ghostBtn, background: "#EFE9DC" } : ghostBtn} hover={{ background: "#FBF8F1" }}>History ({table.history.length})</Hov>
-        {!viewingPast && (
-          <>
-            <Hov onClick={() => setPanel((p) => p === "syncout" ? "none" : "syncout")} base={panel === "syncout" ? { ...ghostBtn, background: "#EFE9DC", marginLeft: "auto" } : { ...ghostBtn, marginLeft: "auto" }} hover={{ background: "#FBF8F1" }}>↑ Sync out</Hov>
-            <ImportSheetButton
-              datasetId={table.id}
-              label="⇅ Sync a sheet"
-              style={ghostBtn}
-              hoverStyle={{ background: "#FBF8F1" }}
-              onDone={() => { setPanel("none"); onChanged(); }}
-            />
-          </>
-        )}
-      </div>
-
-      {!viewingPast && panel === "syncout" && <SyncOutPanel datasetId={table.id} tableName={table.name} />}
-
-      {!viewingPast && panel === "history" && <HistoryPanel datasetId={table.id} onRestore={(id) => run(() => restoreSnapshotAction(id), () => { setPanel("none"); refresh(); })} pending={pending} />}
-
-      {addingCol && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 14, padding: "12px", background: "#FBF8F1", border: "1px solid #ECE5D8", borderRadius: 11 }}>
-          <input type="text" value={colLabel} onChange={(e) => setColLabel(e.target.value)} placeholder="Column name" style={{ ...fieldInput, flex: "1 1 140px", width: "auto" }} />
-          <select value={colType} onChange={(e) => setColType(e.target.value)} style={{ ...fieldInput, width: 120, flex: "0 0 120px" }}>
-            {COLUMN_TYPES.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
-          </select>
-          <input type="text" value={colDefault} onChange={(e) => setColDefault(e.target.value)} placeholder="Default (optional)" style={{ ...fieldInput, flex: "1 1 140px", width: "auto" }} />
-          <Hov onClick={pending ? undefined : submitCol} base={primaryBtn(pending)} hover={{ background: C.accentPress }}>Add</Hov>
-        </div>
-      )}
-
-      {viewingPast ? (
-        pastSnap ? (
-          <Panel label="Version" summary={`saved ${new Date(pastSnap.createdAt).toLocaleString()}`}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
-              <span className="dm-mono" style={{ fontSize: 11, color: "#8f5a3c", background: "#FBEFD6", border: "1px solid #E6CF92", borderRadius: 8, padding: "3px 9px" }}>Read-only · saved version from {new Date(pastSnap.createdAt).toLocaleString()}</span>
-              <Hov onClick={pending ? undefined : () => run(() => restoreSnapshotAction(pastSnap.id), () => { setVersionId(null); refresh(); })} base={ghostBtn} hover={{ background: "#FBF8F1" }}>Restore this version</Hov>
-            </div>
-            <SnapshotPreview snap={pastSnap} diff={null} />
-          </Panel>
-        ) : (
-          <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 0" }}>Loading version…</div>
-        )
-      ) : cols.length === 0 ? (
-        <Panel label="Rows" summary="No columns yet">
-          <div className="dm-mono" style={{ fontSize: 12.5, color: "#A39B8B", padding: "20px 14px" }}>Add a column above to start.</div>
-        </Panel>
-      ) : (
-        <Panel
-          label="Rows"
-          summary={table.agentName ? `fed by ${table.agentName}` : `${cols.length} ${cols.length === 1 ? "column" : "columns"}`}
-          summaryColor={table.agentName ? C.green : "#A39B8B"}
-        >
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ borderCollapse: "collapse", width: "100%", minWidth: cols.length * 140 + 68 }}>
-              <thead>
-                {grid.getHeaderGroups().map((hg) => (
-                  <tr key={hg.id} style={{ background: "#FBFAF7" }}>
-                    {hg.headers.map((h) => {
-                      const meta = h.column.id === "__flag" ? { width: 24 } : h.column.id === "__actions" ? { width: 40 } : null;
-                      return (
-                        <th key={h.id} style={{ textAlign: "left", padding: meta ? 0 : "9px 12px", borderBottom: rowSep, width: meta?.width, minWidth: meta ? undefined : 140, verticalAlign: "top" }}>
-                          {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
-                        </th>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </thead>
-              <tbody>
-                {grid.getRowModel().rows.map((r, ri) => (
-                  <tr key={r.id} style={{ borderTop: rowSep, background: ri % 2 ? "#FCFBF8" : "#fff" }}>
-                    {r.getVisibleCells().map((cell) => (
-                      <td key={cell.id} style={cell.column.id.startsWith("__") ? { textAlign: "center" } : undefined}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-                {rows === null && (
-                  <tr><td colSpan={cols.length + 2} className="dm-mono" style={{ padding: "18px 12px", fontSize: 12.5, color: "#A39B8B", textAlign: "center" }}>Loading rows…</td></tr>
-                )}
-                {rows !== null && rows.length === 0 && (
-                  <tr><td colSpan={cols.length + 2} className="dm-mono" style={{ padding: "18px 12px", fontSize: 12.5, color: "#A39B8B", textAlign: "center" }}>No rows yet — “Add row” to create one.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-      )}
     </ModalShell>
   );
 }

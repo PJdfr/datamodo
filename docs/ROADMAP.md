@@ -44,22 +44,37 @@ Big-rock UX work queued after the model merge (Phase 3). Ordered by user emphasi
 - **Remove the separate "⊛ Graph" (sigma) view.** The whole-vault sigma canvas
   (`graph-view.tsx`) is redundant once the Explorer is the one graph surface —
   plan to drop it. (Confirm nothing else depends on it first.)
-- **Tables tab UI — Notion's grammar on the fact spine** (DESIGNED 2026-07-20,
-  ready to build — full pickup brief:
-  [`design/briefs/tables-notion-redesign-brief.md`](../design/briefs/tables-notion-redesign-brief.md)).
-  Decision from discussion: adopt Notion's presentation grammar (row = page,
-  one table many VIEWS, typed grid, side peek) without its storage model —
-  cells stay facts with provenance. Phase 1: a table opens into a PAGE (not
-  the modal): virtualized keyboard-navigable typed GRID (windowed fetch fixes
-  open/load speed) + row click → `EntityPageBody` SIDE PEEK + Cards demoted to
-  a view-switcher option + per-table saved view config (localStorage, no
-  schema change) + provenance dots; absorbs `TableDetailModal`'s snapshots/
-  proposals/sync-out and deletes it. Phase 2: Board view (group by one-valued
-  field/relation; drag = a fact edit through normal supersession/review) +
-  deterministic rollup columns (zero LLM). Non-goals decided: no per-table
-  calendar/timeline, no formulas (Insights' job), no linked views, no true
-  spreadsheet semantics. (`control-center.tsx` `TableDetailModal` +
-  `knowledge-view.tsx`/`schema-view.tsx` drill-down + `datasets.ts` reads.)
+- **Tables tab UI — Notion's grammar on the fact spine** — ~~Phase 1~~
+  ✅ SHIPPED 2026-07-20 (brief:
+  [`design/briefs/tables-notion-redesign-brief.md`](../design/briefs/tables-notion-redesign-brief.md);
+  see the STATE.md row for the full shape): a table opens into a full-width
+  PAGE — virtualized keyboard-navigable typed grid over progressive windowed
+  fetches, row-level provenance dots, `EntityPageBody` SIDE PEEK (row = page,
+  with ◍ Walk / Full page / dossier), Cards demoted to a view-switcher
+  option, per-table saved view config in localStorage
+  (`dm-table-view-v1:<id>`, no schema change), column show/hide/reorder;
+  `TableDetailModal` DELETED with its features absorbed (snapshots, history,
+  ↑ Sync out, ⇅ sheet sync, export, rename/delete); the schema-canvas card
+  wall is gone (clicking a kind opens its table). **Phase 2 still open**:
+  Board view (group by one-valued field/relation; drag = a fact edit through
+  normal supersession/review) + deterministic rollup columns (zero LLM).
+  Non-goals stand: no per-table calendar/timeline, no formulas (Insights'
+  job), no linked views, no true spreadsheet semantics. Small follow-ups
+  surfaced: wikilink resolution inside the peek (needs a node resolver
+  without loading the whole vault), promote view config to a `kinds` jsonb
+  only if cross-device demand shows (MEMORY's migration lesson applies).
+- **Notion link/sync — import + push** (DESIGNED 2026-07-20, user ask; full
+  pickup brief:
+  [`design/briefs/notion-sync-brief.md`](../design/briefs/notion-sync-brief.md)).
+  Phase 1: outbound push table → Notion database as the second
+  `OutboundWriter` (idempotent by a `dm_id` property — the Postgres writer's
+  invariant; internal-integration token pasted per-request, zero OAuth ops);
+  the table page's "↑ Sync out" panel grows a Postgres · Notion target
+  picker. Phase 2: inbound Notion database → table through the SAME
+  review-gated proposal path as the sheet import (deterministic, zero LLM).
+  Sheets follows the same seam once a Google OAuth app exists (ops blocker,
+  not code). Non-goals: no live two-way background sync, no stored tokens in
+  phase 1, no ungated knowledge writes.
 - **Review / Pull Requests — make it intuitive for non-technical users.** The
   accept/reject/merge/conflict loop still feels technical. Rework the language,
   visuals, and flow so a non-dev understands "what is datamodo asking me and
