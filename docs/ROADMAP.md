@@ -12,11 +12,10 @@
    `datasets` table is GONE: `kinds` carries the table facet, children
    re-point to `kinds(id)`, table-only imports auto-promote to categories,
    every category materializes columns. Migration
-   `20260720120000_one_object.sql` **applied + verified on the dev Neon
-   branch** (idempotent; counts hold, zero orphans). **⚠️ still owed on
-   `prod` — apply when this PR reaches prod** (until then the deployed
-   dev app runs old code against the migrated dev DB; merge promptly).
-   See STATE.md row + MEMORY "ONE feature and ONE object".
+   `20260720120000_one_object.sql` **applied + verified on BOTH Neon
+   branches** (dev 2026-07-20, prod 2026-07-20 at the dev→prod promotion,
+   PRs #129/#130; idempotent; counts hold, zero orphans on both). See
+   STATE.md row + MEMORY "ONE feature and ONE object".
 1. **Set env** (the old "merge PR #35" step is long done): a REAL
    `OPENROUTER_API_KEY` (+ ~$10 credit for a reliable paid extract model) and
    `OPENROUTER_VISION_MODEL`, `OPENAI_API_KEY` (or `EMBEDDINGS_API_KEY`) to

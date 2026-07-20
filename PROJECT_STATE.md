@@ -13,6 +13,17 @@
 
 ## Recent changes
 
+- **2026-07-20** — **One-object migration APPLIED ON PROD + dev/prod brought
+  level (user: "merge everything and make sure dev and prod are on same
+  level").** PR #129 (branch → dev: one-object merge + dead-code cleanup +
+  UX roadmap; also carried the MCP write surface prod had from #127) and
+  PR #130 (dev → prod promotion) merged; `origin/dev` and `origin/prod`
+  trees verified IDENTICAL. `20260720120000_one_object.sql` applied to the
+  **prod** Neon branch (br-spring-fire) right after the promotion merge:
+  13 datasets + 29 kinds → 32 kinds (3 auto-promoted: Invoices/Clients/
+  Contacts from a pre-registry org), 374 rows / 6 relations re-pointed with
+  ZERO orphans, entities 441 / facts 1151 untouched, 0 kinds without columns.
+  Both environments now run the same code against migrated DBs; nothing owed.
 - **2026-07-20** — **ONE OBJECT: the physical kinds+datasets merge (model
   unification phase 3; user decision "kinds/tables/templates are one object →
   full merge, every table becomes a category").** The `datasets` table is
