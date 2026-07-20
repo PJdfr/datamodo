@@ -49,6 +49,33 @@ export async function createAgent(
   return created;
 }
 
+/**
+ * Create an agent with the SAME plan entitlements the dashboard enforces
+ * (maxAgents ceiling, auto-mode is Pro). Factored out of `createAgentAction`
+ * so non-dashboard callers — the MCP server — gate identically instead of
+ * re-implementing (or skipping) the checks. Throws a user-facing message.
+ */
+export async function createAgentGuarded(
+  orgId: string,
+  userId: string,
+  input: NewAgentInput,
+): Promise<AgentRecord> {
+  const { getSettings, countAgents } = await import("./settings");
+  const { planLimits } = await import("./plans");
+  const settings = await getSettings(userId);
+  const limits = planLimits(settings.plan);
+  if (limits.maxAgents !== null) {
+    const count = await countAgents(userId);
+    if (count >= limits.maxAgents) {
+      throw new Error(`Your ${limits.label} plan allows ${limits.maxAgents} agents. Upgrade to add more.`);
+    }
+  }
+  if (input.mode === "auto" && !limits.autoMode) {
+    throw new Error(`Auto mode is a Pro feature. On ${limits.label}, agents run on-ping.`);
+  }
+  return createAgent(orgId, userId, input);
+}
+
 export async function updateAgent(
   agentId: string,
   patch: {

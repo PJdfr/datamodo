@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import type { KindField, KindRelation } from "./ontology";
 import type {
   DatasetColumn,
   DatasetRecord,
@@ -478,6 +479,81 @@ export async function createDataset(
     created_at: data.created_at.toISOString(),
     updated_at: data.updated_at.toISOString(),
   };
+}
+
+// Internal bookkeeping fields aren't worth a table column.
+const NON_COLUMN_FIELDS = new Set(["file_type", "file_size", "indexed"]);
+
+/**
+ * "Category → table" — the one-object materialization: a category's template IS
+ * the table schema. Builds columns from the kind's fields + relation verbs,
+ * creates (or adopts + binds) the dataset, then projects every entity of that
+ * kind into it. Idempotent: a dataset already bound to the kind is reused.
+ *
+ * Factored out of `POST /api/kinds/[id]/table` so the MCP `create_category`
+ * tool materializes tables through the exact same path the dashboard uses —
+ * and so Phase-2 model unification has one place that knows "columns come from
+ * the template".
+ */
+export async function materializeKindTable(
+  orgId: string,
+  userId: string,
+  kindId: string,
+): Promise<{ datasetId: string; name: string; entities: number; added: number; updated: number; unchanged: number }> {
+  const row = await prisma.kinds.findFirst({ where: { id: kindId, org_id: orgId } });
+  if (!row) throw new Error("category not found");
+  const fields = (Array.isArray(row.fields) ? row.fields : []) as unknown as KindField[];
+  const relations = (Array.isArray(row.relations) ? row.relations : []) as unknown as KindRelation[];
+
+  const columns: DatasetColumn[] = [
+    { key: "name", label: row.label, type: "text" },
+    ...fields
+      .filter((f) => !NON_COLUMN_FIELDS.has(f.key))
+      .map((f) => ({ key: f.key, label: f.label, type: f.type === "entity" ? "text" : f.type })),
+    // Relationship targets project as their label (text).
+    ...relations.map((r) => ({ key: r.predicate, label: r.label, type: "text" })),
+  ];
+
+  const baseName = row.plural?.trim() || `${row.label}s`;
+  // Structural "category = table" binding wins over any name convention.
+  const bound = await prisma.datasets.findFirst({
+    where: { org_id: orgId, kind_id: row.id },
+    select: { id: true },
+  });
+  let datasetId: string;
+  if (bound) {
+    datasetId = bound.id;
+  } else {
+    try {
+      const ds = await createDataset(orgId, userId, {
+        name: baseName,
+        description: `Built from the “${row.label}” category — refreshed by projecting the knowledge graph.`,
+        columns,
+        kindId: row.id,
+      });
+      datasetId = ds.id;
+    } catch {
+      // Name taken → ADOPT the existing table of that name and bind it.
+      const existing = await prisma.datasets.findFirst({
+        where: { org_id: orgId, name: { equals: baseName, mode: "insensitive" } },
+        select: { id: true, kind_id: true },
+      });
+      if (!existing) throw new Error("could not create the table");
+      if (!existing.kind_id) {
+        await prisma.datasets.update({ where: { id: existing.id }, data: { kind_id: row.id } });
+      }
+      datasetId = existing.id;
+    }
+  }
+
+  const { projectEntitiesToDataset } = await import("./project");
+  const result = await projectEntitiesToDataset(orgId, {
+    kind: row.kind,
+    datasetId,
+    agentName: "Categories",
+    labelColumn: "name",
+  });
+  return { datasetId, name: baseName, ...result };
 }
 
 export async function renameDataset(datasetId: string, name: string): Promise<void> {
