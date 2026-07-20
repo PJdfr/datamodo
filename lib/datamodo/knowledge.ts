@@ -59,6 +59,15 @@ export interface IngestExtractionResult {
   factsHeld: number;
 }
 
+/** DEV TRACE hook (see trace-core.ts): when passed, ingest narrates each
+ *  storage decision — reconcile stats, per-entity resolution tier, per-fact
+ *  outcome — into the item's pipeline trace. Absent = zero cost. */
+export type IngestTraceFn = (stage: string, label: string, detail?: Record<string, unknown>) => void;
+
+/** How an extracted entity landed on a canonical id (dev-trace transparency;
+ *  mirrors the resolution ladder in resolveEntity). */
+export type ResolveVia = "exact-key" | "trigram" | "adjudicated" | "new" | "new+merge-proposed";
+
 // --- Tuning knobs ------------------------------------------------------------
 
 // Trigram similarity this high = the same entity by surface text alone → resolve
@@ -121,7 +130,7 @@ export async function resolveEntity(
   e: ExtractedEntity,
   llm?: LlmProvider,
   opts: { adjudicate?: boolean } = {},
-): Promise<{ id: string; created: boolean }> {
+): Promise<{ id: string; created: boolean; via: ResolveVia }> {
   const key = normalizeKey(e);
 
   // Tier 0 — deterministic exact match. Free, kills most redundancy.
@@ -131,7 +140,7 @@ export async function resolveEntity(
   });
   if (exact) {
     await bumpSupport(exact.id);
-    return { id: exact.id, created: false };
+    return { id: exact.id, created: false, via: "exact-key" };
   }
 
   // Tier 1 — blocking: only compare against the top trigram candidates for THIS
@@ -144,7 +153,7 @@ export async function resolveEntity(
   // Strong surface-text match → resolve without an LLM call.
   if (top && top.sim >= TRGM_HIGH) {
     await bumpSupport(top.id);
-    return { id: top.id, created: false };
+    return { id: top.id, created: false, via: "trigram" };
   }
 
   // Tier 1b — semantic blocking: when surface text found little, recall
@@ -200,7 +209,7 @@ export async function resolveEntity(
       status: "accepted",
       detail: { auto: true, parsedLabel: e.label, reason: verdict.reason },
     });
-    return { id: verdict.matchId, created: false };
+    return { id: verdict.matchId, created: false, via: "adjudicated" };
   }
 
   // Otherwise create a new entity...
@@ -236,8 +245,9 @@ export async function resolveEntity(
       status: "pending",
       detail: { parsedLabel: e.label, reason: verdict.reason },
     });
+    return { id: created.id, created: true, via: "new+merge-proposed" };
   }
-  return { id: created.id, created: true };
+  return { id: created.id, created: true, via: "new" };
 }
 
 export interface MatchCandidate {
@@ -974,7 +984,7 @@ export async function ingestExtraction(
   sourceItemId: string | null,
   extraction: Extraction,
   llm?: LlmProvider,
-  opts: { adjudicate?: boolean } = {},
+  opts: { adjudicate?: boolean; trace?: IngestTraceFn } = {},
 ): Promise<IngestExtractionResult> {
   const res: IngestExtractionResult = {
     entitiesResolved: 0,
@@ -1000,6 +1010,11 @@ export async function ingestExtraction(
   const reconciled = reconcileExtraction(extraction, kinds);
   extraction = reconciled.extraction;
   const st = reconciled.stats;
+  opts.trace?.(
+    "store",
+    `reconciled (zero-LLM pre-fold): ${extraction.entities.length} entities, ${extraction.facts.length} facts kept`,
+    { stats: st as unknown as Record<string, unknown> },
+  );
   if (st.droppedUnknownRef || st.droppedSelfRef || st.droppedEmpty || st.mergedDuplicates || st.promotedToMany || st.conflictsResolved) {
     console.log(
       `[knowledge] reconcile: ${st.droppedUnknownRef} unknown-ref, ${st.droppedSelfRef} self-ref, ${st.droppedEmpty} empty-value dropped; ` +
@@ -1014,15 +1029,23 @@ export async function ingestExtraction(
     const texts = extraction.entities.map((e) => embedTextForEntity(e.kind, e.label, e.naturalKeys));
     const vectors = await embedTexts(texts);
     if (vectors) extraction.entities.forEach((e, i) => { e.embedding = vectors[i]; });
+    opts.trace?.("store", vectors ? `embedded ${texts.length} entities (one batch call)` : "entity embeddings unavailable — trigram-only matching");
   }
 
   // Resolve entities first so facts can reference canonical ids.
   const idMap = new Map<string, string>();
   for (const e of extraction.entities) {
-    const { id, created } = await resolveEntity(orgId, ownerUserId, e, llm, opts);
+    const { id, created, via } = await resolveEntity(orgId, ownerUserId, e, llm, opts);
     idMap.set(e.localId, id);
     res.entitiesResolved++;
     if (created) res.entitiesCreated++;
+    opts.trace?.("store", `entity "${e.label}" (${e.kind}) → ${via}`, {
+      entityId: id,
+      localId: e.localId,
+      created,
+      via,
+      naturalKeys: e.naturalKeys,
+    });
   }
   const resolve = (localId: string): string => {
     const id = idMap.get(localId);
@@ -1057,6 +1080,7 @@ export async function ingestExtraction(
   // Keys this loop already wrote go back to live lookups: two facts CAN share
   // a claim key when different localIds resolved to the same entity.
   const written = new Set<string>();
+  const factLog: Record<string, unknown>[] = [];
   for (const { f, subjectId, key } of factKeys) {
     const prefetched = written.has(key) ? undefined : (currentByKey.get(key) ?? null);
     const outcome = await upsertFact(orgId, ownerUserId, subjectId, f, sourceItemId, resolve, prefetched);
@@ -1065,6 +1089,27 @@ export async function ingestExtraction(
     else if (outcome === "deduped") res.factsDeduped++;
     else if (outcome === "held") res.factsHeld++;
     else res.factsSuperseded++;
+    if (opts.trace) {
+      factLog.push({
+        predicate: f.predicate,
+        value:
+          f.value.kind === "entity" ? `→ ${f.value.entityLocalId}`
+          : f.value.kind === "number" ? `${f.value.num}${f.value.unit ? " " + f.value.unit : ""}`
+          : f.value.kind === "date" ? f.value.date
+          : f.value.text,
+        cardinality: f.cardinality,
+        confidence: f.confidence,
+        claimKey: key,
+        outcome,
+      });
+    }
+  }
+  if (opts.trace && factLog.length) {
+    opts.trace(
+      "store",
+      `facts filed: ${res.factsNew} new · ${res.factsDeduped} re-observed · ${res.factsSuperseded} superseded · ${res.factsHeld} held`,
+      { facts: factLog },
+    );
   }
 
   // TEMPLATE BLOCK: every templated node ends the ingest with AT LEAST its

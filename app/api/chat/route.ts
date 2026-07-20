@@ -81,10 +81,15 @@ export async function GET() {
       // The agent's answer: what it parsed from this message (pinged-only
       // behavior — the app thread is always a direct ping).
       reply: (i.meta as { parse_reply?: string } | null)?.parse_reply ?? null,
+      // DEV MODE: this message has a recorded pipeline trace (the "⌁" pill
+      // fetches it from /api/items/[id]/trace on demand — never inlined here).
+      hasTrace: !!(i.meta as { dev_trace?: unknown } | null)?.dev_trace,
     })),
     questions,
     reviews,
     agents: agents.map((a) => ({ id: a.id, name: a.name, purposeText: a.purpose_text })),
+    // DEV MODE flag — the chat UI only surfaces trace pills when it's on.
+    dev: (await import("@/lib/datamodo/trace")).devTraceEnabled(),
   });
 }
 

@@ -23,6 +23,7 @@ import { C } from "./ui";
 import { ReviewCardBody, INK_SKIN } from "./review-card";
 import { activeMention, matchAgents, stripMention, type ChatAgentRef, type MentionSpan } from "@/lib/datamodo/chat-address";
 import { buildAgentProfiles, routeToAgent } from "@/lib/datamodo/agent-router";
+import { TraceModal } from "./trace-modal";
 import type { ReviewItem } from "@/lib/datamodo/review-types";
 
 interface ChatAttachment { filename: string | null; contentType: string | null; bytes: number }
@@ -41,6 +42,9 @@ interface ChatMessage {
   /** The agent's answer: what it parsed from this message (the app thread is
    *  always a direct ping, so every analyzed message gets one). */
   reply?: string | null;
+  /** DEV MODE: a full pipeline trace was recorded for this message
+   *  (items.meta.dev_trace — the "⌁" pill opens it). */
+  hasTrace?: boolean;
   /** Optimistic bubble, not yet confirmed by the server. */
   local?: boolean;
   /** Local-only image previews for the optimistic bubble. */
@@ -123,7 +127,7 @@ function StatusLine({ m }: { m: ChatMessage }) {
 }
 
 /* ---- one message bubble ------------------------------------------------ */
-function Bubble({ m }: { m: ChatMessage }) {
+function Bubble({ m, onTrace }: { m: ChatMessage; onTrace?: (id: string) => void }) {
   return (
     <div style={{ alignSelf: "flex-end", maxWidth: "min(78%, 640px)", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, animation: "dm-drop-in .34s cubic-bezier(0.16,1,0.3,1)" }}>
       <div style={{
@@ -165,6 +169,19 @@ function Bubble({ m }: { m: ChatMessage }) {
         )}
         <span className="dm-mono" style={{ fontSize: 9.5, color: "#B7AF9F" }}>{fmtTime(m.at)}</span>
         <StatusLine m={m} />
+        {onTrace && m.hasTrace && !m.local && (
+          <button
+            onClick={() => onTrace(m.id)}
+            className="dm-mono"
+            title="Dev mode — the full pipeline trace of this message: routing, context, prompts, model answers, storage"
+            style={{
+              fontSize: 9.5, color: "#8A8477", background: "#FBF8F1", border: "1px solid #ECE5D8",
+              borderRadius: 999, padding: "1px 8px", cursor: "pointer", fontFamily: "inherit",
+            }}
+          >
+            ⌁ trace
+          </button>
+        )}
       </div>
     </div>
   );
@@ -320,6 +337,10 @@ export function ChatView() {
   const [mention, setMention] = useState<MentionSpan | null>(null);
   const [mentionIdx, setMentionIdx] = useState(0);
   const dismissedMention = useRef<string | null>(null);
+  // DEV MODE: the server says whether traces are being recorded; traceFor
+  // holds the message whose pipeline story is open.
+  const [dev, setDev] = useState(false);
+  const [traceFor, setTraceFor] = useState<string | null>(null);
 
   const fileInput = useRef<HTMLInputElement | null>(null);
   const textArea = useRef<HTMLTextAreaElement | null>(null);
@@ -346,6 +367,7 @@ export function ChatView() {
       setQuestions(json.questions ?? []);
       setReviews(json.reviews ?? []);
       setAgents(json.agents ?? []);
+      setDev(Boolean(json.dev));
     } catch { /* keep the current thread */ }
   }, []);
 
@@ -649,7 +671,7 @@ export function ChatView() {
               </div>
               {g.items.map((m) => (
                 <div key={m.id} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <Bubble m={m} />
+                  <Bubble m={m} onTrace={dev ? setTraceFor : undefined} />
                   {m.reply && <AgentReplyBubble text={m.reply} />}
                 </div>
               ))}
@@ -863,7 +885,9 @@ export function ChatView() {
       </div>
       <div className="dm-mono" style={{ fontSize: 9.5, letterSpacing: "0.04em", color: "#B7AF9F", margin: "8px 4px 0" }}>
         same pipeline as every channel — photos understood · pdfs read page by page · voice notes transcribed · unsure reads come back as questions in review
+        {dev && <span style={{ color: "#8A6D1F" }}> · dev mode on — ⌁ trace on each message shows the whole pipe</span>}
       </div>
+      {traceFor && <TraceModal itemId={traceFor} onClose={() => setTraceFor(null)} />}
     </div>
   );
 }
