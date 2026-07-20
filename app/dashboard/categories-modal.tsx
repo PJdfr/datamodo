@@ -19,7 +19,7 @@ import type { KindDef, KindField, KindRelation } from "@/lib/datamodo/ontology";
 
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 
-const TYPE_GLYPH: Record<string, string> = { text: "Aa", number: "#", date: "📅", entity: "→" };
+const TYPE_GLYPH: Record<string, string> = { text: "Aa", number: "#", date: "◷", entity: "→" };
 
 const inputStyle: React.CSSProperties = { width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "9px 11px", fontFamily: "inherit", fontSize: 13, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" };
 const miniInput: React.CSSProperties = { ...inputStyle, padding: "6px 9px", fontSize: 12, width: "auto", flex: 1, minWidth: 90 };
