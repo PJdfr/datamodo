@@ -5,6 +5,7 @@ import { readBlob } from "@/lib/ingest/store";
 import { ingestExtraction, createExtractionReview, normalizeKey, type Extraction, type ExtractedFact } from "@/lib/datamodo/knowledge";
 import { buildNoteExtraction, NOTE_KIND, type GeneratedNote } from "@/lib/datamodo/document-extraction";
 import { getOnboardingContext } from "@/lib/datamodo/settings";
+import { startItemTrace, persistItemTrace } from "./trace";
 import { renderKnownBlock } from "./priming-core.ts";
 import { enrichSenderIdentity, groundExtractionEvidence, parseLooseDate, parseLooseNumber } from "./reconcile-core.ts";
 import {
@@ -678,9 +679,24 @@ export async function runExtractionForItem(
   });
   const row = item as unknown as ItemRow & { capture_mode: string | null };
 
+  // DEV TRACE (transparency mode): when on, this run's whole story — gate,
+  // routing, context assembly, every LLM call with its full prompts, storage
+  // outcomes — records to items.meta.dev_trace + the server log. No-op cost
+  // when off (see trace.ts).
+  const trace = startItemTrace(row.id);
+  trace.step("item", `${row.channel ?? "?"} message from ${row.sender ?? "?"}`, {
+    itemId: row.id,
+    channel: row.channel,
+    sender: row.sender,
+    subject: row.subject,
+    captureMode: row.capture_mode,
+    meta: row.meta as Record<string, unknown> | null,
+  });
+
   await prisma.items.update({ where: { id: row.id }, data: { status: "analyzing" } });
   try {
     const text = await loadItemText(row);
+    trace.step("input", `text loaded (${text.length} chars${row.body_hash ? ", full body blob" : ", preview only"})`, { text });
     // TRIVIALITY GATE (efficiency track 2026-07-16): unmistakable acks never
     // reach an LLM or an embedding — steering, priming, and extraction are
     // all skipped and the item files as analyzed with zero facts (the chat
@@ -689,6 +705,11 @@ export async function runExtractionForItem(
     const hasAttachments =
       (await prisma.attachments.count({ where: { item_id: row.id } }).catch(() => 0)) > 0;
     const trivial = !worthExtracting({ text, subject: row.subject, hasAttachments });
+    trace.step(
+      "gate",
+      trivial ? "triviality gate: unmistakable ack — no LLM, no embedding, files as analyzed" : "triviality gate: worth extracting",
+      { trivial, hasAttachments },
+    );
     // Addressed items (chat "@agent" / picker) carry their agent in meta —
     // that agent's purpose steers extraction. An explicit param still wins;
     // no addressee = no steering (the general datamodo agent). Best-effort.
@@ -698,17 +719,31 @@ export async function runExtractionForItem(
         .findFirst({ where: { id: addressedAgentId, org_id: row.org_id }, select: { purpose_text: true } })
         .then((a) => a?.purpose_text ?? null)
         .catch(() => null);
+      trace.step("steer", `explicitly addressed to agent — its purpose steers extraction`, {
+        agentId: addressedAgentId,
+        purpose: agentPurpose,
+      });
     }
     // ONE message embedding per item (adaptive routing + priming share it —
     // the per-message plumbing budget stays a single embeddings call, zero
     // LLM). Fail-soft: no key / API error → null and both consumers degrade
     // to their lexical legs.
     const { embedTexts } = await import("@/lib/llm/embeddings");
+    const embedStarted = Date.now();
     const msgVec = trivial
       ? null
       : await embedTexts([`${row.subject ?? ""}\n${text}`.slice(0, 4000)])
           .then((v) => v?.[0] ?? null)
           .catch(() => null);
+    if (!trivial) {
+      trace.step(
+        "embed",
+        msgVec
+          ? `ONE message embedding computed (${msgVec.length}-dim, ${Date.now() - embedStarted}ms) — shared by routing + priming`
+          : "message embedding unavailable (no key / API error) — lexical legs only",
+        { dims: msgVec?.length ?? null, ms: Date.now() - embedStarted },
+      );
+    }
     // UNADDRESSED items: zero-cost auto-routing (user call 2026-07-16). A
     // deterministic lexical classifier (agent-router.ts — no LLM, no spend)
     // matches the item against the ACTIVE AUTO agents' purposes; a confident
@@ -760,6 +795,17 @@ export async function runExtractionForItem(
               })
               .catch(() => {});
           }
+          trace.step(
+            "steer",
+            routed
+              ? `auto-routed to "${autoAgents.find((x) => x.id === routed.agentId)?.name}" (zero-LLM lexical classifier${msgVec ? " + centroid boost" : ""})`
+              : "auto-routing: no confident winner — generic datamodo agent",
+            {
+              candidates: autoAgents.map((x) => x.name),
+              matchedTerms: routed?.matched ?? null,
+              purpose: routed ? agentPurpose : null,
+            },
+          );
         }
       } catch {
         /* routing is best-effort — generic steering otherwise */
@@ -772,6 +818,13 @@ export async function runExtractionForItem(
     // kinds/predicates. Best-effort: extraction works without it.
     const { listKinds } = await import("./kinds");
     const kinds = trivial ? [] : await listKinds(row.org_id, row.owner_user_id).catch(() => []);
+    if (!trivial) {
+      trace.step(
+        "context",
+        `${kinds.length} categor${kinds.length === 1 ? "y" : "ies"} steering (templates ride the SYSTEM prompt)${businessContext ? " + business context" : ""}`,
+        { kinds: kinds.map((k) => k.kind), businessContext },
+      );
+    }
     // RELEVANCE PRIMING (user call 2026-07-16): candidates chosen BY the
     // input — labels literally in the text + ANN over one message embedding —
     // replace the old static top-30 concept list. Non-concepts feed the
@@ -794,6 +847,16 @@ export async function runExtractionForItem(
           })
           .catch(() => []);
     const concepts = conceptsForPrompt(known, conceptRows.map((c) => c.canonical_label));
+    if (!trivial) {
+      trace.step(
+        "context",
+        `relevance priming: ${known.length} known entities (lexical + ANN over the message embedding), ${concepts.length} concepts leashed`,
+        {
+          known: known.map((k) => ({ kind: k.kind, label: k.label, hint: k.hint, support: k.support, sim: k.sim })),
+          concepts,
+        },
+      );
+    }
     // BYOK: analysis runs on the owner's own provider account when they've
     // brought a key; otherwise on the platform provider from env. Trivial
     // items never resolve a provider at all (a BYOK cap must not fail them).
@@ -808,7 +871,14 @@ export async function runExtractionForItem(
         escalated: false,
       };
     } else {
-      llm = await llmForUser(row.owner_user_id);
+      // The trace wrapper captures EVERY call on this provider — message
+      // extract, escalation, doc classify/distill, vision, adjudication —
+      // with full prompts + raw responses (identity when dev mode is off).
+      llm = trace.wrapLlm(await llmForUser(row.owner_user_id));
+      trace.step("llm", `provider resolved: ${llm.name} (extract=${llm.models.extract} · escalate=${llm.models.escalate} · vision=${llm.models.vision})`, {
+        provider: llm.name,
+        models: llm.models as unknown as Record<string, unknown>,
+      });
       result = await extractFromMessage(
         {
           text,
@@ -824,7 +894,25 @@ export async function runExtractionForItem(
         llm,
       );
     }
-    const knowledge = await ingestExtraction(row.org_id, row.owner_user_id, row.id, result.extraction, llm);
+    trace.step(
+      "extract",
+      `extraction: ${result.extraction.entities.length} entities, ${result.extraction.facts.length} facts · confidence ${result.overallConfidence.toFixed(2)}${result.escalated ? " · ESCALATED to the stronger model" : ""}${result.note ? " · note authored" : ""} (${result.model})`,
+      {
+        model: result.model,
+        overallConfidence: result.overallConfidence,
+        escalated: result.escalated,
+        extraction: result.extraction as unknown as Record<string, unknown>,
+        note: result.note as unknown as Record<string, unknown> | undefined,
+      },
+    );
+    const knowledge = await ingestExtraction(row.org_id, row.owner_user_id, row.id, result.extraction, llm, {
+      trace: (stage, label, detail) => trace.step(stage, label, detail),
+    });
+    trace.step(
+      "store",
+      `knowledge stored: ${knowledge.entitiesCreated} entities created, ${knowledge.entitiesResolved - knowledge.entitiesCreated} resolved to existing · facts ${knowledge.factsNew} new / ${knowledge.factsDeduped} re-observed / ${knowledge.factsSuperseded} superseded / ${knowledge.factsHeld} held (tables project from these)`,
+      { ...knowledge } as unknown as Record<string, unknown>,
+    );
     // A substantive dump becomes a NOTE the pipeline authors: a thick node
     // whose body is our distilled markdown, edged to what the message
     // mentioned. Best-effort — a note failure never fails the item.
@@ -847,6 +935,11 @@ export async function runExtractionForItem(
             data: { body_md: result.note.body, updated_at: new Date() },
           });
         }
+        trace.step("store", `note node authored: "${result.note.title}" (body_md = our distilled markdown)`, {
+          entityId: noteEnt?.id,
+          title: result.note.title,
+          body: result.note.body,
+        });
       } catch (e) {
         console.error(`[extract] note authoring failed for item ${row.id}`, e);
       }
@@ -860,8 +953,16 @@ export async function runExtractionForItem(
       try {
         const { processItemAttachments } = await import("./documents");
         docResults = await processItemAttachments(row, llm, businessContext, kinds, concepts);
+        if (docResults.length) {
+          trace.step(
+            "docs",
+            `${docResults.length} attachment(s) → document pipeline (classify → distill → chunks; LLM calls traced above)`,
+            { docs: docResults.map((d) => ({ filename: d.filename, indexing: d.indexing, factsNew: d.factsNew })) },
+          );
+        }
       } catch (e) {
         console.error(`[extract] attachment processing failed for item ${row.id}`, e);
+        trace.step("docs", `attachment processing FAILED: ${String((e as Error)?.message ?? e)}`);
       }
     }
     // AGENT LENS stamp (GRAPH_PIPELINE.md P5): facts remember which agent's
@@ -869,7 +970,7 @@ export async function runExtractionForItem(
     // addressed/routed stamps above), covering body AND attachment facts in
     // one statement. Fail-soft: a pre-migration DB just skips it.
     try {
-      await prisma.$executeRaw`
+      const stamped = await prisma.$executeRaw`
         UPDATE facts f
            SET agent_id = COALESCE(
                  NULLIF(i.meta->>'agent_id', '')::uuid,
@@ -878,6 +979,7 @@ export async function runExtractionForItem(
          WHERE i.id = ${row.id}::uuid AND f.source_item_id = i.id
            AND f.org_id = ${row.org_id}::uuid AND f.agent_id IS NULL
            AND (i.meta ? 'agent_id' OR i.meta ? 'routed_agent_id')`;
+      if (stamped > 0) trace.step("store", `agent lens: ${stamped} fact(s) stamped with the steering agent`);
     } catch {
       /* lens column not migrated yet — attribution still lives on the item */
     }
@@ -900,11 +1002,13 @@ export async function runExtractionForItem(
         confidence: result.overallConfidence,
         factCount: result.extraction.facts.length,
       });
+      trace.step("review", `low confidence (${result.overallConfidence.toFixed(2)} < ${EXTRACTION_REVIEW_BELOW}) — extraction review filed for your OK`);
     }
     await prisma.items.update({
       where: { id: row.id },
       data: { status: "analyzed", extraction_version: EXTRACTION_VERSION },
     });
+    trace.step("done", `item analyzed (extraction_version ${EXTRACTION_VERSION})`);
     // PINGED? → answer back with what was parsed. Direct pings only
     // (capture_mode "active": app chat, Slack DM, WhatsApp, direct email) —
     // passively watched mailboxes stay silent. The app thread stores the
@@ -944,6 +1048,9 @@ export async function runExtractionForItem(
           const sent = await sendParseReplyToChannel(row.channel, row.sender, reply);
           if (!sent.sent) console.log(`[extract] parse reply skipped for item ${row.id}: ${sent.reason}`);
         }
+        trace.step("reply", `parse reply ${mode === "app" ? "stored for the chat thread" : `sent over ${row.channel}`}`, { reply });
+      } else {
+        trace.step("reply", "no parse reply (passive capture — watched inboxes stay silent)");
       }
     } catch (e) {
       console.error(`[extract] parse reply failed for item ${row.id}`, e);
@@ -967,16 +1074,23 @@ export async function runExtractionForItem(
           : `datamodo — ${proposals} table change${proposals === 1 ? "" : "s"} from your message await review${appUrl ? `: ${appUrl}/dashboard` : "."}`;
         const sent = await sendChannelText(row.channel as import("@/lib/ingest/types").IngestChannel, row.sender, text);
         if (!sent.sent) console.log(`[extract] review ping skipped for item ${row.id}: ${sent.reason}`);
+        trace.step("review", `review ping: ${questions.length} question(s) + ${proposals} proposal(s) → ${row.channel}${sent.sent ? "" : ` (skipped: ${sent.reason})`}`, {
+          questions: questions.map((q) => q.question),
+        });
       }
     } catch (e) {
       console.error(`[extract] review ping failed for item ${row.id}`, e);
     }
+    // Persist LAST so the trace also carries the reply/ping tail (fail-soft).
+    await persistItemTrace(row.id, trace);
     return { ...result, knowledge };
   } catch (e) {
     await prisma.items.update({
       where: { id: row.id },
       data: { status: "failed", error: String((e as Error)?.message ?? e).slice(0, 500) },
     });
+    trace.step("error", `item FAILED: ${String((e as Error)?.message ?? e)}`);
+    await persistItemTrace(row.id, trace);
     throw e;
   }
 }
