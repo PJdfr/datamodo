@@ -26,8 +26,8 @@ model agents {
   routing_centroid_n     Int     @default(0)
   routing_terms          Json    @default("{}")
   organizations organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  datasets      datasets[]
   routing_events routing_events[]
+  kinds          kinds[]
 
   @@index([org_id, created_at], map: "agents_org_created_idx")
   @@index([org_id], map: "agents_org_idx")
@@ -92,9 +92,9 @@ model dataset_relations {
   label                                                String?
   created_by                                           String?       @db.Uuid
   created_at                                           DateTime      @default(now()) @db.Timestamptz(6)
-  datasets_dataset_relations_from_dataset_idTodatasets datasets      @relation("dataset_relations_from_dataset_idTodatasets", fields: [from_dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  kinds_from                                           kinds         @relation("dataset_relations_from_dataset_idTokinds", fields: [from_dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   organizations                                        organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  datasets_dataset_relations_to_dataset_idTodatasets   datasets      @relation("dataset_relations_to_dataset_idTodatasets", fields: [to_dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  kinds_to                                             kinds         @relation("dataset_relations_to_dataset_idTokinds", fields: [to_dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([from_dataset_id, from_column, to_dataset_id, to_column])
   @@index([from_dataset_id], map: "dataset_relations_from_idx")
@@ -120,7 +120,7 @@ model dataset_rows {
   proposed_by        String?
   batch_id           String?            @db.Uuid
   subject_entity_id  String?            @db.Uuid
-  datasets           datasets           @relation(fields: [dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  kinds              kinds              @relation(fields: [dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   organizations      organizations      @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   items              items?             @relation(fields: [source_item_id], references: [id], onUpdate: NoAction)
   entities           entities?          @relation(fields: [subject_entity_id], references: [id], onUpdate: NoAction)
@@ -147,7 +147,7 @@ model dataset_snapshots {
   rows          Json          @default("[]")
   created_by    String?       @db.Uuid
   created_at    DateTime      @default(now()) @db.Timestamptz(6)
-  datasets      datasets      @relation(fields: [dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  kinds         kinds         @relation(fields: [dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   organizations organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([dataset_id, created_at(sort: Desc)], map: "dataset_snapshots_dataset_idx")
@@ -155,30 +155,6 @@ model dataset_snapshots {
 }
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
-model datasets {
-  id                                                            String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  org_id                                                        String              @db.Uuid
-  agent_id                                                      String?             @db.Uuid
-  kind_id                                                       String?             @db.Uuid
-  name                                                          String
-  description                                                   String?
-  columns                                                       Json                @default("[]")
-  created_by                                                    String?             @db.Uuid
-  created_at                                                    DateTime            @default(now()) @db.Timestamptz(6)
-  updated_at                                                    DateTime            @default(now()) @db.Timestamptz(6)
-  dataset_relations_dataset_relations_from_dataset_idTodatasets dataset_relations[] @relation("dataset_relations_from_dataset_idTodatasets")
-  dataset_relations_dataset_relations_to_dataset_idTodatasets   dataset_relations[] @relation("dataset_relations_to_dataset_idTodatasets")
-  dataset_rows                                                  dataset_rows[]
-  dataset_snapshots                                             dataset_snapshots[]
-  agents                                                        agents?             @relation(fields: [agent_id], references: [id], onUpdate: NoAction)
-  kinds                                                         kinds?              @relation(fields: [kind_id], references: [id], onUpdate: NoAction)
-  organizations                                                 organizations       @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  sheet_links                                                   sheet_links?
-
-  @@index([agent_id], map: "datasets_agent_idx")
-  @@index([kind_id], map: "datasets_kind_idx")
-  @@index([org_id, created_at], map: "datasets_org_created_idx")
-}
 
 model entities {
   id                                                             String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -387,7 +363,6 @@ model organizations {
   dataset_relations    dataset_relations[]
   dataset_rows         dataset_rows[]
   dataset_snapshots    dataset_snapshots[]
-  datasets             datasets[]
   doc_chunks           doc_chunks[]
   entities             entities[]
   fact_sources         fact_sources[]
@@ -500,13 +475,21 @@ model kinds {
   fields        Json          @default("[]")
   relations     Json          @default("[]")
   builtin       Boolean       @default(false)
+  agent_id      String?       @db.Uuid
+  columns       Json          @default("[]")
   created_at    DateTime      @default(now()) @db.Timestamptz(6)
   updated_at    DateTime      @default(now()) @db.Timestamptz(6)
-  datasets      datasets[]
+  agents        agents?       @relation(fields: [agent_id], references: [id], onUpdate: NoAction)
   organizations organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  dataset_rows  dataset_rows[]
+  dataset_snapshots dataset_snapshots[]
+  sheet_links   sheet_links?
+  dataset_relations_from dataset_relations[] @relation("dataset_relations_from_dataset_idTokinds")
+  dataset_relations_to   dataset_relations[] @relation("dataset_relations_to_dataset_idTokinds")
 
   @@unique([org_id, kind], map: "kinds_org_kind_uq")
   @@index([org_id], map: "kinds_org_idx")
+  @@index([agent_id], map: "kinds_agent_idx")
 }
 
 model profiles {
@@ -526,7 +509,7 @@ model sheet_links {
   last_synced_at DateTime?     @db.Timestamptz(6)
   created_by     String?       @db.Uuid
   created_at     DateTime      @default(now()) @db.Timestamptz(6)
-  datasets       datasets      @relation(fields: [dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  kinds          kinds         @relation(fields: [dataset_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   organizations  organizations @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([org_id], map: "sheet_links_org_idx")

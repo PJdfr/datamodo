@@ -368,12 +368,12 @@ const handler = createMcpHandler(
       },
       async ({ tableId, limit, offset }, extra) => {
         const { orgId } = await caller(extra);
-        // Org scoping: the table must belong to the caller's workspace.
-        const ds = await prisma.datasets.findFirst({ where: { id: tableId, org_id: orgId }, select: { id: true, name: true } });
+        // Org scoping: the table (a kind — one object) must belong to the caller's workspace.
+        const ds = await prisma.kinds.findFirst({ where: { id: tableId, org_id: orgId }, select: { id: true, label: true, plural: true } });
         if (!ds) return text("No table with that id — call list_tables for current ids.");
         const { listDatasetRows } = await import("@/lib/datamodo/datasets");
         const { rows, total } = await listDatasetRows(ds.id, { limit: limit ?? 50, offset: offset ?? 0 });
-        return json({ table: ds.name, total, offset: offset ?? 0, rows: rows.map((r) => r.data) });
+        return json({ table: ds.plural?.trim() || `${ds.label}s`, total, offset: offset ?? 0, rows: rows.map((r) => r.data) });
       },
     );
 

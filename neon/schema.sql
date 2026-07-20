@@ -500,22 +500,9 @@ CREATE TABLE public.dataset_snapshots (
 
 
 
---
--- Name: datasets; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.datasets (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    org_id uuid NOT NULL,
-    agent_id uuid,
-    kind_id uuid,
-    name text NOT NULL,
-    description text,
-    columns jsonb DEFAULT '[]'::jsonb NOT NULL,
-    created_by uuid,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
-);
+-- (The `datasets` table is GONE — model unification phase 3, 2026-07-20: a
+-- category IS a table. Its facet lives on `kinds` (agent_id + columns); the
+-- dataset_* child tables keep their column names but reference kinds(id).)
 
 
 
@@ -709,6 +696,9 @@ CREATE TABLE public.kinds (
     fields jsonb DEFAULT '[]'::jsonb NOT NULL,
     relations jsonb DEFAULT '[]'::jsonb NOT NULL,
     builtin boolean DEFAULT false NOT NULL,
+    -- The table facet (one object: a category IS a table).
+    agent_id uuid,
+    columns jsonb DEFAULT '[]'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -892,11 +882,7 @@ ALTER TABLE ONLY public.dataset_snapshots
 
 
 --
--- Name: datasets datasets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.datasets
-    ADD CONSTRAINT datasets_pkey PRIMARY KEY (id);
+-- (datasets_pkey removed with the datasets table — one-object merge.)
 
 
 
@@ -1214,34 +1200,16 @@ CREATE INDEX dataset_snapshots_org_created_idx ON public.dataset_snapshots USING
 
 
 --
--- Name: datasets_agent_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: kinds_agent_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX datasets_agent_idx ON public.datasets USING btree (agent_id);
-
-
-
---
--- Name: datasets_kind_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX datasets_kind_idx ON public.datasets USING btree (kind_id);
+CREATE INDEX kinds_agent_idx ON public.kinds USING btree (agent_id);
 
 
 
 --
--- Name: datasets_org_created_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX datasets_org_created_idx ON public.datasets USING btree (org_id, created_at);
-
-
-
---
--- Name: datasets_org_name_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX datasets_org_name_idx ON public.datasets USING btree (org_id, lower(name));
+-- (datasets_kind_idx / datasets_org_created_idx / datasets_org_name_idx
+--  removed with the datasets table — one-object merge.)
 
 
 
@@ -1446,10 +1414,10 @@ CREATE TRIGGER dataset_rows_touch_updated_at BEFORE UPDATE ON public.dataset_row
 
 
 --
--- Name: datasets datasets_touch_updated_at; Type: TRIGGER; Schema: public; Owner: -
+-- Name: kinds kinds_touch_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER datasets_touch_updated_at BEFORE UPDATE ON public.datasets FOR EACH ROW EXECUTE FUNCTION private.touch_updated_at();
+CREATE TRIGGER kinds_touch_updated_at BEFORE UPDATE ON public.kinds FOR EACH ROW EXECUTE FUNCTION private.touch_updated_at();
 
 
 
@@ -1519,7 +1487,7 @@ ALTER TABLE ONLY public.channel_link_codes
 --
 
 ALTER TABLE ONLY public.dataset_relations
-    ADD CONSTRAINT dataset_relations_from_dataset_id_fkey FOREIGN KEY (from_dataset_id) REFERENCES public.datasets(id) ON DELETE CASCADE;
+    ADD CONSTRAINT dataset_relations_from_dataset_id_fkey FOREIGN KEY (from_dataset_id) REFERENCES public.kinds(id) ON DELETE CASCADE;
 
 
 
@@ -1537,7 +1505,7 @@ ALTER TABLE ONLY public.dataset_relations
 --
 
 ALTER TABLE ONLY public.dataset_relations
-    ADD CONSTRAINT dataset_relations_to_dataset_id_fkey FOREIGN KEY (to_dataset_id) REFERENCES public.datasets(id) ON DELETE CASCADE;
+    ADD CONSTRAINT dataset_relations_to_dataset_id_fkey FOREIGN KEY (to_dataset_id) REFERENCES public.kinds(id) ON DELETE CASCADE;
 
 
 
@@ -1546,7 +1514,7 @@ ALTER TABLE ONLY public.dataset_relations
 --
 
 ALTER TABLE ONLY public.dataset_rows
-    ADD CONSTRAINT dataset_rows_dataset_id_fkey FOREIGN KEY (dataset_id) REFERENCES public.datasets(id) ON DELETE CASCADE;
+    ADD CONSTRAINT dataset_rows_dataset_id_fkey FOREIGN KEY (dataset_id) REFERENCES public.kinds(id) ON DELETE CASCADE;
 
 
 
@@ -1591,7 +1559,7 @@ ALTER TABLE ONLY public.dataset_rows
 --
 
 ALTER TABLE ONLY public.dataset_snapshots
-    ADD CONSTRAINT dataset_snapshots_dataset_id_fkey FOREIGN KEY (dataset_id) REFERENCES public.datasets(id) ON DELETE CASCADE;
+    ADD CONSTRAINT dataset_snapshots_dataset_id_fkey FOREIGN KEY (dataset_id) REFERENCES public.kinds(id) ON DELETE CASCADE;
 
 
 
@@ -1632,29 +1600,11 @@ ALTER TABLE ONLY public.kinds
 
 
 --
--- Name: datasets datasets_agent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: kinds kinds_agent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.datasets
-    ADD CONSTRAINT datasets_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES public.agents(id) ON DELETE SET NULL;
-
-
-
---
--- Name: datasets datasets_kind_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.datasets
-    ADD CONSTRAINT datasets_kind_id_fkey FOREIGN KEY (kind_id) REFERENCES public.kinds(id) ON DELETE SET NULL;
-
-
-
---
--- Name: datasets datasets_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.datasets
-    ADD CONSTRAINT datasets_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.organizations(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.kinds
+    ADD CONSTRAINT kinds_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES public.agents(id) ON DELETE SET NULL;
 
 
 
@@ -1861,7 +1811,7 @@ ALTER TABLE ONLY public.organization_members
 --
 
 ALTER TABLE ONLY public.sheet_links
-    ADD CONSTRAINT sheet_links_dataset_id_fkey FOREIGN KEY (dataset_id) REFERENCES public.datasets(id) ON DELETE CASCADE;
+    ADD CONSTRAINT sheet_links_dataset_id_fkey FOREIGN KEY (dataset_id) REFERENCES public.kinds(id) ON DELETE CASCADE;
 
 
 

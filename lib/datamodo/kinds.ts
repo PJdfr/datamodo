@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
-import { DEFAULT_KINDS, slugify, unregisteredKinds, type KindDef, type KindField, type KindRelation } from "./ontology";
+import { columnsFromTemplate, DEFAULT_KINDS, slugify, unregisteredKinds, type KindDef, type KindField, type KindRelation } from "./ontology";
 import type { Extraction } from "./knowledge";
 
 // DB side of the ontology layer: per-org kind registry CRUD + lazy seeding.
@@ -99,6 +99,8 @@ export async function ensureDefaultKinds(orgId: string, ownerUserId: string | nu
       aliases: k.aliases,
       fields: k.fields as unknown as Prisma.InputJsonValue,
       relations: k.relations as unknown as Prisma.InputJsonValue,
+      // One object: a category IS a table — it ships with its columns.
+      columns: columnsFromTemplate(k) as unknown as Prisma.InputJsonValue,
       builtin: true,
     })),
     skipDuplicates: true,
@@ -151,19 +153,24 @@ const sanitizeRelations = (rels: KindRelation[] | undefined): KindRelation[] =>
 export async function createKind(orgId: string, ownerUserId: string | null, input: KindInput): Promise<KindDef> {
   const kind = slugify(input.kind || input.label);
   if (!kind) throw new Error("Category needs a name.");
+  const label = input.label.trim();
+  const fields = sanitizeFields(input.fields);
+  const relations = sanitizeRelations(input.relations);
   const row = await prisma.kinds.create({
     data: {
       org_id: orgId,
       owner_user_id: ownerUserId,
       kind,
-      label: input.label.trim(),
+      label,
       plural: input.plural?.trim() || null,
       icon: input.icon?.trim() || null,
       color: input.color?.trim() || null,
       description: input.description?.trim() || null,
       aliases: (input.aliases ?? []).map(slugify).filter(Boolean),
-      fields: sanitizeFields(input.fields) as unknown as Prisma.InputJsonValue,
-      relations: sanitizeRelations(input.relations) as unknown as Prisma.InputJsonValue,
+      fields: fields as unknown as Prisma.InputJsonValue,
+      relations: relations as unknown as Prisma.InputJsonValue,
+      // One object: the category ships as a table from birth.
+      columns: columnsFromTemplate({ label, fields, relations }) as unknown as Prisma.InputJsonValue,
       builtin: false,
     },
   });
@@ -173,17 +180,23 @@ export async function createKind(orgId: string, ownerUserId: string | null, inpu
 export async function updateKind(orgId: string, id: string, input: KindInput): Promise<KindDef> {
   // The slug is identity (entities.kind references it) — label/template are
   // editable, the slug itself is not (rename = create + migrate, later).
+  const label = input.label.trim();
+  const fields = sanitizeFields(input.fields);
+  const relations = sanitizeRelations(input.relations);
   const row = await prisma.kinds.update({
     where: { id, org_id: orgId },
     data: {
-      label: input.label.trim(),
+      label,
       plural: input.plural?.trim() || null,
       icon: input.icon?.trim() || null,
       color: input.color?.trim() || null,
       description: input.description?.trim() || null,
       aliases: (input.aliases ?? []).map(slugify).filter(Boolean),
-      fields: sanitizeFields(input.fields) as unknown as Prisma.InputJsonValue,
-      relations: sanitizeRelations(input.relations) as unknown as Prisma.InputJsonValue,
+      fields: fields as unknown as Prisma.InputJsonValue,
+      relations: relations as unknown as Prisma.InputJsonValue,
+      // Template edits regenerate the table columns (template is the truth;
+      // column-side edits sync back via datasets.setColumns).
+      columns: columnsFromTemplate({ label, fields, relations }) as unknown as Prisma.InputJsonValue,
       updated_at: new Date(),
     },
   });
@@ -191,8 +204,8 @@ export async function updateKind(orgId: string, id: string, input: KindInput): P
 }
 
 export async function deleteKind(orgId: string, id: string): Promise<void> {
-  // Entities of this kind keep their kind string (free-form); only the
-  // template goes away. Builtins can be deleted too — it's the user's ontology.
+  // One object: deleting the category deletes its TABLE too (rows, snapshots
+  // and relations cascade). Entities of this kind keep their kind string.
   await prisma.kinds.delete({ where: { id, org_id: orgId } });
 }
 

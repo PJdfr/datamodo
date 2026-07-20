@@ -7,19 +7,16 @@
 > Last updated: 2026-07-20
 
 ## Now (unblocks everything else)
-0. **Model unification, phase 3 — the PHYSICAL merge (planned; user decision
-   2026-07-20 "aren't kinds/tables/templates one object?" → yes, full merge).**
-   Today a category (`kinds`) and its table (`datasets`) are two physical rows
-   bound 1:1 by `kind_id`, with the schema stored twice (`kind.fields` AND
-   `dataset.columns`, which drift). Phase 3 folds `datasets` INTO `kinds`
-   (the semantic anchor: `entities.kind` slug, extraction registry): re-point
-   `dataset_rows`/`dataset_snapshots`/`dataset_relations` off the category id,
-   auto-promote table-only imports into categories (**every table IS a
-   category**), materialize a table for every category, and make `columns` a
-   derived view of `fields` (single source of truth). Big idempotent migration
-   → dev branch first, verify counts, then prod; seed.sql + seed-heavy.sql
-   updated. **MCP-first shipped ahead of it** (see STATE.md "MCP full write
-   surface"); `materializeKindTable` was written to converge with this.
+0. ~~Model unification, phase 3 — the PHYSICAL merge~~ ✅ 2026-07-20 (user
+   decision "aren't kinds/tables/templates one object?" → full merge). The
+   `datasets` table is GONE: `kinds` carries the table facet, children
+   re-point to `kinds(id)`, table-only imports auto-promote to categories,
+   every category materializes columns. Migration
+   `20260720120000_one_object.sql` **applied + verified on the dev Neon
+   branch** (idempotent; counts hold, zero orphans). **⚠️ still owed on
+   `prod` — apply when this PR reaches prod** (until then the deployed
+   dev app runs old code against the migrated dev DB; merge promptly).
+   See STATE.md row + MEMORY "ONE feature and ONE object".
 1. **Set env** (the old "merge PR #35" step is long done): a REAL
    `OPENROUTER_API_KEY` (+ ~$10 credit for a reliable paid extract model) and
    `OPENROUTER_VISION_MODEL`, `OPENAI_API_KEY` (or `EMBEDDINGS_API_KEY`) to

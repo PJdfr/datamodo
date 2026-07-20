@@ -5,7 +5,7 @@
 > the always-current infographic: stages × features × stack in one picture.
 > Siblings: [STATE.md](STATE.md) · [ROADMAP.md](ROADMAP.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-17
+> Last updated: 2026-07-20
 
 ## The one-picture version
 
@@ -66,7 +66,7 @@ end
 
 subgraph DERIVE["6 · WE DERIVE<br/>every view is a projection; nothing is a second store"]
   direction TB
-  TAB["▦ Tables = categories<br/><i>draggable schema canvas;<br/>kind_id-bound datasets;<br/>dashed table↔table links</i>"]
+  TAB["▦ Tables = categories<br/><i>draggable schema canvas;<br/>one object: kinds ARE the tables;<br/>dashed table↔table links</i>"]
   EXP["◍ Explorer (the walk)<br/><i>edge to edge; edges show<br/>confidence · time · sources;<br/>nodes in their natural shape<br/>(record · page · image · player)</i>"]
   TL["◷ Timeline<br/><i>messages · due dates ·<br/>corrections · first seen</i>"]
   EP["▤ Entity pages + dossier ↓<br/><i>cited markdown export</i>"]
