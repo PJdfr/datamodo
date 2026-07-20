@@ -13,6 +13,50 @@
 
 ## Recent changes
 
+- **2026-07-20** — **ONE OBJECT: the physical kinds+datasets merge (model
+  unification phase 3; user decision "kinds/tables/templates are one object →
+  full merge, every table becomes a category").** The `datasets` table is
+  DROPPED; `kinds` carries the table facet (`agent_id`, `columns` — a
+  presentation cache kept in lockstep with the template: `columnsFromTemplate`
+  on template edits, `syncFieldsToColumns` on column edits, both pure in
+  `ontology.ts`). Child tables (`dataset_rows`/`dataset_snapshots`/
+  `dataset_relations`/`sheet_links`) keep their column names but reference
+  `kinds(id)`; `lib/datamodo/datasets.ts` remains the table-facet API over
+  kinds; consumers re-pointed (search/review/relations/documents/project/
+  activity/agents + entities/sync/MCP routes); both seeds rewritten (kinds
+  carry the facet, binding passes deleted). Migration
+  `20260720120000_one_object.sql` — idempotent single transaction: auto-promote
+  unbound datasets (slug-collision-suffixed), copy facets (oldest bound wins),
+  drop child FKs BEFORE re-pointing ids (hard lesson: the old FK rejects kind
+  ids while both tables exist), drop `datasets`, re-add FKs at kinds + touch
+  trigger, materialize columns for column-less kinds. Old
+  `20260711100000_datasets_kind_id.sql` gained a to_regclass guard so the
+  migration set stays replayable. **VERIFIED**: tsc/eslint/boundary/`next
+  build` clean; 374/374 tests; fresh-DB `neon/schema.sql` load via
+  `DATAMODO_TEST_DB=1` embedded-db test (2/2, incl. `db push` upgrade path);
+  **applied on the dev Neon branch** (br-bitter-cell): 10 datasets + 27 kinds
+  → 29 kinds (2 auto-promoted: Contacts, Trips), 95 rows / 4 relations with
+  ZERO orphans, entities 123 / facts 353 untouched, re-run no-ops.
+  **⚠️ OWED ON PROD** (apply at promotion). ⚠️ The DEPLOYED dev app runs
+  pre-merge code against the migrated dev DB until this PR lands on `dev` —
+  merge promptly. NOT verified: a browser pass on a deployment running this
+  branch.
+- **2026-07-20** — **Dead-code cleanup (user: "maybe we should do some cleaning
+  before the next feature — do we really need 390 tests? do we have code we
+  don't use anymore?").** Assessment: the test suite is healthy, not bloated —
+  390 tests / ~5.9k LOC vs ~34.6k source LOC (~1:6), ~4s runtime; live tests
+  kept. Dead code found with `dependency-cruiser` (follows this repo's dynamic
+  `await import()` style — `ts-prune` gave false positives, flagging live
+  dynamically-imported code like `reconcileExtraction`). Exactly three modules
+  had ZERO importers and were DELETED (all recoverable from git): dormant graph
+  seams `lib/datamodo/constellation.ts` (the COSMOS cluster/LOD core) and
+  `lib/datamodo/concept-map.ts` (view removed 2026-07-11), plus the leftover
+  `app/dashboard/versioning.tsx` (its version-history job was long ago folded
+  into `control-center.tsx`'s `HistoryPanel`). Their two test files went with
+  them (`constellation.test.ts` 11 tests + `concept-map.test.ts` 5 → 390→374).
+  ~1,000 LOC removed. Docs updated (MEMORY/ROADMAP/STATE/FLOW references marked
+  deleted). Verified: tsc + `next build` clean, 374/374 tests pass, boundary +
+  lint baseline hold.
 - **2026-07-20** — **MCP full write surface — "make Claude chat = datamodo's
   internal chat" (user ask: "give the MCP a lot more power — let the user do
   everything the dashboard does without opening it: create context, templates/

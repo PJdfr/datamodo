@@ -24,13 +24,13 @@ export async function listAgentActivity(
       actor: true,
       summary: true,
       created_at: true,
-      datasets: { select: { name: true } },
+      kinds: { select: { label: true, plural: true } },
     },
     orderBy: { created_at: "desc" },
     take: 60,
   });
   for (const s of snaps) {
-    const dsName = s.datasets?.name;
+    const dsName = s.kinds ? s.kinds.plural?.trim() || `${s.kinds.label}s` : null;
     push(s.actor, {
       id: s.id,
       kind: "applied",

@@ -48,7 +48,7 @@ export async function projectEntitiesToDataset(
   orgId: string,
   opts: { kind: string; datasetId: string; agentName?: string; labelColumn?: string },
 ): Promise<ProjectResult> {
-  const ds = await prisma.datasets.findFirst({
+  const ds = await prisma.kinds.findFirst({
     where: { id: opts.datasetId, org_id: orgId },
     select: { columns: true },
   });

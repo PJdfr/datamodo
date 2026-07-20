@@ -11,17 +11,19 @@ export async function listRelations(orgId: string): Promise<DatasetRelation[]> {
     where: { org_id: orgId },
     orderBy: { created_at: "asc" },
     include: {
-      datasets_dataset_relations_from_dataset_idTodatasets: { select: { name: true } },
-      datasets_dataset_relations_to_dataset_idTodatasets: { select: { name: true } },
+      kinds_from: { select: { label: true, plural: true } },
+      kinds_to: { select: { label: true, plural: true } },
     },
   });
+  const name = (k: { label: string; plural: string | null } | null) =>
+    k ? k.plural?.trim() || `${k.label}s` : "—";
   return rows.map((r) => ({
     id: r.id,
     fromDatasetId: r.from_dataset_id,
-    fromDatasetName: r.datasets_dataset_relations_from_dataset_idTodatasets?.name ?? "—",
+    fromDatasetName: name(r.kinds_from),
     fromColumn: r.from_column,
     toDatasetId: r.to_dataset_id,
-    toDatasetName: r.datasets_dataset_relations_to_dataset_idTodatasets?.name ?? "—",
+    toDatasetName: name(r.kinds_to),
     toColumn: r.to_column,
     label: r.label,
   }));
@@ -46,7 +48,7 @@ export async function createRelation(
   if (fromDatasetId === toDatasetId) throw new Error("A relationship must link two different tables.");
 
   // Confirm the columns exist on each table (defends against stale UI).
-  const dsRows = await prisma.datasets.findMany({
+  const dsRows = await prisma.kinds.findMany({
     where: { id: { in: [fromDatasetId, toDatasetId] } },
     select: { id: true, columns: true },
   });
@@ -162,12 +164,12 @@ export function suggestRelations(
 /** Fetch the org's datasets + accepted rows + existing links and compute suggestions. */
 export async function getRelationSuggestions(orgId: string): Promise<RelationSuggestion[]> {
   const [ds, existing] = await Promise.all([
-    prisma.datasets.findMany({ where: { org_id: orgId }, select: { id: true, name: true, columns: true } }),
+    prisma.kinds.findMany({ where: { org_id: orgId }, select: { id: true, label: true, plural: true, columns: true } }),
     listRelations(orgId),
   ]);
   const datasets = ds.map((d) => ({
     id: d.id,
-    name: d.name,
+    name: d.plural?.trim() || `${d.label}s`,
     columns: (Array.isArray(d.columns) ? (d.columns as SuggestDataset["columns"]) : []),
   }));
   if (datasets.length < 2) return [];

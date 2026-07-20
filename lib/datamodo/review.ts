@@ -37,15 +37,16 @@ function sameValue(a: unknown, b: unknown): boolean {
 
 /** All pending changes in an org, newest first, ready for the review surface. */
 export async function listPendingChanges(orgId: string): Promise<ReviewItem[]> {
-  // Tables (name + columns) for labels and diff shape.
-  const dsData = await prisma.datasets.findMany({
+  // Tables (name + columns) for labels and diff shape. One object: tables ARE
+  // categories, the display name is the plural.
+  const dsData = await prisma.kinds.findMany({
     where: { org_id: orgId },
-    select: { id: true, name: true, columns: true },
+    select: { id: true, label: true, plural: true, columns: true },
   });
   const datasets = new Map(
-    (dsData as { id: string; name: string; columns: unknown }[]).map((d) => [
+    (dsData as { id: string; label: string; plural: string | null; columns: unknown }[]).map((d) => [
       d.id,
-      { name: d.name, columns: (Array.isArray(d.columns) ? d.columns : []) as DatasetColumn[] },
+      { name: d.plural?.trim() || `${d.label}s`, columns: (Array.isArray(d.columns) ? d.columns : []) as DatasetColumn[] },
     ]),
   );
 

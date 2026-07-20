@@ -155,16 +155,16 @@ export async function processItemAttachments(
     })
     .then((rows) => rows.map((a) => ({ name: a.name, purpose: (a.purpose_text ?? "").slice(0, 160) })))
     .catch(() => []);
-  const tables = await prisma.datasets
+  const tables = await prisma.kinds
     .findMany({
       where: { org_id: item.org_id },
-      select: { name: true, columns: true },
+      select: { label: true, plural: true, columns: true },
       orderBy: { updated_at: "desc" },
       take: 8,
     })
     .then((rows) =>
-      rows.map((d) => ({
-        name: d.name,
+      rows.map((d: { label: string; plural: string | null; columns: unknown }) => ({
+        name: d.plural?.trim() || `${d.label}s`,
         columns: (Array.isArray(d.columns) ? (d.columns as { key?: string }[]) : [])
           .map((c) => c.key ?? "")
           .filter(Boolean)

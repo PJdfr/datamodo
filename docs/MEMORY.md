@@ -5,7 +5,7 @@
 > how we work, what we decided and why. Siblings: [STATE.md](STATE.md) ·
 > [FLOW.md](FLOW.md) · [ROADMAP.md](ROADMAP.md).
 >
-> Last updated: 2026-07-17
+> Last updated: 2026-07-20
 
 ## What datamodo is (the aim)
 Turn unstructured personal communications into **structured, reviewable,
@@ -87,9 +87,10 @@ reviewable, nothing is ever silently lost or merged.
   (user call: remove the Cosmos/WOW feature). There is NO separate canvas/WebGL
   showpiece — the Explorer walk + its continuous zoom-out IS the graph surface,
   and the landing hero uses that live Explorer over demo data. The old
-  `constellation.ts` LOD/cluster core (kept "for the Cosmos seam") now has no
-  consumer → dormant, delete after a quiet month;
-  `design/briefs/wow-graph-engine-brief.md` is retired. (Ring grouping, which
+  `constellation.ts` LOD/cluster core (kept "for the Cosmos seam") had no
+  consumer → DELETED 2026-07-20 in a dead-code cleanup (with `concept-map.ts`
+  and the leftover `versioning.tsx`); recover from git if the Cosmos seam is
+  ever revived. `design/briefs/wow-graph-engine-brief.md` is retired. (Ring grouping, which
   had shipped as build-order step 1, stays — it earns its keep in the walk.)
 
 ## Architecture decisions (and why)
@@ -151,10 +152,16 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
     decision): a category IS a table IS a concept-form. The Tables surface is
     a Supabase-style schema diagram (kind cards = columns + FK relation rows,
     lines between them); clicking a card browses its rows as cards; creating
-    a "table" creates the category AND its dataset together (schema-view's
-    "+ new table"). Since 2026-07-11 the binding is STRUCTURAL:
-    `datasets.kind_id` → `kinds.id` (plural-name match is only a fallback for
-    pre-migration rows).
+    a "table" creates the category (which IS its table). **PHYSICAL since
+    2026-07-20 (phase 3, migration `20260720120000_one_object.sql`): the
+    `datasets` table is GONE** — `kinds` carries the table facet (`agent_id`,
+    `columns` = presentation cache of fields+relations, kept in lockstep by
+    `kinds.ts`/`datasets.ts`), `dataset_rows`/`dataset_snapshots`/
+    `dataset_relations`/`sheet_links` keep their column names but reference
+    `kinds(id)`, every table-only import auto-promotes to a category, and
+    deleting a category deletes its rows (cascade). The lib module
+    `datasets.ts` remains as the table-facet API; its `datasetId` params are
+    kind ids.
   - **The Map is REMOVED, not merged** (user decision: useless next to the
     walk). `entities.graph_pin` and its PATCH endpoint remain dormant.
     **Revised 2026-07-13: the walk gained a ZOOM-OUT, but as LAYERS, not a

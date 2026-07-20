@@ -35,12 +35,16 @@ export async function createAgent(
     },
   })) as unknown as AgentRecord;
 
-  // Best-effort: bind existing datasets (by name) to the new agent.
+  // Best-effort: bind existing tables (categories, matched by their display
+  // names — plural or label) to the new agent.
   if (!input.freestyle && input.targetDatasetNames?.length) {
-    await prisma.datasets.updateMany({
+    await prisma.kinds.updateMany({
       where: {
         org_id: orgId,
-        name: { in: input.targetDatasetNames },
+        OR: [
+          { plural: { in: input.targetDatasetNames } },
+          { label: { in: input.targetDatasetNames } },
+        ],
       },
       data: { agent_id: created.id },
     });

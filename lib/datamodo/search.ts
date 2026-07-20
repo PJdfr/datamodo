@@ -65,11 +65,15 @@ export async function searchDatasets(
   const scan = opts.scan ?? 2000; // cap the rows we pull for a single search
   if (terms.length === 0) return { query, terms, total: 0, hits: [] };
 
-  const dsData = await prisma.datasets.findMany({
+  const dsData = await prisma.kinds.findMany({
     where: { org_id: orgId },
-    select: { id: true, name: true, columns: true },
+    select: { id: true, label: true, plural: true, columns: true },
   });
-  const datasets = dsData as { id: string; name: string; columns: DatasetColumn[] | null }[];
+  const datasets = (dsData as { id: string; label: string; plural: string | null; columns: unknown }[]).map((d) => ({
+    id: d.id,
+    name: d.plural?.trim() || `${d.label}s`,
+    columns: (Array.isArray(d.columns) ? d.columns : null) as DatasetColumn[] | null,
+  }));
   if (datasets.length === 0) return { query, terms, total: 0, hits: [] };
   const dsById = new Map(datasets.map((d) => [d.id, d]));
 

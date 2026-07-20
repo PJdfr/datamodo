@@ -33,14 +33,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "That doesn't look like a postgres:// connection string." }, { status: 400 });
   }
 
-  // Ownership + shape: the dataset must belong to the caller's org.
-  const ds = await prisma.datasets.findFirst({
+  // Ownership + shape: the table (kind) must belong to the caller's org.
+  const ds = await prisma.kinds.findFirst({
     where: { id: datasetId, org_id: org.id },
-    select: { id: true, name: true, columns: true },
+    select: { id: true, label: true, plural: true, columns: true },
   });
   if (!ds) return NextResponse.json({ error: "table not found" }, { status: 404 });
   const columns = (Array.isArray(ds.columns) ? ds.columns : []) as unknown as DatasetColumn[];
-  const table = body?.table?.trim() || ds.name;
+  const table = body?.table?.trim() || ds.plural?.trim() || `${ds.label}s`;
 
   const { rows } = await listDatasetRows(datasetId, { limit: MAX_ROWS });
   const result = await postgresWriter.push(
