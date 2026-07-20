@@ -13,6 +13,16 @@
 
 ## Recent changes
 
+- **2026-07-20** — **Tables redesign DESIGNED (docs only, no behavior):** new
+  pickup brief `design/briefs/tables-notion-redesign-brief.md` from the
+  user discussion "do it like Notion handles datasets" — Notion's grammar
+  (row = page, one table many views, typed grid, side peek, saved view
+  config, board + rollups later) on datamodo's fact spine (provenance,
+  review, bitemporal, graph untouched); phases, acceptance criteria,
+  verified code map (the card-wall drill-down AND the existing TanStack
+  `TableDetailModal` unify into one table PAGE), non-goals, and open
+  questions for the user. ROADMAP item rewritten to point at it. Next
+  session picks this up.
 - **2026-07-20** — **Explorer: ONE continuous view, no modes (top UX-overhaul
   item; user call "merge the walk and the layered view — the boundary swap
   reads as weird").** The former 3D walk (`buildEgoGraph`+`depthLayout`, DOM-
