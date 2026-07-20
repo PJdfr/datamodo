@@ -82,9 +82,11 @@ test("datamodo-mode strings: instructions teach the three loops on real tool nam
   // Every tool the instructions reference must exist by that exact name —
   // a rename that forgets this string would strand the client.
   for (const tool of [
-    "extraction_briefing", "submit_extraction", "capture_message",
-    "get_context", "list_facts", "search_documents", "walk_graph",
-    "get_entity", "pending_reviews", "resolve_review",
+    "extraction_briefing", "submit_extraction", "run_extraction", "list_commits",
+    "get_context", "list_facts", "search_documents", "walk_graph", "get_entity",
+    "list_pull_requests", "resolve_pull_request",
+    "create_category", "suggest_category_template", "update_category",
+    "set_context", "create_agent", "update_agent", "set_agent_status",
   ]) {
     assert.ok(MCP_INSTRUCTIONS.includes(tool), `instructions mention ${tool}`);
   }

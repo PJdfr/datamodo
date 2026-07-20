@@ -9,9 +9,40 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-17
+> Last updated: 2026-07-20
 
 ## Recent changes
+
+- **2026-07-20** — **MCP full write surface — "make Claude chat = datamodo's
+  internal chat" (user ask: "give the MCP a lot more power — let the user do
+  everything the dashboard does without opening it: create context, templates/
+  tables… and run the extraction for us, show what got merged + the pull
+  requests").** Phase 1 of a two-phase plan (approved: MCP first, then the
+  physical kinds+datasets merge — see ROADMAP "Model unification phase 3").
+  Added to `app/api/mcp/[transport]/route.ts` (serverInfo → 1.2.0), all thin
+  org-scoped wrappers over the SAME server functions the dashboard uses:
+  STRUCTURE & CONTEXT — `create_category` (category = table = template in one
+  call; materializes the bound table via new shared `materializeKindTable`,
+  factored out of `POST /api/kinds/[id]/table`), `suggest_category_template`,
+  `update_category` (partial-safe: defaults unspecified template fields to
+  current so a partial call never wipes it), `delete_category` (guarded),
+  `set_context` (`saveOnboarding`), `list_agents`, `create_agent` (new shared
+  `createAgentGuarded` — same plan entitlements as `createAgentAction`),
+  `update_agent`/`set_agent_status`/`delete_agent` (each re-checks org
+  ownership since the agent-mutation fns aren't org-scoped; delete guarded).
+  CHAT PARITY — `run_extraction` (ingest + synchronous `runExtractionForItem`,
+  returns what landed), `list_commits` (commit log via new import-free-core
+  shell `lib/datamodo/timeline-load.ts` `loadCommitLog`, refactored out of the
+  timeline route), and reviews reframed as PULL REQUESTS: `list_pull_requests`
+  (`listPendingReviews` with evidence) + `resolve_pull_request` (replaces
+  `resolve_review`). `MCP_INSTRUCTIONS` rewritten to teach the loops on the new
+  tool names. Refactors are behavior-preserving (materializeKindTable /
+  loadCommitLog are the routes' prior logic moved to shared lib; the routes
+  still work). **Verified**: `tsc --noEmit` clean, eslint clean, `lint:boundary`
+  (0 violations, 264 modules), `next build` clean (the MCP route compiles),
+  379/379 unit tests (updated `tests/mcp.test.ts` tool-name guard to the renamed
+  tools). NOT verified: a live transport-level MCP exercise against the running
+  app (needs a deployed preview + bearer token) — recommended next.
 - **2026-07-17** — **Cardinality close-out before PR (user: "finish all
   features related to this").** ① Categories template editor: cardinality is
   a toggle ON the chip — fields get "≡ list" (single ↔ list), relations "1"
