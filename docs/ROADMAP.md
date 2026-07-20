@@ -32,12 +32,15 @@
 
 ## Product direction — UX overhaul (user, 2026-07-20)
 Big-rock UX work queued after the model merge (Phase 3). Ordered by user emphasis.
-- **Explorer: one continuous view, no modes.** Merge the base walk view and the
-  layered/zoom-out view into a SINGLE view — today the walk↔layered boundary is
-  a swap (3D perspective ↔ 2D wheel) and the transition reads as "weird". One
-  representation from fully-zoomed-in to fully-out. And **improve the overall
-  zoom/dezoom feel on the cards** (the motion + how cards scale/settle).
-  (`app/dashboard/explorer-view.tsx`, `buildLayeredEgo`/`explorer.ts`.)
+- ~~**Explorer: one continuous view, no modes.**~~ ✅ 2026-07-20 — the
+  walk↔layered swap is gone: ONE representation from fully-zoomed-in to
+  fully-out (`continuousLayout` — depth is a dimension of the wheel: walk look
+  at zoom 2, flattening continuously as you pull out; edges = projected pure
+  positions, no DOM measuring; recenter-in-place with spread/glide motion at
+  every depth). Card feel improved at walk depth (spacious low-zoom wheel,
+  leading center card, stronger edges). Still open for the design pass:
+  mid-zoom card density/typography at small scales (pre-existing; see the
+  layered-view note below).
 - **Remove the separate "⊛ Graph" (sigma) view.** The whole-vault sigma canvas
   (`graph-view.tsx`) is redundant once the Explorer is the one graph surface —
   plan to drop it. (Confirm nothing else depends on it first.)

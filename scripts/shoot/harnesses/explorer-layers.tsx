@@ -1,6 +1,6 @@
-// Harness: the Explorer's zoom-out — wheel events fire after mount, so the
-// shot catches the LAYERED view (fixed-bearing rings, deeper hops, the
-// unlinked outer ring) instead of the walk.
+// Harness: the Explorer zoomed OUT — wheel events fire after mount, so the
+// shot catches the same continuous view a few rings deep (fixed bearings,
+// deeper hops, the unlinked outer ring) instead of the walk-depth front door.
 // Run: npm run shoot -- explorer-layers
 
 import { createRoot } from "react-dom/client";
@@ -41,14 +41,12 @@ createRoot(document.getElementById("root")!).render(
 );
 
 // Scroll out over the walk (events bubble from the center card to the canvas
-// listener). Zoom is CONTINUOUS — each deltaY 160 adds 0.5 (SENS 1/320): walk
-// → 2.5 → 3.0 → 3.5, HELD at a fraction (no auto-snap) so the shot catches the
+// listener). Zoom is CONTINUOUS — each deltaY 160 adds ~0.53 (SENS 1/300):
+// 2 → ~3.6, HELD at a fraction (no auto-snap) so the shot catches the
 // outermost ring emerging from the center with its edges drawing outward.
 window.setTimeout(() => {
   for (let i = 0; i < 3; i++) {
     window.setTimeout(() => {
-      // Re-query per event: the walk's center card unmounts once the layers
-      // take over — a detached target would swallow the event.
       const target = document.querySelector('[aria-label*="you are here"]');
       if (!target) throw new Error("center card not found");
       target.dispatchEvent(new WheelEvent("wheel", { deltaY: 160, bubbles: true, cancelable: true }));

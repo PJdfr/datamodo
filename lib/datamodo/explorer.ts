@@ -258,64 +258,7 @@ export function buildEgoGraph(
   return { center: nodes[0], nodes, edges, truncated: hop1Dropped + hop2.dropped, parentOf };
 }
 
-// --- Radial layout ---------------------------------------------------------------
-
-export interface EgoPos {
-  x: number;
-  y: number;
-}
-
-/**
- * Concentric layout: center in the middle, hop-1 on an inner ring, hop-2 on an
- * outer ring near the hop-1 node that pulled it in. Deterministic — no
- * randomness, stable between renders for the same graph.
- */
-export function radialLayout(graph: EgoGraph, width: number, height: number): Record<string, EgoPos> {
-  const cx = width / 2;
-  const cy = height / 2;
-  const r1 = Math.min(width, height) * 0.28;
-  const r2 = Math.min(width, height) * 0.46;
-  const pos: Record<string, EgoPos> = { [graph.center.id]: { x: cx, y: cy } };
-
-  const hop1 = graph.nodes.filter((n) => n.hop === 1);
-  const hop2 = graph.nodes.filter((n) => n.hop === 2);
-
-  const angleOf = new Map<string, number>();
-  hop1.forEach((n, i) => {
-    const a = (i / Math.max(1, hop1.length)) * Math.PI * 2 - Math.PI / 2;
-    angleOf.set(n.id, a);
-    pos[n.id] = { x: cx + Math.cos(a) * r1, y: cy + Math.sin(a) * r1 * 0.82 };
-  });
-
-  // Every hop-2 node sits in the angular sector of the hop-1 node that
-  // introduced it (graph.parentOf — computed by buildEgoGraph).
-  const bySector = new Map<string, string[]>();
-  for (const n of hop2) {
-    const parent = graph.parentOf[n.id] ?? hop1[0]?.id;
-    if (!parent) continue;
-    if (!bySector.has(parent)) bySector.set(parent, []);
-    bySector.get(parent)!.push(n.id);
-  }
-  for (const [parent, ids] of bySector) {
-    const base = angleOf.get(parent) ?? -Math.PI / 2;
-    ids.forEach((id, i) => {
-      // Fan the children symmetrically around the parent's angle.
-      const spread = Math.min(0.5, 0.16 * ids.length);
-      const a = base + (ids.length === 1 ? 0 : -spread + (i / (ids.length - 1)) * spread * 2);
-      pos[id] = { x: cx + Math.cos(a) * r2, y: cy + Math.sin(a) * r2 * 0.82 };
-    });
-  }
-  return pos;
-}
-
-// --- Depth layout (Explorer v2 — the 3D graph walk) --------------------------
-// Design handoff "Datamodo Explorer v2": the neighborhood lives in a CSS
-// perspective depth field — center forward, hop-1 on the datum plane, hop-2
-// pushed back (smaller, hazier). This is the pure math for it; the view only
-// applies the transforms. Deterministic, unit-tested; `reduced` flattens all
-// z to 0 (the prefers-reduced-motion 2D radial).
-
-// --- Layered ego (the Explorer's zoom-out) -----------------------------------
+// --- Layered ego (the Explorer's rings) --------------------------------------
 // "Zoom out = more layers" (user decision 2026-07-13, replacing the physics
 // map): the whole reachable world as concentric BFS rings around the CENTER.
 // Every node gets a PERMANENT bearing via deterministic wedge subdivision (a
@@ -357,6 +300,9 @@ export interface LayeredOptions {
   maxChildren?: number;
   /** Cap on the unlinked outer ring (overflow folds into a chip too). */
   maxUnlinked?: number;
+  /** Nodes that must stay visible (e.g. the nodes an answer cited): they rank
+   *  first among a parent's children, so per-parent folding never hides them. */
+  prefer?: Set<string>;
 }
 
 export function buildLayeredEgo(
@@ -370,9 +316,11 @@ export function buildLayeredEgo(
   if (!byId.has(centerId)) return null;
   const adj = buildAdjacency(entities);
   const rank = (id: string) => byId.get(id)?.edges ?? 0;
+  const preferred = (id: string) => (opts.prefer?.has(id) ? 1 : 0);
   const sortIds = (ids: Iterable<string>) =>
     [...ids].sort(
       (a, b) =>
+        preferred(b) - preferred(a) ||
         rank(b) - rank(a) ||
         (byId.get(a)?.label ?? "").localeCompare(byId.get(b)?.label ?? "") ||
         a.localeCompare(b),
@@ -550,140 +498,158 @@ export function buildLayeredEgo(
   return { center: nodes[0], nodes, edges, maxHop };
 }
 
+// --- Continuous layout (ONE view, walk → whole world) ------------------------
+// User call 2026-07-20: the walk and the layered zoom-out are ONE continuous
+// representation — no modes, no swap. `continuousLayout` is the single
+// geometry: `zoom` is a continuous ring count (≥ 2); floor(zoom) rings are
+// landed, the fraction emerges the next ring from the center (blurred, growing
+// out, edges drawing with it). DEPTH is a dimension of the SAME wheel — at
+// zoom 2 the center sits forward (z = centerZ), ring 1 rides the datum plane
+// and the frontier ring hangs back blurred (the old walk's depth field,
+// exactly); pulling out flattens every z continuously toward the 2D wheel.
+// Deterministic: bearings come from buildLayeredEgo and never change; zoom
+// only rescales radii, scales and depths — nothing can wiggle.
+
 export const DEPTH = {
   perspective: 1250,
+  /** The CSS perspective-origin y (fraction of the canvas height). */
+  originY: 0.46,
+  /** The center card's forward lift at zoom 2 (flattens as you pull out). */
   centerZ: 150,
-  hop1Z: 0,
-  hop2Z: -230,
-  /** Purely-decorative third ring: blank card silhouettes pushed deep behind
-   *  hop-2 on a wider ellipse — atmosphere only, never interactive, and only
-   *  in the 3D mode (the reduced-motion 2D radial drops it). */
+  /** The blurred frontier ring's setback (ditto). */
+  frontierZ: -230,
+  /** Purely-decorative ghost silhouettes pushed deep behind the frontier —
+   *  atmosphere only, never interactive; they fade away past walk depth. */
   hop3Z: -430,
-  /** hop-2 fans ± this many degrees around its parent's bearing. */
-  hop2SpreadDeg: 34,
-  /** Elliptical ring radii — x as a fraction of the canvas WIDTH, y of its
-   *  HEIGHT (cards are wide, canvases are short; each axis fills its room). */
-  r1x: 0.34,
-  r1y: 0.34,
-  r2x: 0.52,
-  r2y: 0.46,
   r3x: 0.66,
   r3y: 0.6,
 } as const;
 
-export interface DepthPos {
+export interface ContinuousPos {
+  /** Offsets from the canvas center; z is depth (positive = toward you). */
   x: number;
   y: number;
   z: number;
-  hop: 0 | 1 | 2;
-  /** Who introduced this node (enter-from-parent flies in from here). */
-  parent: string | null;
-  /** Bearing on the ring, degrees (-90 = straight up). */
-  angleDeg: number;
-  /** Index within its ring/cluster — drives the enter stagger. */
-  ring: number;
+  scale: number;
+  blur: number;
+  op: number;
+  hop: number;
 }
 
 /**
- * The walk's bearings, sourced from the LAYERED layout so the zoom-out is a
- * continuation, not a re-shuffle: a card at some angle in the walk stays at
- * that angle when the layers unfold. Walk-only "+N more" kind-chips (absent
- * from the layered graph) take the circular mean of their members' layered
- * bearings; chips whose members are all folded away borrow the layered chip
- * on the same parent, fanned a little apart when several need it.
+ * Positions for every VISIBLE node at a continuous `zoom` (ring count ≥ 2):
+ * rings past the emerging frontier are absent from the map. Pure and
+ * deterministic; `reduced` flattens all z to 0 (prefers-reduced-motion).
  */
-export function layeredAngles(layered: LayeredEgo | null, walk: EgoGraph | null): Map<string, number> {
-  const m = new Map<string, number>();
-  if (!layered || !walk) return m;
-  for (const n of layered.nodes) if (n.hop > 0) m.set(n.id, n.angleDeg);
-  const orphans: string[] = [];
-  for (const n of walk.nodes) {
-    if (!n.clusterOf || m.has(n.id)) continue;
-    const pts = n.clusterOf
-      .map((id) => m.get(id))
-      .filter((a): a is number => a !== undefined)
-      .map((a) => (a * Math.PI) / 180);
-    const x = pts.reduce((s, a) => s + Math.cos(a), 0);
-    const y = pts.reduce((s, a) => s + Math.sin(a), 0);
-    if (pts.length && (x || y)) m.set(n.id, (Math.atan2(y, x) * 180) / Math.PI);
-    else orphans.push(n.id);
-  }
-  // All members folded on the layered side too: sit by the layered chip.
-  const hostChip = layered.nodes.find((c) => c.clusterOf && c.parent === walk.center.id);
-  orphans.forEach((id, i) => {
-    if (hostChip) m.set(id, hostChip.angleDeg + (i - (orphans.length - 1) / 2) * 16);
-  });
-  return m;
-}
-
-/**
- * Positions for the depth field, scaled to the canvas. Offsets are from the
- * canvas CENTER (the view translates them). Sparse hop-1 rings (1–2 nodes)
- * fan across the upper arc instead of leaving a lonely dot — per the design.
- * `angles` (id → degrees) overrides a node's bearing — the view passes
- * `layeredAngles` so the walk and the zoom-out share one bearing per node.
- */
-export function depthLayout(
-  graph: EgoGraph,
+export function continuousLayout(
+  graph: LayeredEgo,
+  zoom: number,
   width: number,
   height: number,
   reduced = false,
-  angles?: ReadonlyMap<string, number>,
-): Record<string, DepthPos> {
-  const r1x = width * DEPTH.r1x;
-  const r1y = height * DEPTH.r1y;
-  const r2x = width * DEPTH.r2x;
-  const r2y = height * DEPTH.r2y;
+): Map<string, ContinuousPos> {
+  const K = Math.max(2, Math.floor(zoom));
+  const f = Math.max(0, Math.min(1, zoom - K));
+  const eo = 1 - Math.pow(1 - f, 2); // emerge easing — decelerates as it lands
+  const counts = new Map<number, number>();
+  for (const n of graph.nodes) counts.set(n.hop, (counts.get(n.hop) ?? 0) + 1);
 
-  const pos: Record<string, DepthPos> = {
-    [graph.center.id]: {
-      x: 0, y: 0, z: reduced ? 0 : DEPTH.centerZ, hop: 0, parent: null, angleDeg: 0, ring: 0,
-    },
+  // The static wheel for an INTEGER ring count KK — position/scale/depth/haze
+  // per hop. The continuous view LERPs two of these (KK = K and K+1), so this
+  // closure stays the one place the wheel's rules live.
+  const wheelGeom = (KK: number) => {
+    const focus = Math.max(1, KK - 1);
+    // Depth flattens as the wheel grows: full at KK = 2 (the walk), → 0 far out.
+    const flat = reduced ? 0 : 1 / (1 + 0.5 * (KK - 2));
+    const ringScale = (hop: number) => (hop >= KK ? 0.72 : Math.max(0.45, Math.pow(0.8, focus - hop)));
+    const estH = (hop: number) => (hop === 0 ? 120 : 96) * ringScale(hop);
+    const radial: number[] = [0];
+    for (let k = 1; k <= KK + 1; k++) radial[k] = radial[k - 1] + (estH(k - 1) + estH(k)) / 2 + 16;
+    // A sparse wheel SPREADS into the free canvas (the walk's spacious depth
+    // field — at KK=2 the frontier may even run past the edge, into the fog);
+    // a deep wheel packs to fit. `fit` scales radii; cards themselves ride
+    // `sMul`, capped near 1 so breathing room grows the RINGS, not the type.
+    const fitMax = Math.max(1, 1.35 - 0.35 * (KK - 2));
+    const fit = Math.min(fitMax, (height / 2 - 44) / radial[KK]);
+    const xMargin = KK <= 2 ? -110 : 70;
+    const sxF = Math.min((width / 2 - xMargin) / radial[KK], fit * 1.8);
+    const sMul = Math.min(fit, 1.1);
+    const crowdOf = (k: number) => {
+      const c = counts.get(k) ?? 1;
+      return k === 0 ? 1 : Math.max(0.45, Math.min(1, (2 * Math.PI * radial[Math.min(k, KK + 1)] * sxF) / (c * 165 * ringScale(k) * sMul)));
+    };
+    const rawS = (hop: number) => ringScale(hop) * crowdOf(hop);
+    const focusS = rawS(focus);
+    // The center leads the wheel near walk depth (the big you-are-here card),
+    // then hands the lead to the focus ring as the world grows around it.
+    const centerF = Math.min(1, Math.max(Math.pow(0.82, focus), 1 - 0.28 * (KK - 2)));
+    const scaleOf = (hop: number) =>
+      (hop === 0
+        ? focusS * centerF
+        : hop === focus
+        ? focusS
+        : Math.min(rawS(hop), focusS * (hop > focus ? 0.85 : Math.pow(0.82, focus - hop)))) * sMul;
+    const posOf = (hop: number, angleDeg: number) => {
+      const r = radial[Math.min(hop, KK + 1)] ?? 0;
+      const rad = (angleDeg * Math.PI) / 180;
+      return { x: Math.cos(rad) * r * sxF, y: Math.sin(rad) * r * fit };
+    };
+    const zOf = (hop: number) =>
+      hop === 0
+        ? DEPTH.centerZ * flat
+        : hop >= KK
+        ? DEPTH.frontierZ * flat
+        : (-90 * flat * (hop - 1)) / Math.max(1, KK - 2);
+    const blurOf = (hop: number) => (reduced || hop < KK ? 0 : 1.4);
+    const opOf = (hop: number) => (hop < KK ? 1 : 0.9);
+    return { scaleOf, posOf, zOf, blurOf, opOf };
   };
 
-  const hop1 = graph.nodes.filter((n) => n.hop === 1);
-  const hop2 = graph.nodes.filter((n) => n.hop === 2);
-  const bearing = new Map<string, number>();
+  const gLo = wheelGeom(K);
+  const gHi = wheelGeom(K + 1);
+  const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
-  hop1.forEach((n, i) => {
-    let deg: number;
-    if (hop1.length === 1) deg = -90;
-    else if (hop1.length === 2) deg = -140 + i * 100; // gentle upper arc
-    else deg = -90 + (i * 360) / hop1.length;
-    deg = angles?.get(n.id) ?? deg;
-    bearing.set(n.id, deg);
-    const rad = (deg * Math.PI) / 180;
-    pos[n.id] = {
-      x: Math.cos(rad) * r1x,
-      y: Math.sin(rad) * r1y,
-      z: DEPTH.hop1Z,
-      hop: 1, parent: graph.center.id, angleDeg: deg, ring: i,
-    };
-  });
+  const out = new Map<string, ContinuousPos>();
+  for (const n of graph.nodes) {
+    if (n.hop > K + (f > 0 ? 1 : 0)) continue; // past the emerging frontier — hidden
+    if (n.hop <= K) {
+      const a = gLo.posOf(n.hop, n.angleDeg);
+      const b = gHi.posOf(n.hop, n.angleDeg);
+      out.set(n.id, {
+        x: lerp(a.x, b.x, f),
+        y: lerp(a.y, b.y, f),
+        z: lerp(gLo.zOf(n.hop), gHi.zOf(n.hop), f),
+        scale: lerp(gLo.scaleOf(n.hop), gHi.scaleOf(n.hop), f),
+        blur: lerp(gLo.blurOf(n.hop), gHi.blurOf(n.hop), f),
+        op: lerp(gLo.opOf(n.hop), gHi.opOf(n.hop), f),
+        hop: n.hop,
+      });
+    } else {
+      // The emerging ring: travels out from the center, growing + fading in.
+      const b = gHi.posOf(n.hop, n.angleDeg);
+      const s = gHi.scaleOf(n.hop);
+      out.set(n.id, {
+        x: b.x * eo,
+        y: b.y * eo,
+        z: gHi.zOf(n.hop),
+        scale: lerp(s * 0.5, s, eo),
+        blur: gHi.blurOf(n.hop),
+        op: gHi.opOf(n.hop) * eo,
+        hop: n.hop,
+      });
+    }
+  }
+  return out;
+}
 
-  // hop-2 clusters around the bearing of the hop-1 node that introduced it.
-  const kidsByParent = new Map<string, string[]>();
-  for (const n of hop2) {
-    const p = graph.parentOf[n.id] ?? hop1[0]?.id;
-    if (!p) continue;
-    if (!kidsByParent.has(p)) kidsByParent.set(p, []);
-    kidsByParent.get(p)!.push(n.id);
-  }
-  for (const [pid, kids] of kidsByParent) {
-    const baseDeg = bearing.get(pid) ?? -90;
-    kids.forEach((id, i) => {
-      // A lone child steps 14° aside so it peeks out from behind its parent
-      // instead of hiding exactly on its bearing.
-      const spread = kids.length === 1 ? 14 : ((i / (kids.length - 1)) - 0.5) * 2 * DEPTH.hop2SpreadDeg;
-      const deg = angles?.get(id) ?? baseDeg + spread;
-      const rad = (deg * Math.PI) / 180;
-      pos[id] = {
-        x: Math.cos(rad) * r2x,
-        y: Math.sin(rad) * r2y,
-        z: reduced ? 0 : DEPTH.hop2Z,
-        hop: 2, parent: pid, angleDeg: deg, ring: i,
-      };
-    });
-  }
-  return pos;
+/**
+ * Where a card at (x, y, z) — offsets from the canvas center — lands on the
+ * canvas after the CSS perspective projection (origin 50% / originY). The edge
+ * layer draws with these, so lines meet cards exactly without measuring the
+ * DOM. Returns ABSOLUTE canvas coordinates; z = 0 is the identity.
+ */
+export function projectDepth(x: number, y: number, z: number, width: number, height: number): { x: number; y: number } {
+  const s = DEPTH.perspective / (DEPTH.perspective - z);
+  const oy = height * DEPTH.originY;
+  return { x: width / 2 + x * s, y: oy + (height / 2 + y - oy) * s };
 }
