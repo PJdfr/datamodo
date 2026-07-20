@@ -44,11 +44,22 @@ Big-rock UX work queued after the model merge (Phase 3). Ordered by user emphasi
 - **Remove the separate "⊛ Graph" (sigma) view.** The whole-vault sigma canvas
   (`graph-view.tsx`) is redundant once the Explorer is the one graph surface —
   plan to drop it. (Confirm nothing else depends on it first.)
-- **Tables tab UI — a real spreadsheet, not a card wall.** Clicking a table
-  currently just shows a collection of cards → little added value. Redesign: a
-  table opens into an **Excel-like grid** (fast, editable, keyboard-navigable),
-  and fix **open/load speed** (rows lazy-load today; profile + tighten).
-  (`app/dashboard/control-center.tsx` table editor + `datasets.ts` reads.)
+- **Tables tab UI — Notion's grammar on the fact spine** (DESIGNED 2026-07-20,
+  ready to build — full pickup brief:
+  [`design/briefs/tables-notion-redesign-brief.md`](../design/briefs/tables-notion-redesign-brief.md)).
+  Decision from discussion: adopt Notion's presentation grammar (row = page,
+  one table many VIEWS, typed grid, side peek) without its storage model —
+  cells stay facts with provenance. Phase 1: a table opens into a PAGE (not
+  the modal): virtualized keyboard-navigable typed GRID (windowed fetch fixes
+  open/load speed) + row click → `EntityPageBody` SIDE PEEK + Cards demoted to
+  a view-switcher option + per-table saved view config (localStorage, no
+  schema change) + provenance dots; absorbs `TableDetailModal`'s snapshots/
+  proposals/sync-out and deletes it. Phase 2: Board view (group by one-valued
+  field/relation; drag = a fact edit through normal supersession/review) +
+  deterministic rollup columns (zero LLM). Non-goals decided: no per-table
+  calendar/timeline, no formulas (Insights' job), no linked views, no true
+  spreadsheet semantics. (`control-center.tsx` `TableDetailModal` +
+  `knowledge-view.tsx`/`schema-view.tsx` drill-down + `datasets.ts` reads.)
 - **Review / Pull Requests — make it intuitive for non-technical users.** The
   accept/reject/merge/conflict loop still feels technical. Rework the language,
   visuals, and flow so a non-dev understands "what is datamodo asking me and
