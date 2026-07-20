@@ -75,11 +75,17 @@ Big-rock UX work queued after the model merge (Phase 3). Ordered by user emphasi
   Sheets follows the same seam once a Google OAuth app exists (ops blocker,
   not code). Non-goals: no live two-way background sync, no stored tokens in
   phase 1, no ungated knowledge writes.
-- **Review / Pull Requests — make it intuitive for non-technical users.** The
-  accept/reject/merge/conflict loop still feels technical. Rework the language,
-  visuals, and flow so a non-dev understands "what is datamodo asking me and
-  why" at a glance. (`review-studio.tsx`, `review-card.tsx`, the chat PR bubble,
-  and the MCP `list_pull_requests` framing.)
+- **Review / Pull Requests — make it intuitive for non-technical users.**
+  ~~Studio pass~~ ✅ 2026-07-20 (user call "source first, then what
+  accept/refuse do — super simple"): expanding a row now reads question →
+  "why you're being asked" (triggering message/document/pattern, snippet
+  quoted) → two clickable choice cards stating each future in one breath;
+  evidence + graph behind a disclosure. Plain-language copy is the pure
+  `review-explain.ts` core (per-kind, tested) so words can't drift from the
+  real side-effects. STILL open: bring the same three-beat language to the
+  chat "needs your OK" bubble (it still leads with the dense evidence body)
+  and to the MCP `list_pull_requests` framing; revisit the collapsed row's
+  mono diff-line syntax for non-devs.
 - **Overall UI redesign using the datamodo-design skill(s).** A cohesive pass
   over the whole app surface with the locally-installed design skills as the
   source of truth (brand, tokens, components).
