@@ -9,9 +9,32 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-17
+> Last updated: 2026-07-19
 
 ## Recent changes
+- **2026-07-19** — **Dev mode: full pipeline traces (user: "see everything
+  that happens when a user interacts — model, prompt, context, how we found
+  it, the answer, how it's processed and stored").** New transparency layer:
+  when dev mode is on (`DEV_TRACE=1`; default ON outside production), every
+  extraction run records its whole story as a timestamped step list to
+  `items.meta.dev_trace` and mirrors compact `[trace <id>]` lines to the
+  server log — gate decision, addressed/auto-routing with candidates+terms,
+  the shared message embedding, context assembly (categories, business
+  context, primed known entities with sims, concept leash), EVERY LLM call
+  with full system+user prompts and the raw JSON reply (a `wrapLlm` provider
+  decorator catches extract/escalate/classify/distill/vision/adjudication at
+  one chokepoint), and the storage narration (reconcile stats, per-entity
+  resolution tier — new `ResolveVia` on `resolveEntity` — and per-fact
+  outcomes with claim keys). Chat gets a "⌁ trace" pill per message opening a
+  timeline viewer (`trace-modal.tsx`); `GET /api/items/[id]/trace` serves any
+  item. Bounded (20k/string, 400k/trace, marked truncation), zero-cost NOOP
+  when off, fail-soft persist. VERIFIED: 390 unit tests pass (9 new on the
+  pure tracer core), tsc + build green, lint 7/15 (baseline lowered 16→15),
+  and live E2E on the local edition + mock Ollama — first message yields an
+  18-step trace (prompt shows the priming block), the follow-up shows
+  `exact-key` resolution and the $250→$300 `superseded` outcome, Playwright
+  confirms pills + modal render with zero page errors. FLOW.md untouched
+  (observability only — no pipeline behavior change).
 - **2026-07-17** — **Cardinality close-out before PR (user: "finish all
   features related to this").** ① Categories template editor: cardinality is
   a toggle ON the chip — fields get "≡ list" (single ↔ list), relations "1"

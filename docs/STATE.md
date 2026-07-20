@@ -5,7 +5,7 @@
 > infographic), [ROADMAP.md](ROADMAP.md) (what's next), [MEMORY.md](MEMORY.md)
 > (durable context). Dated history stays in [../PROJECT_STATE.md](../PROJECT_STATE.md).
 >
-> Last updated: 2026-07-17
+> Last updated: 2026-07-19
 
 ## Stack at a glance
 
@@ -67,6 +67,7 @@
 | AI-drafted category templates + one-click category→table (**structural binding**: `datasets.kind_id` → `kinds.id`, set on create/adopt; plural-name match is only a pre-migration fallback) | `suggestKindTemplate` in `kinds.ts`, `app/api/kinds/suggest`, `app/api/kinds/[id]/table`, `datasetForKind` in `app/dashboard/schema-view.tsx`, `neon/migrations/20260711100000_datasets_kind_id.sql` |
 | Off-template review routing (drops become reviews; accept = replay through ingest) | `restrictExtractionToTemplates`/`buildOffTemplateReview` in `ontology.ts`, `createOffTemplateReview` in `knowledge.ts`, accept in `reviews.ts` |
 | `extraction_version` stamp + delta requeue endpoint | `EXTRACTION_VERSION` in `extract.ts`, `app/api/jobs/extract-requeue/route.ts` |
+| **Dev mode — full pipeline traces (2026-07-19, user ask: "see everything that happens when I interact")** — when dev mode is on (`DEV_TRACE=1`, or by default outside production), every extraction run records its WHOLE story to `items.meta.dev_trace` + mirrors compact `[trace <id>]` lines to the server log: item/channel/sender → text loaded → triviality gate → addressed/auto-routing (candidates + matched terms) → the ONE message embedding (dims, ms) → context assembly (categories, business context, relevance-primed known entities WITH sims, concept leash) → EVERY LLM call via a provider decorator (`wrapLlm` — full system+user prompts, raw JSON response, model, duration; catches extract, escalation, doc classify/distill, vision, adjudication at one chokepoint) → extraction result (confidence, escalated) → storage narration from `ingestExtraction` (reconcile stats, per-entity resolution tier `exact-key`/`trigram`/`adjudicated`/`new`/`new+merge-proposed` via `ResolveVia`, per-fact outcomes new/re-observed/superseded/held with claim keys) → agent-lens stamp → reviews filed → parse reply. Bounded by construction (20k chars/string, 400k/trace, truncation always marked); NOOP tracer when off = zero cost. Chat surfaces it: GET /api/chat returns `dev` + per-message `hasTrace`, each bubble gets a "⌁ trace" pill opening the timeline viewer (stage-tinted steps, expandable full payloads, LLM steps carry the coral). Trace read route works for ANY item (email/WhatsApp/… — UI on those surfaces later). Verified live E2E on the local edition + mock Ollama: 18-step trace on first message, `exact-key` resolution + `superseded` amount on the follow-up, Playwright modal screenshots clean | pure `lib/datamodo/trace-core.ts` (`createTracer`/`wrapLlm`/`NOOP_TRACER`, +`tests/trace.test.ts`), shell `lib/datamodo/trace.ts` (`devTraceEnabled`/`startItemTrace`/`persistItemTrace`), instrumentation in `extract.ts` `runExtractionForItem` + `knowledge.ts` `ingestExtraction` (`opts.trace`, `ResolveVia`), route `app/api/items/[id]/trace`, viewer `app/dashboard/trace-modal.tsx`, pill in `chat-view.tsx` + `dev`/`hasTrace` in `app/api/chat` |
 
 ### Knowledge layer (canonical store)
 | Feature | Code |
@@ -144,6 +145,8 @@
 **MCP (optional):** `MCP_TOKEN_SECRET` (falls back to `NEON_AUTH_COOKIE_SECRET` — always set in real deployments; rotating it revokes every issued token).
 
 **Web:** `NEXT_PUBLIC_SITE_URL` (sitemap/OG).
+
+**Dev observability:** `DEV_TRACE` — full pipeline traces per item (prompts, context, LLM replies, storage outcomes → `items.meta.dev_trace` + `[trace]` server-log lines + the chat "⌁ trace" pill). Unset = ON outside production, OFF in prod; `1`/`true` forces on (e.g. Vercel Preview), `0`/`false` forces off. Traces contain full prompts/message text — leave off in prod unless debugging.
 
 ## Verification bar (what "shipped" means here)
 Unit tests on every pure core (`npm test`), `tsc` clean, `next build` green,
