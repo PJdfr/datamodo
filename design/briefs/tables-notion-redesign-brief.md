@@ -5,6 +5,18 @@
 > "Tables tab UI — a real spreadsheet, not a card wall". A fresh session should
 > be able to execute Phase 1 from this brief without re-deriving decisions.
 > Load the `datamodo-design` skill before building any of these surfaces.
+>
+> **PHASE 1 EXECUTED 2026-07-20** (same day, follow-up session) — see the
+> STATE.md "Table page" row for what shipped (`app/dashboard/table-page.tsx`
+> + pure core `lib/datamodo/table-view.ts`). Deviations from the letter of
+> this brief, decided while building: (1) Cards view renders the table's ROWS
+> as cards (one data source, works for entity-less rows) rather than reusing
+> the deleted `EntityCard` — the fact/provenance richness lives in the side
+> peek; (2) the open questions below were answered with the recommended
+> options (peek on click + "Full page ›"; text quick-filter; "+ new table"
+> lands in the empty grid); (3) sorting rides TanStack's sorted row model
+> with the pure `compareCells` as sortingFn. Phase 2 (Board + rollups)
+> remains open on the ROADMAP.
 
 ## The decision (user-aligned)
 

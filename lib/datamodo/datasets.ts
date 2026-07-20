@@ -192,15 +192,15 @@ export async function listDatasetRows(
   const [data, count] = await Promise.all([
     prisma.dataset_rows.findMany({
       where,
-      select: { id: true, data: true, human_edited: true },
+      select: { id: true, data: true, human_edited: true, subject_entity_id: true, created_by: true },
       orderBy: { created_at: "asc" },
       skip: offset,
       take: limit,
     }),
     prisma.dataset_rows.count({ where }),
   ]);
-  const rows = (data as { id: string; data: Record<string, unknown>; human_edited: boolean }[]).map(
-    (r) => ({ id: r.id, data: r.data ?? {}, humanEdited: r.human_edited }),
+  const rows = (data as { id: string; data: Record<string, unknown>; human_edited: boolean; subject_entity_id: string | null; created_by: string | null }[]).map(
+    (r) => ({ id: r.id, data: r.data ?? {}, humanEdited: r.human_edited, subjectEntityId: r.subject_entity_id, createdBy: r.created_by }),
   );
   return { rows, total: count ?? rows.length };
 }

@@ -10,6 +10,23 @@ import { getActiveOrg } from "@/lib/datamodo/orgs";
 // extraction + review, never a direct write.
 export const runtime = "nodejs";
 
+// One entity in its projected view shape (facts + provenance + body) — the
+// table surface's side peek fetches rows' entities one at a time instead of
+// loading the whole vault (the dossier route set the listKnowledge+find
+// precedent; the response is small even though the projection is org-wide).
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const org = await getActiveOrg(user.id);
+  if (!org) return NextResponse.json({ error: "no org" }, { status: 403 });
+  const { listKnowledge } = await import("@/lib/datamodo/knowledge");
+  const entities = await listKnowledge(org.id);
+  const entity = entities.find((e) => e.id === id);
+  if (!entity) return NextResponse.json({ error: "entity not found" }, { status: 404 });
+  return NextResponse.json({ entity });
+}
+
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const user = await getSessionUser();

@@ -20,8 +20,7 @@ createRoot(document.getElementById("root")!).render(
     countByKind={counts}
     tables={tables}
     tableLinks={tableLinks}
-    selectedKind="invoice"
-    onSelectKind={() => {}}
+    onOpenKind={() => {}}
     onOpenTable={() => {}}
     onMaterialized={() => {}}
   />,
