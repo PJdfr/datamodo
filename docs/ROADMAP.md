@@ -34,6 +34,31 @@
 3. **Promote dev → prod** (also activates the both-envs cron tick fix, which
    only takes effect from the default branch).
 
+## Product direction — UX overhaul (user, 2026-07-20)
+Big-rock UX work queued after the model merge (Phase 3). Ordered by user emphasis.
+- **Explorer: one continuous view, no modes.** Merge the base walk view and the
+  layered/zoom-out view into a SINGLE view — today the walk↔layered boundary is
+  a swap (3D perspective ↔ 2D wheel) and the transition reads as "weird". One
+  representation from fully-zoomed-in to fully-out. And **improve the overall
+  zoom/dezoom feel on the cards** (the motion + how cards scale/settle).
+  (`app/dashboard/explorer-view.tsx`, `buildLayeredEgo`/`explorer.ts`.)
+- **Remove the separate "⊛ Graph" (sigma) view.** The whole-vault sigma canvas
+  (`graph-view.tsx`) is redundant once the Explorer is the one graph surface —
+  plan to drop it. (Confirm nothing else depends on it first.)
+- **Tables tab UI — a real spreadsheet, not a card wall.** Clicking a table
+  currently just shows a collection of cards → little added value. Redesign: a
+  table opens into an **Excel-like grid** (fast, editable, keyboard-navigable),
+  and fix **open/load speed** (rows lazy-load today; profile + tighten).
+  (`app/dashboard/control-center.tsx` table editor + `datasets.ts` reads.)
+- **Review / Pull Requests — make it intuitive for non-technical users.** The
+  accept/reject/merge/conflict loop still feels technical. Rework the language,
+  visuals, and flow so a non-dev understands "what is datamodo asking me and
+  why" at a glance. (`review-studio.tsx`, `review-card.tsx`, the chat PR bubble,
+  and the MCP `list_pull_requests` framing.)
+- **Overall UI redesign using the datamodo-design skill(s).** A cohesive pass
+  over the whole app surface with the locally-installed design skills as the
+  source of truth (brand, tokens, components).
+
 ## Explorer track (the north star — phase 1 ✅ shipped 2026-07-10)
 - ~~Ego-graph Explorer~~ ✅ — walk edge to edge, natural-shape panel, edge
   inspector, breadcrumbs, jump box (4th Knowledge mode + "◍ Explore" on pages).
