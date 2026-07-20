@@ -13,6 +13,28 @@
 
 ## Recent changes
 
+- **2026-07-20** — **Explorer: ONE continuous view, no modes (top UX-overhaul
+  item; user call "merge the walk and the layered view — the boundary swap
+  reads as weird").** The former 3D walk (`buildEgoGraph`+`depthLayout`, DOM-
+  measured edges) and layered zoom-out (view-side `wheelGeom`) are now ONE
+  surface: `buildLayeredEgo` is the single graph (new `LayeredOptions.prefer`
+  keeps answer-cited nodes out of the chips), new pure `continuousLayout`
+  is the single geometry — continuous `zoom ≥ 2`, depth as a dimension of the
+  wheel (walk depth-field at zoom 2: center z+150 / datum ring / blurred
+  frontier z−230; z flattens continuously pulling out; low-zoom wheels SPREAD
+  into free canvas, deep wheels pack) — and new pure `projectDepth` gives the
+  edge SVG the perspective-projected endpoints of the same positions, so the
+  measure-DOM rAF loop is gone and edges track cards on every zoom frame.
+  Recentering works IN PLACE at every zoom (entering cards spread from their
+  parents, staying cards glide, edges re-fade after landing; same bloom on
+  first paint). Deleted as dead: `depthLayout`, `layeredAngles`, `radialLayout`
+  (recover from git); `buildEgoGraph` stays for MCP `walk_graph`. Verified:
+  374 tests (5 new: walk-shape at zoom 2, emergence, integer-boundary
+  continuity, depth flattening, projection; layered-prefer) + tsc 0 + lint ==
+  baseline (22) + `next build` + shoot screenshots (walk + zoomed) + a
+  Playwright interaction drive (recenter → zoom → recenter-zoomed → edge
+  inspector; zero page errors). Docs: STATE row rewritten, MEMORY zoom rule
+  revised, ROADMAP item shipped.
 - **2026-07-20** — **One-object migration APPLIED ON PROD + dev/prod brought
   level (user: "merge everything and make sure dev and prod are on same
   level").** PR #129 (branch → dev: one-object merge + dead-code cleanup +

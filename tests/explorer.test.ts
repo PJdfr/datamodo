@@ -3,7 +3,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildEgoGraph, radialLayout, depthLayout, DEPTH } from "../lib/datamodo/explorer.ts";
+import { buildEgoGraph, buildLayeredEgo, continuousLayout, projectDepth, DEPTH } from "../lib/datamodo/explorer.ts";
 import type { KnowledgeEntityView, KnowledgeFactView } from "../lib/datamodo/types.ts";
 
 const rel = (predicate: string, refId: string, over: Partial<KnowledgeFactView> = {}): KnowledgeFactView => ({
@@ -131,19 +131,6 @@ test("buildEgoGraph: unknown center → null; edges only among included nodes", 
   assert.ok(!g.edges.some((e) => e.from === "inv1" && e.to === "po"));
 });
 
-test("radialLayout: deterministic rings — center mid, hop2 in its parent's sector", () => {
-  const g = buildEgoGraph(WORLD, "acme")!;
-  const a = radialLayout(g, 900, 600);
-  const b = radialLayout(g, 900, 600);
-  assert.deepEqual(a, b, "no randomness");
-  assert.deepEqual(a["acme"], { x: 450, y: 300 });
-  const dist = (id: string) => Math.hypot(a[id].x - 450, (a[id].y - 300) / 0.82);
-  assert.ok(dist("inv1") < dist("po"), "hop2 sits on the outer ring");
-  // po fans out near inv1's angle, not across the canvas from it.
-  const angle = (id: string) => Math.atan2((a[id].y - 300) / 0.82, a[id].x - 450);
-  assert.ok(Math.abs(angle("po") - angle("inv1")) < 0.6);
-});
-
 test("buildEgoGraph: parentOf records who introduced each node", () => {
   const g = buildEgoGraph(WORLD, "acme")!;
   assert.equal(g.parentOf["inv1"], "acme");
@@ -152,45 +139,7 @@ test("buildEgoGraph: parentOf records who introduced each node", () => {
   assert.equal(g.parentOf["acme"], undefined); // the center has no introducer
 });
 
-test("depthLayout: center forward, rings at their planes, hop-2 near its parent", () => {
-  const g = buildEgoGraph(WORLD, "acme")!;
-  const pos = depthLayout(g, 800, 600);
-  assert.deepEqual({ x: pos["acme"].x, y: pos["acme"].y, z: pos["acme"].z }, { x: 0, y: 0, z: DEPTH.centerZ });
-  for (const n of g.nodes.filter((n) => n.hop === 1)) {
-    assert.equal(pos[n.id].z, DEPTH.hop1Z);
-    assert.equal(pos[n.id].parent, "acme");
-  }
-  const po = pos["po"];
-  assert.equal(po.z, DEPTH.hop2Z);
-  assert.equal(po.parent, "inv1");
-  // hop-2 sits within the spread of its parent's bearing
-  assert.ok(Math.abs(po.angleDeg - pos["inv1"].angleDeg) <= DEPTH.hop2SpreadDeg + 0.001);
-  // deterministic
-  assert.deepEqual(pos, depthLayout(g, 800, 600));
-});
-
-test("depthLayout: reduced motion flattens every z to the plane", () => {
-  const g = buildEgoGraph(WORLD, "acme")!;
-  const pos = depthLayout(g, 800, 600, true);
-  assert.ok(Object.values(pos).every((p) => p.z === 0));
-});
-
-test("depthLayout: a sparse ring fans across the upper arc", () => {
-  const sparse = [
-    ent("hub", "company", "Hub", [], 2),
-    ent("a", "person", "A", [rel("knows", "hub")], 1),
-    ent("b", "invoice", "B", [rel("billed_to", "hub")], 1),
-  ];
-  const g = buildEgoGraph(sparse, "hub")!;
-  const pos = depthLayout(g, 800, 600);
-  const ring = g.nodes.filter((n) => n.hop === 1).map((n) => pos[n.id]);
-  assert.equal(ring.length, 2);
-  for (const p of ring) assert.ok(p.y < 0, "sparse neighbors sit in the upper arc");
-});
-
-// --- Layered ego (the zoom-out) ---------------------------------------------
-
-import { buildLayeredEgo, layeredAngles } from "../lib/datamodo/explorer.ts";
+// --- Layered ego (the Explorer's rings) --------------------------------------
 
 const LAYERED_WORLD = [
   ent("acme", "company", "Acme Inc", [], 9),
@@ -265,40 +214,18 @@ test("buildLayeredEgo: edges connect only kept real nodes and carry predicates",
   assert.ok(g.edges.every((x) => ids.has(x.from) && ids.has(x.to)));
 });
 
-test("layeredAngles + depthLayout override: the walk shares the zoom-out's bearings", () => {
-  const walk = buildEgoGraph(LAYERED_WORLD, "acme")!;
-  const layered = buildLayeredEgo(LAYERED_WORLD, "acme")!;
-  const angles = layeredAngles(layered, walk);
-  const layeredDeg = new Map(layered.nodes.map((n) => [n.id, n.angleDeg]));
-  assert.equal(angles.get("inv1"), layeredDeg.get("inv1"));
-
-  const pos = depthLayout(walk, 800, 600, false, angles);
-  const inv1 = pos["inv1"];
-  assert.equal(inv1.angleDeg, layeredDeg.get("inv1"), "walk card sits at its layered bearing");
-  // The bearing actually drives the position, not just the metadata.
-  const rad = (inv1.angleDeg * Math.PI) / 180;
-  assert.ok(Math.abs(inv1.x - Math.cos(rad) * 800 * DEPTH.r1x) < 0.001);
-  // Without the override the default even spacing applies (unchanged behavior).
-  const plain = depthLayout(walk, 800, 600);
-  assert.notEqual(plain["inv1"].angleDeg, undefined);
-});
-
-test("layeredAngles: a walk-only '+N more' kind-chip takes the circular mean of its members' bearings", () => {
+test("buildLayeredEgo: preferred (cited) nodes rank first among a parent's children and never fold away", () => {
   const world = [
-    ent("co", "company", "Hub Co", [], 33),
-    ...Array.from({ length: 10 }, (_, i) =>
-      ent(`inv${i}`, "invoice", `INV-${100 + i}`, [rel("issued_by", "co")], 10 - i),
-    ),
+    ent("hub", "company", "Hub", [], 40),
+    ...Array.from({ length: 12 }, (_, i) => ent(`n${i}`, "invoice", `INV-${i}`, [rel("issued_by", "hub")], 12 - i)),
   ];
-  const walk = buildEgoGraph(world, "co", { maxHop1: 4, clusterTail: true, maxPerKind: 2 })!;
-  const layered = buildLayeredEgo(world, "co", { maxChildren: 7 })!;
-  const chip = walk.nodes.find((n) => n.clusterOf)!;
-  const angles = layeredAngles(layered, walk);
-  const a = angles.get(chip.id);
-  assert.ok(a !== undefined, "the walk chip got a bearing even though it doesn't exist in the layered graph");
-  // Its members with layered bearings sit around that mean.
-  const memberAngles = chip.clusterOf!.map((id) => angles.get(id)).filter((x): x is number => x !== undefined);
-  assert.ok(memberAngles.length > 0);
+  // n11 is the weakest child — without preference it folds into the chip.
+  const plain = buildLayeredEgo(world, "hub", { maxChildren: 7 })!;
+  assert.ok(plain.nodes.find((n) => n.clusterOf)!.clusterOf!.includes("n11"));
+  const g = buildLayeredEgo(world, "hub", { maxChildren: 7, prefer: new Set(["n11"]) })!;
+  const ring1 = g.nodes.filter((n) => n.hop === 1 && !n.clusterOf).map((n) => n.id);
+  assert.equal(ring1[0], "n11", "preferred ranks first");
+  assert.ok(!g.nodes.find((n) => n.clusterOf)!.clusterOf!.includes("n11"), "cited nodes are never hidden in a chip");
 });
 
 test("buildLayeredEgo: a crowded ring spreads over the FULL circle; a sparse one keeps parent locality", () => {
@@ -323,4 +250,78 @@ test("buildLayeredEgo: a crowded ring spreads over the FULL circle; a sparse one
   assert.ok(Math.max(...gaps) < uniform * 2.5, `max gap ${Math.max(...gaps).toFixed(0)}° vs uniform ${uniform.toFixed(0)}°`);
   // Determinism still holds after the blend.
   assert.deepEqual(g, buildLayeredEgo([...world], "c", { maxChildren: 7 }));
+});
+
+// --- Continuous layout (ONE view, walk → whole world) ------------------------
+
+test("continuousLayout: zoom 2 IS the walk — center forward, ring 1 on the datum, frontier back + blurred", () => {
+  const g = buildLayeredEgo(LAYERED_WORLD, "acme")!;
+  const lay = continuousLayout(g, 2, 900, 620);
+  const c = lay.get("acme")!;
+  assert.deepEqual({ x: c.x, y: c.y }, { x: 0, y: 0 });
+  assert.equal(c.z, DEPTH.centerZ, "the center sits forward");
+  assert.equal(c.blur, 0);
+  const r1 = lay.get("inv1")!;
+  assert.equal(r1.z, 0, "ring 1 rides the datum plane");
+  assert.equal(r1.blur, 0);
+  assert.equal(r1.op, 1);
+  const r2 = lay.get("po")!;
+  assert.equal(r2.z, DEPTH.frontierZ, "the frontier ring hangs back");
+  assert.equal(r2.blur, 1.4);
+  assert.equal(r2.op, 0.9);
+  assert.ok(r2.scale < r1.scale, "frontier cards are smaller");
+  assert.ok(c.scale >= r1.scale, "the center leads the wheel at walk depth");
+  assert.equal(lay.get("law"), undefined, "rings past the frontier are hidden");
+  assert.equal(lay.get("lost"), undefined);
+  assert.deepEqual(lay, continuousLayout(g, 2, 900, 620), "deterministic");
+});
+
+test("continuousLayout: the fraction emerges the next ring from the center — growing, translucent, blurred", () => {
+  const g = buildLayeredEgo(LAYERED_WORLD, "acme")!;
+  const mid = continuousLayout(g, 2.5, 900, 620);
+  const landed = continuousLayout(g, 3, 900, 620);
+  const emerging = mid.get("law")!; // hop 3
+  const settled = landed.get("law")!;
+  const rMid = Math.hypot(emerging.x, emerging.y);
+  const rEnd = Math.hypot(settled.x, settled.y);
+  assert.ok(rMid > 0 && rMid < rEnd, "travels out from the center toward its ring");
+  assert.ok(emerging.op < settled.op, "fades in with the emergence");
+  assert.ok(emerging.scale < settled.scale, "grows as it lands");
+  assert.ok(emerging.blur > 0, "the emerging ring is the blurred frontier");
+  // Rings past the emerging one stay hidden even mid-emergence.
+  assert.equal(mid.get("lost"), undefined);
+});
+
+test("continuousLayout: continuous across the integer boundary — no jump as a ring lands", () => {
+  const g = buildLayeredEgo(LAYERED_WORLD, "acme")!;
+  const before = continuousLayout(g, 2.999, 900, 620);
+  const after = continuousLayout(g, 3, 900, 620);
+  for (const id of ["acme", "inv1", "po", "law"]) {
+    const a = before.get(id)!;
+    const b = after.get(id)!;
+    for (const k of ["x", "y", "z", "scale", "op", "blur"] as const) {
+      assert.ok(Math.abs(a[k] - b[k]) < 0.5, `${id}.${k}: ${a[k]} vs ${b[k]}`);
+    }
+  }
+});
+
+test("continuousLayout: depth flattens as you pull out; reduced motion is flat everywhere", () => {
+  const g = buildLayeredEgo(LAYERED_WORLD, "acme")!;
+  const near = continuousLayout(g, 2, 900, 620).get("acme")!;
+  const far = continuousLayout(g, 4, 900, 620).get("acme")!;
+  assert.ok(Math.abs(far.z) < Math.abs(near.z), "the depth field settles toward the flat wheel");
+  const flat = continuousLayout(g, 2.6, 900, 620, true);
+  assert.ok([...flat.values()].every((p) => p.z === 0), "reduced motion flattens every z");
+  assert.ok([...flat.values()].every((p) => p.blur === 0), "…and drops the frontier blur");
+});
+
+test("projectDepth: identity on the flat plane; z moves points along rays from the perspective origin", () => {
+  assert.deepEqual(projectDepth(50, 40, 0, 800, 600), { x: 450, y: 340 });
+  const fwd = projectDepth(50, 40, DEPTH.centerZ, 800, 600);
+  assert.ok(fwd.x > 450, "closer cards spread outward");
+  const back = projectDepth(50, 40, DEPTH.frontierZ, 800, 600);
+  assert.ok(back.x < 450 && back.x > 400, "distant cards squeeze toward the origin");
+  // Dead center of the projection is a fixed point at any depth.
+  const pin = projectDepth(0, 600 * DEPTH.originY - 300, 120, 800, 600);
+  assert.ok(Math.abs(pin.x - 400) < 0.001 && Math.abs(pin.y - 600 * DEPTH.originY) < 0.001);
 });

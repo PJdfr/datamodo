@@ -187,8 +187,17 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
     the old blurred frontier sharpens + grows. Still deterministic (fixed
     bearings, layout = LERP of the two integer-ring wheels) — this is a
     scroll-attached tween between discrete states, NOT physics; the "no wiggle,
-    fixed positions" rule holds. The walk↔layered boundary (below 2 rings) stays
-    a swap (3D vs 2D).
+    fixed positions" rule holds.
+    **Revised 2026-07-20 (user call "one continuous view, no modes"): the
+    walk↔layered swap is GONE — there is ONE representation from fully-in to
+    fully-out.** The walk IS the wheel at its zoom floor (2 rings): depth is a
+    dimension of the same geometry (`continuousLayout` — center forward, datum
+    ring, blurred frontier, flattening continuously as you pull out), edges are
+    the perspective projection of the same pure positions (no DOM measuring),
+    and clicking a card recenters IN PLACE at the current zoom at EVERY depth
+    (entering cards spread from their parents, staying cards glide).
+    `buildEgoGraph` survives only as the MCP `walk_graph` projection;
+    `depthLayout`/`layeredAngles`/`radialLayout` are deleted (git has them).
   - Rare build actions live behind one "✦ Build ▾" menu. Review owns the
     words "pending changes"; Timeline owns "what we learned".
 
