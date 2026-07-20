@@ -21,7 +21,7 @@ import type { ActionResult } from "./actions";
 /* CountUp — animate a number from 0 to its value on mount. A small     */
 /* delight for headline stats; respects prefers-reduced-motion.        */
 /* ------------------------------------------------------------------ */
-export function CountUp({ value, format, duration = 900 }: { value: number; format?: (n: number) => string; duration?: number }) {
+export function CountUp({ value, format, duration = 450 }: { value: number; format?: (n: number) => string; duration?: number }) {
   const fmt = format ?? ((n: number) => Math.round(n).toLocaleString("en-US"));
   const [display, setDisplay] = useState(value);
   const ref = useRef(value);
@@ -291,12 +291,39 @@ export const COLUMN_TYPES = [{ v: "text", label: "Text" }, { v: "number", label:
 /* ------------------------------------------------------------------ */
 /* Reusable components                                                 */
 /* ------------------------------------------------------------------ */
+/* iOS-style segmented control: an inset track with a white thumb that
+ * SLIDES to the active option (spring landing) instead of teleporting.
+ * Same API as before; the thumb is measured from the live buttons so
+ * variable-width labels work. Falls back to a static white pill until
+ * the first measurement (and under reduced motion the slide is disabled
+ * by the global animation guard). */
 export function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { v: T; label: string }[] }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [thumb, setThumb] = useState<{ x: number; w: number } | null>(null);
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const measure = () => {
+      const idx = options.findIndex((o) => o.v === value);
+      const btn = wrap.querySelectorAll("button")[idx] as HTMLElement | undefined;
+      if (btn) setThumb({ x: btn.offsetLeft, w: btn.offsetWidth });
+    };
+    measure();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(wrap);
+    return () => ro?.disconnect();
+  }, [value, options]);
   return (
-    <div style={{ display: "inline-flex", background: "#EFE9DC", border: "1px solid #E1D9C8", borderRadius: 9, padding: 3 }}>
-      {options.map((o) => (
-        <button key={o.v} type="button" onClick={() => onChange(o.v)} style={{ border: "none", borderRadius: 7, padding: "6px 12px", fontFamily: "inherit", fontSize: 12.5, fontWeight: 500, cursor: "pointer", ...(value === o.v ? { background: "#fff", color: C.ink, boxShadow: "0 1px 2px rgba(33,30,24,.14)" } : { background: "transparent", color: "#8A8477" }) }}>{o.label}</button>
-      ))}
+    <div ref={wrapRef} style={{ position: "relative", display: "inline-flex", background: "rgba(33,30,24,.06)", borderRadius: 10, padding: 2, isolation: "isolate" }}>
+      {thumb && (
+        <span aria-hidden style={{ position: "absolute", top: 2, bottom: 2, left: 0, width: thumb.w, transform: `translateX(${thumb.x}px)`, background: "#fff", borderRadius: 8, boxShadow: "0 1px 3px rgba(33,30,24,.14), 0 0 0 0.5px rgba(33,30,24,.04)", transition: "transform var(--dm-t-move) var(--dm-spring), width var(--dm-t-move) var(--dm-spring)", zIndex: 0 }} />
+      )}
+      {options.map((o) => {
+        const active = value === o.v;
+        return (
+          <button key={o.v} type="button" onClick={() => onChange(o.v)} style={{ position: "relative", zIndex: 1, border: "none", borderRadius: 8, padding: "6px 12px", fontFamily: "inherit", fontSize: 12.5, cursor: "pointer", transition: "color var(--dm-t-quick) var(--dm-ease)", background: active && !thumb ? "#fff" : "transparent", ...(active ? { color: C.ink, fontWeight: 600, boxShadow: thumb ? "none" : "0 1px 2px rgba(33,30,24,.14)" } : { color: "#8A8477", fontWeight: 500 }) }}>{o.label}</button>
+        );
+      })}
     </div>
   );
 }
@@ -305,18 +332,30 @@ export function Segmented<T extends string>({ value, onChange, options }: { valu
  * Shared by Knowledge cards, entity pages, and the Explorer's edge inspector. */
 export const CHANNEL_META: Record<string, { emoji: string; label: string }> = {
   email: { emoji: "✉", label: "Email" },
-  whatsapp: { emoji: "🟢", label: "WhatsApp" },
-  slack: { emoji: "▦", label: "Slack" },
+  whatsapp: { emoji: "◦", label: "WhatsApp" },
+  slack: { emoji: "◦", label: "Slack" },
   teams: { emoji: "◇", label: "Teams" },
 };
 export const channelMeta = (c: string) => CHANNEL_META[c] ?? { emoji: "•", label: c };
+
+/* Channel provenance mark: the real logo rendered MONOCHROME (chrome
+ * discipline — full color is reserved for the Connect flow), falling
+ * back to a unicode glyph for channels without an asset. */
+export function ChannelMark({ channel, size = 12 }: { channel: string; size?: number }) {
+  const logo = LOGO[channel];
+  if (logo) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={logo} alt="" width={size} height={size} style={{ filter: "grayscale(1)", opacity: 0.7, flexShrink: 0 }} />;
+  }
+  return <span style={{ fontSize: size - 1 }}>{channelMeta(channel).emoji}</span>;
+}
 
 export function SourceRow({ s }: { s: import("@/lib/datamodo/types").FactSourceView }) {
   const ch = channelMeta(s.channel);
   return (
     <div style={{ background: "#FCFAF4", border: "1px solid #EDE7DA", borderRadius: 10, padding: "8px 10px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: s.snippet || s.preview ? 5 : 0, minWidth: 0 }}>
-        <span style={{ fontSize: 11 }}>{ch.emoji}</span>
+        <ChannelMark channel={s.channel} />
         <span className="dm-mono" style={{ fontSize: 9.5, color: "#8A8477", flexShrink: 0 }}>{ch.label}</span>
         {s.sender && <span style={{ fontSize: 11.5, color: C.ink, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.sender}</span>}
         {s.subject && <span style={{ fontSize: 11, color: "#8A8477", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>· {s.subject}</span>}
@@ -333,8 +372,8 @@ export function SourceRow({ s }: { s: import("@/lib/datamodo/types").FactSourceV
 export function ModalShell({ title, subtitle, onClose, children, footer, maxWidth = 600, badge }: { title: ReactNode; subtitle?: string; onClose: () => void; children: ReactNode; footer?: ReactNode; maxWidth?: number; badge?: { initial: string; bg: string } }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 60, alignItems: "center", justifyContent: "center", padding: 24, display: "flex" }}>
-      <div onClick={onClose} className="dm-fade-in" style={{ position: "absolute", inset: 0, background: "rgba(33,30,24,.5)", backdropFilter: "blur(2px)" }} />
-      <div className="dm-modal-in" style={{ position: "relative", width: "100%", maxWidth, background: "#F6F2E9", border: "1px solid #E1D9C8", borderRadius: 20, overflow: "hidden", boxShadow: "0 40px 90px -40px rgba(33,30,24,.7)", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+      <div onClick={onClose} className="dm-fade-in" style={{ position: "absolute", inset: 0, background: "rgba(33,30,24,.4)", backdropFilter: "blur(6px)" }} />
+      <div className="dm-modal-in" style={{ position: "relative", width: "100%", maxWidth, background: "#F6F2E9", border: "1px solid #E1D9C8", borderRadius: 24, overflow: "hidden", boxShadow: "0 40px 90px -40px rgba(33,30,24,.7)", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "18px 22px", borderBottom: "1px solid #E7E0D2" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
             {badge && (

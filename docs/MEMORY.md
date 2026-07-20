@@ -5,7 +5,7 @@
 > how we work, what we decided and why. Siblings: [STATE.md](STATE.md) ·
 > [FLOW.md](FLOW.md) · [ROADMAP.md](ROADMAP.md).
 >
-> Last updated: 2026-07-20
+> Last updated: 2026-07-21
 
 ## What datamodo is (the aim)
 Turn unstructured personal communications into **structured, reviewable,
@@ -221,6 +221,17 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
   `Logo`, never an image; respect `prefers-reduced-motion`.
 - Source of truth: `design/system/` (+ repo skill `.claude/skills/datamodo-design`).
   Landing tokens scoped `.lp-landing`; app styles in `app/globals.css`.
+- **Premium motion identity (2026-07-21, "make the UI premium" call):** one
+  signature easing `cubic-bezier(.32,.72,0,1)` (iOS sheet curve) for movement;
+  a paper spring `cubic-bezier(.3,1.15,.5,1)` ONLY for state pops (segmented
+  thumb, check-ins); three durations `--dm-t-quick 140ms / --dm-t-move 260ms /
+  --dm-t-sheet 420ms`; radius scale `--dm-r-1..4` = 6/10/16/24 (+999 pills).
+  Tokens live on `.dm-app`/`.cc-shell` in `app/globals.css`. iOS *structure*,
+  datamodo *skin*: press = `scale(.97)`, modals present as rising sheets,
+  segmented controls slide their thumb. No glyphs-as-tab-icons (▦ ◍ ⊛ ⎇ ◷
+  removed from Segmented labels); channel logos render MONOCHROME in chrome
+  (`ChannelMark`), full color only in the Connect flow. Full spec:
+  `design/briefs/premium-dashboard-brief.md` (+ interactive mock alongside).
 
 ## Working conventions
 - **Docs discipline (every commit):** update `docs/STATE.md` (inventory/env),

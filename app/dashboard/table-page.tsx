@@ -775,14 +775,17 @@ export function TablePage({ table, onClose, onChanged, onExplore, onReview }: {
               {pendingProposals} pending change{pendingProposals === 1 ? "" : "s"} ›
             </button>
           )}
-          <Segmented value={cfg.view} onChange={(v) => updateCfg({ ...cfg, view: v })} options={[{ v: "grid", label: "▦ Grid" }, { v: "cards", label: "▤ Cards" }]} />
+          <Segmented value={cfg.view} onChange={(v) => updateCfg({ ...cfg, view: v })} options={[{ v: "grid", label: "Grid" }, { v: "cards", label: "Cards" }]} />
           <div style={{ position: "relative", minWidth: 180 }}>
             <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#B7AF9F", fontSize: 12 }}>⌕</span>
             <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter rows…"
               style={{ width: "100%", border: "1px solid #DDD5C5", borderRadius: 9, padding: "7px 10px 7px 26px", fontFamily: "inherit", fontSize: 12.5, color: C.ink, background: "#fff", outline: "none", boxSizing: "border-box" }} />
           </div>
           <div style={{ position: "relative" }}>
-            <Hov onClick={() => setColsOpen((o) => !o)} base={colsOpen ? { ...ghostBtn, background: "#EFE9DC" } : ghostBtn} hover={{ background: "#FBF8F1" }}>⚙ Columns</Hov>
+            <Hov onClick={() => setColsOpen((o) => !o)} base={colsOpen ? { ...ghostBtn, background: "#EFE9DC", display: "inline-flex", alignItems: "center", gap: 6 } : { ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 6 }} hover={{ background: "#FBF8F1" }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M4 8h10M18 8h2M4 16h2M10 16h10" /><circle cx="16" cy="8" r="2" /><circle cx="8" cy="16" r="2" /></svg>
+              Columns
+            </Hov>
             {colsOpen && (
               <ColumnsPopover columns={cols} cfg={cfg} onChange={updateCfg} onRemoveColumn={(k, l) => { setColsOpen(false); removeCol(k, l); }} onClose={() => setColsOpen(false)} />
             )}
@@ -794,7 +797,7 @@ export function TablePage({ table, onClose, onChanged, onExplore, onReview }: {
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <select value={versionId ?? "latest"} onChange={(e) => setVersionId(e.target.value === "latest" ? null : e.target.value)}
           title="View a saved version" style={{ ...ghostBtn, cursor: "pointer", paddingRight: 8 }}>
-          <option value="latest">🕑 Latest (live)</option>
+          <option value="latest">Latest (live)</option>
           {(snaps ?? []).map((s) => <option key={s.id} value={s.id}>{s.summary} · {relTime(s.createdAt)}</option>)}
         </select>
         {!viewingPast && <>

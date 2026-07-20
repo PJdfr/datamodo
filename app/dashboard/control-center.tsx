@@ -290,7 +290,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
     <div className="cc-shell">
       {notice && noticeOpen && (
         <div style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 200, maxWidth: 620, width: "calc(100% - 24px)", display: "flex", alignItems: "flex-start", gap: 10, padding: "11px 14px", background: "#FBEFD6", border: "1px solid #E6CF92", borderRadius: 12, boxShadow: "0 12px 30px -12px rgba(33,30,24,.4)" }}>
-          <span style={{ fontSize: 15, lineHeight: 1.3, flexShrink: 0 }}>⚠️</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9A8043" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></svg>
           <span style={{ fontSize: 12.5, color: "#6B551F", lineHeight: 1.4, flex: 1 }}>{notice}</span>
           <button type="button" onClick={() => setNoticeOpen(false)} style={{ border: "none", background: "none", color: "#9A8043", cursor: "pointer", fontSize: 15, lineHeight: 1, flexShrink: 0 }} title="Dismiss">✕</button>
         </div>
@@ -298,7 +298,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
       {/* ================= SIDEBAR ================= */}
       <aside className="cc-side">
         <div style={{ padding: "2px 8px 22px", display: "flex", alignItems: "baseline" }}>
-          <span className="dm-script" style={{ fontWeight: 700, fontSize: 27, lineHeight: 1, color: "#F1ECE1", display: "inline-block", transform: "rotate(-4deg)", marginRight: 1 }}>data</span>
+          <span className="dm-script" style={{ fontWeight: 700, fontSize: 27, lineHeight: 1, color: "#F1ECE1", display: "inline-block", transform: "rotate(-2deg)", marginRight: 1 }}>data</span>
           <span className="dm-display" style={{ fontWeight: 700, fontSize: 20, letterSpacing: "-0.03em", color: "#F1ECE1" }}>modo</span>
         </div>
 
@@ -431,7 +431,7 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           {tab === "data" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "▦ Tables" }, { v: "explore", label: "◍ Explore" }, { v: "graph", label: "⊛ Graph" }, { v: "files", label: "Files" }, { v: "insights", label: "Insights" }]} />
+                <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "explore", label: "Explore" }, { v: "graph", label: "Graph" }, { v: "files", label: "Files" }, { v: "insights", label: "Insights" }]} />
                 {/* Rare actions live behind ONE menu, not three peers (simplicity rule). */}
                 <div style={{ position: "relative" }}>
                   <Hov onClick={() => setDataActionsOpen((o) => !o)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
@@ -440,19 +440,16 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                   {dataActionsOpen && (
                     <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 40, background: "#fff", border: "1px solid #E7E0D2", borderRadius: 12, boxShadow: "0 14px 34px rgba(33,30,24,.16)", overflow: "hidden", minWidth: 230 }}>
                       {([
-                        ["▣", "Categories", "Edit what kinds of things exist", () => setCategoriesOpen(true)],
-                        ["✦", "Spreadsheet → knowledge", "Import a sheet as entities & links", () => setImportGraphOpen(true)],
-                        ["⇪", "Obsidian vault → knowledge", "Notes become pages, links become edges", () => setObsidianOpen(true)],
-                        ["✦", "Build from knowledge", "Turn a category into a table", () => setBuildOpen(true)],
-                        ["▤", "Derive a table", "Describe a table; we build it from your graph", () => setDeriveOpen(true)],
-                      ] as const).map(([glyph, label, hint, act]) => (
+                        ["Categories", "Edit what kinds of things exist", () => setCategoriesOpen(true)],
+                        ["Spreadsheet → knowledge", "Import a sheet as entities & links", () => setImportGraphOpen(true)],
+                        ["Obsidian vault → knowledge", "Notes become pages, links become edges", () => setObsidianOpen(true)],
+                        ["Build from knowledge", "Turn a category into a table", () => setBuildOpen(true)],
+                        ["Derive a table", "Describe a table; we build it from your graph", () => setDeriveOpen(true)],
+                      ] as const).map(([label, hint, act]) => (
                         <button key={label} type="button" onClick={() => { setDataActionsOpen(false); act(); }}
-                          style={{ display: "flex", alignItems: "baseline", gap: 8, width: "100%", textAlign: "left", padding: "9px 13px", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
-                          <span style={{ color: C.accent, fontSize: 12 }}>{glyph}</span>
-                          <span style={{ minWidth: 0 }}>
-                            <span style={{ display: "block", fontSize: 13, color: C.ink, fontWeight: 500 }}>{label}</span>
-                            <span style={{ display: "block", fontSize: 11, color: "#8A8477", marginTop: 1 }}>{hint}</span>
-                          </span>
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                          <span style={{ display: "block", fontSize: 13, color: C.ink, fontWeight: 500 }}>{label}</span>
+                          <span style={{ display: "block", fontSize: 11, color: "#8A8477", marginTop: 1 }}>{hint}</span>
                         </button>
                       ))}
                     </div>
@@ -502,9 +499,9 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
                   moved here from Data per the 2026-07-14 call). */}
               <div style={{ marginBottom: 14 }}>
                 <Segmented value={reviewView} onChange={setReviewView} options={[
-                  { v: "pending", label: `✓ Pending${reviewTotal ? ` · ${reviewTotal}` : ""}` },
-                  { v: "commits", label: "⎇ Commits" },
-                  { v: "timeline", label: "◷ Timeline" },
+                  { v: "pending", label: `Pending${reviewTotal ? ` · ${reviewTotal}` : ""}` },
+                  { v: "commits", label: "Commits" },
+                  { v: "timeline", label: "Timeline" },
                 ]} />
               </div>
               {reviewView === "pending" && <ReviewStudio />}
@@ -927,7 +924,7 @@ function PassageCard({ p, terms }: { p: ChunkHit; terms: string[] }) {
   return (
     <div className="dm-card" style={{ background: "#fff", border: "1px solid #E7E0D2", borderRadius: 13, padding: "12px 15px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
-        <span style={{ fontSize: 13 }}>📄</span>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8A8477" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5M9 13h6M9 17h4" /></svg>
         <span style={{ fontSize: 12.5, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.docLabel}</span>
         {p.page && <span className="dm-mono" style={{ fontSize: 10, color: "#A39B8B", flexShrink: 0 }}>p.{p.page}</span>}
       </div>
@@ -1593,7 +1590,7 @@ function ConnectorsCard() {
     <div style={{ marginTop: 18, padding: "14px 16px", border: "1px solid #E7E0D2", borderRadius: 12, background: "#fff" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: 15 }}><span style={{ color: C.accent }}>📥</span> Mailboxes</div>
+          <div style={{ fontWeight: 700, fontSize: 15, display: "flex", alignItems: "center", gap: 7 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.7 4H7.3a2 2 0 0 0-1.8 1.1Z" /></svg> Mailboxes</div>
           <div style={{ fontSize: 12.5, color: "#8A8477", marginTop: 2 }}>datamodo pulls new mail from your own mailbox over IMAP and files it like anything else. Nothing leaves your machine but the IMAP connection you configure.</div>
         </div>
         {!open && (

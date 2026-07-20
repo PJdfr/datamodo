@@ -5,7 +5,7 @@
 > infographic), [ROADMAP.md](ROADMAP.md) (what's next), [MEMORY.md](MEMORY.md)
 > (durable context). Dated history stays in [../PROJECT_STATE.md](../PROJECT_STATE.md).
 >
-> Last updated: 2026-07-20
+> Last updated: 2026-07-21
 
 ## Stack at a glance
 
@@ -87,6 +87,7 @@
 ### Projections (every view derives from the vault; nothing is a second store)
 | Feature | Code |
 |---|---|
+| **Premium dashboard chrome — motion identity + iOS feel (2026-07-21, brief `design/briefs/premium-dashboard-brief.md`)**: `--dm-*` token layer (signature easing `cubic-bezier(.32,.72,0,1)`, spring for state pops only, durations 140/260/420ms, radius scale 6/10/16/24, one ink-tinted shadow system) drives all dashboard motion; global press physics `button:active → scale(.97)` (reduced-motion safe); `Segmented` = iOS sliding-thumb control (measured from live buttons, same API); `ModalShell` presents as a rising sheet (blur-6 scrim, r24); glyph tab labels + emoji chrome replaced by plain text / 1.5–1.8 stroke SVGs; `ChannelMark` renders channel logos monochrome in provenance chrome (full color reserved for Connect); `CountUp` 450ms, card hover −1px + shadow-lift, wordmark −2°. No layout or feature changes | tokens + motion in `app/globals.css`, `Segmented`/`ModalShell`/`ChannelMark`/`CountUp` in `app/dashboard/ui.tsx`, sweeps in `control-center.tsx` · `table-page.tsx` · `review-studio.tsx` · `files-view.tsx` · `categories-modal.tsx` |
 | Tables: facts → dataset rows (auto-materialized, human edits protected) + full manual/import/versioning layer | `lib/datamodo/project.ts`, `lib/datamodo/datasets.ts`, `lib/datamodo/review.ts` |
 | Knowledge cards (facts, provenance drill-down, completeness cues) | `app/dashboard/knowledge-view.tsx` |
 | ~~Knowledge graph (Map)~~ REMOVED 2026-07-11 (user: redundant next to the walk) — `entities.graph_pin` + its PATCH endpoint remain dormant | (view deleted; endpoint `PATCH app/api/knowledge/entities/[id]` kept) |
