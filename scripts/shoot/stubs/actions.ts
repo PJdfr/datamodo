@@ -38,3 +38,10 @@ export async function renameDatasetAction() { return OK; }
 export async function deleteDatasetAction() { return OK; }
 export async function restoreSnapshotAction() { return OK; }
 export async function createDatasetAction() { return { ...OK, id: "stub" }; }
+
+// Shell harness (ControlCenter) surface — agents, settings, channel links.
+export async function createAgentAction() { return OK; }
+export async function updateAgentAction() { return OK; }
+export async function deleteAgentAction() { return OK; }
+export async function updateComputeSettingsAction() { return OK; }
+export async function createChannelLinkCodeAction() { return { ...OK, code: "STUB-0000" }; }

@@ -5,15 +5,39 @@
 > how we work, what we decided and why. Siblings: [STATE.md](STATE.md) ·
 > [FLOW.md](FLOW.md) · [ROADMAP.md](ROADMAP.md).
 >
-> Last updated: 2026-07-21
+> Last updated: 2026-07-22
 
 ## What datamodo is (the aim)
-Turn unstructured personal communications into **structured, reviewable,
-queryable data**. The user forwards messages/files from any channel; we keep
-the original, extract meaning into a canonical knowledge vault, and derive
-every useful shape from it — tables, graph, timeline, answers with citations.
-The trust story is central: every claim has provenance, every inference is
-reviewable, nothing is ever silently lost or merged.
+**Structured data out of your unstructured life, for zero effort.** datamodo
+is a dump: the user throws anything at it — forwarded emails, receipts, chat
+scroll, files, braindumps — and we figure out how to structure it and how to
+link it with what's already there. We keep the original, extract meaning, and
+derive every useful shape from it — tables, graph, timeline, answers with
+citations. The trust story is central: every claim has provenance, every
+inference is reviewable, nothing is ever silently lost or merged.
+
+### Positioning (reframed 2026-07-21 — user call)
+- **The aim is NOT to build a knowledge base.** We never sell "knowledge
+  base", "second brain", or "knowledge graph/vault" — that's the crowded
+  lane (Mem, myMind, Reflect, Recall, Fabric all live there) and it frames
+  the product as a place to *keep* things. We sell the OUTPUT: structured
+  data you didn't have to make.
+- **The market quadrant "zero effort in → structured data out" is empty**
+  (verified 2026-07-21): effortless-capture apps (Mem "Your world,
+  organized", myMind "Remember everything. Organize nothing.") only do
+  search/resurfacing — output is still notes; structured-object tools
+  (Capacities, Tana Outliner, Notion, Airtable) demand the user author the
+  structure. Nobody's hero copy promises a derived artifact (a table, a
+  timeline, a cited answer). That artifact-as-deliverable is our claim.
+- Differentiate on the OUTPUT, not the effortlessness — "organizes itself"
+  rhetoric is already owned (Mem's "notes that organize themselves",
+  myMind), and low-end "dump" apps (The Dump, DumpIt) colonize the verb
+  with mere category-sorting. Our "organizes" means entities, facts,
+  typed tables, links into what you already have — say that, always.
+- Vocabulary: prefer "dump", "structure", "linked to what you already
+  have", "tables/timelines/answers with receipts", "facts with provenance".
+  Internal terms (vault, knowledge graph) stay fine in code/docs; they just
+  don't sell.
 
 ## Product model
 - **Individual-only.** No teams, orgs, sharing — ever, without an explicit
@@ -232,6 +256,19 @@ needs live behind pages/disclosures, not in the chrome. When in doubt, cut.
   removed from Segmented labels); channel logos render MONOCHROME in chrome
   (`ChannelMark`), full color only in the Connect flow. Full spec:
   `design/briefs/premium-dashboard-brief.md` (+ interactive mock alongside).
+  **Shell phase shipped 2026-07-22** (chrome discipline — keep these):
+  inset-sheet architecture (darker tray, main pane = raised sheet, flat on
+  mobile); sidebar = hairline sections, never boxed cards; active nav = 6%
+  cream fill + coral dot, no accent borders; **the topbar holds at most:
+  title · QueuePill · ONE contextual action · the ⌘K pill** — rare actions
+  live in the ⌘K command palette (`command-palette.tsx`) and the sidebar's
+  Sources cluster (Connect + copy-inbox), never as standing topbar buttons.
+  The dead pre-brand CSS layer (indigo `--primary`, dark-mode override,
+  `.btn`/`.card`…) is deleted — don't reintroduce generic tokens. Shell
+  chrome is CSS classes (`.cc-nav-item`/`.cc-side-row`/`.cc-chip`), not the
+  JS `Hov` helper; new chrome should follow. `CountUp` no longer animates
+  (motion never decorates). Per-view sweeps (table page density, skeletons,
+  empty states) remain — see ROADMAP.
 
 ## Working conventions
 - **Docs discipline (every commit):** update `docs/STATE.md` (inventory/env),

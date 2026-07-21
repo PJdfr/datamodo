@@ -1,6 +1,9 @@
 # Premium dashboard refactor — design brief
 
-_Drafted 2026-07-21. Status: proposal, not yet implemented._
+_Drafted 2026-07-21. Status: motion identity + iOS-feel shipped 2026-07-21;
+shell phase (inset sheet, sidebar refinement, topbar diet, ⌘K palette, dead
+token layer deleted) shipped 2026-07-22. Remaining: per-view sweeps — see
+`docs/ROADMAP.md` "Premium chrome, per-view sweeps"._
 
 ## Thesis
 

@@ -1,28 +1,8 @@
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --muted: #6b7280;
-  --border: #e5e7eb;
-  --card: #ffffff;
-  --primary: #4f46e5;
-  --primary-fg: #ffffff;
-  --danger: #dc2626;
-  --success: #059669;
-  --radius: 10px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --muted: #9ca3af;
-    --border: #262626;
-    --card: #111111;
-    --primary: #6366f1;
-  }
-  html {
-    color-scheme: dark;
-  }
+/* datamodo is a light-only, cream-paper product (design/system). The old
+   generic token layer (--primary indigo, dark-mode overrides) is gone —
+   every surface styles itself from the --dm-* scale further down. */
+html {
+  color-scheme: light;
 }
 
 * {
@@ -45,8 +25,8 @@ body {
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  color: var(--foreground);
-  background: var(--background);
+  color: #211e18;
+  background: #f6f2e9;
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -58,267 +38,6 @@ a {
   text-decoration: none;
 }
 
-.muted {
-  color: var(--muted);
-}
-.small {
-  font-size: 0.85rem;
-}
-
-/* ---------- Buttons ---------- */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.55rem 1rem;
-  border-radius: var(--radius);
-  border: 1px solid transparent;
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: opacity 0.15s ease;
-  background: transparent;
-  color: var(--foreground);
-}
-.btn:hover {
-  opacity: 0.85;
-}
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.btn-primary {
-  background: var(--primary);
-  color: var(--primary-fg);
-}
-.btn-outline {
-  border-color: var(--border);
-}
-.btn-lg {
-  padding: 0.75rem 1.4rem;
-  font-size: 1rem;
-}
-.btn-sm {
-  padding: 0.35rem 0.75rem;
-  font-size: 0.85rem;
-}
-
-.brand {
-  font-weight: 700;
-  font-size: 1.1rem;
-  letter-spacing: -0.02em;
-}
-
-/* ---------- Landing ---------- */
-.landing {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-.landing-nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1.25rem 1.5rem;
-  max-width: 960px;
-  width: 100%;
-  margin: 0 auto;
-}
-.landing-nav-actions {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-.hero {
-  flex: 1;
-  max-width: 720px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 4rem 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-.hero h1 {
-  font-size: clamp(2rem, 5vw, 3rem);
-  line-height: 1.1;
-  letter-spacing: -0.03em;
-}
-.lede {
-  font-size: 1.15rem;
-  color: var(--muted);
-  max-width: 60ch;
-}
-.hero-actions {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  margin-top: 0.5rem;
-}
-
-/* ---------- Auth ---------- */
-.auth-page {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem 1.5rem;
-}
-.auth-card {
-  width: 100%;
-  max-width: 400px;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  padding: 2rem;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--card);
-}
-.auth-card h1 {
-  font-size: 1.5rem;
-  letter-spacing: -0.02em;
-}
-.auth-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-.auth-form label,
-.oauth .sso {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  font-size: 0.9rem;
-  font-weight: 500;
-}
-.auth-form input,
-.oauth input {
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--background);
-  color: var(--foreground);
-  font-size: 0.95rem;
-}
-.oauth {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-.oauth .btn {
-  width: 100%;
-}
-.oauth .sso {
-  flex-direction: row;
-  align-items: stretch;
-  gap: 0.5rem;
-}
-.oauth .sso input {
-  flex: 1;
-}
-.divider {
-  display: flex;
-  align-items: center;
-  text-align: center;
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-.divider::before,
-.divider::after {
-  content: "";
-  flex: 1;
-  border-bottom: 1px solid var(--border);
-}
-.divider span {
-  padding: 0 0.75rem;
-}
-.form-error {
-  color: var(--danger);
-  font-size: 0.9rem;
-}
-.form-success {
-  color: var(--success);
-  font-size: 0.9rem;
-}
-
-/* ---------- App shell / dashboard ---------- */
-.app-shell {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--border);
-}
-.app-header-right {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-.app-body {
-  flex: 1;
-  width: 100%;
-  max-width: 880px;
-  margin: 0 auto;
-  padding: 2rem 1.5rem;
-}
-.dashboard {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-.dashboard h1 {
-  font-size: 1.6rem;
-  letter-spacing: -0.02em;
-}
-.card {
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 1.25rem 1.5rem;
-  background: var(--card);
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-.card h2 {
-  font-size: 1.05rem;
-}
-.list {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-.list li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-.tag {
-  font-size: 0.75rem;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.1rem 0.6rem;
-}
-.notice {
-  padding: 1rem 1.25rem;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--primary);
-  border-radius: var(--radius);
-  background: var(--card);
-  font-size: 0.9rem;
-}
 code {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 0.9em;
@@ -602,8 +321,12 @@ code {
   border: 3px solid transparent;
   background-clip: padding-box;
 }
+/* Inset-sheet architecture (premium brief): the shell canvas is a darker
+   cream TRAY; the working pane sits in it as a raised paper sheet with a
+   hairline edge and a 1px inner top highlight. The sidebar stays flush —
+   a deep ink rail the sheet appears to rest against. */
 .cc-shell {
-  background: #f6f2e9;
+  background: #ece6d8;
   overflow: hidden;
   display: flex;
   min-height: 100dvh;
@@ -611,18 +334,214 @@ code {
 .cc-side {
   width: 252px;
   flex-shrink: 0;
-  background: #211e18;
+  background: #1b1815;
   color: #c9c1b2;
-  padding: 22px 16px;
+  padding: 22px 16px 14px;
   display: flex;
   flex-direction: column;
+  --side-hairline: rgba(241, 236, 225, 0.08);
 }
 .cc-main {
   flex: 1;
-  background: #fbf8f1;
+  background: #faf7f0;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  margin: 10px 10px 10px 0;
+  border-radius: var(--dm-r-4);
+  border: 1px solid #e3dbc9;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), var(--dm-shadow-card);
+  overflow: hidden;
+}
+
+/* --- sidebar vocabulary ------------------------------------------- */
+/* Nav rows: quiet type, 6% cream fill when active, a coral dot as the
+   only accent (no accent borders, no icon recoloring). */
+.cc-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 10px 12px;
+  border-radius: var(--dm-r-2);
+  font-family: inherit;
+  font-size: 13px;
+  color: #b0a896;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--dm-t-quick) var(--dm-ease), color var(--dm-t-quick) var(--dm-ease);
+}
+.cc-nav-item:hover {
+  background: rgba(241, 236, 225, 0.05);
+  color: #f1ece1;
+}
+.cc-nav-item.is-active {
+  background: rgba(241, 236, 225, 0.06);
+  color: #f1ece1;
+  font-weight: 500;
+}
+.cc-nav-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #e4593b;
+}
+.cc-nav-item .cc-nav-ico {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: #877f70;
+  transition: color var(--dm-t-quick) var(--dm-ease);
+  min-width: 0;
+}
+.cc-nav-item:hover .cc-nav-ico,
+.cc-nav-item.is-active .cc-nav-ico {
+  color: #d8d1c2;
+}
+/* Sidebar sections: hairline-topped clusters, not boxed cards. */
+.cc-side-sec {
+  border-top: 1px solid var(--side-hairline);
+  margin-top: 14px;
+  padding-top: 10px;
+}
+.cc-side-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 8px 10px;
+  border-radius: var(--dm-r-2);
+  font-family: inherit;
+  font-size: 12.5px;
+  color: #b0a896;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--dm-t-quick) var(--dm-ease), color var(--dm-t-quick) var(--dm-ease);
+  min-width: 0;
+}
+.cc-side-row:hover {
+  background: rgba(241, 236, 225, 0.05);
+  color: #f1ece1;
+}
+.cc-kicker {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: #7c766b;
+  padding: 0 10px 6px;
+  margin: 0;
+}
+
+/* --- topbar vocabulary --------------------------------------------- */
+/* One ghost chip style for everything that sits in the topbar. */
+.cc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #3a352c;
+  background: #fff;
+  border: 1px solid #e1d9c8;
+  border-radius: var(--dm-r-2);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background var(--dm-t-quick) var(--dm-ease), border-color var(--dm-t-quick) var(--dm-ease);
+}
+.cc-chip:hover {
+  background: #fbf8f1;
+}
+.cc-kbd {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  color: #8a8477;
+  background: rgba(33, 30, 24, 0.05);
+  border: 1px solid rgba(33, 30, 24, 0.08);
+  border-radius: 5px;
+  padding: 1px 5px;
+  line-height: 1.5;
+}
+
+/* --- command palette (⌘K) ------------------------------------------ */
+.cc-cmdk-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(33, 30, 24, 0.35);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 16px 16px;
+}
+.cc-cmdk {
+  width: min(560px, 100%);
+  background: rgba(250, 247, 240, 0.92);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border: 1px solid #e3dbc9;
+  border-radius: var(--dm-r-3);
+  box-shadow: var(--dm-shadow-lift);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 60vh;
+}
+.cc-cmdk-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 15px;
+  color: #211e18;
+  padding: 15px 18px;
+  border-bottom: 1px solid rgba(33, 30, 24, 0.08);
+}
+.cc-cmdk-input::placeholder {
+  color: #a39b8b;
+}
+.cc-cmdk-list {
+  overflow: auto;
+  padding: 8px;
+}
+.cc-cmdk-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: var(--dm-r-2);
+  padding: 9px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  color: #3a352c;
+  cursor: pointer;
+  text-align: left;
+}
+.cc-cmdk-item.is-sel {
+  background: rgba(33, 30, 24, 0.05);
+  color: #211e18;
+}
+.cc-cmdk-item .hint {
+  font-size: 11px;
+  color: #a39b8b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 @media (prefers-reduced-motion: reduce) {
   .dm-app *,
@@ -704,8 +623,16 @@ code {
     display: none !important;
   }
   .cc-review,
-  .cc-compute {
+  .cc-compute,
+  .cc-sources {
     display: none !important;
+  }
+  /* The inset sheet is a desktop luxury — mobile goes edge to edge. */
+  .cc-main {
+    margin: 0;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
   }
 }
 

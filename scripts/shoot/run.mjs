@@ -51,7 +51,11 @@ if (!chrome) {
 }
 
 fs.mkdirSync(outDir, { recursive: true });
-const HTML = `<!doctype html><html><head><meta charset="utf-8"><style>
+// Real app CSS so class-styled chrome (the .cc-* shell, palette, motion
+// tokens) renders true in shots. next/font variables don't exist here, so
+// fonts fall back to the stacks' system entries — layout still faithful.
+fs.copyFileSync(path.join(repo, "app", "globals.css"), path.join(outDir, "globals.css"));
+const HTML = `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="globals.css"><style>
 body { margin: 0; background: #F6F2E9; font-family: sans-serif; }
 .dm-mono { font-family: monospace; } .dm-display { font-family: sans-serif; }
 @keyframes dm-drop-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
@@ -85,6 +89,10 @@ for (const name of targets) {
               ? { path: path.join(here, "stubs", "actions.ts") }
               : null,
           );
+          // The shell also touches Next's router and the auth server actions;
+          // both are meaningless in a static page — swap for stubs.
+          b.onResolve({ filter: /^next\/navigation$/ }, () => ({ path: path.join(here, "stubs", "next-navigation.ts") }));
+          b.onResolve({ filter: /^@\/app\/auth\/actions$/ }, () => ({ path: path.join(here, "stubs", "auth-actions.ts") }));
         },
       },
     ],
