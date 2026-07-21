@@ -9,9 +9,28 @@
 > vars) → [docs/FLOW.md](docs/FLOW.md) (pipeline infographic) →
 > [docs/ROADMAP.md](docs/ROADMAP.md) (what's next).
 >
-> Last updated: 2026-07-20
+> Last updated: 2026-07-21
 
 ## Recent changes
+
+- **2026-07-21** — **Premium dashboard polish — motion identity + iOS-feel
+  chrome (user call: "UI must feel premium; brand good but childish; add
+  motion design + overall iOS vibe; no layout/feature changes"):** a token
+  layer on `.dm-app`/`.cc-shell` in `app/globals.css` (`--dm-ease` iOS sheet
+  curve · `--dm-spring` paper spring for state pops only · durations
+  140/260/420ms · radius scale 6/10/16/24 · one ink-tinted shadow system) now
+  drives all dashboard motion; global press physics (`button:active` →
+  `scale(.97)`, reduced-motion safe). `Segmented` (ui.tsx) is an iOS-style
+  control with a measured sliding thumb (same API); `ModalShell` presents as
+  a rising sheet (420ms, blur-6 scrim, r24). De-childing sweep: glyph tab
+  labels (▦ ◍ ⊛ ⎇ ◷) → plain text, Build menu → text-only, emoji chrome
+  (⚠️ 📄 📥 ⚙ 🕑 📅) → 1.5–1.8px stroke SVGs, wordmark rotation −4°→−2°,
+  `CountUp` 900→450ms, card hover −3px→−1px + `--dm-shadow-lift`, new
+  `ChannelMark` renders channel logos monochrome in provenance chrome.
+  Direction docs: `design/briefs/premium-dashboard-brief.md` + interactive
+  mock. Verified: tsc clean, lint == baseline (7/12), 390/392 tests pass
+  (2 pre-existing skips), `next build` OK, shoot harnesses (body, review,
+  table-grid) render correctly. Landing page pass is next.
 
 - **2026-07-20** — **Review Studio: the SIMPLE decision layer (user call:
   "source of the uncertainty first, then what accept/refuse would do —

@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>datamodo — premium dashboard direction (motion + iOS)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Caveat:wght@700&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#211E18; --ink-2:#3A352C; --sub:#6F6857; --faint:#A39B8B;
+    --canvas:#ECE6D8; --sheet:#FAF7F0; --card:#FFFDF8; --white:#FFFFFF;
+    --line:#E3DBC9; --line-soft:#EDE7D9;
+    --coral:#E4593B; --coral-press:#CF4A2F; --coral-tint:#FBEAE3;
+    --green:#3F8F5B; --green-tint:#E4F0E8; --gold:#B08A2E; --gold-tint:#F6ECD4;
+    --side:#1B1815; --side-line:rgba(241,236,225,.08); --side-dim:#B7AF9F; --side-lit:#F1ECE1;
+    --r1:6px; --r2:10px; --r3:16px; --r4:24px;
+    /* motion identity */
+    --ease:cubic-bezier(.32,.72,0,1);          /* signature: iOS sheet curve */
+    --spring:cubic-bezier(.3,1.15,.5,1);       /* paper spring, 3-5% overshoot */
+    --t-quick:140ms; --t-move:260ms; --t-sheet:420ms;
+    --shadow-card:0 1px 2px rgba(33,30,24,.05), 0 16px 40px -28px rgba(33,30,24,.28);
+    --shadow-lift:0 2px 4px rgba(33,30,24,.06), 0 22px 48px -26px rgba(33,30,24,.34);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:"Geist",system-ui,sans-serif; color:var(--ink);
+    background:var(--canvas);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.028'/%3E%3C/svg%3E");
+    font-size:13px; line-height:1.5; -webkit-font-smoothing:antialiased;
+    min-width:1180px; overflow:hidden;
+  }
+  button{font-family:inherit}
+  /* global press physics — the "haptic" */
+  button:active, .nav-item:active{transform:scale(.97)}
+
+  .app{display:grid; grid-template-columns:236px 1fr; grid-template-rows:minmax(0,1fr); height:100vh; min-height:600px}
+
+  /* ---------- sidebar ---------- */
+  .side{background:var(--side); color:var(--side-dim); display:flex; flex-direction:column; padding:20px 14px 14px}
+  .wordmark{display:flex; align-items:baseline; gap:1px; padding:0 8px 18px; color:var(--side-lit)}
+  .wordmark .data{font-family:"Caveat",cursive; font-weight:700; font-size:27px; transform:rotate(-2deg); display:inline-block}
+  .wordmark .modo{font-family:"Bricolage Grotesque",sans-serif; font-weight:700; font-size:20px; letter-spacing:-.02em}
+  .newagent{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    background:var(--coral); color:#FFF6F0; border:none; border-radius:var(--r2);
+    font:600 13px "Geist",sans-serif; padding:10px 12px; cursor:pointer; width:100%;
+    box-shadow:0 8px 22px -10px rgba(228,89,59,.55);
+    transition:background var(--t-quick) var(--ease), transform var(--t-quick) var(--ease), box-shadow var(--t-move) var(--ease);
+  }
+  .newagent:hover{background:var(--coral-press); box-shadow:0 10px 26px -10px rgba(228,89,59,.65)}
+  nav{margin-top:22px; display:flex; flex-direction:column; gap:2px}
+  .nav-item{
+    display:flex; align-items:center; gap:10px; min-height:40px; padding:0 10px; border-radius:8px;
+    color:var(--side-dim); text-decoration:none; font-weight:500; font-size:13.5px; cursor:pointer;
+    transition:background var(--t-quick) var(--ease), color var(--t-quick) var(--ease), transform var(--t-quick) var(--ease);
+    position:relative; border:none; background:none; width:100%; text-align:left;
+  }
+  .nav-item svg{width:16px;height:16px;stroke-width:1.5;flex:none;opacity:.85; transition:transform var(--t-quick) var(--spring)}
+  .nav-item:hover{color:var(--side-lit); background:rgba(241,236,225,.05)}
+  .nav-item:hover svg{transform:translateY(-1px)}
+  .nav-item.active{color:var(--side-lit); background:rgba(241,236,225,.07)}
+  .nav-item.active::before{content:""; width:4px;height:4px;border-radius:99px;background:var(--coral); position:absolute; left:-1px}
+  .nav-count{margin-left:auto; font:500 11px "Geist Mono",monospace; color:#8F8878; background:rgba(241,236,225,.07); border-radius:99px; padding:1px 7px; transition:transform var(--t-move) var(--spring)}
+  .side-flex{flex:1}
+  .review-strip{border-top:1px solid var(--side-line); padding:14px 10px; display:flex; align-items:center; gap:9px; cursor:pointer}
+  .pulse{width:7px;height:7px;border-radius:99px;background:var(--coral); position:relative; flex:none}
+  .pulse::after{content:""; position:absolute; inset:-4px; border-radius:99px; border:1px solid rgba(228,89,59,.5); animation:ring 2.6s var(--ease) infinite}
+  @keyframes ring{0%{transform:scale(.5);opacity:1}70%,100%{transform:scale(1.6);opacity:0}}
+  .review-strip .t{font-size:12.5px; color:var(--side-lit)}
+  .review-strip .s{font:400 11px "Geist Mono",monospace; color:#8F8878}
+  .userrow{border-top:1px solid var(--side-line); padding:12px 10px 2px; display:flex; align-items:center; gap:10px}
+  .avatar{width:28px;height:28px;border-radius:9px;background:#39332A;color:var(--side-lit); display:flex;align-items:center;justify-content:center; font:600 11px "Geist",sans-serif; flex:none}
+  .userrow .email{font:400 11px "Geist Mono",monospace; color:#8F8878; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .userrow .name{font-size:12.5px; color:var(--side-lit); line-height:1.3}
+
+  /* ---------- main pane ---------- */
+  .main{padding:12px 12px 12px 0; display:flex; min-width:0; min-height:0}
+  .pane{
+    flex:1; background:var(--sheet); border:1px solid var(--line); border-radius:var(--r4);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.7), 0 1px 2px rgba(33,30,24,.04);
+    display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; position:relative;
+    transition:transform var(--t-sheet) var(--ease), filter var(--t-sheet) var(--ease);
+  }
+  body.sheet-open .pane{transform:scale(.985); filter:saturate(.92)}
+
+  /* iOS compact bar — appears when the large title scrolls away */
+  .compactbar{
+    position:absolute; top:0; left:0; right:0; height:52px; z-index:20;
+    display:flex; align-items:center; padding:0 20px; gap:10px;
+    background:rgba(250,247,240,.75); backdrop-filter:blur(18px) saturate(1.4); -webkit-backdrop-filter:blur(18px) saturate(1.4);
+    border-bottom:1px solid var(--line-soft); border-radius:var(--r4) var(--r4) 0 0;
+    opacity:0; transform:translateY(-8px); pointer-events:none;
+    transition:opacity var(--t-move) var(--ease), transform var(--t-move) var(--ease);
+  }
+  .compactbar .ct{font-family:"Bricolage Grotesque",sans-serif; font-weight:600; font-size:15px; letter-spacing:-.015em; position:absolute; left:50%; transform:translateX(-50%)}
+  .compactbar .right{margin-left:auto; display:flex; gap:8px}
+  .pane.scrolled .compactbar{opacity:1; transform:none; pointer-events:auto}
+
+  .scroller{overflow:auto; flex:1}
+
+  .hero{display:flex; align-items:flex-end; gap:16px; padding:24px 28px 0}
+  h1{font-family:"Bricolage Grotesque",sans-serif; font-weight:600; font-size:28px; letter-spacing:-.025em}
+  .meta{font:400 11px "Geist Mono",monospace; color:var(--faint); margin-top:2px}
+  .top-right{margin-left:auto; display:flex; align-items:center; gap:8px}
+  .cmdk{
+    display:flex; align-items:center; gap:8px; background:var(--white); border:1px solid var(--line);
+    border-radius:var(--r2); padding:7px 11px; color:var(--sub); cursor:pointer; font-size:12.5px;
+    transition:border-color var(--t-quick) var(--ease), box-shadow var(--t-quick) var(--ease); min-width:190px;
+  }
+  .cmdk:hover{border-color:#D5CBB4; box-shadow:0 1px 2px rgba(33,30,24,.05)}
+  .cmdk kbd{margin-left:auto; font:500 10.5px "Geist Mono",monospace; color:var(--faint); background:var(--sheet); border:1px solid var(--line-soft); border-radius:5px; padding:1px 5px}
+  .btn-quiet{
+    background:var(--white); border:1px solid var(--line); border-radius:var(--r2);
+    font:500 12.5px "Geist",sans-serif; color:var(--ink); padding:7px 13px; cursor:pointer; min-height:32px;
+    transition:background var(--t-quick) var(--ease), border-color var(--t-quick) var(--ease), transform var(--t-quick) var(--ease);
+  }
+  .btn-quiet:hover{background:#FBF8F1; border-color:#D5CBB4}
+  .btn-quiet.sm{padding:4px 10px; min-height:26px; font-size:11.5px}
+
+  /* iOS segmented control */
+  .seg{
+    position:relative; display:inline-grid; grid-auto-flow:column; grid-auto-columns:1fr;
+    background:rgba(33,30,24,.06); border-radius:var(--r2); padding:2px; margin:18px 28px 0; isolation:isolate;
+  }
+  .seg .thumb{
+    position:absolute; top:2px; bottom:2px; left:2px; width:calc(25% - 1px);
+    background:var(--white); border-radius:8px; box-shadow:0 1px 3px rgba(33,30,24,.14), 0 0 0 .5px rgba(33,30,24,.04);
+    transition:transform var(--t-move) var(--spring); z-index:0;
+  }
+  .seg button{
+    position:relative; z-index:1; border:none; background:none; cursor:pointer;
+    font:500 12.5px "Geist",sans-serif; color:var(--sub); padding:6px 18px; min-height:30px; border-radius:8px;
+    transition:color var(--t-quick) var(--ease), transform var(--t-quick) var(--ease);
+  }
+  .seg button.on{color:var(--ink); font-weight:600}
+
+  .body{padding:20px 28px 28px}
+
+  /* entrance choreography: fade + 8px rise, hero first */
+  .rise{opacity:0; transform:translateY(8px); animation:rise var(--t-move) var(--ease) forwards}
+  @keyframes rise{to{opacity:1; transform:none}}
+  .d1{animation-delay:60ms}.d2{animation-delay:100ms}.d3{animation-delay:140ms}
+  .d4{animation-delay:180ms}.d5{animation-delay:240ms}.d6{animation-delay:300ms}
+
+  /* stats */
+  .stats{display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:18px}
+  .stat{
+    background:var(--card); border:1px solid var(--line-soft); border-radius:var(--r3); padding:16px 18px 14px;
+    box-shadow:var(--shadow-card);
+    transition:transform var(--t-move) var(--ease), box-shadow var(--t-move) var(--ease);
+  }
+  .stat:hover{transform:translateY(-1px); box-shadow:var(--shadow-lift)}
+  .stat .k{font:500 10.5px "Geist Mono",monospace; letter-spacing:.12em; text-transform:uppercase; color:var(--faint)}
+  .stat .n{font-family:"Bricolage Grotesque",sans-serif; font-weight:600; font-size:28px; letter-spacing:-.02em; font-variant-numeric:tabular-nums; margin-top:6px}
+  .stat .d{font-size:12px; color:var(--sub); margin-top:2px}
+  .stat .d b{color:var(--green); font-weight:600}
+
+  .cols{display:grid; grid-template-columns:1fr 296px; gap:12px; align-items:start}
+
+  .tablecard{
+    background:var(--card); border:1px solid var(--line-soft); border-radius:var(--r3);
+    box-shadow:var(--shadow-card); overflow:hidden;
+  }
+  .tablehead{display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid var(--line-soft)}
+  .tablehead h2{font-family:"Bricolage Grotesque",sans-serif; font-weight:600; font-size:16px; letter-spacing:-.015em}
+  .tablehead .m{font:400 11px "Geist Mono",monospace; color:var(--faint)}
+  .tablehead .grow{flex:1}
+  table{width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums}
+  thead th{
+    font:500 10.5px "Geist Mono",monospace; letter-spacing:.11em; text-transform:uppercase; color:var(--faint);
+    text-align:left; padding:9px 18px; border-bottom:1px solid var(--line-soft); background:var(--card); font-weight:500;
+  }
+  thead th.num, td.num{text-align:right}
+  tbody td{padding:0 18px; height:38px; border-bottom:1px solid #F2EDE1; font-size:13px}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:rgba(33,30,24,.025)}
+  /* row micro-cascade, 25ms apart */
+  tbody tr{opacity:0; animation:rowin var(--t-move) var(--ease) forwards; transition:background var(--t-quick) var(--ease)}
+  @keyframes rowin{from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none}}
+  tbody tr:nth-child(1){animation-delay:220ms} tbody tr:nth-child(2){animation-delay:245ms}
+  tbody tr:nth-child(3){animation-delay:270ms} tbody tr:nth-child(4){animation-delay:295ms}
+  tbody tr:nth-child(5){animation-delay:320ms} tbody tr:nth-child(6){animation-delay:345ms}
+  td.mono{font-family:"Geist Mono",monospace; font-size:12.5px; color:var(--sub)}
+  td.num{font-family:"Geist Mono",monospace; font-size:12.5px; font-weight:500; color:var(--ink)}
+  tr.fresh{background:#FDF4EF}
+  tr.fresh td:first-child{box-shadow:inset 3px 0 0 var(--coral)}
+  tr.fresh:hover{background:#FCF0E9}
+  tr.fresh{animation:rowin var(--t-move) var(--ease) 220ms forwards, rowflash 1.6s var(--ease) .9s}
+  @keyframes rowflash{0%{background:#FBE3D8}100%{background:#FDF4EF}}
+  .pill{display:inline-flex; align-items:center; gap:5px; border-radius:99px; padding:2px 9px; font:500 11px "Geist",sans-serif}
+  .pill.paid{background:var(--green-tint); color:var(--green)}
+  .pill.sent{background:var(--gold-tint); color:#8A6D1F}
+  .pill.new{background:var(--coral-tint); color:var(--coral-press)}
+  .src{font-family:"Geist Mono",monospace; font-size:11px; color:var(--faint); border:1px solid var(--line-soft); border-radius:var(--r1); padding:1.5px 7px; background:var(--sheet)}
+
+  /* review rail */
+  .rail{display:flex; flex-direction:column; gap:12px}
+  .railcard{
+    background:var(--card); border:1px solid var(--line-soft); border-radius:var(--r3); padding:16px;
+    box-shadow:var(--shadow-card);
+  }
+  .railcard .hd{display:flex; align-items:center; gap:8px; margin-bottom:12px}
+  .railcard .hd h3{font-family:"Bricolage Grotesque",sans-serif; font-weight:600; font-size:14px}
+  .railcard .hd .c{margin-left:auto; font:500 11px "Geist Mono",monospace; color:var(--coral-press); background:var(--coral-tint); border-radius:99px; padding:1px 8px; transition:transform var(--t-move) var(--spring)}
+  .prop{
+    border:1px solid var(--line-soft); border-radius:var(--r2); padding:11px 12px; margin-bottom:8px; background:var(--white);
+    transition:transform var(--t-quick) var(--ease), opacity var(--t-move) var(--ease), max-height var(--t-move) var(--ease),
+      margin var(--t-move) var(--ease), padding var(--t-move) var(--ease), border-color var(--t-move) var(--ease),
+      background var(--t-move) var(--ease);
+    max-height:200px; overflow:hidden;
+  }
+  .prop.accepted{background:var(--green-tint); border-color:#CBE2D3}
+  .prop.leaving{max-height:0; opacity:0; margin-bottom:0; padding-top:0; padding-bottom:0; border-color:transparent}
+  .prop .q{font-size:12.5px; line-height:1.45}
+  .prop .prov{font:400 10.5px "Geist Mono",monospace; color:var(--faint); margin-top:5px}
+  .prop .acts{display:flex; gap:6px; margin-top:9px}
+  .b-accept{
+    background:var(--ink); color:var(--side-lit); border:none; border-radius:8px; font:500 11.5px "Geist",sans-serif;
+    padding:5px 12px; min-height:26px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;
+    transition:background var(--t-quick) var(--ease), transform var(--t-quick) var(--ease);
+  }
+  .b-accept:hover{background:#33302B}
+  .b-accept.ok{background:var(--green)}
+  .b-accept svg{width:11px;height:11px}
+  .b-accept .tick{stroke-dasharray:14; stroke-dashoffset:14}
+  .b-accept.ok .tick{animation:draw 300ms var(--ease) forwards}
+  @keyframes draw{to{stroke-dashoffset:0}}
+  .b-skip{background:none; border:1px solid var(--line); border-radius:8px; font:500 11.5px "Geist",sans-serif; color:var(--sub); padding:5px 12px; min-height:26px; cursor:pointer; transition:background var(--t-quick) var(--ease), transform var(--t-quick) var(--ease)}
+  .b-skip:hover{background:var(--sheet)}
+  .railcard .all{width:100%; text-align:center; font:500 12px "Geist",sans-serif; color:var(--sub); background:none; border:none; padding:9px 0 2px; cursor:pointer; min-height:32px; transition:color var(--t-quick) var(--ease), transform var(--t-quick) var(--ease)}
+  .railcard .all:hover{color:var(--ink)}
+
+  .askcard{background:var(--ink); color:var(--side-lit); border-radius:var(--r3); padding:16px; box-shadow:var(--shadow-card)}
+  .askcard .k{display:flex; align-items:center; gap:7px; font:500 10.5px "Geist Mono",monospace; letter-spacing:.12em; text-transform:uppercase; color:#9A9384; margin-bottom:10px}
+  .askcard .k svg{width:13px;height:13px}
+  .askinput{display:flex; align-items:center; gap:8px; background:#2B2720; border:1px solid #3A352C; border-radius:var(--r2); padding:9px 12px; color:#8F8878; font-size:12.5px}
+  .askinput .caret{width:1px;height:14px;background:var(--coral); animation:blink 1.1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .askcard .hint{font:400 10.5px "Geist Mono",monospace; color:#6E6858; margin-top:9px}
+
+  .pad-demo{height:340px; display:flex; align-items:center; justify-content:center;
+    font:400 11px "Geist Mono",monospace; color:var(--faint)}
+
+  /* ---------- iOS bottom sheet ---------- */
+  .scrim{
+    position:fixed; inset:0; z-index:40; background:rgba(33,30,24,.35);
+    backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+    opacity:0; pointer-events:none; transition:opacity var(--t-sheet) var(--ease);
+  }
+  body.sheet-open .scrim{opacity:1; pointer-events:auto}
+  .bsheet{
+    position:fixed; z-index:50; left:50%; bottom:0; width:min(600px,92vw);
+    transform:translate(-50%,104%);
+    background:var(--sheet); border:1px solid var(--line); border-bottom:none;
+    border-radius:var(--r4) var(--r4) 0 0;
+    box-shadow:0 -8px 60px -20px rgba(33,30,24,.45);
+    transition:transform var(--t-sheet) var(--ease);
+    padding:8px 22px 26px; max-height:76vh; display:flex; flex-direction:column;
+  }
+  body.sheet-open .bsheet{transform:translate(-50%,0)}
+  .bsheet.dragging{transition:none}
+  .grabber{width:36px; height:5px; border-radius:99px; background:rgba(33,30,24,.15); margin:6px auto 14px; flex:none; cursor:grab}
+  .bsheet h3{font-family:"Bricolage Grotesque",sans-serif; font-weight:600; font-size:18px; letter-spacing:-.02em; margin-bottom:2px}
+  .bsheet .sm-meta{font:400 11px "Geist Mono",monospace; color:var(--faint); margin-bottom:14px}
+  .bsheet .list{overflow:auto}
+  .bsheet .prop{background:var(--card)}
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none!important; transition:none!important}
+    .rise, tbody tr{opacity:1; transform:none}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="side">
+    <div class="wordmark"><span class="data">data</span><span class="modo">modo</span></div>
+    <button class="newagent">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
+      New agent
+    </button>
+    <nav>
+      <button class="nav-item">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="5.5" height="5.5" rx="1.5"/><rect x="10" y="2.5" width="5.5" height="5.5" rx="1.5"/><rect x="2.5" y="10" width="5.5" height="5.5" rx="1.5"/><rect x="10" y="10" width="5.5" height="5.5" rx="1.5"/></svg>
+        Agents</button>
+      <button class="nav-item active">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="13" height="11" rx="1.5"/><path d="M2.5 7.5h13M7.5 7.5v7"/></svg>
+        Data</button>
+      <button class="nav-item" id="navReview">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="6.5"/><path d="M6.5 9.2l1.8 1.8 3.4-3.8"/></svg>
+        Review <span class="nav-count" id="navCount">3</span></button>
+      <button class="nav-item">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="8" cy="8" r="5.5"/><path d="M12.2 12.2l3.2 3.2"/></svg>
+        Search</button>
+      <button class="nav-item">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 8.6c0 3.1-2.9 5.6-6.5 5.6-.8 0-1.6-.1-2.3-.4L3 15l1-2.6c-.9-1-1.5-2.3-1.5-3.8C2.5 5.5 5.4 3 9 3s6.5 2.5 6.5 5.6z"/></svg>
+        Chat</button>
+    </nav>
+    <div class="side-flex"></div>
+    <div class="review-strip" id="reviewStrip">
+      <span class="pulse"></span>
+      <div><div class="t"><span id="stripCount">3</span> changes to review</div><div class="s">2 rows · 1 merge</div></div>
+    </div>
+    <div class="userrow">
+      <div class="avatar">PJ</div>
+      <div style="min-width:0">
+        <div class="name">Pierre-Jean</div>
+        <div class="email">u8x2@datamodo.in</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="pane" id="pane">
+
+      <!-- iOS compact bar: appears as the large title scrolls away -->
+      <div class="compactbar">
+        <span class="ct">Data</span>
+        <div class="right">
+          <button class="btn-quiet sm">Connect</button>
+        </div>
+      </div>
+
+      <div class="scroller" id="scroller">
+        <div class="hero rise">
+          <div>
+            <h1>Data</h1>
+            <div class="meta">4 tables · 1,284 rows · updated 6 min ago</div>
+          </div>
+          <div class="top-right">
+            <div class="cmdk">
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3 3"/></svg>
+              Search or ask… <kbd>⌘K</kbd>
+            </div>
+            <button class="btn-quiet">Connect</button>
+          </div>
+        </div>
+
+        <!-- iOS segmented control -->
+        <div class="seg rise d1" id="seg">
+          <div class="thumb"></div>
+          <button class="on">Tables</button>
+          <button>Explore</button>
+          <button>Timeline</button>
+          <button>Insights</button>
+        </div>
+
+        <div class="body">
+          <div class="stats">
+            <div class="stat rise d2"><div class="k">Rows captured</div><div class="n">1,284</div><div class="d"><b>+38</b> this week</div></div>
+            <div class="stat rise d3"><div class="k">Awaiting review</div><div class="n" id="statReview">3</div><div class="d">oldest 2 h ago</div></div>
+            <div class="stat rise d4"><div class="k">Sources connected</div><div class="n">4</div><div class="d">Gmail · WhatsApp · Slack · Outlook</div></div>
+          </div>
+
+          <div class="cols">
+            <div class="tablecard rise d4">
+              <div class="tablehead">
+                <h2>Invoices</h2>
+                <span class="m">312 rows · from 3 sources</span>
+                <div class="grow"></div>
+                <button class="btn-quiet">Export .xlsx</button>
+              </div>
+              <table>
+                <thead><tr>
+                  <th>Invoice</th><th>Client</th><th class="num">Amount</th><th>Status</th><th>Source</th><th>Updated</th>
+                </tr></thead>
+                <tbody>
+                  <tr class="fresh">
+                    <td class="mono">INV-2043</td><td>Marchetti &amp; Co</td><td class="num">$4,820.00</td>
+                    <td><span class="pill new">Just added</span></td><td><span class="src">gmail · 09:41</span></td><td class="mono">6 min ago</td>
+                  </tr>
+                  <tr>
+                    <td class="mono">INV-2042</td><td>Bluewater Films</td><td class="num">$12,300.00</td>
+                    <td><span class="pill sent">Sent</span></td><td><span class="src">outlook</span></td><td class="mono">yesterday</td>
+                  </tr>
+                  <tr>
+                    <td class="mono">INV-2041</td><td>Hélène Roussel</td><td class="num">$1,975.50</td>
+                    <td><span class="pill paid">Paid</span></td><td><span class="src">whatsapp</span></td><td class="mono">Jul 18</td>
+                  </tr>
+                  <tr>
+                    <td class="mono">INV-2040</td><td>Nordhaus Studio</td><td class="num">$8,140.00</td>
+                    <td><span class="pill paid">Paid</span></td><td><span class="src">gmail</span></td><td class="mono">Jul 17</td>
+                  </tr>
+                  <tr>
+                    <td class="mono">INV-2039</td><td>Carver Logistics</td><td class="num">$23,660.00</td>
+                    <td><span class="pill sent">Sent</span></td><td><span class="src">slack</span></td><td class="mono">Jul 15</td>
+                  </tr>
+                  <tr>
+                    <td class="mono">INV-2038</td><td>Bluewater Films</td><td class="num">$6,480.00</td>
+                    <td><span class="pill paid">Paid</span></td><td><span class="src">outlook</span></td><td class="mono">Jul 11</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="rail">
+              <div class="railcard rise d5">
+                <div class="hd">
+                  <h3>Needs review</h3>
+                  <span class="c" id="railCount">3</span>
+                </div>
+                <div class="prop">
+                  <div class="q">Add <b>$4,820.00</b> from Marchetti &amp; Co as a new invoice?</div>
+                  <div class="prov">↳ forwarded email · 09:41 · 96% sure</div>
+                  <div class="acts">
+                    <button class="b-accept"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path class="tick" d="M2.5 6.5l2.4 2.4 4.6-5.4"/></svg>Accept</button>
+                    <button class="b-skip">Skip</button>
+                  </div>
+                </div>
+                <div class="prop">
+                  <div class="q">Merge <b>H. Roussel</b> and <b>Hélène Roussel</b> into one contact?</div>
+                  <div class="prov">↳ 2 sources agree · 91% sure</div>
+                  <div class="acts">
+                    <button class="b-accept"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path class="tick" d="M2.5 6.5l2.4 2.4 4.6-5.4"/></svg>Accept</button>
+                    <button class="b-skip">Skip</button>
+                  </div>
+                </div>
+                <button class="all" id="reviewAll">Review all →</button>
+              </div>
+
+              <div class="askcard rise d6">
+                <div class="k">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M8 1.5l1.6 4.9L14.5 8l-4.9 1.6L8 14.5 6.4 9.6 1.5 8l4.9-1.6z"/></svg>
+                  Ask anything
+                </div>
+                <div class="askinput">› what do I still owe this quarter<span class="caret"></span></div>
+                <div class="hint">answers cite the exact messages they came from</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="pad-demo">↓ scroll to see the large title collapse into the frosted compact bar · click "Review all" for the sheet</div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- iOS bottom sheet -->
+<div class="scrim" id="scrim"></div>
+<div class="bsheet" id="bsheet" role="dialog" aria-modal="true" aria-label="Review queue">
+  <div class="grabber" id="grabber"></div>
+  <h3>Needs review</h3>
+  <div class="sm-meta">3 proposed changes · accept, skip, or open the trace</div>
+  <div class="list">
+    <div class="prop">
+      <div class="q">Add <b>$4,820.00</b> from Marchetti &amp; Co as a new invoice?</div>
+      <div class="prov">↳ forwarded email · 09:41 · 96% sure</div>
+      <div class="acts">
+        <button class="b-accept"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path class="tick" d="M2.5 6.5l2.4 2.4 4.6-5.4"/></svg>Accept</button>
+        <button class="b-skip">Skip</button>
+      </div>
+    </div>
+    <div class="prop">
+      <div class="q">Merge <b>H. Roussel</b> and <b>Hélène Roussel</b> into one contact?</div>
+      <div class="prov">↳ 2 sources agree · 91% sure</div>
+      <div class="acts">
+        <button class="b-accept"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path class="tick" d="M2.5 6.5l2.4 2.4 4.6-5.4"/></svg>Accept</button>
+        <button class="b-skip">Skip</button>
+      </div>
+    </div>
+    <div class="prop">
+      <div class="q">Update Carver Logistics' invoice <b>INV-2039</b> from Sent to <b>Paid</b>?</div>
+      <div class="prov">↳ bank notification email · 88% sure</div>
+      <div class="acts">
+        <button class="b-accept"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path class="tick" d="M2.5 6.5l2.4 2.4 4.6-5.4"/></svg>Accept</button>
+        <button class="b-skip">Skip</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // large-title collapse -> frosted compact bar
+  var pane = document.getElementById('pane');
+  var scroller = document.getElementById('scroller');
+  scroller.addEventListener('scroll', function () {
+    pane.classList.toggle('scrolled', scroller.scrollTop > 56);
+  }, { passive: true });
+
+  // iOS segmented control: sliding thumb, spring landing
+  var seg = document.getElementById('seg');
+  var thumb = seg.querySelector('.thumb');
+  var segBtns = Array.prototype.slice.call(seg.querySelectorAll('button'));
+  segBtns.forEach(function (btn, i) {
+    btn.addEventListener('click', function () {
+      segBtns.forEach(function (b) { b.classList.remove('on'); });
+      btn.classList.add('on');
+      thumb.style.transform = 'translateX(' + (i * 100) + '%)';
+    });
+  });
+
+  // accept choreography: check draws -> card tints green -> collapses; counts update
+  var remaining = 3;
+  function syncCounts() {
+    ['navCount', 'stripCount', 'railCount', 'statReview'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.textContent = remaining;
+    });
+    var badge = document.getElementById('railCount');
+    badge.style.transform = 'scale(1.25)';
+    setTimeout(function () { badge.style.transform = ''; }, 160);
+  }
+  document.querySelectorAll('.b-accept').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var card = btn.closest('.prop');
+      if (card.classList.contains('accepted')) return;
+      btn.classList.add('ok');
+      card.classList.add('accepted');
+      setTimeout(function () { card.classList.add('leaving'); }, 480);
+      remaining = Math.max(0, remaining - 1);
+      setTimeout(syncCounts, 480);
+    });
+  });
+  document.querySelectorAll('.b-skip').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var card = btn.closest('.prop');
+      card.classList.add('leaving');
+      remaining = Math.max(0, remaining - 1);
+      syncCounts();
+    });
+  });
+
+  // bottom sheet open/dismiss (button, strip, nav item; scrim, Esc, drag-down)
+  var bsheet = document.getElementById('bsheet');
+  var scrim = document.getElementById('scrim');
+  function openSheet() { document.body.classList.add('sheet-open'); }
+  function closeSheet() {
+    document.body.classList.remove('sheet-open');
+    bsheet.style.transform = '';
+  }
+  document.getElementById('reviewAll').addEventListener('click', openSheet);
+  document.getElementById('reviewStrip').addEventListener('click', openSheet);
+  document.getElementById('navReview').addEventListener('click', openSheet);
+  scrim.addEventListener('click', closeSheet);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeSheet(); });
+
+  // swipe-down to dismiss
+  var dragY = null;
+  bsheet.addEventListener('pointerdown', function (e) {
+    if (e.target.closest('button')) return;
+    dragY = e.clientY;
+    bsheet.classList.add('dragging');
+    bsheet.setPointerCapture(e.pointerId);
+  });
+  bsheet.addEventListener('pointermove', function (e) {
+    if (dragY === null) return;
+    var dy = Math.max(0, e.clientY - dragY);
+    bsheet.style.transform = 'translate(-50%,' + dy + 'px)';
+  });
+  bsheet.addEventListener('pointerup', function (e) {
+    if (dragY === null) return;
+    var dy = Math.max(0, e.clientY - dragY);
+    bsheet.classList.remove('dragging');
+    dragY = null;
+    if (dy > 110) { closeSheet(); } else { bsheet.style.transform = ''; }
+  });
+</script>
+</body>
+</html>

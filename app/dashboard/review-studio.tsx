@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { C, Hov, ghostBtn, relTime } from "./ui";
+import { C, ChannelMark, Hov, ghostBtn, relTime } from "./ui";
 import { ReviewCardBody, PAPER_SKIN } from "./review-card";
 import { ReviewGraphPanel, previewInputFor } from "./review-graph-modal";
 import { explainReview } from "@/lib/datamodo/review-explain";
@@ -58,8 +58,8 @@ function ImpactMeter({ n }: { n: number }) {
 }
 
 const CHANNEL: Record<string, { emoji: string; label: string }> = {
-  email: { emoji: "✉", label: "Email" }, whatsapp: { emoji: "🟢", label: "WhatsApp" },
-  slack: { emoji: "▦", label: "Slack" }, teams: { emoji: "◇", label: "Teams" },
+  email: { emoji: "✉", label: "Email" }, whatsapp: { emoji: "◦", label: "WhatsApp" },
+  slack: { emoji: "◦", label: "Slack" }, teams: { emoji: "◇", label: "Teams" },
 };
 const channelOf = (c: string) => CHANNEL[c] ?? { emoji: "•", label: c };
 
@@ -142,7 +142,7 @@ function ExtractionCard({ e, onResolve }: { e: ExtractionReview; onResolve: Reso
       header={<>
         <TypeChip label="New from a message" tone={C.blue} />
         {low && <TypeChip label="low confidence" tone={C.gold} />}
-        <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginLeft: "auto" }}>{ch.emoji} {ch.label} · {relTime(e.createdAt)}</span>
+        <span className="dm-mono" style={{ fontSize: 11, color: "#8A8477", marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5 }}><ChannelMark channel={e.channel} size={11} /> {ch.label} · {relTime(e.createdAt)}</span>
       </>}
       footer={<>
         <ConfidenceRing value={e.confidence ?? 1} size={34} />
