@@ -18,33 +18,13 @@ import {
 import type { ActionResult } from "./actions";
 
 /* ------------------------------------------------------------------ */
-/* CountUp — animate a number from 0 to its value on mount. A small     */
-/* delight for headline stats; respects prefers-reduced-motion.        */
+/* CountUp — now a static number. The 0→N bounce was removed in the    */
+/* premium motion pass (motion confirms actions, never decorates);     */
+/* the component survives so callers keep their formatting API.        */
 /* ------------------------------------------------------------------ */
-export function CountUp({ value, format, duration = 450 }: { value: number; format?: (n: number) => string; duration?: number }) {
+export function CountUp({ value, format }: { value: number; format?: (n: number) => string; duration?: number }) {
   const fmt = format ?? ((n: number) => Math.round(n).toLocaleString("en-US"));
-  const [display, setDisplay] = useState(value);
-  const ref = useRef(value);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    const target = value;
-    const from = 0;
-    if (reduce || target === from) { setDisplay(target); return; }
-    let raf = 0;
-    const start = performance.now();
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / duration);
-      const eased = 1 - Math.pow(1 - t, 3);
-      ref.current = from + (target - from) * eased;
-      setDisplay(ref.current);
-      if (t < 1) raf = requestAnimationFrame(tick);
-      else setDisplay(target);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [value, duration]);
-  return <>{fmt(display)}</>;
+  return <>{fmt(value)}</>;
 }
 
 /* ------------------------------------------------------------------ */

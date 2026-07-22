@@ -4,7 +4,7 @@
 > inventory when they ship; add what the work surfaced. Ordered by value.
 > Siblings: [STATE.md](STATE.md) · [FLOW.md](FLOW.md) · [MEMORY.md](MEMORY.md).
 >
-> Last updated: 2026-07-20
+> Last updated: 2026-07-22
 
 ## Now (unblocks everything else)
 0. ~~Model unification, phase 3 — the PHYSICAL merge~~ ✅ 2026-07-20 (user
@@ -44,6 +44,16 @@ Big-rock UX work queued after the model merge (Phase 3). Ordered by user emphasi
 - **Remove the separate "⊛ Graph" (sigma) view.** The whole-vault sigma canvas
   (`graph-view.tsx`) is redundant once the Explorer is the one graph surface —
   plan to drop it. (Confirm nothing else depends on it first.)
+- **Premium chrome, per-view sweeps** (shell phase ✅ 2026-07-22 — inset
+  sheet, refined sidebar + Sources cluster, topbar diet, ⌘K palette; see
+  STATE.md). Remaining from the brief, in its order of work: table-page
+  density spec (36px rows, right-aligned mono numerics, sticky mono header),
+  skeleton loaders shaped like each layout + composed empty states,
+  review-studio decoration flatten, agents-card density, insights dataviz
+  bars, chat/explorer token+icon sweep, large-title collapse pattern, and
+  the landing-page maturation (phase 2 of the brief). Also still open:
+  radius/type-scale literals across the non-shell views (only new shell
+  chrome consumes `--dm-r-*` so far).
 - **Tables tab UI — Notion's grammar on the fact spine** — ~~Phase 1~~
   ✅ SHIPPED 2026-07-20 (brief:
   [`design/briefs/tables-notion-redesign-brief.md`](../design/briefs/tables-notion-redesign-brief.md);

@@ -37,7 +37,7 @@ import type { GroundedAnswer } from "@/lib/datamodo/answer";
 import type { ChunkHit } from "@/lib/datamodo/chunks";
 import { PLANS, PLAN_ORDER, planLimits, type ComputeMode } from "@/lib/datamodo/plans";
 import {
-  Hov, C, LOGO, CH_NAMES, navStyle, modeCard, radioDot, bar, toggleTrack, toggleKnob,
+  Hov, C, LOGO, CH_NAMES, modeCard, radioDot, bar, toggleTrack, toggleKnob,
   channelTile, targetChip, monoLabel, fieldInput, fieldLabel, primaryBtn, ghostBtn,
   pickColor, relTime, slugify, COLUMN_TYPES, Segmented, ModalShell,
   useAction, type Agent, type TableInfo,
@@ -58,6 +58,7 @@ import { CategoriesModal } from "./categories-modal";
 import { BuildFromKnowledgeModal } from "./build-from-knowledge";
 import { DeriveTableModal } from "./derive-table-modal";
 import { ChatView } from "./chat-view";
+import { CommandPalette, type Command } from "./command-palette";
 
 /* ================================================================== */
 /* Component                                                           */
@@ -182,6 +183,37 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
   const [reviewView, setReviewView] = useState<ReviewView>("pending");
   const [dataActionsOpen, setDataActionsOpen] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  const [inboxCopied, setInboxCopied] = useState(false);
+
+  // ⌘K / Ctrl-K opens the palette from anywhere in the app.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCmdkOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const copyInbox = () => {
+    navigator.clipboard?.writeText(inbox).then(() => {
+      setInboxCopied(true);
+      setTimeout(() => setInboxCopied(false), 1600);
+    }).catch(() => {});
+  };
+
+  // The rare build/import actions — ONE list feeding both the topbar
+  // "Build ▾" menu and the command palette (simplicity rule: no peers).
+  const buildActions: readonly (readonly [string, string, () => void])[] = [
+    ["Categories", "Edit what kinds of things exist", () => setCategoriesOpen(true)],
+    ["Spreadsheet → knowledge", "Import a sheet as entities & links", () => setImportGraphOpen(true)],
+    ["Obsidian vault → knowledge", "Notes become pages, links become edges", () => setObsidianOpen(true)],
+    ["Build from knowledge", "Turn a category into a table", () => setBuildOpen(true)],
+    ["Derive a table", "Describe a table; we build it from your graph", () => setDeriveOpen(true)],
+  ] as const;
   const manageAgent = agents.find((a) => a.id === manageAgentId) ?? null;
   const openTable = datasets.find((d) => d.id === openTableId) ?? null;
 
@@ -309,15 +341,14 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
         <Hov
           onClick={openModal}
           className="cc-new"
-          base={{ display: "flex", alignItems: "center", gap: 10, background: "#2B2720", border: "none", borderRadius: 11, padding: "11px 12px", color: "#F1ECE1", fontFamily: "inherit", fontSize: 14, fontWeight: 500, marginBottom: 22, cursor: "pointer", width: "100%", textAlign: "left" }}
+          base={{ display: "flex", alignItems: "center", gap: 10, background: "#2B2720", border: "1px solid rgba(241,236,225,.06)", borderRadius: 10, padding: "10px 12px", color: "#F1ECE1", fontFamily: "inherit", fontSize: 13, fontWeight: 500, marginBottom: 18, cursor: "pointer", width: "100%", textAlign: "left", transition: "background var(--dm-t-quick) var(--dm-ease)" }}
           hover={{ background: "#322D25" }}
         >
           <span style={{ width: 24, height: 24, borderRadius: 7, background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0, lineHeight: 1 }}>+</span>
           New agent
         </Hov>
 
-        <p className="dm-mono cc-side-label" style={{ ...monoLabel, letterSpacing: "0.09em", padding: "0 8px 8px", margin: 0, color: "#7C766B" }}>Menu</p>
-        <nav className="cc-nav" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        <nav className="cc-nav" style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           {([
             { key: "agents", label: "Agents", count: uiAgents.length ? String(uiAgents.length) : null, icon: <><rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8V4" /><circle cx="12" cy="3" r="1.4" fill="currentColor" stroke="none" /><path d="M9 14h.01M15 14h.01" /></> },
             { key: "data", label: "Data", count: uiTables.length ? String(uiTables.length) : null, icon: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 10h18M9 4v16" /></> },
@@ -327,64 +358,65 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           ] as const).map((item) => {
             const active = tab === item.key;
             return (
-              <Hov
-                key={item.key}
-                onClick={() => setTab(item.key)}
-                base={navStyle(active)}
-                hover={active ? undefined : { background: "#2B2720", color: "#F1ECE1" }}
-              >
-                <span style={{ display: "flex", alignItems: "center", gap: 11, color: active ? C.accent : "#8A8477" }}>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">{item.icon}</svg>
-                  <span style={{ color: active ? "#F1ECE1" : "#B7AF9F" }}>{item.label}</span>
+              <button key={item.key} type="button" onClick={() => setTab(item.key)} className={`cc-nav-item${active ? " is-active" : ""}`}>
+                <span className="cc-nav-ico">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{item.icon}</svg>
+                  <span style={{ color: "inherit" }}>{item.label}</span>
                 </span>
-                {item.count && <span className="dm-mono" style={{ fontSize: 11, color: active ? "#8A8477" : "#7C766B" }}>{item.count}</span>}
-              </Hov>
+                {item.count && <span className="dm-mono" style={{ fontSize: 11, color: "#7C766B" }}>{item.count}</span>}
+              </button>
             );
           })}
         </nav>
         </div>
 
         {reviewTotal > 0 && (
-        <div className="cc-review" style={{ marginTop: 26 }}>
-          <p className="dm-mono" style={{ ...monoLabel, letterSpacing: "0.09em", padding: "0 8px 8px", margin: 0, color: "#7C766B" }}>Needs review</p>
-          <Hov
-            onClick={() => setTab("review")}
-            base={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "none", border: "none", padding: "9px 10px", borderRadius: 9, color: "#B7AF9F", fontFamily: "inherit", fontSize: 14, cursor: "pointer", textAlign: "left" }}
-            hover={{ background: "#2B2720", color: "#F1ECE1" }}
-          >
-            <span style={{ display: "flex", alignItems: "center", gap: 11 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.accent, animation: "cc-pulse 2.6s ease-in-out infinite" }} />
-              Pending changes
+        <div className="cc-review cc-side-sec">
+          <button type="button" onClick={() => { setTab("review"); setReviewView("pending"); }} className="cc-side-row">
+            <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.accent, flexShrink: 0, animation: "cc-pulse 2.6s ease-in-out infinite" }} />
+              Needs review
             </span>
-            <span className="dm-mono" style={{ fontSize: 11, color: "#fff", background: C.accent, borderRadius: 999, padding: "1px 8px" }}>{reviewTotal}</span>
-          </Hov>
+            <span className="dm-mono" style={{ fontSize: 11, color: "#fff", background: C.accent, borderRadius: 999, padding: "1px 8px", flexShrink: 0 }}>{reviewTotal}</span>
+          </button>
         </div>
         )}
 
-        {/* runtime / compute */}
-        <div className="cc-compute" style={{ marginTop: "auto", background: "#2B2720", border: "1px solid #3A352C", borderRadius: 12, padding: "11px 12px", marginBottom: 14 }}>
-          <div className="dm-mono" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.08em", color: "#7C766B", marginBottom: 7 }}>Compute · account-wide</div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: runtimeDot, flexShrink: 0 }} />
-              <span style={{ fontSize: 13, color: "#F1ECE1", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{runtimeLabel}</span>
-            </div>
-            <Hov onClick={() => setSettingsOpen(true)} tag="button" base={{ background: "none", border: "none", fontSize: 10.5, color: "#A39B8B", cursor: "pointer", flexShrink: 0 }} hover={{ color: "#F1ECE1" }}>
-              <span className="dm-mono">manage</span>
-            </Hov>
-          </div>
-          <div style={{ fontSize: 11, color: "#7C766B", marginTop: 5, lineHeight: 1.35 }}>{runtimeSub}</div>
+        {/* sources — where new data comes from (moved out of the topbar) */}
+        <div className="cc-sources cc-side-sec" style={{ marginTop: "auto" }}>
+          <p className="dm-mono cc-kicker">Sources</p>
+          <button type="button" onClick={() => setConnectionsOpen(true)} className="cc-side-row">
+            <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8" /></svg>
+              Connect a channel
+            </span>
+          </button>
+          <button type="button" onClick={copyInbox} className="cc-side-row" title="Your forwarding address — click to copy">
+            <span className="dm-mono" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inbox}</span>
+            <span className="dm-mono" style={{ fontSize: 10.5, color: inboxCopied ? "#7fb391" : "#7C766B", flexShrink: 0 }}>{inboxCopied ? "copied" : "copy"}</span>
+          </button>
+        </div>
+
+        {/* runtime / compute — a quiet row, not a boxed card */}
+        <div className="cc-compute cc-side-sec">
+          <button type="button" onClick={() => setSettingsOpen(true)} className="cc-side-row" title={runtimeSub}>
+            <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: runtimeDot, flexShrink: 0 }} />
+              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{runtimeLabel}</span>
+            </span>
+            <span className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B", flexShrink: 0 }}>manage</span>
+          </button>
         </div>
 
         {/* user */}
-        <div className="cc-user" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 8px", borderTop: "1px solid #3A352C" }}>
+        <div className="cc-user" style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 8px 2px", borderTop: "1px solid var(--side-hairline)", marginTop: 12 }}>
           <span style={{ width: 30, height: 30, borderRadius: "50%", background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{initial}</span>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, color: "#F1ECE1", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</div>
-            <button type="button" onClick={() => setSettingsOpen(true)} className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B", background: "none", border: "none", padding: 0, cursor: "pointer" }}>{local ? "self-hosted · settings" : `${plan.label} plan · manage`}</button>
+            <button type="button" onClick={() => setSettingsOpen(true)} className="dm-mono" style={{ fontSize: 10.5, color: "#7C766B", background: "none", border: "none", padding: 0, cursor: "pointer", whiteSpace: "nowrap" }}>{local ? "self-hosted" : `${plan.label} plan`}</button>
           </div>
-          <form action={signout} style={{ marginLeft: "auto", display: local ? "none" : undefined }}>
-            <Hov tag="button" type="submit" title="Sign out" base={{ background: "none", border: "none", color: "#7C766B", fontSize: 11, cursor: "pointer" }} hover={{ color: "#F1ECE1" }}>
+          <form action={signout} style={{ marginLeft: "auto", flexShrink: 0, display: local ? "none" : undefined }}>
+            <Hov tag="button" type="submit" title="Sign out" base={{ background: "none", border: "none", color: "#7C766B", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }} hover={{ color: "#F1ECE1" }}>
               <span className="dm-mono">Sign out</span>
             </Hov>
           </form>
@@ -401,17 +433,28 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: "auto" }}>
             <QueuePill />
-            <Hov onClick={() => setOnboardingOpen(true)} title={hasContext ? "Edit your business context" : "Tell your agents what matters"} base={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 500, color: "#3A352C", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px", cursor: "pointer", fontFamily: "inherit" }} hover={{ background: "#FBF8F1" }}>
-              <span style={{ color: C.accent }}>✦</span>
-              Context{hasContext && <span style={{ color: C.green, fontSize: 13, lineHeight: 1 }}>✓</span>}
-            </Hov>
-            <Hov onClick={() => setConnectionsOpen(true)} base={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 500, color: "#3A352C", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px", cursor: "pointer", fontFamily: "inherit" }} hover={{ background: "#FBF8F1" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8" /></svg>
-              Connect
-            </Hov>
-            <div className="dm-mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#6B665B", background: "#fff", border: "1px solid #E1D9C8", borderRadius: 10, padding: "8px 12px" }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.green }} />{inbox}
-            </div>
+            {tab === "data" && (
+              <div style={{ position: "relative" }}>
+                <button type="button" className="cc-chip" onClick={() => setDataActionsOpen((o) => !o)}>
+                  <span style={{ color: C.accent }}>✦</span> Build <span style={{ fontSize: 10, color: "#A39B8B" }}>▾</span>
+                </button>
+                {dataActionsOpen && (
+                  <div className="dm-drop" style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 40, background: "#fff", border: "1px solid #E7E0D2", borderRadius: 12, boxShadow: "0 14px 34px rgba(33,30,24,.16)", overflow: "hidden", minWidth: 230 }}>
+                    {buildActions.map(([label, hint, act]) => (
+                      <button key={label} type="button" onClick={() => { setDataActionsOpen(false); act(); }}
+                        style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+                        <span style={{ display: "block", fontSize: 13, color: C.ink, fontWeight: 500 }}>{label}</span>
+                        <span style={{ display: "block", fontSize: 11, color: "#8A8477", marginTop: 1 }}>{hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <button type="button" className="cc-chip" onClick={() => setCmdkOpen(true)} title="Jump anywhere — views, tables, actions">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg>
+              <span className="cc-kbd">⌘K</span>
+            </button>
           </div>
         </div>
 
@@ -431,30 +474,9 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           {tab === "data" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+                {/* Rare build/import actions live in the topbar's ONE "Build ▾"
+                    menu (and the ⌘K palette) — the toggle row stays clean. */}
                 <Segmented value={dataView} onChange={setDataView} options={[{ v: "tables", label: "Tables" }, { v: "explore", label: "Explore" }, { v: "graph", label: "Graph" }, { v: "files", label: "Files" }, { v: "insights", label: "Insights" }]} />
-                {/* Rare actions live behind ONE menu, not three peers (simplicity rule). */}
-                <div style={{ position: "relative" }}>
-                  <Hov onClick={() => setDataActionsOpen((o) => !o)} base={{ ...ghostBtn, display: "inline-flex", alignItems: "center", gap: 7 }} hover={{ background: "#FBF8F1" }}>
-                    <span style={{ color: C.accent }}>✦</span> Build <span style={{ fontSize: 10, color: "#A39B8B" }}>▾</span>
-                  </Hov>
-                  {dataActionsOpen && (
-                    <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 40, background: "#fff", border: "1px solid #E7E0D2", borderRadius: 12, boxShadow: "0 14px 34px rgba(33,30,24,.16)", overflow: "hidden", minWidth: 230 }}>
-                      {([
-                        ["Categories", "Edit what kinds of things exist", () => setCategoriesOpen(true)],
-                        ["Spreadsheet → knowledge", "Import a sheet as entities & links", () => setImportGraphOpen(true)],
-                        ["Obsidian vault → knowledge", "Notes become pages, links become edges", () => setObsidianOpen(true)],
-                        ["Build from knowledge", "Turn a category into a table", () => setBuildOpen(true)],
-                        ["Derive a table", "Describe a table; we build it from your graph", () => setDeriveOpen(true)],
-                      ] as const).map(([label, hint, act]) => (
-                        <button key={label} type="button" onClick={() => { setDataActionsOpen(false); act(); }}
-                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
-                          <span style={{ display: "block", fontSize: 13, color: C.ink, fontWeight: 500 }}>{label}</span>
-                          <span style={{ display: "block", fontSize: 11, color: "#8A8477", marginTop: 1 }}>{hint}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
               </div>
               {/* A table opens IN PLACE of the Tables surface (Notion-grammar
                   redesign 2026-07-20): full-width page, not a modal. */}
@@ -513,6 +535,31 @@ export default function ControlCenter({ fullName, initial, inbox, agents, datase
           {tab === "chat" && <ChatView />}
         </div>
       </main>
+
+      {/* ================= ⌘K COMMAND PALETTE ================= */}
+      {cmdkOpen && <CommandPalette
+        onClose={() => setCmdkOpen(false)}
+        commands={([
+          { id: "go-agents", section: "Go to", label: "Agents", run: () => setTab("agents") },
+          { id: "go-tables", section: "Go to", label: "Data · Tables", keywords: "schema categories", run: () => { setTab("data"); setDataView("tables"); } },
+          { id: "go-explore", section: "Go to", label: "Data · Explore", keywords: "walk graph node", run: () => { setTab("data"); setDataView("explore"); } },
+          { id: "go-graph", section: "Go to", label: "Data · Graph", keywords: "map whole vault", run: () => { setTab("data"); setDataView("graph"); } },
+          { id: "go-files", section: "Go to", label: "Data · Files", keywords: "documents attachments", run: () => { setTab("data"); setDataView("files"); } },
+          { id: "go-insights", section: "Go to", label: "Data · Insights", keywords: "numbers totals", run: () => { setTab("data"); setDataView("insights"); } },
+          { id: "go-review", section: "Go to", label: "Review · Pending", hint: reviewTotal ? String(reviewTotal) : undefined, keywords: "changes approve", run: () => { setTab("review"); setReviewView("pending"); } },
+          { id: "go-commits", section: "Go to", label: "Review · Commits", keywords: "history log", run: () => { setTab("review"); setReviewView("commits"); } },
+          { id: "go-timeline", section: "Go to", label: "Review · Timeline", keywords: "story learned", run: () => { setTab("review"); setReviewView("timeline"); } },
+          { id: "go-search", section: "Go to", label: "Search", keywords: "ask question", run: () => setTab("search") },
+          { id: "go-chat", section: "Go to", label: "Chat", keywords: "message send", run: () => setTab("chat") },
+          ...uiTables.map((t): Command => ({ id: `table-${t.id}`, section: "Tables", label: t.name, hint: t.rows, keywords: "open table", run: () => openTablePage(t.id) })),
+          { id: "act-new-agent", section: "Actions", label: "New agent", run: openModal },
+          { id: "act-connect", section: "Actions", label: "Connect a channel", keywords: "gmail whatsapp slack source", run: () => setConnectionsOpen(true) },
+          { id: "act-context", section: "Actions", label: hasContext ? "Edit business context" : "Set business context", keywords: "onboarding about", run: () => setOnboardingOpen(true) },
+          { id: "act-inbox", section: "Actions", label: "Copy inbox address", hint: inbox, keywords: "forward email", run: copyInbox },
+          ...buildActions.map(([label, hint, act]): Command => ({ id: `build-${label}`, section: "Actions", label, hint: undefined, keywords: `build ${hint}`, run: act })),
+          { id: "act-settings", section: "Actions", label: local ? "Settings" : "Settings & plan", keywords: "compute byok billing", run: () => setSettingsOpen(true) },
+        ] as Command[])}
+      />}
 
       {/* ================= CREATE AGENT MODAL ================= */}
       {modalOpen && (
