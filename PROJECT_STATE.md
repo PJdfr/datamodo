@@ -13,6 +13,37 @@
 
 ## Recent changes
 
+- **2026-07-22** — **Premium shell phase — sidebar de-genericized, topbar
+  diet, ⌘K command palette (user call: "vibe coded UI, tens of thousands of
+  buttons, sidebar generic — refactor, remove what's not needed, user must
+  not be lost"):** implements the premium brief's structural signatures.
+  (1) **Dead CSS layer deleted** from `globals.css` — the pre-brand indigo
+  `--primary` tokens, the dark-mode `:root` override (was leaking dark UA
+  styles), and ~4.4KB of unreferenced `.btn/.landing/.auth-page/.app-shell/
+  .card` classes (verified zero usages). (2) **Inset-sheet architecture**:
+  shell tray `#ECE6D8`, main pane a raised `#FAF7F0` sheet (r24, hairline
+  `#E3DBC9`, 1px inner top highlight); flat on mobile. (3) **Sidebar**:
+  deepened `#1B1815`; boxed "Needs review"/compute cards → quiet
+  hairline-topped rows; "Menu" kicker gone; active nav = 6% cream fill +
+  coral dot (`.cc-nav-item` CSS, replacing the JS `Hov` swaps); NEW
+  "Sources" cluster (Connect a channel + click-to-copy inbox address).
+  (4) **Topbar diet**: Context/Connect/inbox-pill removed from standing
+  chrome (context banner for the unset state remains); right side is now
+  QueuePill · ONE contextual action (Data's "Build ▾", moved up from the
+  toggle row) · a ⌘K pill. (5) **NEW `command-palette.tsx`** — frosted ⌘K
+  sheet (zero deps): jump to every view/sub-view, open any table by name,
+  every build/import action, connect/context/copy-inbox/settings;
+  ⌘K/Ctrl-K, arrows/Enter/Esc, mounted-per-open (no reset effects).
+  (6) `CountUp` bounce removed (motion never decorates; API kept). Verified:
+  tsc clean · eslint 3 errors vs 6 at baseline (palette pattern removed one;
+  none added) · 390 unit tests pass · `next build` green · NEW shoot
+  harnesses `shell` / `shell-cmdk` / `shell-data` (run.mjs now links the
+  real `globals.css` into shots + stubs `next/navigation` and auth actions)
+  eyeballed: sidebar sections, palette open with grouped commands, Build
+  menu on Data. NOT verified: live-data browser session (no `.env.local`
+  in sandbox); channel-logo imgs 404 in file:// shots (harness-only).
+  Docs: STATE row extended, MEMORY chrome rules added, ROADMAP per-view
+  sweeps queued, brief status updated.
 - **2026-07-21** — **Premium dashboard polish — motion identity + iOS-feel
   chrome (user call: "UI must feel premium; brand good but childish; add
   motion design + overall iOS vibe; no layout/feature changes"):** a token
